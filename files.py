@@ -99,6 +99,10 @@ files = \
     "title": "Exploring Quarkus Native: Choices and Implementation\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2110-the-challenges-of-running-the-fuzion-language-natively-on-the-openjdk.av1.webm",
+    "title": "The Challenges of Running the Fuzion Language Natively on the OpenJDK\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-3085-java-to-unlock-gpu-acceleration-for-polyglot-language-runtimes.av1.webm",
     "title": "Java… to unlock GPU acceleration for Polyglot Language Runtimes\n"
   },

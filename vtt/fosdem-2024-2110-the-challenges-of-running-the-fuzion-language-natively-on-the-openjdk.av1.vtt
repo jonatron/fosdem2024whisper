@@ -1,0 +1,845 @@
+WEBVTT
+
+00:00.000 --> 00:10.680
+Okay, people, we are ready for the next talk.
+
+00:10.680 --> 00:16.480
+Please listen up, quiet down, and get ready for the next talk.
+
+00:16.480 --> 00:17.480
+Thank you.
+
+00:17.480 --> 00:27.480
+Okay, thank you, Andrew.
+
+00:27.480 --> 00:34.480
+So I'm going to talk about the fusion language and a bit more concrete about how we are running
+
+00:34.480 --> 00:35.480
+this on the open JDK.
+
+00:35.480 --> 00:43.480
+It's basically the problem of mapping a functional language to efficient data bytecode.
+
+00:43.480 --> 00:46.480
+The background of me, I'm basically doing compilers all of my life.
+
+00:46.480 --> 00:52.480
+Don't go into details, but what is important right now is I'm working at Tokiwa software
+
+00:52.480 --> 00:59.480
+in a team of three at the years where we together develop the fusion language and its implementation.
+
+00:59.480 --> 01:01.480
+A quick overview of this talk.
+
+01:01.480 --> 01:06.480
+I'm going to give a very short intro into the fusion language, and the rest I will show
+
+01:06.480 --> 01:09.480
+you through examples in the code.
+
+01:09.480 --> 01:17.480
+So I'm going to go into mostly different types and how they are realized on the open JDK.
+
+01:17.480 --> 01:23.480
+We're talking about tech union types, about product types that have values and managers,
+
+01:23.480 --> 01:26.480
+about type parameters, how to do margins and dimensions.
+
+01:26.480 --> 01:28.480
+I'm talking a bit about the class of the class.
+
+01:28.480 --> 01:30.480
+So I start.
+
+01:30.480 --> 01:32.480
+You can't hear me in the mic.
+
+01:32.480 --> 01:33.480
+Can't hear you?
+
+01:33.480 --> 01:34.480
+Yeah, yeah.
+
+01:34.480 --> 01:35.480
+We're not getting anything.
+
+01:35.480 --> 01:36.480
+Is it all plugged in properly?
+
+01:36.480 --> 01:37.480
+Turned on.
+
+01:37.480 --> 01:38.480
+Is it on?
+
+01:38.480 --> 01:40.480
+No, it's on.
+
+01:40.480 --> 01:41.480
+Okay.
+
+01:41.480 --> 01:42.480
+I'm sorry.
+
+01:42.480 --> 01:43.480
+Okay.
+
+01:43.480 --> 01:45.480
+Sorry for those online who missed that.
+
+01:45.480 --> 01:46.480
+Okay.
+
+01:46.480 --> 01:53.480
+I will start with a quick intro to the fusion language.
+
+01:53.480 --> 01:55.480
+Fusion is based on simplicity.
+
+01:55.480 --> 02:01.480
+It's all based on one single concept, which is a feature which takes the role of Java
+
+02:01.480 --> 02:05.480
+classes, Java methods, functions in other languages.
+
+02:05.480 --> 02:07.480
+Fusion is aiming at safety critical systems.
+
+02:07.480 --> 02:10.480
+We see more and more systems becoming safety critical.
+
+02:10.480 --> 02:16.480
+And in that area, we see that tools can make the developers' life much easier.
+
+02:16.480 --> 02:19.480
+Short the language, fusion is statically typed.
+
+02:19.480 --> 02:21.480
+It is polymorphic in different ways.
+
+02:21.480 --> 02:26.480
+It has union types, parametric types, and object-oriented style inheritance.
+
+02:26.480 --> 02:31.480
+And it is pure using effects to model side effects.
+
+02:32.480 --> 02:36.480
+The fusion tool chain looks like this.
+
+02:36.480 --> 02:41.480
+We start actually with fusion source files that go through a front end, compiled into
+
+02:41.480 --> 02:48.480
+fusion modules that are then processed by a middle end and by a static analyzer
+
+02:48.480 --> 02:54.480
+into a fusion application represented in the intermediate representation.
+
+02:54.480 --> 02:58.480
+And that is then the input for different back ends.
+
+02:59.480 --> 03:05.480
+And in this talk, I'm going to go into details of the JBM back end that then
+
+03:05.480 --> 03:11.480
+transfers this intermediate representation into bytecode in Java class files that
+
+03:11.480 --> 03:15.480
+are run on a JBM.
+
+03:15.480 --> 03:20.480
+The first aspect I want to focus on is tagged union types.
+
+03:20.480 --> 03:23.480
+I'll explain immediately what that is.
+
+03:23.480 --> 03:26.480
+As an example, I take an oven.
+
+03:26.480 --> 03:30.480
+I implement an oven in fusion, and an oven has an input, has a setting that
+
+03:30.480 --> 03:36.480
+oven can either be on, either be off, or it can be on with a temperature setting
+
+03:36.480 --> 03:39.480
+given in degrees centigrade or Fahrenheit.
+
+03:39.480 --> 03:43.480
+So there's three options in that union type.
+
+03:43.480 --> 03:46.480
+And off is just a unit type.
+
+03:46.480 --> 03:49.480
+It's just a value with no other state.
+
+03:49.480 --> 03:53.480
+While the temperature settings is either a setting that gives a centigrade
+
+03:53.480 --> 03:58.480
+or a temperature as an integer or a Fahrenheit temperature.
+
+03:58.480 --> 04:00.480
+That's a float in this case.
+
+04:00.480 --> 04:06.480
+And within the oven, we can then use a union type value and match on this or match
+
+04:06.480 --> 04:12.480
+on the setting and do different things depending on whether it is off or it is
+
+04:12.480 --> 04:17.480
+a temperature giving in centigrade or Fahrenheit.
+
+04:17.480 --> 04:20.480
+Now, I have to make some space here.
+
+04:20.480 --> 04:24.480
+Now, when we compile this to Java, it gives Java source, not to Java bytecode,
+
+04:24.480 --> 04:26.480
+to explain what we do that.
+
+04:26.480 --> 04:30.480
+We actually compile such an tagged union type into several fields.
+
+04:30.480 --> 04:32.480
+First, we have a tag field.
+
+04:32.480 --> 04:34.480
+That's why it's called tagged union types.
+
+04:34.480 --> 04:36.480
+That decides, do we actually have an off value?
+
+04:36.480 --> 04:38.480
+Oops, I have to make space again.
+
+04:38.480 --> 04:43.480
+Do we have a temperature or, and what kind of temperatures?
+
+04:43.480 --> 04:49.480
+And in case it is a centigrade temperature, we need another field to store that value
+
+04:49.480 --> 04:50.480
+or for Fahrenheit.
+
+04:50.480 --> 04:57.480
+So we have basically several fields to store a tagged union type value.
+
+04:57.480 --> 05:00.480
+I'll drive this example a bit further now.
+
+05:00.480 --> 05:02.480
+This is the most generic case.
+
+05:02.480 --> 05:04.480
+We have the tag and the different kind of values.
+
+05:04.480 --> 05:09.480
+And during the talk, I will go more and more specific until I reach the point where
+
+05:09.480 --> 05:13.480
+the oven literally disappears into the void.
+
+05:13.480 --> 05:18.480
+So the next step towards that is if we do a bit more an object oriented approach,
+
+05:18.480 --> 05:23.480
+we can use a temperature that is actually a reference to an object that provides
+
+05:23.480 --> 05:30.480
+a inner feature to get the temperature as a Celsius value.
+
+05:30.480 --> 05:38.480
+So it's a union type of off or the temperature and the matching changes accordingly.
+
+05:38.480 --> 05:46.480
+Now, how this could be implemented is we would have a tag that now decides whether it is off
+
+05:46.480 --> 05:49.480
+or it contains a temperature.
+
+05:49.480 --> 05:52.480
+But this is not what somebody would do in Java typically.
+
+05:52.480 --> 05:56.480
+This is a typical case where a null pointer or null reference would be used.
+
+05:56.480 --> 05:58.480
+So this is also what our back end does.
+
+05:58.480 --> 06:05.480
+It just uses one pointer value in that case and uses the null value to represent the state off.
+
+06:05.480 --> 06:11.480
+So that's the so-called nullable implementation of the tagged union type.
+
+06:11.480 --> 06:17.480
+Going further, having a more complex example, now we extend the parameter to also have a clean mode
+
+06:17.480 --> 06:24.480
+and to maybe have some error state, which essentially means we have four different possibilities
+
+06:24.480 --> 06:27.480
+and we need the temperature and the error state.
+
+06:27.480 --> 06:35.480
+But of course, there's never the case that the temperature and the error state are both used simultaneously.
+
+06:35.480 --> 06:45.480
+So we can join them into a single object value because only one of them is used.
+
+06:45.480 --> 06:52.480
+Now, the tag field decides on which of these four states we have,
+
+06:52.480 --> 06:59.480
+but actually we could use specific values for the object reference
+
+06:59.480 --> 07:08.480
+to represent the off and the clean states such that this all collapses into a single reference field
+
+07:08.480 --> 07:10.480
+for all four states.
+
+07:10.480 --> 07:13.480
+This is also what our back end does in this case.
+
+07:13.480 --> 07:17.480
+So such a tagged union collapses into a single field.
+
+07:17.480 --> 07:23.480
+Getting even simpler if you have a very simple oven that doesn't allow any temperature setting.
+
+07:23.480 --> 07:30.480
+It just has the modes on, off, clean, or error.
+
+07:30.480 --> 07:33.480
+That is basically a classic enumeration.
+
+07:33.480 --> 07:38.480
+Internally, this is just an integer, so we only have an integer type for that.
+
+07:38.480 --> 07:44.480
+If we have an even simpler oven that could just be on or off, there's only two states.
+
+07:44.480 --> 07:55.480
+So that falls down into a simple Boolean type and is compiled into a Boolean value by the Java back end.
+
+07:55.480 --> 07:58.480
+We can go further if we have now an application.
+
+07:58.480 --> 08:00.480
+We have a static analyzer for our application.
+
+08:00.480 --> 08:05.480
+And if the application actually never uses an oven that is on,
+
+08:05.480 --> 08:11.480
+that value can actually be determined to be a void type value.
+
+08:11.480 --> 08:13.480
+Avoid infusion is not like in Java.
+
+08:13.480 --> 08:18.480
+It's much more like a never type, so the result of a call to exit or so,
+
+08:18.480 --> 08:20.480
+that really never occurs at runtime.
+
+08:20.480 --> 08:27.480
+So if you have that, we don't need any data to store because all ovens in that application are always off.
+
+08:27.480 --> 08:33.480
+Can even go further if you have an application that doesn't even produce any ovens that are off.
+
+08:33.480 --> 08:38.480
+So maybe an application that only uses a list of ovens and that list is always empty.
+
+08:38.480 --> 08:46.480
+So both are never used, so we don't even need the oven anymore because this all can be thrown out.
+
+08:46.480 --> 08:49.480
+So that much to take union types.
+
+08:49.480 --> 08:56.480
+Next point is product types and fusion has value semantics while Java has reference semantics.
+
+08:56.480 --> 08:59.480
+A small example, I want to do a small graphics example here.
+
+09:00.480 --> 09:03.480
+I'll start with a very simple product type of point,
+
+09:03.480 --> 09:08.480
+which is just a combination of two coordinates, x and y, two integers.
+
+09:08.480 --> 09:13.480
+And I pass these points to a draw function that should draw these.
+
+09:13.480 --> 09:17.480
+I won't go into details there, but I just show you a bit of the syntax,
+
+09:17.480 --> 09:22.480
+how fusion uses effects, in this case, a graphics effect,
+
+09:22.480 --> 09:26.480
+to document that this function actually has a side effect.
+
+09:26.480 --> 09:34.480
+It requires an environment where graphics is available to actually draw this.
+
+09:34.480 --> 09:43.480
+Now we create a point, store it in a local variable p1, and pass that to the draw function.
+
+09:43.480 --> 09:47.480
+Now the question is how do we do this passing of the argument?
+
+09:47.480 --> 09:49.480
+How do we represent this point?
+
+09:49.480 --> 09:53.480
+We have value type semantic in fusion.
+
+09:53.480 --> 09:57.480
+So what we do is actually split this up into two fields,
+
+09:57.480 --> 10:05.480
+two parameters here for the draw function that are passed separately in a call.
+
+10:05.480 --> 10:12.480
+Similarly, when we create a new point, that point is split up into two local variables,
+
+10:12.480 --> 10:17.480
+or two fields that are then assigned separately.
+
+10:18.480 --> 10:26.480
+And finally, when we make this call, we pass on a call these two values individually.
+
+10:26.480 --> 10:30.480
+That works nice, is performant.
+
+10:30.480 --> 10:39.480
+Problematic in the JVM backend is the case of returning a value product type
+
+10:39.480 --> 10:41.480
+with value semantics.
+
+10:41.480 --> 10:44.480
+So here we have a shear function added to our feature point
+
+10:44.480 --> 10:48.480
+that creates a new point that is returned as a result.
+
+10:48.480 --> 10:54.480
+So Java cannot return multiple values, so what can we do instead?
+
+10:54.480 --> 10:56.480
+I need more space for that.
+
+10:56.480 --> 11:04.480
+And I've looked into a number of possibilities how we can return such a product type in Java.
+
+11:04.480 --> 11:13.480
+The first baseline in that analysis I looked at how, at inlining.
+
+11:13.480 --> 11:21.480
+If you would just inline the call, returning a value is just assigning between local variables.
+
+11:21.480 --> 11:26.480
+So we can use that, but of course that doesn't work in the general case
+
+11:26.480 --> 11:31.480
+because inlining will blow up, will not work for recursion and many restrictions.
+
+11:31.480 --> 11:34.480
+That's why I put such a flash behind that.
+
+11:34.480 --> 11:41.480
+That is not a solution for all our cases, but it gives a baseline for comparison.
+
+11:41.480 --> 11:48.480
+The typical way in Java to do that is that the call method would return a newly allocated
+
+11:48.480 --> 11:52.480
+temporary container object that just contains two integers.
+
+11:52.480 --> 11:54.480
+We could also do the other way around.
+
+11:54.480 --> 11:58.480
+We could have the caller preallocate or preallocate an object
+
+11:58.480 --> 12:06.480
+and pass a reference to that object to receive the results.
+
+12:06.480 --> 12:10.480
+The fourth solution I looked into was we could use static fields.
+
+12:10.480 --> 12:13.480
+So when returning two integers, we're returning a point,
+
+12:13.480 --> 12:17.480
+we just have two static fields, X and Y, and we store the value in there
+
+12:17.480 --> 12:19.480
+and the caller then retrieves them for that.
+
+12:19.480 --> 12:23.480
+I put a flash there as well because that is not thread safe.
+
+12:23.480 --> 12:27.480
+It doesn't work when we have more than one thread.
+
+12:27.480 --> 12:33.480
+What would we thread safe would be using thread local variables to return this value?
+
+12:33.480 --> 12:40.480
+Or if we would put these two static fields into our own thread instance.
+
+12:40.480 --> 12:44.480
+If our threads have a specific instance of that that could have fields,
+
+12:44.480 --> 12:48.480
+then I'll use for returning values thread locally.
+
+12:48.480 --> 12:59.480
+I've analyzed these different possibilities using the Java micro benchmark Harness, AMH.
+
+12:59.480 --> 13:05.480
+Actually, to my surprise, the allocation of a temporary object that is returned
+
+13:05.480 --> 13:10.480
+was even faster than the inlining version that I analyzed.
+
+13:10.480 --> 13:18.480
+But unfortunately in AMH, I couldn't analyze the last case of using my own thread type
+
+13:18.480 --> 13:22.480
+and fields in the thread structure.
+
+13:22.480 --> 13:27.480
+So I added my own ad hoc benchmarking framework to do the same measurements
+
+13:27.480 --> 13:30.480
+and I did a fairly different results but basically the same,
+
+13:30.480 --> 13:35.480
+but I also cover the last case.
+
+13:35.480 --> 13:42.480
+Now, I exclude those cases where I said that they are not generally applicable,
+
+13:42.480 --> 13:46.480
+so the inlining and the static fields.
+
+13:46.480 --> 13:50.480
+Of course, we can't use that in our implementation.
+
+13:50.480 --> 13:54.480
+Next, using thread local fields, thread local variables,
+
+13:54.480 --> 13:58.480
+which are relatively expensive, so kicking that out as well,
+
+13:58.480 --> 14:04.480
+we are left with allocating temporary objects and relying on the jit
+
+14:04.480 --> 14:07.480
+to optimize this because the jit does very well,
+
+14:07.480 --> 14:11.480
+but I don't know what the heuristics are behind there
+
+14:11.480 --> 14:14.480
+and whether we can actually rely on that.
+
+14:14.480 --> 14:22.480
+So for now, we're using thread local variables to return structured data on a call.
+
+14:22.480 --> 14:27.480
+So we're moving forward to seeing Project Valhalla coming into life
+
+14:27.480 --> 14:33.480
+because Project Valhalla will introduce value types and will use type descriptors
+
+14:33.480 --> 14:42.480
+for so-called Q types that provide value semantics for method arguments
+
+14:42.480 --> 14:47.480
+and method results, which is exactly what we need here.
+
+14:47.480 --> 14:51.480
+What I don't see from the current state of Valhalla is whether you actually
+
+14:51.480 --> 14:55.480
+that when you return a Q type, you actually don't have any allocations.
+
+14:55.480 --> 14:59.480
+So I would like to best have the guarantee to have value semantics
+
+14:59.480 --> 15:03.480
+and no allocation on a return.
+
+15:03.480 --> 15:06.480
+So next, type parameters.
+
+15:06.480 --> 15:09.480
+Generics would be the counterpart in Java.
+
+15:09.480 --> 15:14.480
+Here's a small fusion example how type parameters can be used.
+
+15:14.480 --> 15:19.480
+This is a function that calculates the arithmetic mean of free values
+
+15:19.480 --> 15:24.480
+that could be of an arbitrary numeric type t,
+
+15:24.480 --> 15:29.480
+and it just sums up those three values and divides them by the value of three,
+
+15:29.480 --> 15:37.480
+but it has to first create a value of three in that given numeric type.
+
+15:37.480 --> 15:42.480
+That could be something like a complex or a double or whatever is fed in there.
+
+15:42.480 --> 15:48.480
+And now we can call this with integers or with floating point values.
+
+15:49.480 --> 15:53.480
+Java's implementation of generics uses type erasure,
+
+15:53.480 --> 15:57.480
+so there's no type information at runtime,
+
+15:57.480 --> 16:00.480
+but a fusion uses a so-called monomorphization.
+
+16:00.480 --> 16:08.480
+That means we have specialized versions of the code for every type that is in use.
+
+16:08.480 --> 16:12.480
+What that means is that our back end, in this case,
+
+16:12.480 --> 16:20.480
+creates for every actual type that is used for a generic function,
+
+16:20.480 --> 16:25.480
+a specific implementation for that type that has all the types
+
+16:25.480 --> 16:30.480
+stripped to the actual type parameter.
+
+16:30.480 --> 16:34.480
+So that's quite straightforward.
+
+16:34.480 --> 16:38.480
+Yeah, inheritance, fusion has multiple inheritance.
+
+16:38.480 --> 16:40.480
+The question is how to implement that.
+
+16:40.480 --> 16:46.480
+The ways we've looked at is actually putting some type identifier into our instances
+
+16:46.480 --> 16:52.480
+and then doing some kind of table look up and invoke static to call this.
+
+16:52.480 --> 16:55.480
+We looked into how invoke dynamic could help us.
+
+16:55.480 --> 17:01.480
+Unfortunately, fusion is so static, it doesn't help us much at all.
+
+17:02.480 --> 17:12.480
+And finally, the invoke interface is actually the most useful solution for us
+
+17:12.480 --> 17:15.480
+because that supports multiple inheritance.
+
+17:15.480 --> 17:19.480
+So in effect, what our back end does is in most cases,
+
+17:19.480 --> 17:23.480
+our dynamic binding just binds to one possible target,
+
+17:23.480 --> 17:25.480
+so we can just use an invoke static.
+
+17:25.480 --> 17:30.480
+And only in few cases we actually see that there are possible dynamic targets
+
+17:30.480 --> 17:34.480
+and then we compile them to an invoke interface
+
+17:34.480 --> 17:40.480
+and we have specific interfaces actually defined for every single function
+
+17:40.480 --> 17:43.480
+that is called this dynamic binding.
+
+17:43.480 --> 17:46.480
+So we have a case where the classes that we generate
+
+17:46.480 --> 17:49.480
+could actually implement really, really many interfaces
+
+17:49.480 --> 17:54.480
+and we have to see how that scales with bigger applications.
+
+17:54.480 --> 17:59.480
+So coming towards the end, class file verifier,
+
+17:59.480 --> 18:03.480
+not much to say that, but the class file verifier helped a lot
+
+18:03.480 --> 18:08.480
+comparing the development of the JVM back end to the C-back end.
+
+18:08.480 --> 18:09.480
+Did we do that before?
+
+18:09.480 --> 18:16.480
+Because we saw so many errors much, much earlier than we would see in the C world.
+
+18:16.480 --> 18:21.480
+So the status of fusion at the moment is the language definition
+
+18:21.480 --> 18:25.480
+is getting more and more stable, base library,
+
+18:25.480 --> 18:28.480
+there's still a lot of work in progress.
+
+18:28.480 --> 18:31.480
+We have a JVM and a C-back end.
+
+18:31.480 --> 18:37.480
+Then we have basic static analysis tools available.
+
+18:37.480 --> 18:41.480
+And if you came to see the dogs, this is Fedex and Shadow
+
+18:41.480 --> 18:45.480
+who disturbed me working on that during the last year.
+
+18:45.480 --> 18:48.480
+This is where you find more information on that.
+
+18:48.480 --> 18:54.480
+Follow us on Twitter, give us our give us styles in GitHub.
+
+18:54.480 --> 18:55.480
+Stay informed.
+
+18:55.480 --> 18:56.480
+Thank you.
+
+18:56.480 --> 18:57.480
+Any questions?
+
+18:57.480 --> 19:17.480
+Hi.
+
+19:17.480 --> 19:25.200
+Hi, so you mentioned monomorphization and you had this example with this function that takes t which is numeric
+
+19:25.880 --> 19:30.980
+And then you generated I think 10 different versions for all the numeric types
+
+19:31.280 --> 19:36.200
+But then if you have like three type parameters, which are all numeric do you generate a thousand different versions?
+
+19:37.320 --> 19:43.720
+If there's three type parameters, there will be one version generated for each combination of these three type parameters
+
+19:43.760 --> 19:49.200
+Actually is used in the application. So it's used in the application. So it's like kind of a closed world
+
+19:49.320 --> 19:52.080
+Yeah, so so we have a static analyzer over the whole application
+
+19:52.840 --> 19:56.080
+Okay, so you don't have incremental or separate compilation
+
+19:56.480 --> 20:01.000
+It's static at compilation. So we've been very compiled. We look at the whole application
+
+20:01.000 --> 20:07.640
+We don't have any dynamic adding of more code. So we don't luckily don't have the problem of having to be open to add
+
+20:07.640 --> 20:10.000
+More there, we know exactly what will be in there
+
+20:10.240 --> 20:14.120
+And do you have a Java FFI with the JVM backend?
+
+20:14.120 --> 20:20.960
+Do we have a Java foreign function interface? Can you call into Java? At the moment not we are we are looking forward to using
+
+20:21.360 --> 20:23.360
+your Panama there as we've learned
+
+20:24.120 --> 20:28.920
+Because that would be a big step for us to also helping on the C interface even if the C backend
+
+20:28.920 --> 20:32.760
+We don't have any FFI force calling C code at this point
+
+20:33.320 --> 20:35.320
+Okay, thank you
+
+20:40.960 --> 20:45.440
+Do you have your mind made up on in terms of the
+
+20:46.120 --> 20:52.800
+Approach to concurrency you want to take I mean on the JVM virtual threads could be an option
+
+20:52.800 --> 20:56.920
+But at the same time if you have a C backend that could be really
+
+20:57.560 --> 20:58.920
+expensive to
+
+20:58.920 --> 21:00.920
+implement on your own
+
+21:02.640 --> 21:08.800
+We do have a very simple concurrency support right now, but it's basically limited to starting threads
+
+21:08.800 --> 21:11.160
+But there's no not much
+
+21:12.200 --> 21:14.200
+synchronization or anything going on
+
+21:14.720 --> 21:18.520
+Our current idea is that when when we do something concurrent
+
+21:19.160 --> 21:21.160
+That we want to use the static and
+
+21:21.280 --> 21:28.200
+Analyzer as much as possible to to set it we prove that there's no race conditions and that the code is safe
+
+21:28.480 --> 21:31.200
+The question is what channels do we want to provide?
+
+21:32.080 --> 21:35.520
+to actually allow interfed communication and all of that and
+
+21:35.640 --> 21:42.840
+We are still looking into possibilities there are many many things we could do it's not decided yet, so
+
+21:45.360 --> 21:47.360
+Thank you
+
+21:48.080 --> 21:50.080
+Maybe
+

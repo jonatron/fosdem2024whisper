@@ -1,0 +1,281 @@
+Okay, people, we are ready for the next talk.
+Please listen up, quiet down, and get ready for the next talk.
+Thank you.
+Okay, thank you, Andrew.
+So I'm going to talk about the fusion language and a bit more concrete about how we are running
+this on the open JDK.
+It's basically the problem of mapping a functional language to efficient data bytecode.
+The background of me, I'm basically doing compilers all of my life.
+Don't go into details, but what is important right now is I'm working at Tokiwa software
+in a team of three at the years where we together develop the fusion language and its implementation.
+A quick overview of this talk.
+I'm going to give a very short intro into the fusion language, and the rest I will show
+you through examples in the code.
+So I'm going to go into mostly different types and how they are realized on the open JDK.
+We're talking about tech union types, about product types that have values and managers,
+about type parameters, how to do margins and dimensions.
+I'm talking a bit about the class of the class.
+So I start.
+You can't hear me in the mic.
+Can't hear you?
+Yeah, yeah.
+We're not getting anything.
+Is it all plugged in properly?
+Turned on.
+Is it on?
+No, it's on.
+Okay.
+I'm sorry.
+Okay.
+Sorry for those online who missed that.
+Okay.
+I will start with a quick intro to the fusion language.
+Fusion is based on simplicity.
+It's all based on one single concept, which is a feature which takes the role of Java
+classes, Java methods, functions in other languages.
+Fusion is aiming at safety critical systems.
+We see more and more systems becoming safety critical.
+And in that area, we see that tools can make the developers' life much easier.
+Short the language, fusion is statically typed.
+It is polymorphic in different ways.
+It has union types, parametric types, and object-oriented style inheritance.
+And it is pure using effects to model side effects.
+The fusion tool chain looks like this.
+We start actually with fusion source files that go through a front end, compiled into
+fusion modules that are then processed by a middle end and by a static analyzer
+into a fusion application represented in the intermediate representation.
+And that is then the input for different back ends.
+And in this talk, I'm going to go into details of the JBM back end that then
+transfers this intermediate representation into bytecode in Java class files that
+are run on a JBM.
+The first aspect I want to focus on is tagged union types.
+I'll explain immediately what that is.
+As an example, I take an oven.
+I implement an oven in fusion, and an oven has an input, has a setting that
+oven can either be on, either be off, or it can be on with a temperature setting
+given in degrees centigrade or Fahrenheit.
+So there's three options in that union type.
+And off is just a unit type.
+It's just a value with no other state.
+While the temperature settings is either a setting that gives a centigrade
+or a temperature as an integer or a Fahrenheit temperature.
+That's a float in this case.
+And within the oven, we can then use a union type value and match on this or match
+on the setting and do different things depending on whether it is off or it is
+a temperature giving in centigrade or Fahrenheit.
+Now, I have to make some space here.
+Now, when we compile this to Java, it gives Java source, not to Java bytecode,
+to explain what we do that.
+We actually compile such an tagged union type into several fields.
+First, we have a tag field.
+That's why it's called tagged union types.
+That decides, do we actually have an off value?
+Oops, I have to make space again.
+Do we have a temperature or, and what kind of temperatures?
+And in case it is a centigrade temperature, we need another field to store that value
+or for Fahrenheit.
+So we have basically several fields to store a tagged union type value.
+I'll drive this example a bit further now.
+This is the most generic case.
+We have the tag and the different kind of values.
+And during the talk, I will go more and more specific until I reach the point where
+the oven literally disappears into the void.
+So the next step towards that is if we do a bit more an object oriented approach,
+we can use a temperature that is actually a reference to an object that provides
+a inner feature to get the temperature as a Celsius value.
+So it's a union type of off or the temperature and the matching changes accordingly.
+Now, how this could be implemented is we would have a tag that now decides whether it is off
+or it contains a temperature.
+But this is not what somebody would do in Java typically.
+This is a typical case where a null pointer or null reference would be used.
+So this is also what our back end does.
+It just uses one pointer value in that case and uses the null value to represent the state off.
+So that's the so-called nullable implementation of the tagged union type.
+Going further, having a more complex example, now we extend the parameter to also have a clean mode
+and to maybe have some error state, which essentially means we have four different possibilities
+and we need the temperature and the error state.
+But of course, there's never the case that the temperature and the error state are both used simultaneously.
+So we can join them into a single object value because only one of them is used.
+Now, the tag field decides on which of these four states we have,
+but actually we could use specific values for the object reference
+to represent the off and the clean states such that this all collapses into a single reference field
+for all four states.
+This is also what our back end does in this case.
+So such a tagged union collapses into a single field.
+Getting even simpler if you have a very simple oven that doesn't allow any temperature setting.
+It just has the modes on, off, clean, or error.
+That is basically a classic enumeration.
+Internally, this is just an integer, so we only have an integer type for that.
+If we have an even simpler oven that could just be on or off, there's only two states.
+So that falls down into a simple Boolean type and is compiled into a Boolean value by the Java back end.
+We can go further if we have now an application.
+We have a static analyzer for our application.
+And if the application actually never uses an oven that is on,
+that value can actually be determined to be a void type value.
+Avoid infusion is not like in Java.
+It's much more like a never type, so the result of a call to exit or so,
+that really never occurs at runtime.
+So if you have that, we don't need any data to store because all ovens in that application are always off.
+Can even go further if you have an application that doesn't even produce any ovens that are off.
+So maybe an application that only uses a list of ovens and that list is always empty.
+So both are never used, so we don't even need the oven anymore because this all can be thrown out.
+So that much to take union types.
+Next point is product types and fusion has value semantics while Java has reference semantics.
+A small example, I want to do a small graphics example here.
+I'll start with a very simple product type of point,
+which is just a combination of two coordinates, x and y, two integers.
+And I pass these points to a draw function that should draw these.
+I won't go into details there, but I just show you a bit of the syntax,
+how fusion uses effects, in this case, a graphics effect,
+to document that this function actually has a side effect.
+It requires an environment where graphics is available to actually draw this.
+Now we create a point, store it in a local variable p1, and pass that to the draw function.
+Now the question is how do we do this passing of the argument?
+How do we represent this point?
+We have value type semantic in fusion.
+So what we do is actually split this up into two fields,
+two parameters here for the draw function that are passed separately in a call.
+Similarly, when we create a new point, that point is split up into two local variables,
+or two fields that are then assigned separately.
+And finally, when we make this call, we pass on a call these two values individually.
+That works nice, is performant.
+Problematic in the JVM backend is the case of returning a value product type
+with value semantics.
+So here we have a shear function added to our feature point
+that creates a new point that is returned as a result.
+So Java cannot return multiple values, so what can we do instead?
+I need more space for that.
+And I've looked into a number of possibilities how we can return such a product type in Java.
+The first baseline in that analysis I looked at how, at inlining.
+If you would just inline the call, returning a value is just assigning between local variables.
+So we can use that, but of course that doesn't work in the general case
+because inlining will blow up, will not work for recursion and many restrictions.
+That's why I put such a flash behind that.
+That is not a solution for all our cases, but it gives a baseline for comparison.
+The typical way in Java to do that is that the call method would return a newly allocated
+temporary container object that just contains two integers.
+We could also do the other way around.
+We could have the caller preallocate or preallocate an object
+and pass a reference to that object to receive the results.
+The fourth solution I looked into was we could use static fields.
+So when returning two integers, we're returning a point,
+we just have two static fields, X and Y, and we store the value in there
+and the caller then retrieves them for that.
+I put a flash there as well because that is not thread safe.
+It doesn't work when we have more than one thread.
+What would we thread safe would be using thread local variables to return this value?
+Or if we would put these two static fields into our own thread instance.
+If our threads have a specific instance of that that could have fields,
+then I'll use for returning values thread locally.
+I've analyzed these different possibilities using the Java micro benchmark Harness, AMH.
+Actually, to my surprise, the allocation of a temporary object that is returned
+was even faster than the inlining version that I analyzed.
+But unfortunately in AMH, I couldn't analyze the last case of using my own thread type
+and fields in the thread structure.
+So I added my own ad hoc benchmarking framework to do the same measurements
+and I did a fairly different results but basically the same,
+but I also cover the last case.
+Now, I exclude those cases where I said that they are not generally applicable,
+so the inlining and the static fields.
+Of course, we can't use that in our implementation.
+Next, using thread local fields, thread local variables,
+which are relatively expensive, so kicking that out as well,
+we are left with allocating temporary objects and relying on the jit
+to optimize this because the jit does very well,
+but I don't know what the heuristics are behind there
+and whether we can actually rely on that.
+So for now, we're using thread local variables to return structured data on a call.
+So we're moving forward to seeing Project Valhalla coming into life
+because Project Valhalla will introduce value types and will use type descriptors
+for so-called Q types that provide value semantics for method arguments
+and method results, which is exactly what we need here.
+What I don't see from the current state of Valhalla is whether you actually
+that when you return a Q type, you actually don't have any allocations.
+So I would like to best have the guarantee to have value semantics
+and no allocation on a return.
+So next, type parameters.
+Generics would be the counterpart in Java.
+Here's a small fusion example how type parameters can be used.
+This is a function that calculates the arithmetic mean of free values
+that could be of an arbitrary numeric type t,
+and it just sums up those three values and divides them by the value of three,
+but it has to first create a value of three in that given numeric type.
+That could be something like a complex or a double or whatever is fed in there.
+And now we can call this with integers or with floating point values.
+Java's implementation of generics uses type erasure,
+so there's no type information at runtime,
+but a fusion uses a so-called monomorphization.
+That means we have specialized versions of the code for every type that is in use.
+What that means is that our back end, in this case,
+creates for every actual type that is used for a generic function,
+a specific implementation for that type that has all the types
+stripped to the actual type parameter.
+So that's quite straightforward.
+Yeah, inheritance, fusion has multiple inheritance.
+The question is how to implement that.
+The ways we've looked at is actually putting some type identifier into our instances
+and then doing some kind of table look up and invoke static to call this.
+We looked into how invoke dynamic could help us.
+Unfortunately, fusion is so static, it doesn't help us much at all.
+And finally, the invoke interface is actually the most useful solution for us
+because that supports multiple inheritance.
+So in effect, what our back end does is in most cases,
+our dynamic binding just binds to one possible target,
+so we can just use an invoke static.
+And only in few cases we actually see that there are possible dynamic targets
+and then we compile them to an invoke interface
+and we have specific interfaces actually defined for every single function
+that is called this dynamic binding.
+So we have a case where the classes that we generate
+could actually implement really, really many interfaces
+and we have to see how that scales with bigger applications.
+So coming towards the end, class file verifier,
+not much to say that, but the class file verifier helped a lot
+comparing the development of the JVM back end to the C-back end.
+Did we do that before?
+Because we saw so many errors much, much earlier than we would see in the C world.
+So the status of fusion at the moment is the language definition
+is getting more and more stable, base library,
+there's still a lot of work in progress.
+We have a JVM and a C-back end.
+Then we have basic static analysis tools available.
+And if you came to see the dogs, this is Fedex and Shadow
+who disturbed me working on that during the last year.
+This is where you find more information on that.
+Follow us on Twitter, give us our give us styles in GitHub.
+Stay informed.
+Thank you.
+Any questions?
+Hi.
+Hi, so you mentioned monomorphization and you had this example with this function that takes t which is numeric
+And then you generated I think 10 different versions for all the numeric types
+But then if you have like three type parameters, which are all numeric do you generate a thousand different versions?
+If there's three type parameters, there will be one version generated for each combination of these three type parameters
+Actually is used in the application. So it's used in the application. So it's like kind of a closed world
+Yeah, so so we have a static analyzer over the whole application
+Okay, so you don't have incremental or separate compilation
+It's static at compilation. So we've been very compiled. We look at the whole application
+We don't have any dynamic adding of more code. So we don't luckily don't have the problem of having to be open to add
+More there, we know exactly what will be in there
+And do you have a Java FFI with the JVM backend?
+Do we have a Java foreign function interface? Can you call into Java? At the moment not we are we are looking forward to using
+your Panama there as we've learned
+Because that would be a big step for us to also helping on the C interface even if the C backend
+We don't have any FFI force calling C code at this point
+Okay, thank you
+Do you have your mind made up on in terms of the
+Approach to concurrency you want to take I mean on the JVM virtual threads could be an option
+But at the same time if you have a C backend that could be really
+expensive to
+implement on your own
+We do have a very simple concurrency support right now, but it's basically limited to starting threads
+But there's no not much
+synchronization or anything going on
+Our current idea is that when when we do something concurrent
+That we want to use the static and
+Analyzer as much as possible to to set it we prove that there's no race conditions and that the code is safe
+The question is what channels do we want to provide?
+to actually allow interfed communication and all of that and
+We are still looking into possibilities there are many many things we could do it's not decided yet, so
+Thank you
+Maybe
