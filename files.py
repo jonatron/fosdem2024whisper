@@ -22,12 +22,20 @@ files = [
     "title": "An engineer's guide to Linux Kernel upgrades\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3595-open-food-facts-acting-on-the-health-and-environnemental-impacts-of-the-food-system.av1.webm",
+    "title": "Open Food Facts : Acting on the health and environnemental impacts of the food system\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3543-platform-engineering-for-dummies.av1.webm",
     "title": "Platform engineering for dummies\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3245-taming-the-beast-managing-high-growth-postgres-databases-at-circleci.av1.webm",
     "title": "Taming the Beast: Managing High-Growth Postgres Databases at CircleCI\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3662--serde-memdbg-sux-dsi-bitstream-webgraph-a-rust-ecosystem-for-large-graph-processing.av1.webm",
+    "title": "ε-serde / mem_dbg / sux / dsi-bitstream / webgraph: a Rust ecosystem for large graph processing\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-3443-public-calendars-aggregation-using-linkal.av1.webm",
@@ -54,6 +62,10 @@ files = [
     "title": "The Linux Phone App Ecosystem\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1704-the-secret-life-of-a-goroutine.av1.webm",
+    "title": "The secret life of a goroutine\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1813-you-re-already-running-my-code-in-production-my-simple-journey-to-becoming-a-go-contributor-.av1.webm",
     "title": "You're already running my code in production: My simple journey to becoming a Go contributor.\n"
   },
@@ -78,6 +90,10 @@ files = [
     "title": "Introduction to the Public Code and Digital Public Goods devroom\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2666-gnu-health-incorporating-digital-public-goods-in-the-european-healthcare-system.av1.webm",
+    "title": "GNU Health. Incorporating Digital Public Goods in the European healthcare system\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2167-moodle-empowering-educators-to-improve-our-world.av1.webm",
     "title": "Moodle: Empowering educators to improve our world\n"
   },
@@ -88,6 +104,10 @@ files = [
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-1733-perl-at-payprop.av1.webm",
     "title": "Perl at PayProp\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-3743-open-food-facts-learning-and-using-perl-in-2024-to-transform-the-food-system-.av1.webm",
+    "title": "Open Food Facts: Learning and using Perl in 2024 to transform the food system !\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2390-corinna-perl-s-new-object-oriented-system.av1.webm",
