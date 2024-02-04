@@ -1,0 +1,851 @@
+WEBVTT
+
+00:00.000 --> 00:11.000
+Okay, hello everyone. My name is Mateusz. I work at ThreadHat as a principal
+
+00:11.000 --> 00:15.200
+software engineer in the Kubernetes bare metal networking team. So yeah, as the
+
+00:15.200 --> 00:19.280
+title of the talk says, we'll be talking about bare metal networking and I wanted
+
+00:19.280 --> 00:26.320
+this talk to be somehow a gentle intro into what you need to think about when
+
+00:26.320 --> 00:31.840
+you want to start doing Kubernetes on bare metal, but the thing that Kubernetes
+
+00:31.840 --> 00:36.640
+doesn't tell you you should care about. So we'll see in a moment what that
+
+00:36.640 --> 00:42.440
+means, but I work at ThreadHat. I already said this. I'm based in Switzerland. When
+
+00:42.440 --> 00:45.880
+I'm not doing computers, I'm doing farming. I actually make it much much
+
+00:45.880 --> 00:49.000
+better, but it doesn't pay the bills, so I need to do the stuff that I'm going to
+
+00:49.000 --> 00:53.600
+tell you about here. Well, it is what it is. I don't do AI as opposed to, you know,
+
+00:53.600 --> 00:57.920
+all the hype and all this kind of stuff, so yeah, I'm not really on the
+
+00:57.920 --> 01:03.520
+hype wave. Bare metal was never really hyped, so well, what can I say? Some
+
+01:03.520 --> 01:08.840
+intro why we may even think about doing containers for bare metal. Like, you know,
+
+01:08.840 --> 01:17.960
+no one ever told us to do so, so what the heck is the deal? So HPC and AI.
+
+01:18.000 --> 01:23.720
+This slide predates the AI hype, so sorry for this. I could remove it, but
+
+01:23.720 --> 01:27.800
+long story short, there are some workloads we really want to benefit from
+
+01:27.800 --> 01:32.240
+running for bare metal. You may have some fancy GPU from, let's not name the
+
+01:32.240 --> 01:37.080
+company, or some network adapter, which is, you know, something that you really
+
+01:37.080 --> 01:42.200
+want to have access to the hardware directly, or the other side of the scale.
+
+01:42.200 --> 01:47.400
+Something that you run and is critical to any part of the infrastructure that
+
+01:47.440 --> 01:51.840
+you already have. Like, for example, network equipment. You don't want to run
+
+01:51.840 --> 01:59.240
+router of your own data center as an instance in AWS, right? That would be
+
+01:59.240 --> 02:05.240
+somehow, yeah, we shouldn't do this this way. Or something which is almost
+
+02:05.240 --> 02:10.000
+forgotten, and you know, then people call me and put this use case. Benchmarking.
+
+02:10.000 --> 02:16.520
+How do you benchmark hardware, CPUs, and this kind of stuff if not by running
+
+02:16.640 --> 02:21.480
+workload directly on this hardware? Again, you don't want to create 50 VMs on
+
+02:21.480 --> 02:26.160
+some CPU, only to get the benchmark of this CPU performance. That would be
+
+02:26.160 --> 02:32.400
+chicken egg. Let's not do this. So now fast forward. We agree that we want to do
+
+02:32.400 --> 02:37.280
+Kubernetes, and we agree that we want to do this on bare metal. So we go to
+
+02:37.280 --> 02:42.040
+Kubernetes.something, I don't know what that is today. We go to the, you know,
+
+02:42.360 --> 02:46.960
+FAQ, installing a cluster, and we start reading. What do I need to do to install
+
+02:46.960 --> 02:50.680
+a cluster? Is there any tooling that would help me installing this cluster?
+
+02:51.040 --> 02:54.880
+And the very first page you see is this installing Kubernetes with deployment
+
+02:54.880 --> 02:58.880
+tools, and they tell you QubeADM and to some other tools. And we are like,
+
+02:58.960 --> 03:03.360
+oh, so lucky. There are tools that are going to do this stuff for us. Okay,
+
+03:03.480 --> 03:08.720
+let's check the first one. You go to QubeADM and we start reading. Using QubeADM,
+
+03:08.760 --> 03:14.960
+you can create a minimum viable Kubernetes clusters. And, okay, so is MVP
+
+03:14.960 --> 03:19.200
+really the production cluster that I'm going to run? Well, probably no. Let's
+
+03:19.200 --> 03:26.600
+keep that tool. The second one, we look into K-Opps. Okay, let's go to the
+
+03:26.600 --> 03:30.040
+website of K-Opps. Let's do the same. Installing Kubernetes, getting started,
+
+03:30.040 --> 03:34.760
+and we start reading. Deploying to AWS, to GCP, digital option, yada, yada, yada.
+
+03:35.240 --> 03:39.720
+None of them is deploying to bare metal. Thank you very much. End of the story.
+
+03:39.920 --> 03:44.520
+Let's check the last one. Maybe that's our chance. So we go to the Qube spray.
+
+03:44.640 --> 03:49.480
+It's a set of ansibles. So another story, you know, but, okay, someone gives us
+
+03:49.480 --> 03:54.240
+some method to deploy Kubernetes on bare metal. So we go, run Qube, Qube spray
+
+03:54.240 --> 03:58.040
+playbooks. With the bare metal infrastructure deployed, Qube spray
+
+03:58.040 --> 04:02.800
+came now in, so Kubernetes and set up the cluster. And you start reading those
+
+04:02.840 --> 04:07.920
+playbooks and you feel like, oh, this is so opinionated. So either I want to do my
+
+04:07.920 --> 04:13.080
+data, either I want to build my data center like they want me to build, or
+
+04:13.080 --> 04:19.240
+thank you very much, there is no tool. So let's agree that none of these three
+
+04:19.240 --> 04:23.360
+methods is for us. We need to do this stuff ourselves. So let's build the
+
+04:23.360 --> 04:29.760
+stuff, you know, brick by brick from the, from the beginning. So what, what we
+
+04:29.880 --> 04:33.520
+need to care about a cluster, and not only during the installation, but in
+
+04:33.520 --> 04:38.240
+general to have this cluster bootstrapped and then working. First of all is, of
+
+04:38.240 --> 04:41.840
+course, this is bare metal. At the end, you want to deploy this cluster because
+
+04:41.840 --> 04:46.000
+there will be some workload, right? You want to access this workload. As well,
+
+04:46.000 --> 04:50.320
+you want to access the API, right? Basic operations. You don't deploy the cluster
+
+04:50.320 --> 04:55.680
+for the sake of deploying it and running, consuming the energy. Then, of course,
+
+04:56.200 --> 05:00.880
+DNS infrastructure. You are deploying this in your data center. And then what?
+
+05:00.920 --> 05:04.680
+Are you going to give to your customers? And now, you know, type this IP address
+
+05:04.680 --> 05:09.840
+slash something, something to look at this fancy web, website or application that
+
+05:09.840 --> 05:15.400
+we deployed. No, you want to have it some very nice domain and, you know, but for
+
+05:15.400 --> 05:19.800
+that, again, DNS infrastructure, you need that. It doesn't come for free. The
+
+05:19.800 --> 05:23.960
+next step is we agreed that we are doing bare metal because we have some reason
+
+05:24.000 --> 05:28.560
+to do this and it's not like we just don't like a simple VM from AWS, which
+
+05:28.560 --> 05:32.680
+means there will be some non-standard network configuration. Doesn't really
+
+05:32.680 --> 05:36.120
+matter if fancy or not. It will be something more than just, you know,
+
+05:36.120 --> 05:40.880
+plug the server, turn it on because in most of the cases, people doing bare
+
+05:40.880 --> 05:44.400
+metal, they don't have DHCP in all the networks or they need some storage
+
+05:44.400 --> 05:48.760
+network and it all requires some fine tuning which doesn't come from default
+
+05:48.760 --> 05:53.400
+when you boot your Linux distro and some other dirty tricks that I'm going to
+
+05:53.440 --> 05:56.880
+tell you later because it's Kubernetes specific and I want to build my way up
+
+05:56.880 --> 06:03.040
+to this. So cluster load balancer because I told you that you need to have API
+
+06:03.040 --> 06:07.800
+and ingress to your workload and all this kind of stuff. The slide is overly
+
+06:07.800 --> 06:14.240
+complicated for two reasons. The first reason is because it is complicated. The
+
+06:14.240 --> 06:18.960
+other reason is because no one ever cared to make it less complicated. I know it
+
+06:19.000 --> 06:23.320
+sounds bad but it is what it is. So the only thing I want to tell you is that,
+
+06:24.040 --> 06:27.040
+you know, we are in the story of building a cluster installing it from
+
+06:27.040 --> 06:31.400
+scratch, which means we are starting bootstrapped from summer. Like, you know,
+
+06:31.400 --> 06:36.960
+you may be running those cube ADM create cluster, yada yada, from this laptop,
+
+06:36.960 --> 06:42.480
+right? So this laptop will be your initial bootstrapping infrastructure. On the
+
+06:42.480 --> 06:45.920
+other hand, at the other side of this room, I have those three servers that are
+
+06:45.960 --> 06:52.000
+going to be masters. So this somehow has to ride all together. I need to have
+
+06:52.000 --> 06:59.440
+some IP address that will be this API finally when I spawn all those nodes in
+
+06:59.440 --> 07:05.160
+the cluster. So I need to have some virtual IP which will be pointing toward
+
+07:05.160 --> 07:11.440
+this API, right? This is what I'm calling API VIP and it sounds complex but at
+
+07:11.440 --> 07:15.840
+the end it boils down to one sentence. When you start doing cube CTL commands at
+
+07:15.880 --> 07:19.760
+the end, you need to target some IP address. If you are deploying Bermetal
+
+07:19.760 --> 07:24.080
+infrastructure, you don't want to ever target specific node because if this
+
+07:24.080 --> 07:28.680
+node goes down, all your tooling goes down. So you want to have some virtual IP
+
+07:29.160 --> 07:35.000
+and you may have some load balancer from well-known companies as an appliance
+
+07:35.280 --> 07:41.000
+or you may want to just do it yourself with keep alive this. So I will show
+
+07:41.040 --> 07:47.280
+this in a second. And in this slide, what is then the part? So at some point,
+
+07:47.280 --> 07:51.400
+we have deployed those control plane nodes, those worker nodes and we have
+
+07:51.400 --> 07:56.120
+the API address which should be now pointing only to the control plane nodes
+
+07:56.120 --> 08:02.040
+not to your bootstrap so this laptop, it goes away from this story. But then
+
+08:02.040 --> 08:05.720
+you have some other IP address because you are deploying Quarkode. You are not
+
+08:05.800 --> 08:11.040
+only an admin now. You really have something that runs and your applications,
+
+08:11.680 --> 08:17.080
+you don't want to expose your control plane to anyone, right? Or do you? Well,
+
+08:17.320 --> 08:21.760
+you rather not. So you need another IP and exactly the same story. Where do you
+
+08:21.760 --> 08:27.000
+take all those IP from and who manages them? Yeah, you manage them. So what you
+
+08:27.000 --> 08:30.960
+are doing for this and of course I'm telling you about some very opinionated
+
+08:30.960 --> 08:35.240
+way of designing how to install Kubernetes cluster and it's opinionated
+
+08:35.280 --> 08:40.640
+because we decided, so let's do keep alive D in the combination with HAProxy.
+
+08:40.960 --> 08:45.240
+And I told you the story why we need the VIP so you should be already
+
+08:45.240 --> 08:51.040
+convinced that if we need that, then we keep alive D because it's very simple
+
+08:51.040 --> 08:56.440
+and it's proven in action. Why do we put HAProxy in this story also? And now it
+
+08:56.440 --> 09:03.080
+will be fast forward to some specific use cases and requirements that we got.
+
+09:03.560 --> 09:08.240
+Only thing to remember is that it won't be always the same stock for API and
+
+09:08.240 --> 09:16.160
+ingress because your admin control, as an administrator of the cluster, I have
+
+09:16.160 --> 09:20.680
+usually different requirements than the user, so different tools, different
+
+09:20.960 --> 09:26.480
+purposes. Because it's very easy to simply deploy keep alive D and tell it,
+
+09:26.920 --> 09:32.800
+you know, let's pick this 1.2.3.4 IP and put it somewhere in the pool of
+
+09:32.800 --> 09:38.120
+this servers, right? But then Kubernetes is about being highly available.
+
+09:38.120 --> 09:42.880
+So what happens if your one node goes down? Well, the IP address should
+
+09:42.880 --> 09:46.720
+float to some other node that works, right? But what does it mean from the
+
+09:46.720 --> 09:50.760
+network perspective that IP address floats? What's going to happen with the
+
+09:50.760 --> 09:54.880
+connections that you have to this IP address? We start having this kind, we
+
+09:54.920 --> 09:58.680
+start asking ourselves this kind of questions because we have now three
+
+09:58.680 --> 10:03.840
+servers in the control plane, QBAPI server runs in three of them, we kill
+
+10:03.840 --> 10:10.480
+one QBAPI server, unlucky us, it was the one that was holding the IP of the,
+
+10:11.600 --> 10:15.520
+you know, of how we access the cluster. What happens now? No access to the
+
+10:15.520 --> 10:20.320
+cluster. So either we wait for keep alive D to move this IP address,
+
+10:20.520 --> 10:25.080
+our tables to propagate and all this kind of stuff or, and this is what we
+
+10:25.080 --> 10:33.760
+decided, we put HAProxy in between the QBAPI server and keep alive D so that
+
+10:34.520 --> 10:39.200
+HAProxy, and this is something that, you know, people from Kubernetes want to
+
+10:39.200 --> 10:43.680
+kill me, HAProxy is much more stable than Kubernetes API. That's it.
+
+10:43.840 --> 10:49.640
+That's it. If you look at this, that Xeq, QBAPI server fails much, much more
+
+10:49.640 --> 10:54.640
+than HAProxy, so this is our way to keep this and as simple as it sounds,
+
+10:55.160 --> 10:59.760
+the problem that I want to solve is that when QBAPI server dies, I don't want
+
+10:59.760 --> 11:04.520
+the IP address to float because propagating ARP tables and expiring the
+
+11:04.520 --> 11:09.280
+caches takes too long and I just simply don't want to wait for that, so I put
+
+11:09.320 --> 11:14.280
+HAProxy there and, and yeah, the only thing to remember if you really take
+
+11:14.280 --> 11:19.080
+this path is that you need to fine tune the health checks because then the worst
+
+11:19.080 --> 11:24.960
+you can do is that if keep alive D starts to notice outage faster than HAProxy
+
+11:25.080 --> 11:30.760
+because HAProxy also balances the traffic, right? So then the order of actions is
+
+11:30.760 --> 11:34.880
+that you want QBAPI server to die, which shouldn't be happening, but it happens.
+
+11:35.360 --> 11:38.480
+HAProxy notices that and end of the story.
+
+11:40.000 --> 11:43.880
+That's, that's it, keep alive. This should never, should never notice this and of
+
+11:43.880 --> 11:47.680
+course we may go deeper and what happens if HAProxy dies?
+
+11:48.560 --> 11:53.160
+Well, this is now a game of statistics. Has it ever happened for us that QBAPI
+
+11:53.160 --> 11:57.400
+server and HAProxy died at the same time? Well, it never happened apart if you
+
+11:57.400 --> 12:01.680
+go to the server and just plug it out from the rack. So this is some corner case
+
+12:01.680 --> 12:07.800
+that we don't want to cover, but, but it doesn't really, really happen in the
+
+12:07.800 --> 12:12.000
+wild. Of course, there are some limitations because, you know, you can have
+
+12:12.000 --> 12:16.640
+IP address on the single node. This is disadvantage versus some, some appliance.
+
+12:17.040 --> 12:21.600
+The biggest problem here is that you need to have all this stuff in one single
+
+12:21.600 --> 12:25.680
+L2 segment. So in one broadcast domain, this is because keep alive D doesn't
+
+12:25.680 --> 12:32.000
+work across subnets. We have some ways to fix that by grouping nodes into
+
+12:32.040 --> 12:38.440
+different L2s and then having different keep alive Ds in those L2s. But still,
+
+12:38.440 --> 12:41.320
+this is, this is a pain point and this is something that you should really
+
+12:41.320 --> 12:46.440
+well design on the, on the paper if you, if you start doing this. But, you know,
+
+12:46.480 --> 12:51.120
+enough of load balancers because we could be talking ages about this. DNS,
+
+12:51.120 --> 12:55.480
+because we said that we want to, to do this DNS mambo jumbo and, you know,
+
+12:55.480 --> 13:00.920
+we don't want to use IP addresses only. So of course you are administrator,
+
+13:00.960 --> 13:05.240
+you manage the infra. You could say, but, you know, we have this DNS
+
+13:05.240 --> 13:09.200
+infrastructure there. It's maybe AWS, maybe Cloudflare, maybe, maybe something
+
+13:09.200 --> 13:14.520
+else. So we can just create records there. But, but then, you know, either you
+
+13:14.520 --> 13:21.320
+trust the user or you don't. And we don't. So another opinionated thing in our
+
+13:21.320 --> 13:27.960
+way of installing Kubernetes is that we spawn very minimal setup of core DNS,
+
+13:28.080 --> 13:34.400
+which will be providing the DNS resolution of what you want to all the
+
+13:34.400 --> 13:38.200
+nodes of the cluster and all the pods running in this cluster. So that when
+
+13:38.200 --> 13:45.120
+you start installation claiming that you will have API running on API.example.com,
+
+13:45.600 --> 13:50.120
+I don't worry if you already created this record on the external DNS. I will
+
+13:50.120 --> 13:54.520
+just spawn static pod running core DNS and I will create those records myself.
+
+13:54.680 --> 14:01.800
+So whatever I'm running in this cluster will have this. This again protects me
+
+14:03.040 --> 14:07.360
+because now what happens if we decouple this? You have your external, you know,
+
+14:07.360 --> 14:13.720
+DNS like most of the people. And how do you want your cluster to behave when
+
+14:13.720 --> 14:17.440
+this DNS infrastructure goes down? You have your data center, everything is
+
+14:17.440 --> 14:21.120
+okay. In some other data center, you have DNS and this DNS is out. Do you want
+
+14:21.160 --> 14:25.760
+now your cluster to be, you know, dying because pods want to talk to each other
+
+14:25.760 --> 14:29.480
+and they cannot resolve DNS? It should be all self-contained, right? You don't
+
+14:29.480 --> 14:35.440
+want to have those external dependencies. So yeah, this is something that we are
+
+14:35.440 --> 14:40.360
+doing. And the part I will skip is that network manager requires some tuning
+
+14:40.360 --> 14:44.160
+because for people knowing how containers are spawned, when you start a
+
+14:44.160 --> 14:49.000
+container, a copy of ETC resolve conf is taken at the moment of starting the
+
+14:49.040 --> 14:53.960
+container and is plugged into the container. Meaning that if you change
+
+14:53.960 --> 14:58.520
+configuration of your host regarding DNS, it will not be propagated to the
+
+14:58.520 --> 15:04.720
+container unless you restart the container. So yeah, for this reason we are
+
+15:04.720 --> 15:09.840
+also hacking this file around so that it would be really updating on the
+
+15:09.840 --> 15:16.240
+fly but I don't want to go into this. Something a bit more interesting because
+
+15:16.280 --> 15:19.920
+we are going now into Kubernetes APIs and how to extend this stuff is
+
+15:19.920 --> 15:25.920
+network configuration of the host. This is static configuration file for
+
+15:25.920 --> 15:31.640
+network manager and probably you've seen this and probably you've made some
+
+15:31.640 --> 15:35.800
+mistakes to this file not once. The problem I want to state here is that
+
+15:35.800 --> 15:40.640
+this is a static file. You go, you modify it, nothing happens. You may notice
+
+15:40.640 --> 15:44.400
+mistake in this file five years after because for five years you haven't
+
+15:44.440 --> 15:49.000
+rebooted your server and we don't want to have this scenario in
+
+15:49.000 --> 15:53.880
+Kubernetes world. When you define some configuration it should either apply
+
+15:53.880 --> 15:59.000
+immediately or fail immediately. So this kind of stuff that you need to do
+
+15:59.000 --> 16:05.960
+manual modifications of the file, it breaks this contract we have and
+
+16:05.960 --> 16:10.240
+another part is it simply doesn't scale. If you have 300 servers in your bare
+
+16:10.240 --> 16:14.160
+metal cluster, you are not doing those changes manually. Simply not. You
+
+16:14.240 --> 16:19.840
+have CRDs and this is what should be happening. This is some very, very
+
+16:19.840 --> 16:24.880
+simple example. I do some modification. I mistake slash for backslash. They
+
+16:24.880 --> 16:29.680
+detect that and that's easy but I'm configuring default gateway as an IP
+
+16:29.680 --> 16:34.600
+address from outside of my subnet and this is utterly wrong but nothing
+
+16:34.600 --> 16:38.720
+in network manager will prevent me from this configuration. I simply don't
+
+16:38.800 --> 16:45.800
+want to. We have this CRD defined that creates host configuration from the
+
+16:46.520 --> 16:50.600
+API and it may sound like chic and egg but it's all the matter of how we
+
+16:50.600 --> 16:57.000
+order the stuff. We define Kubernetes CRD that will be defining how you
+
+16:57.000 --> 17:00.600
+configure network manager on the host. You can do it per node, all this kind
+
+17:00.600 --> 17:08.680
+of stuff. I will just show you how that works very quickly. That's the one.
+
+17:09.240 --> 17:23.240
+I have this node which has this IP address on the last interface 10, 24402
+
+17:23.240 --> 17:29.240
+and what I want to do now, I want this to be different. I want to change that.
+
+17:34.240 --> 17:38.320
+I want to change it from the Kubernetes in a declarative way so that
+
+17:38.440 --> 17:43.840
+whenever someone will be modifying this, the change will get reverted. I
+
+17:43.840 --> 17:47.640
+just created a YAML which will configure IP address on some interface. As
+
+17:47.640 --> 17:59.160
+simple as that and I will apply that with the hope that it works as expected.
+
+18:02.640 --> 18:07.800
+At the top we can see that this CRD is now progressing with the configuration
+
+18:07.880 --> 18:19.600
+progress. In fact, that was as simple as it is so we can see that this IP
+
+18:19.600 --> 18:24.360
+was removed. For a moment I was thinking who's going to ask but you already had
+
+18:24.360 --> 18:28.920
+IP in this subnet configured. What's going to happen? Well, that configuration
+
+18:28.920 --> 18:32.560
+wouldn't fly because you should not have two IPs from the same subnet on the
+
+18:32.600 --> 18:42.080
+same interface. This is a short demo of that. At the same time, it's
+
+18:42.080 --> 18:46.040
+Kubernetes API. It should protect us from doing stupid things. I will try to
+
+18:46.040 --> 18:49.560
+configure a stupid DNS server which has no way of existing because it's on the
+
+18:49.560 --> 18:55.000
+link local IPv6 subnet. If I try to apply that, something should protect me
+
+18:55.000 --> 18:59.280
+from doing this because that would actually break the configuration.
+
+19:03.560 --> 19:17.920
+Let's see our configuration right now. We have 111.1 as the DNS server and
+
+19:17.920 --> 19:28.280
+let's apply this manifest. Now that configures the wrong DNS. The
+
+19:28.320 --> 19:33.080
+change has been applied. It's wrong. At this moment your cluster starts to
+
+19:33.080 --> 19:39.160
+misbehave, your probes go down and so on. Let's give it around 10-15 seconds and
+
+19:39.160 --> 19:44.320
+this configuration should get reverted because there is a controller which in
+
+19:44.320 --> 19:50.360
+fact checks if your modifications to the network infrastructure on the host.
+
+19:50.360 --> 19:55.640
+After applying, do they make something not working as it should? In this
+
+19:55.680 --> 20:00.600
+scenario, we see that degraded failed to configure. It failed because this
+
+20:00.600 --> 20:14.200
+DNS server doesn't exist in reality. That was just a short demo of how we
+
+20:14.200 --> 20:19.840
+handle all that. It's a bunch of self-contained elements that once you
+
+20:19.840 --> 20:23.080
+start using them all together, you give you a very nice Kubernetes installer
+
+20:23.640 --> 20:29.040
+that does it all for you. Sometimes in an opinionated way, sometimes less.
+
+20:30.400 --> 20:35.760
+Now I told you that there will be some dirty tricks. In KubeNet, there is a
+
+20:35.760 --> 20:41.920
+concept of Node.IP and we are now moving to the Linux world. When you want your
+
+20:41.920 --> 20:47.680
+application in Linux world to run and interact with the network, it has to
+
+20:47.680 --> 20:51.480
+bind somewhere. This somewhere is IP address and the port. Let's forget the
+
+20:51.520 --> 20:55.800
+port. We are about IP address. If you have multiple network interfaces, where
+
+20:55.800 --> 21:03.840
+should Kubernetes listen? Everywhere on one IP address, on two IP addresses. If
+
+21:03.840 --> 21:10.600
+you have 10 interfaces, what do we do? I say that Kubernetes upstream doesn't
+
+21:10.600 --> 21:14.240
+solve it in a very smart way because it was designed to run on clouds with only
+
+21:14.240 --> 21:19.760
+one network interface. As we started expanding, it's not something that we
+
+21:19.800 --> 21:25.560
+still want. We developed some additional logic to check that and I will skip
+
+21:25.560 --> 21:28.800
+the details. In general, one more problem to think about. When you configure
+
+21:28.800 --> 21:33.400
+KubeNet manually, you need to think what the IP addresses should be there.
+
+21:33.400 --> 21:38.360
+This configuration is complicated because actually you can say bind everywhere or
+
+21:38.360 --> 21:44.640
+bind to one IP address or you can say bind to IPv4, like as a string IPv4 and
+
+21:44.720 --> 21:50.160
+what happens there? It's all you know. You get even stranger syntax IPv6 as a
+
+21:50.160 --> 21:54.920
+string, comma and then IPv4 address. All this kind of stuff you need to
+
+21:54.920 --> 22:02.040
+understand how it behaves and pick your choice. It's complex. You may get
+
+22:02.040 --> 22:10.640
+really confused once you start. We have some set of rules. I will skip them.
+
+22:10.720 --> 22:18.840
+You can go back to this. In general, some corner cases, I just
+
+22:18.840 --> 22:21.680
+showed you an example in which you shouldn't have multiple IP addresses in
+
+22:21.680 --> 22:27.680
+one subnet. What if you do? There are some people who do this for a reason and
+
+22:27.680 --> 22:32.440
+how do you want KubeNet to behave then? Also, one example that I have and this
+
+22:32.440 --> 22:37.960
+is just mind blowing. It killed me for like two weeks. Is your IPv6 address
+
+22:38.040 --> 22:45.480
+really an IPv6 address? Okay, this slide I skip. I got to this RF,
+
+22:45.480 --> 22:52.160
+sewage describes IPv4 compatible IPv6 addresses and I was like, what the heck
+
+22:52.160 --> 22:59.440
+is that? Let's go to all the libraries in all the known programming languages.
+
+22:59.440 --> 23:03.440
+Every of them has a function. Is an IP address IPv6 address? You go to
+
+23:03.480 --> 23:07.720
+implementation. How implementation looks like? If string contains, colon
+
+23:07.720 --> 23:13.240
+return true. Thank you very much, game over. It's as simple as that. Really,
+
+23:13.240 --> 23:18.280
+for the last 30 years of my life, I thought this is as simple as it is, but
+
+23:18.280 --> 23:24.560
+it's not. Let's take this. So, comma, comma, four times f, then comma, sorry,
+
+23:24.560 --> 23:31.840
+colon, and then we put IP address with dots. It is a correct address. There is
+
+23:31.880 --> 23:40.080
+RFC for this address. It may look stupid, but it's a well defined address and, you
+
+23:40.080 --> 23:46.880
+know, it breaks. Try opening a net cut socket to listen on this address. It
+
+23:46.880 --> 23:51.920
+will not work because half of the tools now think this is IPv6 address, half of
+
+23:51.920 --> 23:57.800
+the tools think this is IPv4 address. I did a stress on that and what I
+
+23:57.840 --> 24:02.080
+realized is that based on this address, it was trying to open a socket on a
+
+24:02.080 --> 24:09.960
+simple IPv4 address. At this moment, how should we treat that? This is the
+
+24:09.960 --> 24:12.760
+real case scenario. I got it from a customer who was trying to install
+
+24:12.760 --> 24:18.720
+Kubernetes and they wanted to use this subnet. I was like, what is that? Then
+
+24:18.720 --> 24:24.080
+we dig deeper and we realized that this is a monster. It should have never
+
+24:24.160 --> 24:30.960
+existed, but apparently it exists. If you find a set of parameters that you
+
+24:30.960 --> 24:37.120
+pass to net cut and it crashes, then something went wrong. So, in the end,
+
+24:37.120 --> 24:41.440
+yeah, choose wisely what you want to do and once you design your infrastructure
+
+24:41.440 --> 24:47.520
+really, you know, double check it with someone out there with upstream
+
+24:47.520 --> 24:52.000
+community. Is it really how you should be doing stuff? Because in a lot of cases,
+
+24:52.080 --> 24:57.200
+you realize that something misbehaves and, you know, and that was, yeah, one
+
+24:57.200 --> 25:00.480
+more thing. You think everything is okay, then you start to get and you tell
+
+25:00.480 --> 25:04.600
+you, oh, sorry, but, you know, in fact, with this cloud provider, you cannot
+
+25:04.600 --> 25:08.960
+use this syntax and then you realize, oh, I wanted to do all that, but I cannot
+
+25:08.960 --> 25:13.080
+because you tell me that I cannot. So, you know, and you realize it only at the
+
+25:13.080 --> 25:18.040
+end of the story once you spend two weeks on designing. So, that's it.
+

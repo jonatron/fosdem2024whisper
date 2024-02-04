@@ -1,0 +1,283 @@
+Okay, hello everyone. My name is Mateusz. I work at ThreadHat as a principal
+software engineer in the Kubernetes bare metal networking team. So yeah, as the
+title of the talk says, we'll be talking about bare metal networking and I wanted
+this talk to be somehow a gentle intro into what you need to think about when
+you want to start doing Kubernetes on bare metal, but the thing that Kubernetes
+doesn't tell you you should care about. So we'll see in a moment what that
+means, but I work at ThreadHat. I already said this. I'm based in Switzerland. When
+I'm not doing computers, I'm doing farming. I actually make it much much
+better, but it doesn't pay the bills, so I need to do the stuff that I'm going to
+tell you about here. Well, it is what it is. I don't do AI as opposed to, you know,
+all the hype and all this kind of stuff, so yeah, I'm not really on the
+hype wave. Bare metal was never really hyped, so well, what can I say? Some
+intro why we may even think about doing containers for bare metal. Like, you know,
+no one ever told us to do so, so what the heck is the deal? So HPC and AI.
+This slide predates the AI hype, so sorry for this. I could remove it, but
+long story short, there are some workloads we really want to benefit from
+running for bare metal. You may have some fancy GPU from, let's not name the
+company, or some network adapter, which is, you know, something that you really
+want to have access to the hardware directly, or the other side of the scale.
+Something that you run and is critical to any part of the infrastructure that
+you already have. Like, for example, network equipment. You don't want to run
+router of your own data center as an instance in AWS, right? That would be
+somehow, yeah, we shouldn't do this this way. Or something which is almost
+forgotten, and you know, then people call me and put this use case. Benchmarking.
+How do you benchmark hardware, CPUs, and this kind of stuff if not by running
+workload directly on this hardware? Again, you don't want to create 50 VMs on
+some CPU, only to get the benchmark of this CPU performance. That would be
+chicken egg. Let's not do this. So now fast forward. We agree that we want to do
+Kubernetes, and we agree that we want to do this on bare metal. So we go to
+Kubernetes.something, I don't know what that is today. We go to the, you know,
+FAQ, installing a cluster, and we start reading. What do I need to do to install
+a cluster? Is there any tooling that would help me installing this cluster?
+And the very first page you see is this installing Kubernetes with deployment
+tools, and they tell you QubeADM and to some other tools. And we are like,
+oh, so lucky. There are tools that are going to do this stuff for us. Okay,
+let's check the first one. You go to QubeADM and we start reading. Using QubeADM,
+you can create a minimum viable Kubernetes clusters. And, okay, so is MVP
+really the production cluster that I'm going to run? Well, probably no. Let's
+keep that tool. The second one, we look into K-Opps. Okay, let's go to the
+website of K-Opps. Let's do the same. Installing Kubernetes, getting started,
+and we start reading. Deploying to AWS, to GCP, digital option, yada, yada, yada.
+None of them is deploying to bare metal. Thank you very much. End of the story.
+Let's check the last one. Maybe that's our chance. So we go to the Qube spray.
+It's a set of ansibles. So another story, you know, but, okay, someone gives us
+some method to deploy Kubernetes on bare metal. So we go, run Qube, Qube spray
+playbooks. With the bare metal infrastructure deployed, Qube spray
+came now in, so Kubernetes and set up the cluster. And you start reading those
+playbooks and you feel like, oh, this is so opinionated. So either I want to do my
+data, either I want to build my data center like they want me to build, or
+thank you very much, there is no tool. So let's agree that none of these three
+methods is for us. We need to do this stuff ourselves. So let's build the
+stuff, you know, brick by brick from the, from the beginning. So what, what we
+need to care about a cluster, and not only during the installation, but in
+general to have this cluster bootstrapped and then working. First of all is, of
+course, this is bare metal. At the end, you want to deploy this cluster because
+there will be some workload, right? You want to access this workload. As well,
+you want to access the API, right? Basic operations. You don't deploy the cluster
+for the sake of deploying it and running, consuming the energy. Then, of course,
+DNS infrastructure. You are deploying this in your data center. And then what?
+Are you going to give to your customers? And now, you know, type this IP address
+slash something, something to look at this fancy web, website or application that
+we deployed. No, you want to have it some very nice domain and, you know, but for
+that, again, DNS infrastructure, you need that. It doesn't come for free. The
+next step is we agreed that we are doing bare metal because we have some reason
+to do this and it's not like we just don't like a simple VM from AWS, which
+means there will be some non-standard network configuration. Doesn't really
+matter if fancy or not. It will be something more than just, you know,
+plug the server, turn it on because in most of the cases, people doing bare
+metal, they don't have DHCP in all the networks or they need some storage
+network and it all requires some fine tuning which doesn't come from default
+when you boot your Linux distro and some other dirty tricks that I'm going to
+tell you later because it's Kubernetes specific and I want to build my way up
+to this. So cluster load balancer because I told you that you need to have API
+and ingress to your workload and all this kind of stuff. The slide is overly
+complicated for two reasons. The first reason is because it is complicated. The
+other reason is because no one ever cared to make it less complicated. I know it
+sounds bad but it is what it is. So the only thing I want to tell you is that,
+you know, we are in the story of building a cluster installing it from
+scratch, which means we are starting bootstrapped from summer. Like, you know,
+you may be running those cube ADM create cluster, yada yada, from this laptop,
+right? So this laptop will be your initial bootstrapping infrastructure. On the
+other hand, at the other side of this room, I have those three servers that are
+going to be masters. So this somehow has to ride all together. I need to have
+some IP address that will be this API finally when I spawn all those nodes in
+the cluster. So I need to have some virtual IP which will be pointing toward
+this API, right? This is what I'm calling API VIP and it sounds complex but at
+the end it boils down to one sentence. When you start doing cube CTL commands at
+the end, you need to target some IP address. If you are deploying Bermetal
+infrastructure, you don't want to ever target specific node because if this
+node goes down, all your tooling goes down. So you want to have some virtual IP
+and you may have some load balancer from well-known companies as an appliance
+or you may want to just do it yourself with keep alive this. So I will show
+this in a second. And in this slide, what is then the part? So at some point,
+we have deployed those control plane nodes, those worker nodes and we have
+the API address which should be now pointing only to the control plane nodes
+not to your bootstrap so this laptop, it goes away from this story. But then
+you have some other IP address because you are deploying Quarkode. You are not
+only an admin now. You really have something that runs and your applications,
+you don't want to expose your control plane to anyone, right? Or do you? Well,
+you rather not. So you need another IP and exactly the same story. Where do you
+take all those IP from and who manages them? Yeah, you manage them. So what you
+are doing for this and of course I'm telling you about some very opinionated
+way of designing how to install Kubernetes cluster and it's opinionated
+because we decided, so let's do keep alive D in the combination with HAProxy.
+And I told you the story why we need the VIP so you should be already
+convinced that if we need that, then we keep alive D because it's very simple
+and it's proven in action. Why do we put HAProxy in this story also? And now it
+will be fast forward to some specific use cases and requirements that we got.
+Only thing to remember is that it won't be always the same stock for API and
+ingress because your admin control, as an administrator of the cluster, I have
+usually different requirements than the user, so different tools, different
+purposes. Because it's very easy to simply deploy keep alive D and tell it,
+you know, let's pick this 1.2.3.4 IP and put it somewhere in the pool of
+this servers, right? But then Kubernetes is about being highly available.
+So what happens if your one node goes down? Well, the IP address should
+float to some other node that works, right? But what does it mean from the
+network perspective that IP address floats? What's going to happen with the
+connections that you have to this IP address? We start having this kind, we
+start asking ourselves this kind of questions because we have now three
+servers in the control plane, QBAPI server runs in three of them, we kill
+one QBAPI server, unlucky us, it was the one that was holding the IP of the,
+you know, of how we access the cluster. What happens now? No access to the
+cluster. So either we wait for keep alive D to move this IP address,
+our tables to propagate and all this kind of stuff or, and this is what we
+decided, we put HAProxy in between the QBAPI server and keep alive D so that
+HAProxy, and this is something that, you know, people from Kubernetes want to
+kill me, HAProxy is much more stable than Kubernetes API. That's it.
+That's it. If you look at this, that Xeq, QBAPI server fails much, much more
+than HAProxy, so this is our way to keep this and as simple as it sounds,
+the problem that I want to solve is that when QBAPI server dies, I don't want
+the IP address to float because propagating ARP tables and expiring the
+caches takes too long and I just simply don't want to wait for that, so I put
+HAProxy there and, and yeah, the only thing to remember if you really take
+this path is that you need to fine tune the health checks because then the worst
+you can do is that if keep alive D starts to notice outage faster than HAProxy
+because HAProxy also balances the traffic, right? So then the order of actions is
+that you want QBAPI server to die, which shouldn't be happening, but it happens.
+HAProxy notices that and end of the story.
+That's, that's it, keep alive. This should never, should never notice this and of
+course we may go deeper and what happens if HAProxy dies?
+Well, this is now a game of statistics. Has it ever happened for us that QBAPI
+server and HAProxy died at the same time? Well, it never happened apart if you
+go to the server and just plug it out from the rack. So this is some corner case
+that we don't want to cover, but, but it doesn't really, really happen in the
+wild. Of course, there are some limitations because, you know, you can have
+IP address on the single node. This is disadvantage versus some, some appliance.
+The biggest problem here is that you need to have all this stuff in one single
+L2 segment. So in one broadcast domain, this is because keep alive D doesn't
+work across subnets. We have some ways to fix that by grouping nodes into
+different L2s and then having different keep alive Ds in those L2s. But still,
+this is, this is a pain point and this is something that you should really
+well design on the, on the paper if you, if you start doing this. But, you know,
+enough of load balancers because we could be talking ages about this. DNS,
+because we said that we want to, to do this DNS mambo jumbo and, you know,
+we don't want to use IP addresses only. So of course you are administrator,
+you manage the infra. You could say, but, you know, we have this DNS
+infrastructure there. It's maybe AWS, maybe Cloudflare, maybe, maybe something
+else. So we can just create records there. But, but then, you know, either you
+trust the user or you don't. And we don't. So another opinionated thing in our
+way of installing Kubernetes is that we spawn very minimal setup of core DNS,
+which will be providing the DNS resolution of what you want to all the
+nodes of the cluster and all the pods running in this cluster. So that when
+you start installation claiming that you will have API running on API.example.com,
+I don't worry if you already created this record on the external DNS. I will
+just spawn static pod running core DNS and I will create those records myself.
+So whatever I'm running in this cluster will have this. This again protects me
+because now what happens if we decouple this? You have your external, you know,
+DNS like most of the people. And how do you want your cluster to behave when
+this DNS infrastructure goes down? You have your data center, everything is
+okay. In some other data center, you have DNS and this DNS is out. Do you want
+now your cluster to be, you know, dying because pods want to talk to each other
+and they cannot resolve DNS? It should be all self-contained, right? You don't
+want to have those external dependencies. So yeah, this is something that we are
+doing. And the part I will skip is that network manager requires some tuning
+because for people knowing how containers are spawned, when you start a
+container, a copy of ETC resolve conf is taken at the moment of starting the
+container and is plugged into the container. Meaning that if you change
+configuration of your host regarding DNS, it will not be propagated to the
+container unless you restart the container. So yeah, for this reason we are
+also hacking this file around so that it would be really updating on the
+fly but I don't want to go into this. Something a bit more interesting because
+we are going now into Kubernetes APIs and how to extend this stuff is
+network configuration of the host. This is static configuration file for
+network manager and probably you've seen this and probably you've made some
+mistakes to this file not once. The problem I want to state here is that
+this is a static file. You go, you modify it, nothing happens. You may notice
+mistake in this file five years after because for five years you haven't
+rebooted your server and we don't want to have this scenario in
+Kubernetes world. When you define some configuration it should either apply
+immediately or fail immediately. So this kind of stuff that you need to do
+manual modifications of the file, it breaks this contract we have and
+another part is it simply doesn't scale. If you have 300 servers in your bare
+metal cluster, you are not doing those changes manually. Simply not. You
+have CRDs and this is what should be happening. This is some very, very
+simple example. I do some modification. I mistake slash for backslash. They
+detect that and that's easy but I'm configuring default gateway as an IP
+address from outside of my subnet and this is utterly wrong but nothing
+in network manager will prevent me from this configuration. I simply don't
+want to. We have this CRD defined that creates host configuration from the
+API and it may sound like chic and egg but it's all the matter of how we
+order the stuff. We define Kubernetes CRD that will be defining how you
+configure network manager on the host. You can do it per node, all this kind
+of stuff. I will just show you how that works very quickly. That's the one.
+I have this node which has this IP address on the last interface 10, 24402
+and what I want to do now, I want this to be different. I want to change that.
+I want to change it from the Kubernetes in a declarative way so that
+whenever someone will be modifying this, the change will get reverted. I
+just created a YAML which will configure IP address on some interface. As
+simple as that and I will apply that with the hope that it works as expected.
+At the top we can see that this CRD is now progressing with the configuration
+progress. In fact, that was as simple as it is so we can see that this IP
+was removed. For a moment I was thinking who's going to ask but you already had
+IP in this subnet configured. What's going to happen? Well, that configuration
+wouldn't fly because you should not have two IPs from the same subnet on the
+same interface. This is a short demo of that. At the same time, it's
+Kubernetes API. It should protect us from doing stupid things. I will try to
+configure a stupid DNS server which has no way of existing because it's on the
+link local IPv6 subnet. If I try to apply that, something should protect me
+from doing this because that would actually break the configuration.
+Let's see our configuration right now. We have 111.1 as the DNS server and
+let's apply this manifest. Now that configures the wrong DNS. The
+change has been applied. It's wrong. At this moment your cluster starts to
+misbehave, your probes go down and so on. Let's give it around 10-15 seconds and
+this configuration should get reverted because there is a controller which in
+fact checks if your modifications to the network infrastructure on the host.
+After applying, do they make something not working as it should? In this
+scenario, we see that degraded failed to configure. It failed because this
+DNS server doesn't exist in reality. That was just a short demo of how we
+handle all that. It's a bunch of self-contained elements that once you
+start using them all together, you give you a very nice Kubernetes installer
+that does it all for you. Sometimes in an opinionated way, sometimes less.
+Now I told you that there will be some dirty tricks. In KubeNet, there is a
+concept of Node.IP and we are now moving to the Linux world. When you want your
+application in Linux world to run and interact with the network, it has to
+bind somewhere. This somewhere is IP address and the port. Let's forget the
+port. We are about IP address. If you have multiple network interfaces, where
+should Kubernetes listen? Everywhere on one IP address, on two IP addresses. If
+you have 10 interfaces, what do we do? I say that Kubernetes upstream doesn't
+solve it in a very smart way because it was designed to run on clouds with only
+one network interface. As we started expanding, it's not something that we
+still want. We developed some additional logic to check that and I will skip
+the details. In general, one more problem to think about. When you configure
+KubeNet manually, you need to think what the IP addresses should be there.
+This configuration is complicated because actually you can say bind everywhere or
+bind to one IP address or you can say bind to IPv4, like as a string IPv4 and
+what happens there? It's all you know. You get even stranger syntax IPv6 as a
+string, comma and then IPv4 address. All this kind of stuff you need to
+understand how it behaves and pick your choice. It's complex. You may get
+really confused once you start. We have some set of rules. I will skip them.
+You can go back to this. In general, some corner cases, I just
+showed you an example in which you shouldn't have multiple IP addresses in
+one subnet. What if you do? There are some people who do this for a reason and
+how do you want KubeNet to behave then? Also, one example that I have and this
+is just mind blowing. It killed me for like two weeks. Is your IPv6 address
+really an IPv6 address? Okay, this slide I skip. I got to this RF,
+sewage describes IPv4 compatible IPv6 addresses and I was like, what the heck
+is that? Let's go to all the libraries in all the known programming languages.
+Every of them has a function. Is an IP address IPv6 address? You go to
+implementation. How implementation looks like? If string contains, colon
+return true. Thank you very much, game over. It's as simple as that. Really,
+for the last 30 years of my life, I thought this is as simple as it is, but
+it's not. Let's take this. So, comma, comma, four times f, then comma, sorry,
+colon, and then we put IP address with dots. It is a correct address. There is
+RFC for this address. It may look stupid, but it's a well defined address and, you
+know, it breaks. Try opening a net cut socket to listen on this address. It
+will not work because half of the tools now think this is IPv6 address, half of
+the tools think this is IPv4 address. I did a stress on that and what I
+realized is that based on this address, it was trying to open a socket on a
+simple IPv4 address. At this moment, how should we treat that? This is the
+real case scenario. I got it from a customer who was trying to install
+Kubernetes and they wanted to use this subnet. I was like, what is that? Then
+we dig deeper and we realized that this is a monster. It should have never
+existed, but apparently it exists. If you find a set of parameters that you
+pass to net cut and it crashes, then something went wrong. So, in the end,
+yeah, choose wisely what you want to do and once you design your infrastructure
+really, you know, double check it with someone out there with upstream
+community. Is it really how you should be doing stuff? Because in a lot of cases,
+you realize that something misbehaves and, you know, and that was, yeah, one
+more thing. You think everything is okay, then you start to get and you tell
+you, oh, sorry, but, you know, in fact, with this cloud provider, you cannot
+use this syntax and then you realize, oh, I wanted to do all that, but I cannot
+because you tell me that I cannot. So, you know, and you realize it only at the
+end of the story once you spend two weeks on designing. So, that's it.

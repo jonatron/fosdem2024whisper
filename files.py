@@ -18,6 +18,10 @@ files = [
     "title": "Where have the women of tech history gone?\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3683-the-regulators-are-coming-one-year-on.av1.webm",
+    "title": "The Regulators Are Coming: One Year On\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-3370-an-engineer-s-guide-to-linux-kernel-upgrades.av1.webm",
     "title": "An engineer's guide to Linux Kernel upgrades\n"
   },
@@ -132,5 +136,9 @@ files = [
   {
     "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-1910-making-virtio-sing-implementing-virtio-sound-in-rust-vmm-project.av1.webm",
     "title": "Making VirtIO sing - implementing virtio-sound in rust-vmm project\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-1828-bare-metal-networking-for-everyone.av1.webm",
+    "title": "Bare-Metal Networking For Everyone\n"
   }
 ]
