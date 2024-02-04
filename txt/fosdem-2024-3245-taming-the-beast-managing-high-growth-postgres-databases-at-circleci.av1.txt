@@ -1,0 +1,223 @@
+Hold on.
+Hello everyone.
+Sorry?
+No, I think people are just using the arrow keys.
+Sorry.
+Less high tech.
+Hello everyone.
+So our next speaker is Bryce Kenta,
+introducing Taining the Beast,
+managing high growth postgres databases at CircleCI.
+Thank you.
+Hi everyone.
+My name is Bryce Kenta and welcome to my talk
+on Taining the Beast,
+the CircleCI journey to managing high growth postgres databases.
+First, who am I?
+So I'm a staff engineer at CircleCI,
+where I've been working for the last three years.
+I have over eight years of engineering experience
+spending the full stack back in front end.
+At CircleCI, I've been focusing on backend architecture
+and reliability.
+Over a period of hyper growth,
+reliability became a big problem at CircleCI
+to the point where our CTO started posting
+a monthly blog post to keep our customers updated
+about the improvements.
+So a key part of those improvements
+was dealing with large databases,
+which I'll be talking about today.
+I'm very enthusiastic about the develop experience
+and making that better,
+which is why I love my work at CircleCI.
+And when I'm not in front of a computer,
+you can find me on the driving range
+because Canada is very cold
+and occasionally traveling the world of my wife.
+All right, so let's get started.
+Just to give you a little bit of background about CircleCI,
+it's a global CI CD platform
+with a wide range of customers.
+A bunch of open source projects build on CircleCI,
+such as React Native, Angular.
+Anytime you see a .CircleCI folder in a repo
+that typically is building on CircleCI,
+and on the right screenshot,
+that's an example of a React Native workflow,
+which is currently just running some tests.
+And so this should be familiar to any of you
+that are maintaining any CI CD pipelines.
+So our platform runs about
+4 million of these workflows per week
+and over 20 million jobs per week.
+Each workflow that runs on our platform
+generates net new data to be stored,
+such as the workflow itself,
+the dependencies between the workflow,
+the workflow graph, the job states,
+and test outputs and things like that.
+So to handle all of this traffic,
+our infrastructure runs over 150 services
+and 70 plus post-grace databases.
+However, some of these databases
+were growing very rapidly.
+The particularly one that supports the platform's engine.
+The growth of such databases
+was directly correlated with
+the number of workflows and jobs that are created per second.
+So an example of high-growth database
+that my team was responsible for
+had grown to 5 terabytes in size
+and growing by 500 gigabytes per quarter.
+The right amplification on that database
+was a recurring cause for incidents.
+The nail in the coffin, though,
+was when we tried to upgrade that database
+from an end-of-life 9.5 post-grace RDS instance
+to a 12.5 instance.
+This took months to complete
+and incurred significant downtime
+because of incidents.
+The first attempt at migrating the RDS instance
+took a couple of hours
+and resulted in poorer query performance.
+This is because the large tables
+required lengthy vacuum operations, post-upgrades,
+which led to massively degraded performance.
+We considered using AWS Database Migration Service, DMS,
+but it would take too long to complete
+given the database size
+because DMS uses logical replication
+which is concerned with the number of rows
+and the amount of bytes that you're transferring.
+We were finally able to do the version upgrade
+using a form of home-brewed logical replication,
+taking advantage of application-level knowledge
+of the database.
+But this required significant engineering effort
+with engineers working weekends.
+So that wasn't great.
+At the end of all this, it was clear to the business
+that operating these large databases is very risky
+and could cause a company-ending event.
+So we needed to tame this growth.
+So now I'll take you on the journey
+that we took to taming this beast.
+So first, I'll talk about the storage reduction,
+so the immediate savings that we gained
+by deleting some of the low-hanging fruits.
+Next, I'll talk about the growth restrictions
+that we put in place to make sure that the data growth
+remained at manageable levels.
+And lastly, I'll talk about some of the optimizations
+that we made to ensure long-term success.
+So the first thing we did to reduce the storage
+was to drop unused columns, tables, and indexes.
+Indexes in particular can grow large
+in size over time, so dropping them was a quick win.
+We leveraged a tool called PG Analyze
+to identify indexes with those scans.
+So that means they were not used,
+and then dropping the indexes
+not only benefits the storage size,
+but it also reduces write amplification,
+so the writes to the database are actually faster.
+Next, we switched a bunch of B3 indexes
+to use Brin indexes instead.
+So Brin indexes are designed for handling very large tables
+where in which certain columns have a natural correlation
+with where they're physically on the table.
+So for example, if you have an Ordis table
+with a created-at column,
+earlier records on the table would physically show up
+earlier in the physical location.
+So those Brin indexes are optimized for that kind of data.
+So from the screenshot, you can see we had a bunch of
+created-at indexes across multiple tables,
+but the thing to note is the size of those indexes.
+That took over 400 gigabytes of storage in a single database.
+So dropping them, or those the ones that were unused,
+or switching to Brin were able to save space immediately.
+The next step we did was to reduce the storage further,
+and we had to upload any static blob data to S3.
+So S3 is much cheaper,
+and you can define object life cycles to automatically delete the data.
+But my greeting to S3 came with some drawbacks,
+such as additional latency,
+because we had to put a Redis cache in front of it.
+And the other drawback was that it added more dependencies
+to our service, and the queries were no longer transactional.
+So we had to add code to stitch together the response from Postgrease
+and S3, so that added a bit of complexity.
+So at this point, we freed up some storage size
+and to give us some runway, but we haven't addressed the growth.
+So let's talk about that next.
+So the first thing we did to slow down the growth of our databases
+was to put in place data retention policies.
+Our product management team collaborated with other parts of the business
+to identify data retention periods.
+So the data retention period differs based on the customer plan.
+So for example, a free customer will get three months of data,
+and higher-plan customers will get up to two years.
+We communicated these policies to all of our customers ahead of time.
+We gave them a quarter, so three months of leeway,
+before actually enforcing any restrictions.
+So the next step after that was to implement data access restriction,
+but at the API layer before actually deleting any data.
+So this meant customers no longer have access to data beyond their retention period,
+which enabled us to go to step three, which is safely delete the data,
+because now customers don't have access to it anymore, using background jobs.
+I should point out that at this point we still have growth,
+but mainly due to new customers, or existing customers that are building more on the platform.
+But the growth is contained because we don't retain data older than two years.
+But we ran into some issues.
+So the first issue that we ran into was, as we're deleting data from the primary database,
+it caused degraded performance on the replicas, as the deletions are getting replicated.
+So we experienced like spike in IOPS and CPU usage, and so we needed to upsize the replicas.
+Another issue that we faced was index bloat.
+So frequent background deletions without a periodic maintenance of the indexes,
+reduces the efficiency of those indexes over time.
+So a solution for regularly re-indexing the database was necessary to make deletions sustainable.
+This is something that we're still figuring out. We haven't found a proper solution yet.
+But lastly, post-grace databases do not automatically reclaim space when a record is deleted.
+This is something that we found out.
+So there is a built-in vacuum operation to reclaim space,
+but this process only frees up space back to the table for reuse.
+So once disk is allocated for a table, it may never be released until that table is dropped.
+The vacuum operation has a full option which builds a new table and swaps the old table for the new,
+but it requires an exclusive lock.
+So this was not a viable solution for us because, again, it requires downtime.
+We're able to use PG-REPAC, which is an open-source post-grace equalization
+that allows us to reclaim space on the drop columns with minimal locking of the table.
+So that was great.
+And then the last step on our journey was to establish a long-term strategy.
+We needed a data archival process that could be applied to all of our high-growth databases.
+So we established a data reliability team with the mandate to own a single historical data store.
+The data store would support functional requirements such as high availability, be horizontally scalable,
+support multiple query patterns, which is needed by the API or the UI to filter data.
+But this historical database is only used to serve customer data only, nothing else.
+No ETL, nothing like that.
+And then each service team would implement a data archival process, which is similar to the diagram at the top.
+The service sends requests to the historical service to archive data.
+What data is archivable and when?
+It depends on that particular service domain.
+There's a sweeper job that makes sure that any missed archivable data is archived.
+And then there's a deletion job that is continuously deleting archive data.
+Also, as product teams are building new features that require net new tables to be added or to be created,
+we aim to partition them from the beginning.
+We use PG Partman, an open source partition manager to create time-based partitions.
+PG Partman enables us to configure retention periods and will automatically delete any old partition.
+So as soon as the partition falls out of the retention period, so in our case 24 months,
+it is automatically deleted by PG Partman so we don't have to worry about it.
+And finally, so now that I've taken you on the full journey from reducing our storage size to establishing long-term data archival processes,
+I'd like to take a moment to acknowledge some of the key learnings because an initiative of this magnitude was spanning almost two years and was non-trivial for us.
+So the first learning was to implement a brief retention policy as early as possible.
+Ideally, one that allows you to serve more data at your discretion because this means you don't have to implement the code to delete the data until you really need to.
+That would have saved us hours of engineering effort and downtime dealing with massive databases.
+The second learning rehearsed any major database maintenance, things like major version upgrades, space reclamation, re-indexing, anything like that.
+Make a copy of your production database, validate your changes there, compare query performance against the production database
+before actually running that maintenance in production.
+And finally, write down your learnings. This creates a knowledge base for everyone to learn from and helps other teams move faster.
+The extensive documentation that my team put together throughout the last two years is what helped me a lot to come up with this presentation.
+And that is it from me. So thank you for listening. I hope this was helpful to you.

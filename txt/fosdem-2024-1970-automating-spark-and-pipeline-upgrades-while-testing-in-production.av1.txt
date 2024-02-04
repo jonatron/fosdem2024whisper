@@ -1,0 +1,649 @@
+Okay, that's it.
+Please take a seat and we'll get started.
+So Holden is going to talk about automating spark upgrades and also lots of testing in
+production.
+That's going to be interesting.
+Testing in production is the best place to test when the alternative is no tests, which
+it often is.
+Okay, cool.
+So let me know if you can't hear me because I'm very easily distracted and get excited
+and I might not notice that I'm not talking directly into the microphone, so please grab
+my attention if I screw up.
+So yeah, I'm Holden.
+My pronouns are she or her.
+It's tattooed on my wrist.
+Super convenient when I wake up in the morning.
+I'm on the Spark PMC.
+You can think of this as like having tenure, except it doesn't guarantee I get paid.
+It just guarantees that I have work to do, so it's like the shady version of tenure.
+And I've worked at a whole bunch of different companies, not super relevant, but I've seen
+a lot of mistakes made in production and I have made a lot of mistakes in production
+so you can learn from some of my mistakes.
+My employer who sent me here, Netflix, is hiring and I would be remiss if I did not
+mention that.
+They're actually finally hiring remote people after who knows how many years.
+I'm a co-author of a bunch of books.
+Some of them are related to HPC-ish stuff.
+I get the highest royalties on scaling Python with Ray, so I think it's a fantastic book
+and everyone should buy several copies with your corporate credit card.
+If you don't have a corporate credit card, the internet will provide.
+You can follow me on social media and there's lots of pictures of my dog.
+If you're into that stuff, there's a lot of complaining about American healthcare.
+If you enjoy Shaddenfreude, highly recommend it.
+It's great.
+I also do a lot of open source live streams.
+If you like seeing people struggle with computers, once again, it's great.
+You can watch me fail.
+The code for today's talk and a lot of my other code is on my GitHub.
+You can check it out.
+And there will be more pictures of my dog.
+In addition to who I am professionally, I'm trans, queer, Canadian, in America on a green
+card, I make great life choices.
+It was a great time to move to America and part of the broader leather community.
+I can make that joke now because I have a green card.
+It's slightly more difficult for them to kick me out.
+This is not directly related.
+There is no secret Canadian code modification tools.
+Everything we use is open source.
+There's no secret Canadian GitHub alternative.
+If you go to GitHub.ca, you don't find...
+Actually, I don't know what you find.
+Maybe you do find something cool.
+I'm imagining you don't.
+But this is something that I like mentioning because I think for us who are building big
+data products or machine learning things, it's super important that we look around and
+we see like, hey, who is on my team?
+And if you realize you're hanging out with only Canadians, that's fantastic.
+Enjoy the poutine.
+But maybe it's time to get some other perspectives.
+And if you don't know what poutine is, you're missing out.
+You should try it someday.
+Cheese curds and gravy and French fries.
+Best thing ever.
+Okay.
+So what is our problem?
+And so why do we care about automating upgrades?
+So fundamentally, our problem is we have unsupported versions of our big data tools and other data
+tools running in production.
+And this is a problem because when things go wrong, I get woken up.
+I don't like getting woken up to figure out what I did five years ago.
+And that's just not fun.
+The other option is sometimes I get woken up when I'm trying to focus.
+That also, sorry, not woken up, interrupted when I'm trying to focus.
+And this is important because we are also getting Spark 4 soon.
+That's super exciting, super lovely.
+There's going to be all kinds of new breaking API changes.
+And that's just going to be so much fun, right?
+Like, yeah.
+Anyways.
+And so I don't know about you, but I'm not looking forward to going back and trying to
+figure out all of the different things that I've built over the years and upgrading them,
+right?
+Like, I know I'm going to have to do it, but that is not the thing that excites me in
+my life, which leads into, like, why do we have these problems?
+Why do we have old things running in production?
+We have it because APIs change and code breaks.
+And then people are just like, you know what?
+I don't want to upgrade.
+Just keep running on the old version.
+It totally worked.
+It's fine.
+What could go wrong?
+The other one is like, this isn't fun, right?
+I don't know.
+Does anyone here wake up in the morning excited to upgrade their API usage?
+Yeah.
+Okay.
+So this is zero people, right?
+And the other possibility is, right, like, we could try and keep this old software alive,
+but we don't want to.
+So, how are we going to work around our problem?
+So we're going to use software, and then we're also going to have to deal a little bit with
+humans, right?
+We're going to do automated code updating.
+It's super fun.
+So much fun.
+If you took a compilers class, this is going to look very familiar.
+If you didn't take a compilers class, this is so cool.
+AppSection.x3s are really cool.
+And we're also going to do automated testing and validation and prod.
+So the social problem is much harder.
+I am completely unqualified to solve it.
+I work with other people who are much better at talking to humans.
+They did a fantastic job.
+They made newsletters.
+They tried to make the project exciting.
+That failed.
+And then they tried to make the project required.
+That failed.
+And then we set deadlines.
+They slipped.
+But for sure, totally, we're definitely going to hit our new deadline for real.
+Okay.
+And now, let's go and see how else we addressed it.
+So the other thing that we did is, like, hey, we have this problem that humans don't want
+to do a thing.
+What about if we made it so they didn't have to do as much work?
+And so that's sort of the approach that we took.
+We can automate a bunch of this.
+And the other part is, like, so we've got API changes, which we mentioned.
+And then the other thing that we have is testing code as a nightmare, especially code that
+you inherited and is called untitled underscore seven dot ipod dot notebook.
+I don't know what it does, let alone I can't make tests for it.
+It's terrible.
+So yeah, we have a problem.
+We're going to fix it with computers.
+Google has a lot of really lovely code mod tools that I saw while I was there.
+Super fantastic.
+This encouraged some counterproductive behavior.
+I don't know if any of you have used Google APIs and watched them change underneath you.
+So this is a double-edged sword, and we should heed the warnings before we go, like, super,
+super all in on this.
+So what are we going to do?
+So how are we going to move on?
+Basically speaking, we're not going to use regular expressions.
+For the most part, there's going to be a few times when regular expressions are like the
+simple hacky way, and we're just going to do it.
+For Scala, we use ScalaFix.
+For Python, we use something called PySparkler.
+For SQL, we use SQL Fluff.
+And for Java, we looked at it, and we were like, we don't have that many Java pipelines.
+Get them to update their code by hand.
+It's fine.
+We know where they work.
+Okay.
+So how do we figure out what rules to make?
+So we could read the release notes, but they're not very complete.
+We could look at the MIMA changes, and so Spark has a binary compatibility checker that
+it uses, but, oh, dear God, there is just so, so many things in there.
+Or we could do my favorite approach, which is run it in production, see what breaks,
+and then fix it afterwards.
+So we went with the YOLO approach, which is just like we're going to try migrating some
+things as it fails.
+We'll add the rules that it turns out we needed to add.
+So what do these rules look like?
+Today, we're just going to look at Scala and SQL.
+If you love Python, you can check out the GitHub repo.
+It's got some samples there.
+So in ScalaFix, we override this function called fix.
+We take an implicit semantic document that's really just the syntax tree, so that's the
+parsed version of the source code.
+And we specify the things that we're interested in looking in, and then we can write a recursive
+function which will match on this tree and generate a patch.
+And so here, we can see like, hey, do we see something that's calling the JSON reader?
+Because the JSON reader, certainly no one would use that ever, so they cited it was
+a great idea to change that API because who has JSON data?
+That was a joke, by the way.
+Everyone has JSON data.
+And so it turns out like, yeah, this actually happens a whole bunch.
+So we should write a rule for this.
+Do we see someone trying to read JSON data from an RDD?
+And if so, this is the path we're going to add.
+Now the really cool thing here is that we're matching on a syntax tree to produce new syntax
+tree.
+I can just say, like, swap this part of the syntax tree for this string, and then underneath
+the hood, Scala fixes very smart, turns it into a syntax tree.
+Everything's happy.
+I'm quite happy.
+I've got a bunch of sketchy hacks, and they're all inside of a function, sorry, a library
+called utils.
+So it's great.
+We hide all of our mistakes inside of utils because only nerds look inside of utils.Scala.
+Huzzah.
+And here you see we're recursing on the tree, and we just return nothing if we don't find
+any matches.
+SQL very similar, but the AST is a little bit fuzzier because we're using SQL Fluff,
+and it has to support a whole bunch of different versions of SQL, not just Spark SQL.
+Things are a little fuzzy.
+So we go ahead and we look and say, like, hey, do we see someone calling this function
+that we know has changed?
+If so, go ahead and extract out the part that we care about.
+And so we go ahead and we grab the third element because, God, whatever, don't worry
+about it.
+Magic number, totally fine, no mistakes.
+And then we go ahead and we say, like, hey, what is the type of this element?
+If it's a keyword and it's cast, we know we're good.
+The types are matching.
+Everything's fine.
+Otherwise, if it's not a keyword and the type is cast, we probably need to go ahead and
+change this.
+Because the types change.
+We actually need to add explicit casts into this function.
+And so we go ahead and we check it, and then we say, like, okay, function name, no, if
+it's cast, we're fine.
+If not, we go ahead and we produce these edits.
+Now unfortunately, SQL Fluff isn't quite as amazing.
+We can't just give it a string and have everything work.
+We have to produce, like, the chunk of the syntax tree.
+But this is still better than writing regular expressions, right?
+So much better.
+So this is totally fine.
+Everything's great.
+How do we know if it works?
+So there's a bunch of different things that we could do.
+We could try and make tests, but realistically, that's not going to happen.
+What we do is we do side-by-side writes and we use icebergs ability to stage commits.
+You can do the same thing with Delta Lake or Lake FS.
+They're all open source.
+I don't know how to do it with Delta Lake because I haven't used it, but I'm sure that
+you can do it.
+You might be saying, like, holding this sounds like you're running all of your data pipelines
+twice.
+Isn't that expensive?
+The answer is yes.
+Does it catch everything?
+The answer is no.
+But it's a hell of a lot better than just, right?
+We've got hope and a little bit of data, and together, are better than hope alone.
+So now we're going to come out and it crashed last night, but it's totally probably going
+to work today.
+Yeah, thank you.
+Thank you.
+We see I made a backup copy just in case it fails.
+What our demo does is it builds a regular Spark project, and it also makes a copy of
+it first.
+This is a Spark 2.4 project.
+Did I break it?
+Hello?
+Oh.
+Okay.
+We're back.
+Yay.
+Okay, cool.
+So you see here we've got everyone's favorite big data example, word count.
+And so, okay, this is going to go ahead and it's going to add the Scalifix plugin to our
+example.
+So we're just going to go ahead and say, like, yes, add Scalifix.
+And now it's going to run Scalifix, and it's going to run Scalifix with our additional
+rules that we created.
+So much fun.
+It's probably going to work.
+This is where it crashed yesterday.
+Everyone sent good vibes to my computer.
+Come on.
+Come on.
+How's that?
+Okay.
+You can see I subscribed to printlin debugging.
+Oh, well.
+And now, so it's run the first set of rules which do automated migrations, and now it's
+doing a second set of rules, and the second set of rules warns about things that we didn't
+think were important enough to create rules to automatically migrate, but we wanted developers
+to be aware of.
+And one of them is the group by key function change behavior between Spark 2 and Spark 3,
+because who uses group by key?
+Turns out everyone, very few people depended on the specific weird behavior, though.
+And so it's just warning, like, hey, I see you're doing this, and I applied a regular
+expression and I see some, like, bad words, not bad words in that ones that I use, but
+bad words in that, like, they're bad.
+Okay.
+And we say, like, everything's fine.
+It says we should review our changes, but we're not going to just, like, real developers.
+We're just going to hit enter and see if it works.
+And now it's going to go ahead and replace Spark 2.4.8 with Spark 3.3.1, and it's going
+to run these two pipelines side by side and compare their output.
+And so we will see if the demo finishes, ooh, five minutes left.
+Okay.
+We'll probably finish inside of five minutes.
+If it doesn't, we'll give up on the demo.
+That's okay.
+That's okay.
+So here we see it's running these two pipelines side by side.
+You can tell because Spark loves logging.
+And it passed.
+Yay.
+Okay.
+And then this, this, okay.
+Hmm.
+Okay.
+Well, this part didn't, and that's how you know it's a real demo, is that it failed at
+the final end part where it's copying the jar to a new special location, but that's,
+that's okay.
+The important part of the demo worked.
+So we'll call that mostly a win.
+And if we want, actually, yeah.
+Okay.
+I'm going to go.
+Oh, thank you.
+My lovely assistant.
+And so I wanted you to see that like, yes, this actually did update some code.
+So we go here, SRC main Scala, Spark demo project, word count dot Scala.
+And then we're going to go ahead and we're going to look at the regular version of this.
+Oh, God.
+Emax, come on.
+Now is not the time.
+Eight megs and constantly swapping.
+I can make that joke as an Emax user.
+Okay.
+So here we actually do see like it has made some small changes between the two of them.
+And, oh, sorry.
+Yeah.
+So here we see, for example, we have this old pattern of creating the spark context and
+it's been swapped for the new pattern of creating the spark context.
+And it's done other similar updates to the code.
+And the important thing is it now works.
+And this is fantastic.
+I think it's really cool.
+Thank you.
+Thank you.
+Hand for my assistant, please.
+Thank you.
+So I'm super stoked that the demo did not crash.
+Unlike last night, I switched it back to I was running a nightly build of the JVM and
+not surprisingly that didn't go well.
+Okay.
+So this is all cool, but like where does this fail?
+So this kind of fails when it comes to dependencies, right?
+Like we can only update the code that you've got.
+We don't rewrite byte code.
+We just rewrite source code.
+So if you're depending on something that doesn't support the new version of spark, it's not
+going to work out.
+The good news is for us, we got to this so late that all of our dependencies were upgraded.
+So there's something to be said for waiting right until the software goes end of life.
+Don't tell the security people.
+I said that.
+The other one that doesn't work super well with is programming language changes.
+In theory, that was actually the original purpose of ScalaFix.
+In practice, this didn't work so well for Scala 211 specifically because it's just so
+old.
+We had a bunch of Scala 211 code.
+So in conclusion, you should definitely check out the repo.
+It's here.
+It's spark-upgrade.
+It is in my personal GitHub, but a whole bunch of other people have contributed to it.
+They're awesome.
+I'm lazy.
+I wouldn't do all of this work myself.
+Thanks to my employer again for sending me here.
+I'm super excited that I get to hang out with a bunch of other nerds.
+The good news from this talk is that we haven't made a system so powerful that the spark people
+don't care about making breaking API changes.
+The bad news is we haven't made a system that's so powerful that we can't just not
+care about breaking API changes.
+The excellent news is that my dog is cute as fuck.
+He's here.
+I said that at the end of my talk just in case I'm not allowed to swear.
+He's really cute.
+His name is Professor Timbit.
+I miss him so, so much.
+Y'all are lovely, but I miss my dog.
+Hopefully there's time for a question, maybe.
+Yes?
+We can also do...
+Thank you.
+Thank you all.
+Have a couple of minutes for questions.
+Thank you very much for the talk.
+Very interesting.
+One general question out of curiosity.
+How long did it take to convert everything?
+Because you just showed like, I don't know how big the script was, but I can imagine
+just how big the repositories that you guys have.
+Totally.
+So that's a great question.
+It takes a really, really long time to convert everything.
+And we actually, internally, we have a whole bunch of different projects.
+One of them is a project that goes through all of the repositories because we have a
+whole bunch of different repositories, and it generates PRs to these projects.
+And that code runs daily.
+And it doesn't actually catch everything.
+So what we do is we generate the changes, and then, as I mentioned, we sort of did the
+YOLO run in production approach to life.
+So we'll look at these changes, and especially for SQL, it'll be like, hey, we do this shadow
+run.
+Does it look like it works?
+And if not, we actually flag it for review rather than raising the PR so that we can
+go back and say, hey, do I need to add a new rule, or is this a one-off special case where
+we'll just have a developer deal with it?
+So I know that's not exactly an answer, but several hours.
+Okay.
+Thanks.
+Any other questions?
+Yeah.
+There's one right there.
+No.
+How many rules did you end up coming up with for this migration from two to three?
+And do you anticipate going from three to four?
+What?
+Do you anticipate going from three to four?
+Oh, yeah.
+Okay.
+So two questions.
+I love them.
+I don't remember how many rules we came up with.
+For Scala, it wasn't a huge number, and that's because while there are a lot of breaking
+API changes in Scala, our usage of the APIs in Scala is more narrow, and so I'm very thankful
+for that.
+For SQL, I think we ended up with around 20, maybe between 10 and 20.
+And for Python, I haven't kept track, mostly because that code has been working really
+well, and so some of my other teammates have been working more on the Python side, so I
+don't remember how many rules we made there.
+But they're all in the GitHub.
+As for do we anticipate going from Spark three to four?
+Yes.
+Probably not like the same month Spark four is released.
+I love Spark, and we'll make Spark four available internally, but we're not going to go ahead
+and start pushing users to migrate to it right away.
+We normally wait a little bit for things to stabilize before we start doing managed migrations
+just because it's better for our sanity, and there's more fixes to the code base in general.
+Cool.
+We got another question.
+Any more questions?
+Okay.
+Cool.
+Hazar.
+Actually, hold on.
+You can keep talking because the next speaker is on the bus.
+Oh, okay.
+So with the next speaker is on the bus, I'm super excited, and we can go ahead and we can
+actually look at more of the changes that it made to the code, which I sort of skimmed
+over because I didn't want to eat into the next person's time.
+So it's kind of basic, right?
+But we can see here, this is the side-by-side for the Scala one, and we can actually go
+ahead and what we're going to do is we're going to go outside of our end-to-end, and
+we're going to go ahead and we're going to look at some of the other SQL rules.
+Oh, fancy.
+I don't...
+Okay.
+Oh, this is so that it's better to read.
+Okay.
+Okay.
+Okay.
+Cool.
+Fantastic.
+And we're going to go ahead.
+I need my lovely assistant again.
+Thank you.
+Thank you so much.
+Hand for my new lovely assistant.
+So here we see one of the things that changed between Spark 2 and Spark 3 is that previously
+you would be able to do just an arbitrary cast to things as integers, and even if they
+weren't integers, it would do kind of a fuzzy conversion.
+But in practice, if you wanted to parse a string as an integer rather than casting
+string to an integer, you should use int at.
+And so here we see we've got something similar.
+We use a lot of print debugging.
+It's not great.
+But what we do here is we return this lint result, and what it's just doing is it's taking
+this expression and swapping it to an int when we see a cast with a data type of int.
+So much fun.
+There's a lot more rules, but I didn't do a git pull on this because the demo barely
+worked, and I was just like, let's not tempt fate and do a git pull because I hadn't tested
+the end-to-end demo.
+But this is kind of cool.
+We've got similar updates to our format string.
+Super fun.
+Oh, right.
+And then char versus string types also got updated.
+Super fun there as well.
+And where was another one?
+I want to find it.
+Sorry.
+Then we've got, there's a rule down at the bottom.
+Oh, no.
+Okay.
+I guess the rule that I was looking for isn't in this version of the code.
+Let's go back to ScalaFix.
+So the other cool thing about this, sorry, doot, doot, doot.
+So one of the really cool things about ScalaFix, just while we're waiting, is that you can
+test your rules.
+And so, for example, like, I wrote these accumulators, and this is the old bad style
+of writing accumulators, and I was like, okay, let's make sure that it updates to the
+new good style of accumulators.
+And this is super convenient because I don't have to manually construct syntax trees.
+ScalaFix just has built-in functionality for this.
+And we see here what this rule does is it actually throws out a bunch of situations.
+And it's actually going to generate a bunch of warning messages.
+But there's situations where, like, this doesn't directly translate to the new API easily.
+So we just told users, like, hey, you need to make a change here.
+But we'll get it to compile, and then it'll pass the test, and it'll yell at you because
+you're trying to access a null.
+It's not perfect.
+Like, this is very much like a, how would I say this?
+This is a very mediocre rule.
+But in practice, we didn't find all that many people were creating accumulators with fixed
+values to start at.
+But the one that we did see was people creating accumulators that explicitly started at zero
+long, and so that we just converted to a long accumulator.
+And then the other one that I saw here was I also added some tests to make sure that,
+like, I had a rule which was applying itself too eagerly.
+So I also created a test which was just, like, make sure that this rule doesn't do anything
+if it's not, like, encountering the thing that I wanted it to do.
+So we can also make essentially negative tests for AST transformations.
+That's super convenient.
+How much time do I need to kill?
+How much time do I need to kill?
+Do we know how long the bus is going to be?
+Okay, cool.
+Okay.
+So we see another one, the group by key thing that I told you about.
+We actually had two different situations.
+These are ones that we could automatically rewrite, and so that's what we do here.
+And so here we see, like, the situation where someone was explicitly using the column name
+in a way which we could detect.
+But then we also have the situation where, like, we weren't super sure, and so these
+ones we did with a warning.
+And so we said, like, hey, this should generate a warning because we don't know for sure what's
+going on here.
+So we want to generate the warning, but in the other situations where we could do the
+full rewrite, we made sure that the full rewrite was able to be applied, which I think is kind
+of cool from sort of, like, a point of view of you don't have to get everything right,
+and you can, like, add these warnings in places where, like, it's worth it to let people know
+their code might not work, but, you know, it's not 100% required.
+Um...
+Choo-choo-choo.
+Cool.
+Let's see here.
+Ah...
+Just a quick interruption.
+The next speaker is going to be late.
+He texted us that he's still on the bus, so we're letting Holden entertain you.
+Oh, I got an idea.
+I got an idea.
+Hi.
+I'm just a speaker.
+What does that mean?
+Where am I?
+Oh.
+Yeah, I got a...
+I think I got another minute of something fun that I want to talk about if it's okay.
+So the other thing that we sort of, like, lost over was the, like, side-by-side comparison
+in pipeline runs, right?
+And so that's totally really...
+I think it's really neat, right?
+Like, because it's super important because people don't write tests at the end of the
+day, and that makes me sad.
+But we've got this pipeline comparison project, and...
+Oh, God.
+I'm just remembering how ugly this code is.
+Please don't judge me.
+This code was originally written at a conference and then made it into production, as you can
+tell by the fact that it's called domagic.py.
+Very sorry.
+Very sorry.
+So yeah, so this domagic.py does a bunch of really interesting and terrible things.
+And I was mentioning how we mostly don't do regular expressions, but we do a little bit.
+And one of the things is when you've got Spark 2 versus Spark 3 and you've got Scala or Java
+code, you're going to need different jars.
+Whereas in Python and SQL, like, we could maybe just be using the same files, or we
+can use the same files with a little bit of a transformation.
+But so for the jars, we use a really nasty, really terrible, regular expression to just
+kind of extract what we think the version 3 version of our jar is going to be.
+And then this is convenient because we can run it side by side.
+And then so we've got sort of different options.
+Here we've got it so that you can specify the input table.
+But I actually did a hack that I'm super proud of because I'm a bad person.
+Where we made this plug-in, Iceberg Spark WAP plug-in, where what we do is, oh god, we
+use the Iceberg listener and we output this string any time something happens to the logs.
+And so if anyone's touching a table while their job is running, we know what tables
+it's worth so we can go back and run our comparison on these two tables.
+We actually have some special code that goes ahead and looks at these tables before doing
+the comparison and says, if the user updated more than 1,000 partitions worth of data,
+just don't bother and tell the user they're responsible for validating their data.
+And if they're touching more than 1,000 tables, sorry, 1,000 partitions in a table, they should
+really have some reliable tests.
+For the people who are touching five or 100, like I get it, untitled underscore seven, it's
+great in production.
+When you're updating that much data, maybe it's not time to depend on Holden's sketchy
+do magic dot py.
+So I think this is really cool.
+And we're going to go back to our friend Pipeline Compare and down to our friend Table Compare.
+And so Table Compare is really basic.
+And there's actually an updated version internally that I need to bring out that does better
+tolerances.
+But we just go ahead and we compare these two tables with sort of traditional drawing,
+which is part of why we had this limit on the number of partitions.
+Because when we didn't have this limit on the number of partitions and we tried to do
+these comparisons with some of the pipelines that ran on all of the user data, everyone
+was very sad.
+And we took down production.
+I hope that part.
+Yeah, anyways, there was an incident and I got woken up when we did not have that.
+And so, yeah, all kinds of fun.
+But you see here the thing, the magic here is the snapshot ID, because the other thing
+that we output in our listener is what snapshot IDs we're writing to.
+Super convenient.
+And Iceberg allows us to read from snapshots even if they never got committed.
+There's a new thing in the new version of Iceberg that allows for branching that would
+be even better because then we would have named things rather than random git hashes.
+But we're not running that and it's also not supported in the really old versions of Spark.
+And because we want to do the migrations from the really old to the really new, I went
+with sort of the lowest common denominator.
+And that's kind of how we ended up there.
+Okay, that's all that I had that I thought was interesting.
+And I think there was someone else who had something that was interesting.
+Do you want to come and do your interesting bit?
+Thanks to Holden for filling in.
+Does anyone have any questions?
+Does anyone have any questions?
+That's that?
+Yeah, all right.
+First of all, thank you for the talk.
+I have a quick question in the summary of your talk.
+You also mentioned that if time permits, you might have an overview of the changes coming
+in Spark 4.
+Do you have this overview?
+Yeah, so if you're interested in the changes coming in Spark 4, the place to look is the
+Spark Jira.
+And there's actually like this meta tracking Jira that's in there.
+And you can see sort of like the things that we're planning on coming.
+Historically, I would say without naming names, there's a particular vendor that loves to
+show up at the last minute with the giant piles of code and just kind of yolo it as
+a nice surprise for everyone.
+So this Jira will give you a good idea of what's coming.
+But my guess is there will be a surprise that we find out about in June, just based on history.
+I could be wrong.
+Maybe everything is actually planned this time.
+That would be a pleasant surprise.
+But there's a non-zero chance that there will be something new in June too.
+Cool.
+Okay.
+Take it away, my friend.
+Or no, you don't.
+Oh, okay.
+You've got a USB key.
+I think my employer would be mad if I let you plug the USB key into my work laptop.
+I enjoy being employed.
+No, no.
+I just had more time to kill.

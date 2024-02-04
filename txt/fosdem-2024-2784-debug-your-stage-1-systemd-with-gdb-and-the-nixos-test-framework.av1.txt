@@ -1,0 +1,315 @@
+So, my name is Julien and this is Ryan and Linus and we are three NixOS developers.
+And today we are going to talk to you about the situation that we had during the sprint
+where we found ourselves in need of debugging our system in Itaardee.
+So, I'm going to talk about, let me just, it's because I know them.
+I'm going to talk about why actually we were in this situation.
+And then Ryan is going to talk about what is the NixOS test framework and test frameworks
+in general.
+And then we are going to showcase how we did this specific fun debugging.
+So basically I'll motivate a little bit the situation we were in.
+So basically we wanted to work with encrypted secrets in Itaardee.
+So basically as you may or may not know, Initardee or Initial MFS is the initial file system
+loaded in RAM as part of the boot process.
+It supposedly contains all what is necessary in terms of drivers and executable to mount
+your root partition, which is what its main goal is, like be able to mount your root partition
+and continue the boot process.
+But in some cases, especially when your boot partition is encrypted, it also need to acquire
+like the key to mount it and to encrypt it.
+And so this can be done by displaying user prompt where you input your password, but
+it can also be done if necessary by starting a SSH server where you connect and then put
+your password in and then it mounts your root partition.
+And for that purpose, you sometimes need to have like secrets stored in this Initardee,
+for example, SSH key.
+The problem is that if you have an encrypted system, you kind of have to start from something
+unencrypted and this Initardee image is not encrypted.
+So if it has secrets and you just put the secrets in this image, then anybody reading
+your boot partition can have access to the secrets.
+So as Nixxos developers wanted to have like an option where you could actually have the
+secrets be encrypted.
+Currently, like in Nixxos, you have the secrets are like just put plainly in the boot partition
+and suffer the drawback that I was just describing before.
+And so we wanted to find a solution and the solution is we have an option to use systemd
+as like the Inix script.
+So we use systemd in stage one instead of a scripted Init script.
+And what we can do with systemd, we can use something called systemd credentials, which
+is basically an executable of systemd that has the main, just the role of encrypted and
+decrypting secrets.
+And you can do this by using your TPM.
+And so basically what you can do is use the same TPM in your Initardee and this way you
+have secrets that were encrypted when your system was booted.
+That systemd in stage one is now able to decrypt in your boot process.
+So why all this?
+Where am I coming?
+I start, I try to implement this in Nixxos and what we found out is that I don't know
+if you can read this particularly well, but this is the log of the boot process and you
+see that there is systemd that is running in Initardee, it says here running in Initardee.
+And then it says it loaded the credentials that I tried to pass it, to pass to it and
+then it caught an assertion in some function and says okay, I'm retiring early, goodbye.
+It's crashing.
+So the question is how can we, how can we like debug this kind of thing?
+And one of the things we consider at the beginning is to use the Nixxos framework because it
+allows us to be in some very constrained situation where you can find maybe the bug easier.
+And then Ren is going to talk to you about the Nixxos framework is the main turner for
+us.
+So the screenshot you just saw earlier was a screenshot of the Nixxos framework.
+So you can see that it's a VM test and we can repeat that VM test very easily.
+But so what I'm getting at is in Nixxos as Nixxos developers we have this test framework
+that we use a lot and I'm giving a screenshot of an over test framework that is open QA
+used by other distributions.
+But basically what is interesting with debugging is that when you debug you want to debug a
+situation, a particular situation where you are hitting the bug.
+And in our context the fact of using Nixxos test framework, the fact of writing test first
+is a way for us to automate entering into certain particular situation including the
+ones that we are interested in, interested to debug.
+So for us like the Nixxos test framework is only a way to facilitate debugging sessions,
+a way to be able to write code but enable us to explore various scenarios and try age
+and bisect very easily any sort of dependencies.
+In the distribution context we really care about system wide testing.
+So for me I will just do a very quick intro on that.
+There are two components I will define.
+There is the driver, the code you write to assert the invariance that you care about
+like for taking the example of the system decredentials you want to assert that the credential
+that you decrypt contains the contents that you are expecting.
+That's an invariant.
+You also have the setup.
+The setup is how do you bring the system to the state that you care about so we need to
+prepare an image that contains a system decredentials containing the contents that we will be expecting
+and that's the set of code.
+And both of them are usually written in some sort of domain specific language that could
+be a bash script, that could be C, that could be Python.
+And I made just a very simple state of the art table which is not exhaustive but I find
+it very interesting to compare which is that for example over project that needs to have
+like complicated integration testing framework are the kernel and they do have solutions
+to test file systems and various things.
+And you can see like they all have their own DSL whether it's bash or any ELF program
+or executable that you can run on the system and they use some sort of emulator to give
+you environments to give you full system ablation, to give you network, to give you VLANs so
+that you can reproduce any sort of environment.
+And I find interesting so I'm not aware of any over operating system wide integration
+testing framework except from OpenQA and the NixOS test framework which is just a bunch
+of bash scripts, Python script cobbled together using the Nix domain specific language and
+we're using the Nix machinery.
+And I find interesting that so the biggest difference I find with NixOS test framework
+and the Overs which enable us to do some interesting stuff is that usually you have one language
+for the domain specific language so you have Python or shell or something but in the case
+of the NixOS test framework you can use both.
+You can use Python and Nix together so you can interpolate Nix code inside of Python code
+and like you have two levels of DSL that enable you to reason at build time but also at run
+time.
+And you have so that's why I do the funny thing of saying Python Nix for driver and
+Nix Python for setup because you think run time and build time differently at this moment.
+And so to give you an overview the NixOS test framework can offer you like OpenQA anyway,
+work test OCR machinery so you can run a VM, you can spawn a chromium instance and you
+can like use the OCR to read the window title for example in a GNOME desktop environment
+and verify that it is indeed the window title you were expecting.
+And all of those tests are running in our CI automatically for every what we call channel
+bump that is a roll up of a lot of commits in the Nix repository basically.
+What I think is very interesting in our case and enable us to debug very quickly this problem
+is that there is a secret source for our test framework which comes from the fact that
+we use the Nix DSL here.
+So the Nix DSL gives us a way to describe packages, to describe system the units and
+various things and it's a functional programming language.
+So it means that you can write functions that abstract a certain test scenario and then
+you can write more code to do more advances in the assertion on that environment.
+So for example I just take a very bad screen and I'm sorry but I will describe it.
+We have ZFS in NixOS and ZFS is very complicated to maintain.
+I'm maintainer of ZFS unfortunately.
+And ZFS is very complicated to maintain because it's out of three kernel package that often
+has ABI breakages with the kernel for many complicated reasons and legal reasons.
+And to make the burden realistic on maintainers you need to have strong testing.
+And so we are able to do matrix testing over multiple version of ZFS and multiple version
+of the kernel itself and multiple version of even like stable versus unstable and we
+even have a variant for the system D stage one because NixOS has both stage one.
+It has a scripted stage one like Julian described and we have experimentally the system D P
+I D one stage one.
+And so we are able to test all those scenarios and be able to understand what is going on
+in a very like in not a lot of lines.
+And here I will pass it to, we tried a lot of things.
+We tried to isolate the problem with the NixOS test framework.
+We are able to patch things easily.
+But even though we were not able to find the root cause.
+So we passed on to more powerful tools.
+Thank you.
+Yeah.
+So there we were trying to work out how system D was crashing exactly.
+It was dumping its core to a file in the temporary file system and promptly exiting causing
+the kernel to panic and it's not a persistent file system.
+So we had no way of recovering that core file.
+So we decided to try and run GDB in the init ramfs or we quickly abandoned that idea because
+GDB is big and doesn't fit into an init ID that well.
+Thankfully we have GDB server which I'm guessing anyone familiar with GDB might already know
+about.
+So with GDB we can attach, we can either launch a process like above, launch a process as
+a child of the GDB server.
+It can listen on the TCP port and then we can attach to it with a separate GDB client
+process.
+That doesn't quite work if you want to debug your PID 1 because PID 1 can't be the child
+of another process.
+Thankfully it also has a mode where you can attach to a running process.
+So in this case we're launching sleep infinity in the background and then running GDB server
+to attach to that and likewise attaching to that GDB server using a GDB client.
+Now how do we do that if we want to do that in PID 1?
+We have to put GDB server in our init ramfs and then we have to have it target the PID
+1 inside the init ramfs.
+The tricky part is we want to debug system D but because system D is crashing we can't
+use system D to launch GDB server.
+So we go back to having a shell script as our init and that shell script launches the
+GDB server, has that GDB server attached to itself and then executes system D.
+First thing we do is launch that GDB server, have it attached to $ in this case it's going
+to be 1 so the PID of the shell script and background that because otherwise Bash is
+going to wait for GDB server to exit and GDB server isn't going to exit.
+Then we sleep 1 because the GDB server needs a moment to start up and actually attach and
+then we exec system D to actually do our debugging.
+That ended up getting us actually able to debug it and Julien has a recording of how
+we did that, of what that looked like.
+Thank you.
+So let me try to put this demo on.
+So basically what we did, try to comment it as it goes.
+Oh this is not right.
+Yes it's not doing whatever I want.
+I think it's...
+And you can exit the full stream mode and then full stream it.
+No you didn't exit.
+Yes yes and trying to do it.
+Did I...
+Yes.
+You have your time.
+Yeah okay.
+So on the left side we are running our test framework virtual machine and you see now the
+virtual machine is not starting because it's waiting that we attach from GDB which we do
+in on the right side and you'll see as soon as we attach through this socket that is called
+hello the virtual machine is starting and GDB is loading the symbols yes and then when
+we do continue then the virtual machine is starting.
+So this one first virtual machine is as you see on the left is the installer virtual machine.
+It's going to install in XOS on a disk, populate the boot partition and everything, put the
+credential in it and then we restart it and we will eat the bug with system D. So what
+you see here is just a log of XOS installing itself and so this first GDB instance will
+not do anything purposeful because we are just...
+Because we change it in its script we have to change it both in the installing VM and
+in the installer VM so we are only doing the first part that is not really the part we
+are interested in.
+But should not take too much time.
+I can do filling.
+So what is interesting here is you can see like we have a very complicated well complicated
+setup to initialize system D initialize the installation and all that stuff.
+And this is the second VM booting now.
+All of this is automated.
+So we are reattaching with GDB and so we are now...
+The VM is now booting and it's now stuck on waiting for GDB to attach.
+So when I do this it doesn't work but when I properly attach actually it's reading the
+symbols and now when I do continue I will eat the bug that we were trying to debug.
+This we are eating it now and we now can see a backtrace.
+So yeah that's it.
+By reading this backtrace we found the bug we were looking for and we were able to open
+a PR to system D and fix it.
+And that's it.
+Do you have any questions?
+Do we have time for questions actually?
+Yes.
+Oh that's good.
+You said that you couldn't have system D be like the child of another process so you
+couldn't have GDB like start and run it.
+Why not?
+Yes.
+Do you want to answer this question?
+Yes so the question was why we can't have system D not be PID 1.
+It's because our bash script won't reap zombie processes which only PID 1 can do and because
+yeah there are various bits in system D which require it to be PID 1 especially if you are
+running it in the init ramfs because it needs to actually switch into the final root file
+system which you can't do as just any process.
+I don't understand how and when the transfer the ownership move from GDB server to system
+D because you attach GDB server to itself then you hit continue.
+The question was you don't understand when the control goes from GDB server to system
+D. The init in this case was a shell script which launched GDB server in the background
+and then the shell script replaced itself with system D and the GDB server was attaching
+to the shell script.
+Any other questions?
+Yeah just a matter of curiosity.
+Why do you say it's a problem to put all of the GDB binary into the init ramfs?
+So the question was why it's a problem to put all of GDB in the init ramfs?
+It's yeah it's fairly big.
+Big init ramfs can be a problem especially with limited with boot partitions of limited
+size.
+For that we might not have the terminal control bits and pieces necessary to make actually
+using GDB enjoyable whereas with a GDB server we can even attach a graphical front end
+to GDB or something similar to the target.
+And the debug symbols and the sources?
+Yes exactly.
+So GDB needs to access the debug symbols and the sources at good point.
+The question was why if we are using a TPM anyway to store the disk encryption keys
+why would we need to store more secrets in the boot partition to do anything else?
+I think so there are many use cases here.
+For example imagine you would run SSH server in the early boot to obtain another part of
+the key.
+So you store a part of the key in the TPM2 and another part on a server and the server
+asks you to prove your identity or something then you need to have your own identity somewhere
+because the server doesn't know if you're the true server who is asking for the over
+part of the key and that means you need private SSH house keys to be stored somewhere.
+So to confirm in general if you haven't configured something like an SSH server and explicitly
+put a secret in your init you're not going to get one.
+If that's part of your framework or where you want to split the key up and get it in
+different places for example this can help you do that.
+So again to repeat what you just said and I agree with that this sort of approach is
+useful when you have more secrets than just having the TPM2 disk encryption secret in
+the TPM2 when you have identity cessation or more parts of the secret somewhere else
+doing SSSS and what not.
+Shami's secret sharing to be more precise schemes and this makes sense in those use cases.
+We still have three minutes.
+Recompuse.
+Yeah.
+Is this already in stream with the TPM user in the init?
+Do you want to answer?
+Can you repeat sorry?
+Is this already in upstream mix?
+Mix package with the TPM2?
+Yeah so the question do you want to answer?
+Yeah okay.
+Repeat the question.
+Sorry yeah the question is this way to store secrets?
+Secret stream.
+Yes this way of storing secrets in init already upstream.
+The answer is no.
+We have a few dependencies necessary.
+One of them is using booting from system distub because system distub can measure the credentials
+you're passing.
+So there are PRs open.
+If you are an excess developers do review them please.
+But it will come soon I think in system reboot and also there is work being done in LANZABOOTIS
+for the same features.
+So both are going to be available soon I guess.
+Related is this one of the things that's kind of on the road to LANZABOOTIS?
+I'm the maintainer of LANZABOOT.
+So the question was is this part of the work to upstream LANZABOOT which is a secure boot
+component for NixOS?
+It's a bit special to NixOS because we have too many generations.
+The answer is this is in the ecosystem of those such things and yes basically.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.

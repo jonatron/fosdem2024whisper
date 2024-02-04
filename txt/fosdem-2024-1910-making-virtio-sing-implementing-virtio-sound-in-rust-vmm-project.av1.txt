@@ -1,0 +1,256 @@
+Hi everyone, my name is Dorin de Basse and I work at Red Hat.
+I currently work on enabling the audio stack and other features in the automotive team.
+And with me here is Matthias.
+Hello everyone, I'm Matthias.
+I also work at Red Hat.
+I am working at the automotive and the beautification team.
+And I'm going to talk about the audio sound and implementation we did last year in this year too.
+So yeah.
+Okay, so in this presentation, we'll be talking about making VETAIO sync.
+And we'll focus on the implementation of the VETAIO sound in the RASVMM project.
+So just a brief outline.
+I'll be talking about the automotive use case.
+I'll go through the VETAIO sound device on the driver.
+And Matthias will take care of the VHOS design implementation, the audio back end architecture and the upstream status.
+Okay, so let's get right into it.
+One might ask why VETAIO sound?
+Our main use case is the automotive industry.
+And in automotive, Android guests are being used for deploying infotainment systems.
+So in order to support these Android guests, the virtual machine monitor, as in our case, Quemo, requires a set of virtual hardware like VETAIO sound, VETAIO net and VETAIO GPU.
+And having a VETAIO sound device emulation would allow for Android to be deployed in different virtual machine monitors that currently support the VETAIO device emulation.
+Examples of these VMMs are Quemo, CrossVM and the likes of them.
+The Android reference platform, which I linked in the slide there, it defines a set of VETAIO interfaces that are expected from any VMM monitor that runs Android.
+So based on our expectation for Quemo KVM as a hardware diagnostic hypervisor, we decided to close the gap, which involves enabling the VETAIO sound device emulation as an external process.
+So now Quemo or any other VMM that currently implements the VHOSESA protocol can actually interact with the user space application.
+So before showing you how we build this device, let's present to you what the device is.
+So the VETAIO sound device is a parametriolized sound device and is based off on the VETAIO specification standard.
+It's consisting of the VETAIO driver, the PCI bus transport and the VETAIO sound device.
+And this is an architectural view of what the sound stack looks like.
+And I will show you how the different VETAIO components come together.
+So first we have the user application in the guest that's interacting with the driver using a set of SISC calls and common user space libraries,
+such as, take for example the ALSA library in the case of a normal application in the guest or tiny ALSA library as in the case of an Android application.
+And then the VETAIO sound driver on the other side takes the information that it received from the guest user space and shares it over a transport method.
+And in our case is the PCI bus.
+Now this PCI bus is a way to expose the VETAIO sound device to the driver that's in the guest.
+And the VETAIO sound device, just like any user space application that's running in your host, it sends the audio streams to the host sound drivers and the necessary sound libraries and the E-mone would route it to the host, to the sound driver that's running in the host canal space.
+So I mentioned something about the VHUCHESA protocol in the previous slide.
+So what is it?
+The VHUCHESA protocol is a set of messages that has been designed to offload the VETAIO data part processing from QEMU to a user space application on the host.
+And this user space process application is what's responsible for configuring the VETAIO rings and doing the actual processing.
+The VHUCHESA protocol actually uses communication over the Unix domain circuit.
+And it allows the control planes to initialize the shared memory regions and also exchange the file descriptors.
+The protocol defines two sides for communication.
+We have the front end and the back end.
+For the front end, we have it sending the message request while the back end is sending the message replies.
+The protocol itself also implements the control plane for establishing VETQ sharing between the guest and the user space process.
+And this user space process utilizes the VHUCHESA library.
+So I attached an example here of what the VHUCHESA protocol message would look like.
+We have the front end that's sending the VETQ memory layout and configuration to the back end.
+And you can see the message outputs in hex formats.
+An example of one of these messages is the VHUCHESA get feature message.
+It's expecting an acknowledgement reply.
+But sometimes not all messages from the driver expect a reply from the back end.
+We attached here a subdom tool, which is a tracing tool that can help you while you're debugging in case you want to play around with the traffic messages.
+So this subdom tool would actually dump the socket traffic between the front end and the back end.
+And it's being used if you pass the parts of the socket and also specify formats.
+Maybe you want the format in hex and the subdoms could also provide your format in a pickup format if you want.
+So the VETL memory region, which is this guest memory here, is initially being allocated by the guest.
+And in Quemo, this is being done by the memperealock option.
+And the VETL memory region, when it's been allocated by the guest, it's smacked by both the front end and the back end using the M-MAPS CIS calls.
+So this memory region would be accessed by the file descriptors on M-MAP.
+OK, so what happens during the device initialization?
+We have the feature bit negation that goes on there.
+During this initialization, the device and the driver both have feature bits that need to be negotiated.
+And at this point here, the driver would read the feature bits that the VETL sound device is exposing to the driver.
+And then the driver would tell the device, OK, hey, man, I only support this subset of features or I do not accept this set of features.
+So take a example, when we have the VETL ring event IDX feature, when it's been negotiated, it would allow the device to control how the notification from the driver should be handled.
+And we have other features like the indirect descriptor feature.
+And this one thing to note about the VETL sound driver is that it doesn't have any specific features that are currently defined.
+So it uses a generic feature bit set of the VETL device.
+And there are a couple of other driver requirements for this feature bit negation, which you can find it in the VETL specification link.
+So in a nutshell, a VETQ is a queue of guest allocated buffers.
+And this VETL sound driver is consistent on four VETQs.
+We have the control queue, the event queue, the TX queue and the RX queue.
+And each of these VETQs are consistent of three parts.
+So first we have the descriptor table.
+And the descriptor table is occupied the descriptor area.
+We have the available ring, which is occupying the driver area.
+And we have the used ring that's occupying the device area.
+So to further explain how the VETQs are being mapped in the driver and the device,
+take for example, we have the user application that's running in the guest.
+It would notify the driver of the audio streams that needs to be processed through the corresponding libraries and interfaces.
+And when the driver wants to send a buffer to the device,
+it fills the descriptor table with the M-Mapped buffer and writes that descriptor index into the available ring.
+Now after writing it, it has to notify the device of those available buffers.
+So it would notify the device saying, hey, I have some buffers that need to be processed.
+Now, depending on the buffer size, it could create a descriptor chain,
+which it would always because of the sound buffers are usually a lot of them.
+So for the device side, when it's done consuming these buffers,
+it would write the descriptor index into the used ring and send a used buffer notification to the driver itself.
+Now in the past, this was not how the driver used to work.
+That's when the user application sends messages to the driver,
+because it was unable to actually determine when the buffer has been updated from the user application that's running in the guest.
+And some of our upstream contributions was to ensure that this acknowledgement callback was being used to notify
+the updated buffers and also prevent the reading of steel buffers.
+Thanks to Matthias for some of those contributions.
+And let's see how the requests have been processed for each of the vertio sound red queue.
+So for the control queue, it's been used for sending the control messages from the driver to the device.
+And this control red queues have been translated into a VHOS user request and it's been forwarded to the backend for processing.
+So on the device side is going to respond to these messages indicating the status of the operation.
+For the event queue, it's been used for sending notifications to the driver,
+but in our current implementation, we did not use it because it's not necessary.
+Then we have the TX queue, which is used for sending the PCM frames for our P streams.
+And this TX queue is being used for playback.
+So it would carry the PCM frames that have been initiated by the driver
+and also replied to the previous received frames from the device.
+For the RX queue, it's being used to receive the PCM frames for input stream.
+And this is being used during the capture.
+So the RX queue would carry the PCM frames that have been initiated by the device
+and also replied to the previously transmitted frames.
+So I'll let Matthias take over.
+So now I'm going to talk about the VHOS user implementation.
+The VHOS user implementation is split into the front end and the backend.
+So the backend and the front end communicate by using the VHOS user protocol as Doreen explained before.
+So for the front end, we based on the word from Alex Benet from Linario
+that simplified the boilerplate code in Kimu,
+which is common for all the VHOS user devices.
+So if you want to see this work, I leave the patch set there.
+Then for the backend, we decided to implement it under the RASP-MM project
+in the VHOS device repository.
+And the benefits of doing that are the following.
+So for example, we show the device implementation between multiple virtual machine monitors
+like Kimu or cross-PM.
+And we use RASP as our main language.
+So we leverage the features that this language have.
+Also the process that emulates the device runs separately from the Kimu.
+So that's reducing the attack surface of Kimu.
+And also the current implementation has less context which that, for example, the Kimu built in device.
+And I leave you the link to the script that you can use if you want to try it, you compare.
+And also you have the link to the RASP-MM project.
+You can look for the implementation.
+So now let's see how the backend is designed.
+So basically the current implementation is made of a device and the audio backends.
+The audio backends implement the driver for different libraries like PyWear or ALSA.
+And the whole backend is implemented by a single thread.
+And current implementation has called the number of strings.
+So we have only one for input and one for output.
+So when a new request comes from the guest, depending on the queue in which the request arrives,
+we're going to have different handler.
+And depending on the queue, the semantic of how we handle that request change.
+So I'm going to talk about that a bit.
+So for example, for the control queue, when the driver's in a request, what we're going to do is just to process
+that request immediately.
+So for example, we're going to pass the request and depending on the control message,
+we're going to call a different method.
+What we use here is a genetic interface so anyone can write a driver for the audio backends
+because they share the interface.
+And then after processing the request, we notify immediately the guest that the request has been processed.
+So in this case, the methods in the interface are not blocking.
+In the case of the transmission queue, when a request arrives from the guest and the transmission queue,
+as Doreen said before, it is when we're doing playback.
+So we're going to reproduce some sound in the host.
+What happens is how we process that request is by just picking up the request,
+I mean, storing a pointer to the request and putting it in a 5.0 queue, which is per stream.
+And then at some point, the worker's going to wake up and pop the queue request and process that.
+Here we have to make sure that we're going to consume all the payload that the request has
+or at least to fill the buffer that the audio engine proposes because otherwise what happens is that
+the worker's thread is going to wake up more often and we're not going to use the buffer,
+I mean, the whole buffer that the engine has for the playback.
+So we have to be sure that at least we consume the whole period.
+So in this case for the transmission, we notify the guest only after consumption.
+We have to do that, have to wait because otherwise we can make the user application run out of data.
+So the spec said that we have to do that, I mean, to notify just after consumption.
+So in the case of the reception queue, I mean, the transmission queue, reception queue were exactly the same.
+The only difference is that in the case of the transmission queue, we have, and the payload has data to reproduce in the host.
+And in the case of the reception queue, we have data in the host that we want to send to the guest for capturing.
+So what we do is the only difference is that when we pop requests, we're going to use that space to fill with data from the host and then send it back.
+So if you want to try it, as I said before, we have to launch two processes.
+One is going to be for the emulation, for the device, and this is the command line in which you use it up there.
+For example, the backing that you want to use in this case is pipe wire.
+And in the other command line is for chemo.
+And the only parameter that you have to take into account is the unique socket that you're going to use to communicate with the demo.
+So I would like to mention some of the afterword that these were required.
+And for example, we fixed the BitDio sound driver because it was not respecting the BitDio specification.
+So that is what Doreen mentioned before.
+And so we fixed that.
+And also we have been working in the spec to make it more clear.
+So we have we sub-streamed some patches to the BitDio spec.
+And other work we did was to add the descriptor util module to the build queue crate, which allows, I mean, which is what's before in BitDio FS, before,
+and we move it to the build queue crate so anyone can use it.
+And the point to do that is because you cannot, you cannot hack all the way that request is distributed over at the scriptor.
+So the guest can use any distribution of the, use descriptors he wants and because the spec doesn't say how to do it.
+And we have to be independent of that.
+And that is the reason of that.
+So also there were the patches to add the generic because user device, which used the boilerplate code code that you have to put in chemo for because user devices.
+And also there were some, I mean, there were many development in the pipe wire arrays crate, thanks to the Linda.
+So for example, we added the fill out module.
+Also the sparring buffer.
+There were many also backfixing that we did doing this work.
+So yeah, we are getting at the end of the presentation.
+So if you want to get in touch, feel free to participate in the because device project.
+Also we have a Slack channel called a big dios on if you have any questions.
+And we also submitted a proposal for how Google somebody of course, so we are, if you're really interested in participating, we are trying to add a new.
+Audio backing for she is streamer.
+So feel free to submit your candidate to that.
+And if you have any questions, feel free to contact us directly.
+We have the email here.
+So yeah, that's all I think.
+So I think now we're going to questions.
+The question is what happened if I want to use it.
+It's going when you launch the first program is going to launch the device emulation and then it's going to launch Kimo.
+And then, for example, if you are in the guest, you want to use it, you're going to use for example, speaker test or apply or something like this to do.
+And then you are going to listen something in the host.
+So, yes, but what is now nothing is happening.
+What is happening when you use the back end?
+No.
+So she's asking what happens when we use the now backing.
+It's clean.
+No audio.
+He doesn't use any library.
+Yes, nothing because the pipe wire would use the pipe, I correspond in libraries and also would use the also libraries, but no, nothing.
+Okay.
+Sorry, I missed the question.
+Can you disclose some car brands that is using your feet?
+Can you can we mention some brand that is using this implementation?
+No.
+Can I ask why you chose to implement this in Rust?
+Okay.
+He's asking why we choose to implement this in Rust.
+So as you all know, Rust, like going to Rust design safety and features of Rust, we choose to implement it in Rust and also the memory usage.
+So, yeah.
+I can compliment a bit because also there was the was already the Rust BMM project that existed before.
+So for a lot of things, we was quite easy to implement the device because we could use many, many things.
+For example, to work through the beer queues, notify the guests, it was already all in that project already.
+So for us was just to implement the parsing of the request.
+But for example, the beer queue handling was already there and also it was easier to implement.
+Yeah.
+That's it.
+Maybe it's a bit out of scope, but have you made any benchmarks compared to like fully virtualized audio devices?
+What's the like overhand of using this compared to one of the audio devices already existing in KMU?
+Okay.
+So he's asking what is the benefit of using this audio device in comparison to the other audio devices in KMU?
+So regarding the PipeWire backend, PipeWire provides reduced latency, low latency and also low CPU usage and memory usage.
+And using it in the audio backend, we did some latency benchmarks.
+You can look up the PipeWire Wikipedia and how to do this latency benchmarks.
+You could also use the CPU check for CPU cycles and context switches and also latency.
+So that's, yeah.
+I think we compare it with the KMU built in device, for example.
+And it looked like the less context switch for the user application in the guess.
+Yeah.
+One of my colleagues who is a computer sound developer device, but completely different.
+I don't know.
+I think I'm going to go into details.
+So he said that the way how good that sound specification is written doesn't allow proper implementation of the device reset functionality.
+So I just want to ask if you've had any troubles with the device resets or just curious how you've handled that.
+So the question is that the built-in aspect, rather than built-in sound, doesn't exactly well describe the reset method.
+That's it.
+I said that the question is that the built-in sound aspect doesn't explain very well the reset method.
+That's it.
+There are some conflicts in the sound.
+We didn't have that issue yet, at least.
+And now I tried to remember if we had any feature to call it reset or something like this, but we don't.
+So maybe we can talk offline if you want.
+Any more questions?
+Thank you.
+Thank you.
+Thank you.

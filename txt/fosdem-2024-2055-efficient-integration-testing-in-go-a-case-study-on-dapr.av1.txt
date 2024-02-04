@@ -1,0 +1,391 @@
+Actually, an ex-collworker of mine, we worked together on CertManager, if I recall correctly.
+We wrote a lot of tests there, not enough tests in my opinion, but there is never enough
+tests in the world.
+And I have to be honest, when I code and I'm not being paid for it, I do not write tests.
+So Josh does, and that's why he's going to talk to us about how to make your testing
+life way, way better.
+Right, that's possible Josh?
+Thank you very much.
+Cheers, Marsha.
+Good.
+So hi, Ron.
+Yeah, hopefully I can change Marsha's opinion on that during this talk.
+So I'm Josh.
+I work on the project DAPA, which is an open source project.
+I'm going to talk about that in a second.
+And the talk is about efficient integration testing in Go.
+So it's a case study on DAPA.
+I work on DAPA, I'm coming from a DAPA perspective, but the idea here is the kind of learnings
+that we have did through DAPA, you can kind of bring to your own project and make your
+project better, more efficient and correct and these kinds of things.
+So this is the agenda.
+Like I say, we'll talk about testing, we'll talk about DAPA a bit, the framework that I
+wrote for the integration testing in DAPA, and then some learnings and some gotchas and
+some things you can pick up for your own project.
+Cool.
+So testing.
+Why do we test software?
+Fundamentally, why do we test software?
+So the first thing is to prove the correctness of software.
+That's the main point, right?
+We write software, software is complex.
+Code is hardly readable by humans and we make mistakes and the more software you write,
+the harder it gets to keep track of the state and yeah, we all write bugs.
+But it's not necessarily the case that this is the only reason why we write tests.
+If it was the only reason why we write tests, we would write our test once and then once
+they start passing, we would delete the test file.
+So writing tests just for the correctness is not the only reason.
+Another reason is for putting guardrails in place.
+Implementation code changes over time and so assertions you want to make about your code
+behaving in a certain way, you want to kind of keep into the future.
+So yeah, that's why we don't want to delete our test files after we've written them.
+The next thing is ensuring compatibility with external APIs.
+So if you have external services, I'm thinking I come from like a Kubernetes world and things
+like this.
+So Kubernetes version changes, they break stuff all the time.
+You want to make sure that your code still behaves in the expected way when external
+things change.
+Verifying performance, performance testing, these kinds of things, making sure that not
+only your code is correct but it also does things in a timely manner or uses less resources
+than is your limit or things like this.
+And finally, and what we'll follow in this talk is hopefully that if you write a testing
+framework which is usable by humans and is efficient and is easy to read and use, then
+that testing framework itself can then be used as your kind of sandbox on how you can
+test or do experiments in your software and test features and things like this.
+So a really good testing framework is really important to improve your developer experience
+and the final thing is increasing developer velocity which is largely a big thing that
+we care about, right?
+We want to write features.
+So test types, if you open a textbook on testing, you'll probably see this graph somewhere.
+It's a very kind of classic visualization of the different types of testing.
+At the bottom you have a unit test, that's your test bar, that's your logic code, and
+it tests a variable equals another variable, really exciting stuff.
+And then at the very top you have things like your performance testing, your testings and
+things like this.
+And then the middle section you have your end-to-end and integration testing.
+The difference between these two things is semantic and depends what project you're talking
+about and who you're asking and things like this.
+Again, I'm coming from a dapper perspective.
+End-to-end tests for us are deploying to Kubernetes and running it in a Kubernetes environment
+and invoking it there.
+Integration testing is running binaries locally, typically, and that's where the differential
+takes place.
+Integration testing ideally runs quicker than your end-to-end testing.
+Kubernetes is a slow software so it's a pain in the ass to write loads of tests for an
+end-to-end test.
+So yeah, the talks about integration testing, what are integration tests?
+Fundamentally, this is what an integration test is, and this is true for a lot of testing
+as well.
+But fundamentally, you're setting up your system to be in a particular state that you
+care about.
+You're then asserting a particular behavior and then you are then cleaning up that system
+state.
+That is it.
+That is fundamentally what you're doing.
+As an example, again, going back to dapper, this might be executing one of the dapper
+services, then doing a curl, in this case, to make sure that the healthy endpoint returns
+a 200 or something like this, and then finally killing that process at the end.
+That's it.
+That's what an integration test is.
+Keep talking about dapper.
+That's interesting.
+That's not dapper.
+Okay.
+Try that again.
+What is dapper?
+Not that.
+Dapper is an open source project, all written in go.
+The tagline, the marketing headline, is that it is a set of APIs and SDKs and frameworks
+to make a developer more productive in a cloud-native environment.
+What that means fundamentally is that the project will expose a bunch of APIs for you
+that you typically need to write some business logic that does something interesting.
+They have a list of APIs here, so it gives you some state management, PubSub, Actors,
+and then you can back those APIs by whatever implementation that you want.
+It might have different concerns, so the infrateam might manage your postgres, and then to you
+as a developer, you're just exposed with the state support API.
+That's fundamentally what dapper is.
+What is important for this talk is that dapper is a complex software system.
+We have multiple services running, and they're all doing different things.
+We're all talking to each other.
+Maybe sometimes they're MTLS, sometimes it's not.
+Sometimes GRPC, sometimes HTTP.
+We have a whole set of APIs.
+We have a bunch of backing services that we support, whether it be postgres or some
+Google stuff, whatever it might be.
+The point here is that this is a very complex software system, which all software turns
+into over a longer period of time.
+When your software system becomes this complicated spaghetti mess, it becomes a house of cards.
+It will happen, and if anyone who's worked on a larger project will have first-hand experience,
+you make a small change, and that will have unexpected consequences or behaviors in a
+completely seemingly unrelated part of the system.
+You'll have software turns into house of cards, you don't want to make changes, and
+again you slow your developer velocity that we were talking about.
+How do we resolve this?
+Tests.
+We use integration testing.
+When I joined the project, there wasn't any integration tests, so it was kind of a blank
+slate.
+I could start from the very beginning of how I wanted our integration tests to look.
+I came with these set of design decisions.
+First of all, I wanted to go as the sole dependency on these integration tests.
+I hate make files.
+I think make is terrible, and I don't want that anywhere near having to invoke tests.
+The next thing that I wanted to do was to run a test.
+I wanted to do something like a test, and it would be worse, something like needing
+Python or God forbid having to run Docker or something like this.
+It just run my tests.
+We want them to be as close to what developers are doing in their day-to-day, because remember
+it's a community project, we have lots of contributors.
+Having go as a sole dependency was really important.
+They need to be quick.
+Time.sleepers.band, we'll talk about that later.
+Tests need to be portable.
+We basically get that for free with go, because go is very good in that it can be compiled
+to different architectures and operating systems and things like this, and it's designed from
+a portability perspective from the start, so we get that for free.
+It needs to be extensible.
+We have lots of contributors.
+People need to be able to write code for the integration tests as they contribute to the
+project, and it needs to be readable.
+Similar reasons.
+That was the design philosophy, the design decisions I came into the project with, or
+into the integration test with.
+Next was actually writing the framework itself.
+If we go back to our original diagram of fundamentally this is what an integration test is, the first
+thing we can do is turn this into go stuff.
+We create what I call the process, which is the thing that is managing the setup and also
+the cleanup, and then we have the test case, which is doing the assertions that we want
+on that particular test scenario.
+We can then put in some kind of wrapper stuff, so this is actually executable, and there's
+like an entry point into this kind of test case.
+And then we're in go, so it probably makes sense to make these interfaces.
+So this is what a test case is fundamentally.
+If you can do a setup and you can run, it will be able to be executable in the integration
+test suite.
+This is what an integration test looks like in DAPA.
+It's a single self-contained file, we do some registration on the test, and we'll talk about
+that in a second, and then we do a setup and then we do a run.
+You can see here in my setup that I'm creating a process, which is going to do the setup
+and the cleanup, and then the run bit is where I'm going to do the actual assertions.
+Talking about the process part, the bit that's responsible for the kind of dependency creation
+and cleanup.
+Again, similar story, it's an interface, it does a run, and it does a cleanup.
+Really simple, and that's the point, it needs to be simple.
+We'll talk about a bit in a second on why this is a great thing.
+This is what a process would look like.
+This is kind of like a no-op kind of example, not super important to read the whole thing.
+The whole idea is it's, again, a self-contained package.
+We have the new, which creates the thing with a bunch of options, using functional option
+style here, which isn't necessarily people's favorite.
+It made sense in this particular case.
+The kind of struct versus the kind of functional style is a bit of a hot topic.
+Yeah, it has a run and then it has a cleanup further down.
+I know very abstract, but it's clear, it's obviously very important to get your interfaces
+correct because you're going to live with these forever.
+Cool.
+We have a framework run.
+The thing that I wanted to point out here is we do a process run here, and then you can
+see that we're using the go test cleanup function, which is amazing because it puts things on
+a stack.
+When you create your dependencies, whether these be binaries or whatever else that we're
+using in our processes, it will clean them up in reverse order.
+You have that stack, which is the natural order for things to be executed and then cleaned
+up in.
+Cool.
+We have all our test cases defined.
+They're running various processes.
+Again, there might be executing binaries, writing to files, things like this.
+We do our assertions and then we do our cleanups.
+These will get put into test cases and then we have some kind of sweet runner that executes
+these tests.
+That's what it looks like.
+It's a for loop over a set of tests and it executes them.
+Simple stuff.
+The next thing is how does the integration sweet runner know about these tests?
+What we need is a case registry, which is just a very fancy way of saying that we have
+a global variable that has a slice of test cases.
+What is important here that I wanted to point out was that it was a design decision that
+our test cases, and I mentioned it before, that they should be self-isolated in single
+files.
+I think as a developer, when you're reading test cases and things like this and you're
+having to go backwards and forwards into various places to even follow what the test is doing,
+is not good practice and it's confusing.
+Again, you can run into these problems.
+In order to eliminate that, we went for the style of having an init function, which does
+the registration to that global variable, and then using the bare import and style to
+import our init functions up into the top-level registry.
+Next thing is naming, which is always hard.
+I think there's a thing where developers generally don't necessarily respect testing
+code as much as they should.
+They care a lot about their implementation code and make it look pretty and performant
+and things like this, but they don't necessarily respect their testing code as much.
+This leads on to the kind of mess that people don't want to add to it because it's difficult
+to read.
+Having respect to your test code is really important.
+Similarly, naming is generally really important.
+Go has good standard on how you should name things, i.e. meaning should be derived through
+context.
+If you have a HTTP package, don't call your thing HTTP server, call it server.
+It should be hierarchical.
+Similarly, derived meaning through context, package path, describe your thing.
+Less is more.
+Go is not an IDE language.
+It's a good language.
+You don't need to have really long names.
+Just be very specific.
+No under scores, things like this.
+The benefit of then treating our test cases to be this package hierarchy with very meaningful
+being purposeful names is that we can do some reflect magic that gets us a lot of benefits.
+So when I showed before that we're doing this kind of sweet test case registration, when
+we are registering a test or when we're pulling out all the tests, you don't need to read
+the code.
+But basically what we're doing is using reflect to name the test its package path plus that
+struct name.
+So before our thing was called base, so it pulls out the package path of where that base
+test file is plus the struct name itself.
+So in this particular case, this test would be test underscore integration, DAPID foo
+base.
+Why is this a cool thing to do?
+Because that means we can start doing reject searches over our tests.
+So you can imagine for example if I'm writing a feature for DAPID or trying to fix a bug,
+if I'm working on maybe the active subsystem or something like this or placement, I can
+in another time and I'll have my integration test running and I can just do a search, a
+reject search on all the tests that are in the project for related things.
+So yeah, being very specific about your naming means that you can search through them and
+run all the relevant tests.
+Again being quick, developer focus, good UX.
+Yeah, that's how you do rejects in Go for loop and then you filter out all the test names
+that don't match the rejects.
+Here's another example, I'm working on century related things or MTS related things, I want
+to run all the century tests, I can just give it a query.
+The next is processes.
+So these are the two bits down here, the kind of dependency setup and the cleanup.
+We've been talking a lot about the different services in DAPID, so these are obviously
+using the exec, we're exacting processes on the computer, using the exec package.
+What we've decided to do is follow the kind of UNIX philosophy of running these processes
+as in do one thing and do one thing really well.
+So the exec process does really good at exacting a binary on the computer.
+You can then wrap that process in another more meaningful, again being intentional about
+naming which has a bit more context about how that binary should be run.
+So for example, this century process has all the context of knows what the CLI flags and
+things like this gives it same defaults, exposes the options in a human readable way in order
+to run that binary.
+And then as I mentioned before, DAPID has lots of different services, it's a complex software
+system but following this UNIX philosophy you can do this wrapping in your processes
+to make more meaningful, higher level naming and interfaces for your developer.
+So I can talk about a Kubernetes process and it's very easy as a developer in my test
+suite to say run Kubernetes, whatever that might mean, under the hood that's actually
+like a mocked Kubernetes API server which is actually a HTTP server, yada yada yada.
+So yeah, having this kind of wrapped process is kind of an elegant way to handle that.
+Here's an example of another one, so there's an operator service, we're doing some log
+line stuff in here, some DAPID stuff, but these are very high order concepts of dependencies
+that we're creating and these are all wrapped going down.
+Process binaries, so I mentioned before that we want to go as the sole dependency and go
+is a good language and it's got a very good build caching system and what that means is
+that in our testing integration testing itself is we're building the binaries in the test,
+so one of the first things it's going to do is it's going to build all the binaries
+that are in the project, that's the code that's doing that.
+It's then going to write them to a deterministic static file location and what that means is
+that every time I invoke the test it's going to run that go build, but because of go builds
+cache magic it's not going to take any time at all, so I can completely retry my go test
+and it will just be quick.
+The other nice thing about this is that if I change my implementation code and just write
+go test in my integration test, it's going to pull all the changes that I've just made
+to the code right because it is building from source every time.
+So that's a neat thing with go piping.
+So software writes things to logs and these can typically be very noisy if you're running
+lots and lots and lots of tests and this is going to take up a lot of disk space potentially,
+it's going to write a lot of things to the screen and it makes it impossible to read the test output.
+If you've got oodles, like a gigabyte of test logs and you're trying to find one test failure
+and read the logs from what happened, it becomes impossible.
+So write these things to in-memory buffers and then you can do things like only write
+the in-memory log buffer to the screen if the test actually fails, which is the only time
+where you actually care about what the log line is.
+Then obviously you can do things like because it's in memory, you've got a reference to it,
+you've got a pointer to it, you can then do some assertions on what was in the log lines
+and test log lines that way.
+It's quite good for this, you can create pipes and things like this.
+All very idiomatic kind of go stuff that you're familiar with.
+Asserting eventually, so all software is eventually consistent fundamentally like computers
+that are any as quick as the speed of light that is as fast as they can go, they're not as fast as that.
+But fundamentally computers to do a thing will take some time.
+And so we have to wait a period of time to observe some behavior when we put it into a particular state.
+Just fundamentally we have to do that.
+However you should never use time.sleep to do this, which I think is very, it's always there
+and it's very easy to just be like, time.sleep three seconds or something like this,
+but you should never do it.
+Time.sleep is the nuclear option.
+So to kind of illustrate this, if a single test sleeps for five seconds
+and DAPA CI for example runs four times a day, not counting PRs or anything like this,
+just standardly runs every four times a day, this equates to two hours of idle CPU time a year.
+If we then do it more than this, so like DAPA currently has 133 integration tests,
+if just 10% of those tests sleep for five seconds, then that equates to more than an entire day in a year of idle CPU.
+Which is crazy, right?
+This is bad for the polar bears, bad for the environment, it's bad for our developers too, which, yeah.
+If your test takes ages to run, no one will want to run them and no one wants to add to them.
+So being very intentional about the speed of your tests is very important.
+The way to do this would be to do polling basically, so in Go there's the kind of testifier package
+that is really, really good and highly recommend using it and it has this eventually function.
+All of the functions in this package are like super sane and highly recommend used to use them.
+And yeah, computers are faster than you think they are.
+Stuff does not take as much as you think it does, so like HTTP calls over local hosts take like milliseconds.
+It doesn't confuse as fast as you think they are.
+So even I've got here an appalling of like every 100 milliseconds, maybe that is even too slow itself.
+So yeah, computers are faster than you think they are.
+Be more aggressive with your kind of assertions and your polling.
+Clean up.
+Tests should never leak.
+Having data leaking from one test case to another will invalidate your assertions just fundamentally.
+So it's very important that you clean up state in between test case runs.
+And yeah, and it's also the case that if you're not cleaning up the state in your project in between case runs,
+then you're going to reduce the resource utilization that each test case can do and it's going to slow down your tests.
+So I'm thinking, you know, if you've got database tests or something like this, you're writing a bunch of stuff to disk.
+What if you fill up the disk? You're not running any more tests, right?
+So clean up is important.
+To list through some of the things that could be interesting for you to use, use temporary directories, using the test package.
+That's really good.
+T.cleanup, we just spoke about that earlier.
+That's doing the kind of stack thing, so it does things in the kind of reverse order.
+Use port zero.
+Ideally your kernel is going to give you a free port if you ask for zero.
+Use in-memory stuff.
+Don't use the internet.
+Don't give stop channels into functions.
+And use context.
+Context is one of the best things in Go and always use context.
+Very quick to talk about operating systems.
+Operating systems are very weird.
+Use build tags where you need to do different file types and things like this depending on their operating system.
+Work through the pain.
+Use if statements.
+Yeah, and then finally being productive.
+So building a culture of integration tests in a distributed team is always a work in progress.
+To know unnecessarily really likes writing tests, however, if you write a really good test framework,
+that's going to encourage people to add to them.
+And if they're quick, they're easy to use, then yeah.
+A good testing framework should be usable as a development sandbox.
+So what I mean by that is if you're writing a new feature,
+your testing framework should be your first port of call to wanting to use that new feature.
+Tests are great because they're encode, which means they're reproducible,
+and I can execute them and I can make changes over time.
+And it's very clear what's going on.
+Just running binaries on your terminal and things like this are fine,
+but having it in test code makes the reproducible better.
+And then the more, again, the more higher order your processes are,
+the more productive your team will be.
+So don't describe things like your developer shouldn't be describing things like exec, this binary, things like this.
+They should always be in a high order kind of thing that they're describing.
+Again, it decreases the amount of code that you have to write in your test case
+and makes them more approachable for contributors.
+And that's me. Thank you, everyone.
+APPLAUSE
+Saved some time for you, but I don't know if you want some questions or leave it there.
+I can fit in one quick question.
+Otherwise, you can just grab them in the hallway.
+Ah, no question there. Let me run one second.
+Keep holding your hand up.
+So, quickly, why did you make your own sort of test filtering system
+instead of using Go's test filtering system?
+And secondly, why didn't you use an event hub instead of polling?
+Say the first one again, sorry.
+Why didn't you...

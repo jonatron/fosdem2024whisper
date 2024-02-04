@@ -1,0 +1,947 @@
+WEBVTT
+
+00:00.000 --> 00:12.040
+So, my name is Julien and this is Ryan and Linus and we are three NixOS developers.
+
+00:12.040 --> 00:17.480
+And today we are going to talk to you about the situation that we had during the sprint
+
+00:17.480 --> 00:26.760
+where we found ourselves in need of debugging our system in Itaardee.
+
+00:27.400 --> 00:33.880
+So, I'm going to talk about, let me just, it's because I know them.
+
+00:33.880 --> 00:38.120
+I'm going to talk about why actually we were in this situation.
+
+00:38.120 --> 00:44.160
+And then Ryan is going to talk about what is the NixOS test framework and test frameworks
+
+00:44.160 --> 00:45.160
+in general.
+
+00:45.160 --> 00:53.280
+And then we are going to showcase how we did this specific fun debugging.
+
+00:53.280 --> 00:59.720
+So basically I'll motivate a little bit the situation we were in.
+
+00:59.720 --> 01:06.720
+So basically we wanted to work with encrypted secrets in Itaardee.
+
+01:06.720 --> 01:11.880
+So basically as you may or may not know, Initardee or Initial MFS is the initial file system
+
+01:11.880 --> 01:15.000
+loaded in RAM as part of the boot process.
+
+01:15.000 --> 01:22.120
+It supposedly contains all what is necessary in terms of drivers and executable to mount
+
+01:22.160 --> 01:28.720
+your root partition, which is what its main goal is, like be able to mount your root partition
+
+01:28.720 --> 01:32.240
+and continue the boot process.
+
+01:32.240 --> 01:41.080
+But in some cases, especially when your boot partition is encrypted, it also need to acquire
+
+01:41.080 --> 01:50.520
+like the key to mount it and to encrypt it.
+
+01:50.520 --> 01:55.600
+And so this can be done by displaying user prompt where you input your password, but
+
+01:55.600 --> 02:06.600
+it can also be done if necessary by starting a SSH server where you connect and then put
+
+02:06.800 --> 02:11.800
+your password in and then it mounts your root partition.
+
+02:11.800 --> 02:16.320
+And for that purpose, you sometimes need to have like secrets stored in this Initardee,
+
+02:16.320 --> 02:19.400
+for example, SSH key.
+
+02:20.400 --> 02:28.600
+The problem is that if you have an encrypted system, you kind of have to start from something
+
+02:28.600 --> 02:32.480
+unencrypted and this Initardee image is not encrypted.
+
+02:32.480 --> 02:38.840
+So if it has secrets and you just put the secrets in this image, then anybody reading
+
+02:38.840 --> 02:42.480
+your boot partition can have access to the secrets.
+
+02:42.480 --> 02:48.560
+So as Nixxos developers wanted to have like an option where you could actually have the
+
+02:48.600 --> 02:50.560
+secrets be encrypted.
+
+02:50.560 --> 02:57.720
+Currently, like in Nixxos, you have the secrets are like just put plainly in the boot partition
+
+02:57.720 --> 03:03.160
+and suffer the drawback that I was just describing before.
+
+03:03.160 --> 03:10.240
+And so we wanted to find a solution and the solution is we have an option to use systemd
+
+03:10.240 --> 03:11.600
+as like the Inix script.
+
+03:11.600 --> 03:20.600
+So we use systemd in stage one instead of a scripted Init script.
+
+03:20.720 --> 03:26.080
+And what we can do with systemd, we can use something called systemd credentials, which
+
+03:26.080 --> 03:32.720
+is basically an executable of systemd that has the main, just the role of encrypted and
+
+03:32.720 --> 03:35.440
+decrypting secrets.
+
+03:35.440 --> 03:38.920
+And you can do this by using your TPM.
+
+03:38.920 --> 03:45.960
+And so basically what you can do is use the same TPM in your Initardee and this way you
+
+03:45.960 --> 03:50.000
+have secrets that were encrypted when your system was booted.
+
+03:50.000 --> 03:58.120
+That systemd in stage one is now able to decrypt in your boot process.
+
+03:58.120 --> 03:59.920
+So why all this?
+
+03:59.920 --> 04:02.360
+Where am I coming?
+
+04:02.440 --> 04:11.040
+I start, I try to implement this in Nixxos and what we found out is that I don't know
+
+04:11.040 --> 04:17.120
+if you can read this particularly well, but this is the log of the boot process and you
+
+04:17.120 --> 04:23.560
+see that there is systemd that is running in Initardee, it says here running in Initardee.
+
+04:23.560 --> 04:30.480
+And then it says it loaded the credentials that I tried to pass it, to pass to it and
+
+04:30.480 --> 04:39.160
+then it caught an assertion in some function and says okay, I'm retiring early, goodbye.
+
+04:39.160 --> 04:40.160
+It's crashing.
+
+04:40.160 --> 04:47.080
+So the question is how can we, how can we like debug this kind of thing?
+
+04:47.080 --> 04:54.080
+And one of the things we consider at the beginning is to use the Nixxos framework because it
+
+04:54.080 --> 04:59.600
+allows us to be in some very constrained situation where you can find maybe the bug easier.
+
+04:59.600 --> 05:05.240
+And then Ren is going to talk to you about the Nixxos framework is the main turner for
+
+05:05.240 --> 05:06.560
+us.
+
+05:06.560 --> 05:11.840
+So the screenshot you just saw earlier was a screenshot of the Nixxos framework.
+
+05:11.840 --> 05:17.800
+So you can see that it's a VM test and we can repeat that VM test very easily.
+
+05:17.800 --> 05:24.680
+But so what I'm getting at is in Nixxos as Nixxos developers we have this test framework
+
+05:24.680 --> 05:33.280
+that we use a lot and I'm giving a screenshot of an over test framework that is open QA
+
+05:33.280 --> 05:34.680
+used by other distributions.
+
+05:34.680 --> 05:39.080
+But basically what is interesting with debugging is that when you debug you want to debug a
+
+05:39.080 --> 05:42.320
+situation, a particular situation where you are hitting the bug.
+
+05:42.320 --> 05:47.640
+And in our context the fact of using Nixxos test framework, the fact of writing test first
+
+05:47.640 --> 05:51.840
+is a way for us to automate entering into certain particular situation including the
+
+05:51.840 --> 05:56.040
+ones that we are interested in, interested to debug.
+
+05:56.040 --> 06:00.520
+So for us like the Nixxos test framework is only a way to facilitate debugging sessions,
+
+06:00.520 --> 06:06.720
+a way to be able to write code but enable us to explore various scenarios and try age
+
+06:06.720 --> 06:10.520
+and bisect very easily any sort of dependencies.
+
+06:10.520 --> 06:15.720
+In the distribution context we really care about system wide testing.
+
+06:15.720 --> 06:19.440
+So for me I will just do a very quick intro on that.
+
+06:19.440 --> 06:21.720
+There are two components I will define.
+
+06:21.720 --> 06:25.520
+There is the driver, the code you write to assert the invariance that you care about
+
+06:25.520 --> 06:31.840
+like for taking the example of the system decredentials you want to assert that the credential
+
+06:31.840 --> 06:35.040
+that you decrypt contains the contents that you are expecting.
+
+06:35.040 --> 06:36.040
+That's an invariant.
+
+06:36.040 --> 06:37.760
+You also have the setup.
+
+06:37.760 --> 06:42.040
+The setup is how do you bring the system to the state that you care about so we need to
+
+06:42.040 --> 06:47.560
+prepare an image that contains a system decredentials containing the contents that we will be expecting
+
+06:47.560 --> 06:49.000
+and that's the set of code.
+
+06:49.000 --> 06:53.400
+And both of them are usually written in some sort of domain specific language that could
+
+06:53.400 --> 06:56.440
+be a bash script, that could be C, that could be Python.
+
+06:56.440 --> 07:02.800
+And I made just a very simple state of the art table which is not exhaustive but I find
+
+07:02.800 --> 07:07.800
+it very interesting to compare which is that for example over project that needs to have
+
+07:07.800 --> 07:13.280
+like complicated integration testing framework are the kernel and they do have solutions
+
+07:13.280 --> 07:16.680
+to test file systems and various things.
+
+07:16.680 --> 07:23.880
+And you can see like they all have their own DSL whether it's bash or any ELF program
+
+07:23.880 --> 07:29.360
+or executable that you can run on the system and they use some sort of emulator to give
+
+07:29.360 --> 07:34.200
+you environments to give you full system ablation, to give you network, to give you VLANs so
+
+07:34.200 --> 07:37.080
+that you can reproduce any sort of environment.
+
+07:37.080 --> 07:42.200
+And I find interesting so I'm not aware of any over operating system wide integration
+
+07:42.200 --> 07:46.480
+testing framework except from OpenQA and the NixOS test framework which is just a bunch
+
+07:46.480 --> 07:53.040
+of bash scripts, Python script cobbled together using the Nix domain specific language and
+
+07:53.040 --> 07:56.160
+we're using the Nix machinery.
+
+07:56.160 --> 08:00.720
+And I find interesting that so the biggest difference I find with NixOS test framework
+
+08:00.720 --> 08:06.180
+and the Overs which enable us to do some interesting stuff is that usually you have one language
+
+08:06.180 --> 08:11.080
+for the domain specific language so you have Python or shell or something but in the case
+
+08:11.080 --> 08:13.800
+of the NixOS test framework you can use both.
+
+08:13.800 --> 08:18.000
+You can use Python and Nix together so you can interpolate Nix code inside of Python code
+
+08:18.000 --> 08:23.320
+and like you have two levels of DSL that enable you to reason at build time but also at run
+
+08:23.320 --> 08:24.560
+time.
+
+08:24.560 --> 08:28.280
+And you have so that's why I do the funny thing of saying Python Nix for driver and
+
+08:28.280 --> 08:35.680
+Nix Python for setup because you think run time and build time differently at this moment.
+
+08:35.680 --> 08:40.680
+And so to give you an overview the NixOS test framework can offer you like OpenQA anyway,
+
+08:40.680 --> 08:45.200
+work test OCR machinery so you can run a VM, you can spawn a chromium instance and you
+
+08:45.200 --> 08:50.440
+can like use the OCR to read the window title for example in a GNOME desktop environment
+
+08:50.440 --> 08:53.840
+and verify that it is indeed the window title you were expecting.
+
+08:53.840 --> 08:58.840
+And all of those tests are running in our CI automatically for every what we call channel
+
+08:58.840 --> 09:05.360
+bump that is a roll up of a lot of commits in the Nix repository basically.
+
+09:05.360 --> 09:09.560
+What I think is very interesting in our case and enable us to debug very quickly this problem
+
+09:09.560 --> 09:13.800
+is that there is a secret source for our test framework which comes from the fact that
+
+09:13.800 --> 09:15.320
+we use the Nix DSL here.
+
+09:15.320 --> 09:20.120
+So the Nix DSL gives us a way to describe packages, to describe system the units and
+
+09:20.120 --> 09:22.760
+various things and it's a functional programming language.
+
+09:22.760 --> 09:27.240
+So it means that you can write functions that abstract a certain test scenario and then
+
+09:27.240 --> 09:32.120
+you can write more code to do more advances in the assertion on that environment.
+
+09:32.120 --> 09:37.200
+So for example I just take a very bad screen and I'm sorry but I will describe it.
+
+09:38.200 --> 09:41.920
+We have ZFS in NixOS and ZFS is very complicated to maintain.
+
+09:41.920 --> 09:46.640
+I'm maintainer of ZFS unfortunately.
+
+09:46.640 --> 09:50.040
+And ZFS is very complicated to maintain because it's out of three kernel package that often
+
+09:50.040 --> 09:56.920
+has ABI breakages with the kernel for many complicated reasons and legal reasons.
+
+09:56.920 --> 10:02.080
+And to make the burden realistic on maintainers you need to have strong testing.
+
+10:02.080 --> 10:06.920
+And so we are able to do matrix testing over multiple version of ZFS and multiple version
+
+10:06.920 --> 10:13.080
+of the kernel itself and multiple version of even like stable versus unstable and we
+
+10:13.080 --> 10:18.200
+even have a variant for the system D stage one because NixOS has both stage one.
+
+10:18.200 --> 10:23.120
+It has a scripted stage one like Julian described and we have experimentally the system D P
+
+10:23.120 --> 10:24.120
+I D one stage one.
+
+10:24.120 --> 10:28.240
+And so we are able to test all those scenarios and be able to understand what is going on
+
+10:28.240 --> 10:34.200
+in a very like in not a lot of lines.
+
+10:34.200 --> 10:36.520
+And here I will pass it to, we tried a lot of things.
+
+10:36.520 --> 10:39.400
+We tried to isolate the problem with the NixOS test framework.
+
+10:39.400 --> 10:42.000
+We are able to patch things easily.
+
+10:42.000 --> 10:45.160
+But even though we were not able to find the root cause.
+
+10:45.160 --> 10:52.360
+So we passed on to more powerful tools.
+
+10:52.360 --> 10:53.360
+Thank you.
+
+10:53.360 --> 10:54.360
+Yeah.
+
+10:54.360 --> 10:59.560
+So there we were trying to work out how system D was crashing exactly.
+
+10:59.560 --> 11:06.480
+It was dumping its core to a file in the temporary file system and promptly exiting causing
+
+11:06.480 --> 11:10.200
+the kernel to panic and it's not a persistent file system.
+
+11:10.200 --> 11:14.660
+So we had no way of recovering that core file.
+
+11:14.660 --> 11:22.400
+So we decided to try and run GDB in the init ramfs or we quickly abandoned that idea because
+
+11:22.400 --> 11:29.440
+GDB is big and doesn't fit into an init ID that well.
+
+11:29.440 --> 11:34.440
+Thankfully we have GDB server which I'm guessing anyone familiar with GDB might already know
+
+11:34.440 --> 11:37.680
+about.
+
+11:37.680 --> 11:46.040
+So with GDB we can attach, we can either launch a process like above, launch a process as
+
+11:46.040 --> 11:47.960
+a child of the GDB server.
+
+11:47.960 --> 11:54.960
+It can listen on the TCP port and then we can attach to it with a separate GDB client
+
+11:54.960 --> 11:56.800
+process.
+
+11:56.800 --> 12:02.040
+That doesn't quite work if you want to debug your PID 1 because PID 1 can't be the child
+
+12:02.040 --> 12:04.320
+of another process.
+
+12:04.320 --> 12:08.080
+Thankfully it also has a mode where you can attach to a running process.
+
+12:08.080 --> 12:12.720
+So in this case we're launching sleep infinity in the background and then running GDB server
+
+12:12.720 --> 12:23.080
+to attach to that and likewise attaching to that GDB server using a GDB client.
+
+12:23.080 --> 12:27.080
+Now how do we do that if we want to do that in PID 1?
+
+12:27.080 --> 12:33.280
+We have to put GDB server in our init ramfs and then we have to have it target the PID
+
+12:33.280 --> 12:35.880
+1 inside the init ramfs.
+
+12:35.880 --> 12:42.440
+The tricky part is we want to debug system D but because system D is crashing we can't
+
+12:42.440 --> 12:45.840
+use system D to launch GDB server.
+
+12:45.840 --> 12:53.600
+So we go back to having a shell script as our init and that shell script launches the
+
+12:53.600 --> 13:03.200
+GDB server, has that GDB server attached to itself and then executes system D.
+
+13:04.120 --> 13:10.360
+First thing we do is launch that GDB server, have it attached to $ in this case it's going
+
+13:10.360 --> 13:19.720
+to be 1 so the PID of the shell script and background that because otherwise Bash is
+
+13:19.720 --> 13:25.280
+going to wait for GDB server to exit and GDB server isn't going to exit.
+
+13:25.280 --> 13:32.040
+Then we sleep 1 because the GDB server needs a moment to start up and actually attach and
+
+13:32.040 --> 13:38.280
+then we exec system D to actually do our debugging.
+
+13:38.280 --> 13:45.120
+That ended up getting us actually able to debug it and Julien has a recording of how
+
+13:45.120 --> 13:48.320
+we did that, of what that looked like.
+
+13:48.320 --> 13:49.320
+Thank you.
+
+13:49.320 --> 13:57.080
+So let me try to put this demo on.
+
+13:57.080 --> 14:01.240
+So basically what we did, try to comment it as it goes.
+
+14:01.240 --> 14:04.280
+Oh this is not right.
+
+14:04.280 --> 14:07.680
+Yes it's not doing whatever I want.
+
+14:07.680 --> 14:09.680
+I think it's...
+
+14:09.680 --> 14:15.760
+And you can exit the full stream mode and then full stream it.
+
+14:15.760 --> 14:17.640
+No you didn't exit.
+
+14:17.640 --> 14:21.680
+Yes yes and trying to do it.
+
+14:21.680 --> 14:22.680
+Did I...
+
+14:22.680 --> 14:23.680
+Yes.
+
+14:23.680 --> 14:24.680
+You have your time.
+
+14:24.680 --> 14:25.680
+Yeah okay.
+
+14:26.120 --> 14:35.800
+So on the left side we are running our test framework virtual machine and you see now the
+
+14:35.800 --> 14:41.920
+virtual machine is not starting because it's waiting that we attach from GDB which we do
+
+14:41.920 --> 14:50.680
+in on the right side and you'll see as soon as we attach through this socket that is called
+
+14:50.680 --> 14:57.800
+hello the virtual machine is starting and GDB is loading the symbols yes and then when
+
+14:57.800 --> 15:01.760
+we do continue then the virtual machine is starting.
+
+15:01.760 --> 15:09.080
+So this one first virtual machine is as you see on the left is the installer virtual machine.
+
+15:09.080 --> 15:14.560
+It's going to install in XOS on a disk, populate the boot partition and everything, put the
+
+15:14.560 --> 15:19.440
+credential in it and then we restart it and we will eat the bug with system D. So what
+
+15:19.480 --> 15:27.280
+you see here is just a log of XOS installing itself and so this first GDB instance will
+
+15:27.280 --> 15:31.520
+not do anything purposeful because we are just...
+
+15:31.520 --> 15:36.640
+Because we change it in its script we have to change it both in the installing VM and
+
+15:36.640 --> 15:43.680
+in the installer VM so we are only doing the first part that is not really the part we
+
+15:43.680 --> 15:45.680
+are interested in.
+
+15:50.160 --> 15:52.720
+But should not take too much time.
+
+15:52.720 --> 15:57.240
+I can do filling.
+
+15:57.240 --> 16:02.080
+So what is interesting here is you can see like we have a very complicated well complicated
+
+16:02.080 --> 16:06.800
+setup to initialize system D initialize the installation and all that stuff.
+
+16:06.800 --> 16:09.120
+And this is the second VM booting now.
+
+16:09.120 --> 16:10.880
+All of this is automated.
+
+16:10.880 --> 16:20.320
+So we are reattaching with GDB and so we are now...
+
+16:20.320 --> 16:31.640
+The VM is now booting and it's now stuck on waiting for GDB to attach.
+
+16:31.640 --> 16:37.120
+So when I do this it doesn't work but when I properly attach actually it's reading the
+
+16:37.120 --> 16:45.120
+symbols and now when I do continue I will eat the bug that we were trying to debug.
+
+16:45.120 --> 16:51.840
+This we are eating it now and we now can see a backtrace.
+
+16:51.840 --> 16:54.160
+So yeah that's it.
+
+16:54.160 --> 16:59.560
+By reading this backtrace we found the bug we were looking for and we were able to open
+
+16:59.560 --> 17:03.240
+a PR to system D and fix it.
+
+17:03.240 --> 17:04.240
+And that's it.
+
+17:04.240 --> 17:12.320
+Do you have any questions?
+
+17:12.320 --> 17:14.320
+Do we have time for questions actually?
+
+17:14.320 --> 17:15.320
+Yes.
+
+17:15.320 --> 17:16.320
+Oh that's good.
+
+17:16.320 --> 17:27.320
+You said that you couldn't have system D be like the child of another process so you
+
+17:27.320 --> 17:30.320
+couldn't have GDB like start and run it.
+
+17:30.320 --> 17:31.320
+Why not?
+
+17:31.320 --> 17:32.320
+Yes.
+
+17:32.320 --> 17:35.800
+Do you want to answer this question?
+
+17:35.800 --> 17:41.120
+Yes so the question was why we can't have system D not be PID 1.
+
+17:41.120 --> 17:50.200
+It's because our bash script won't reap zombie processes which only PID 1 can do and because
+
+17:50.200 --> 17:56.080
+yeah there are various bits in system D which require it to be PID 1 especially if you are
+
+17:56.080 --> 18:01.480
+running it in the init ramfs because it needs to actually switch into the final root file
+
+18:01.480 --> 18:06.280
+system which you can't do as just any process.
+
+18:06.280 --> 18:14.720
+I don't understand how and when the transfer the ownership move from GDB server to system
+
+18:14.720 --> 18:19.040
+D because you attach GDB server to itself then you hit continue.
+
+18:19.040 --> 18:27.920
+The question was you don't understand when the control goes from GDB server to system
+
+18:27.920 --> 18:35.960
+D. The init in this case was a shell script which launched GDB server in the background
+
+18:35.960 --> 18:40.640
+and then the shell script replaced itself with system D and the GDB server was attaching
+
+18:40.640 --> 18:45.520
+to the shell script.
+
+18:45.520 --> 18:47.520
+Any other questions?
+
+18:47.520 --> 18:51.160
+Yeah just a matter of curiosity.
+
+18:51.160 --> 18:58.280
+Why do you say it's a problem to put all of the GDB binary into the init ramfs?
+
+18:58.280 --> 19:03.720
+So the question was why it's a problem to put all of GDB in the init ramfs?
+
+19:03.720 --> 19:06.280
+It's yeah it's fairly big.
+
+19:06.280 --> 19:11.160
+Big init ramfs can be a problem especially with limited with boot partitions of limited
+
+19:11.160 --> 19:13.240
+size.
+
+19:13.240 --> 19:21.880
+For that we might not have the terminal control bits and pieces necessary to make actually
+
+19:21.880 --> 19:29.400
+using GDB enjoyable whereas with a GDB server we can even attach a graphical front end
+
+19:29.400 --> 19:33.240
+to GDB or something similar to the target.
+
+19:33.240 --> 19:36.000
+And the debug symbols and the sources?
+
+19:36.000 --> 19:37.480
+Yes exactly.
+
+19:37.480 --> 20:05.720
+So GDB needs to access the debug symbols and the sources at good point.
+
+20:06.360 --> 20:12.840
+The question was why if we are using a TPM anyway to store the disk encryption keys
+
+20:12.840 --> 20:18.200
+why would we need to store more secrets in the boot partition to do anything else?
+
+20:18.200 --> 20:21.480
+I think so there are many use cases here.
+
+20:21.480 --> 20:26.840
+For example imagine you would run SSH server in the early boot to obtain another part of
+
+20:26.840 --> 20:27.840
+the key.
+
+20:27.840 --> 20:31.080
+So you store a part of the key in the TPM2 and another part on a server and the server
+
+20:31.120 --> 20:35.840
+asks you to prove your identity or something then you need to have your own identity somewhere
+
+20:35.840 --> 20:39.080
+because the server doesn't know if you're the true server who is asking for the over
+
+20:39.080 --> 20:45.160
+part of the key and that means you need private SSH house keys to be stored somewhere.
+
+20:45.160 --> 20:51.800
+So to confirm in general if you haven't configured something like an SSH server and explicitly
+
+20:51.800 --> 20:53.800
+put a secret in your init you're not going to get one.
+
+20:53.800 --> 20:56.800
+If that's part of your framework or where you want to split the key up and get it in
+
+20:56.800 --> 20:59.800
+different places for example this can help you do that.
+
+21:00.520 --> 21:06.200
+So again to repeat what you just said and I agree with that this sort of approach is
+
+21:06.200 --> 21:11.760
+useful when you have more secrets than just having the TPM2 disk encryption secret in
+
+21:11.760 --> 21:17.400
+the TPM2 when you have identity cessation or more parts of the secret somewhere else
+
+21:17.400 --> 21:20.040
+doing SSSS and what not.
+
+21:20.040 --> 21:26.040
+Shami's secret sharing to be more precise schemes and this makes sense in those use cases.
+
+21:30.040 --> 21:32.040
+We still have three minutes.
+
+21:32.040 --> 21:33.040
+Recompuse.
+
+21:33.040 --> 21:34.040
+Yeah.
+
+21:34.040 --> 21:40.040
+Is this already in stream with the TPM user in the init?
+
+21:40.040 --> 21:41.040
+Do you want to answer?
+
+21:41.040 --> 21:42.040
+Can you repeat sorry?
+
+21:42.040 --> 21:44.040
+Is this already in upstream mix?
+
+21:44.040 --> 21:48.040
+Mix package with the TPM2?
+
+21:48.040 --> 21:50.040
+Yeah so the question do you want to answer?
+
+21:50.040 --> 21:51.040
+Yeah okay.
+
+21:51.040 --> 21:52.040
+Repeat the question.
+
+21:52.040 --> 21:56.040
+Sorry yeah the question is this way to store secrets?
+
+21:56.040 --> 21:57.040
+Secret stream.
+
+21:57.040 --> 22:03.280
+Yes this way of storing secrets in init already upstream.
+
+22:03.280 --> 22:04.280
+The answer is no.
+
+22:04.280 --> 22:08.040
+We have a few dependencies necessary.
+
+22:08.040 --> 22:17.800
+One of them is using booting from system distub because system distub can measure the credentials
+
+22:17.800 --> 22:20.040
+you're passing.
+
+22:20.040 --> 22:23.480
+So there are PRs open.
+
+22:23.480 --> 22:27.840
+If you are an excess developers do review them please.
+
+22:27.840 --> 22:35.640
+But it will come soon I think in system reboot and also there is work being done in LANZABOOTIS
+
+22:35.640 --> 22:38.200
+for the same features.
+
+22:38.200 --> 22:43.200
+So both are going to be available soon I guess.
+
+22:43.200 --> 22:49.200
+Related is this one of the things that's kind of on the road to LANZABOOTIS?
+
+22:49.200 --> 22:52.920
+I'm the maintainer of LANZABOOT.
+
+22:52.920 --> 22:59.520
+So the question was is this part of the work to upstream LANZABOOT which is a secure boot
+
+22:59.520 --> 23:00.760
+component for NixOS?
+
+23:00.760 --> 23:04.120
+It's a bit special to NixOS because we have too many generations.
+
+23:04.120 --> 23:12.800
+The answer is this is in the ecosystem of those such things and yes basically.
+
+23:12.800 --> 23:16.800
+Thank you.
+
+23:19.200 --> 23:20.200
+Thank you.
+
+23:20.200 --> 23:21.200
+Thank you.
+
+23:21.200 --> 23:22.200
+Thank you.
+
+23:22.200 --> 23:23.200
+Thank you.
+
+23:23.200 --> 23:24.200
+Thank you.
+
+23:24.200 --> 23:25.200
+Thank you.
+
+23:25.200 --> 23:26.200
+Thank you.
+
+23:26.200 --> 23:27.200
+Thank you.
+
+23:27.200 --> 23:28.200
+Thank you.
+
+23:28.200 --> 23:29.200
+Thank you.
+
+23:29.200 --> 23:30.200
+Thank you.
+
+23:30.200 --> 23:31.200
+Thank you.
+
+23:31.200 --> 23:32.200
+Thank you.
+
+23:32.200 --> 23:33.200
+Thank you.
+
+23:33.200 --> 23:34.200
+Thank you.
+
+23:34.200 --> 23:35.200
+Thank you.
+
+23:35.200 --> 23:36.200
+Thank you.
+
+23:36.200 --> 23:37.200
+Thank you.
+
+23:37.200 --> 23:38.200
+Thank you.
+
+23:38.200 --> 23:39.200
+Thank you.
+
+23:39.200 --> 23:40.200
+Thank you.
+
+23:40.200 --> 23:41.200
+Thank you.
+
+23:41.200 --> 23:42.200
+Thank you.
+
+23:42.200 --> 23:43.200
+Thank you.
+
+23:43.200 --> 23:44.200
+Thank you.
+
+23:44.200 --> 23:45.200
+Thank you.
+
+23:45.200 --> 23:46.200
+Thank you.
+
+23:46.200 --> 23:47.200
+Thank you.
+
+23:47.200 --> 23:48.200
+Thank you.
+

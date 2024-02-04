@@ -1,0 +1,166 @@
+Welcome everyone to our next session.
+Thank you very much. Hello. Good afternoon. My name is Luca.
+By day I work as a software engineer in the Linux systems group on Microsoft where I am responsible for the operating system that runs on the Azure infrastructure.
+By night I am involved in various open source projects. I'm a maintainer in system D, a Debian developer, DPDK, yes maintainer, a bunch of other stuff that I consistently forget about.
+So I'm going to talk to you about this new feature we had in system D middle of last year called software boot.
+And yes, it's a new type of reboot and we're going to look at how it's implemented first and in the second part of the talk we're going to look at two demos showing that running and how it can work with containers.
+So if you were at all systems go, you probably saw the first half of the talk while the second half is new.
+So first of all, why? Why do we want a new type of reboot? Don't we have enough already? And the answer is of course is performance.
+So rebooting means if you have some services that are running on your system and they're providing some functionality during that window of time they are interrupted and people don't like interruptions.
+So that is the main motivation for this. I also know that there are some updates system that require double reboots.
+I've been told for example that DNF line upgrades require double reboots.
+So by shorting the time it takes to do this we can save something there as well.
+But the main use case is the first one for avoiding interruptions.
+So when you go from a reboot to a KX, you're saving time because you're cutting away the time it takes to reset the firmware and the hardware.
+So the next obvious step was to cut away the kernels at time.
+If the kernel is not being updated you don't need to reboot it and do all the device initialization and everything else.
+So we came up with the idea of soft reboot and this is what it does.
+It just reboots the user space portion of your Linux system.
+Again the goal is to minimize disruption as much as possible.
+So this pairs very well with image based Linux.
+We've been talking about image based Linux systems for a couple of years now.
+This works very well with it because in the system you have a single root FS which is usually read only.
+And then you have a UKI where your kernel is in VR and these are distinct components.
+They are usually updated independently.
+And so with a soft reboot when you don't update your kernel you can update just your root FS.
+Now this also pairs very nicely with kernel live patching.
+So on production system you can fix bugs in your kernel without rebooting by using kernel live patching.
+And this pairs nicely with that because you can use the system to update the user space portion of your image
+when you have bugs or security problems or whatever.
+Again we are replacing the entire user space atomically and moving into a new root file system.
+Now it's not only for image based systems though.
+This can be used for package based OSs because for example you cannot restart the D-Bus demon or broker on a Linux system.
+Your system will explode if you do that.
+So by doing a soft reboot you can save some time when your D-Bus has some security problems that needs to be fixed or what not.
+So let's look at how it is implemented.
+So as far as the kernel is concerned nothing is happening.
+Everything is business as usual.
+It doesn't see anything.
+It's all the same session or the same boot.
+So for example we have still some problems to solve, some papercasts.
+For example if you do journal CTL minus boot minus one you will not see the previous software boot.
+You see the previous full reboot.
+We have ideas to fix this only to do list but it's one of the fewer papercasts left to solve.
+Now as far as user space is concerned everything goes away.
+It's a normal shutdown.
+So system D goes through the usual phases.
+It starts a shutdown target, a software boot target that conflicts with everything else so all the services get stopped.
+And then instead of giving control back to the kernel with a Cisco to reboot it just reexact itself into the new root file system by passing the full reboot.
+So you can do this in place.
+So your software boot is in the same root file system or you prepare ahead of time the new file system.
+And the run next route.
+And we allow this because usually prepare the new root file system and position all the mounts across and whatnot take some time.
+So you can do this ahead of time without having to interrupt all the services by doing it in line.
+So you can prepare your next root of s in run next route and then code the software boot so that you transition very quickly to the next root of s.
+And again you can prepare your any additional storage you have if you have any encrypted partition for var for example.
+You can prepare it ahead of time so you don't need to redo the decryption steps which again takes some time require maybe use an interruption maybe accident tpm or whatnot.
+And again the kernel stays the same so no configuration changes.
+So in system D 254 we added a new verb system system CTL software boot to do this equivalent the bus API and the next version.
+We also had some new signal that tell you yet this is shut down happening and it's off type software boot.
+So we are cutting time away from their boot is that all we can do with this.
+Not quite we can go further.
+So given system D set doesn't exit it's reexec itself.
+You can carry over any state we want to the software boot.
+So for example the file the script of store is not aware what it is a way to store for the script or inside PID one and then it gives them back to you to your service when it starts.
+And by the way all these links are on the slides are used to documentation I will put the slides online.
+But basically your service can say hey I have an active TCP connection take the sd for me and keep it there.
+And then your service goes down the software would happens you come back and you get back the TCP connection you can pick up from where you left.
+Because the kernel just stays running the connection is not interrupted it just buffered and there's some delay of course but it doesn't have to be established for example.
+It's not just sockets you can use this for MFD for example for any buffer any state that is expensive to calculate you can store it in a MFD and get it back immediately.
+And you can do this for the network stock for example in network D we have these options so that when it goes down it leaves interfaces configured.
+And when you go back in the software boot in a new file system you don't have to reconfigure your network interfaces which again can be a bit slow.
+And then finally we transition across Zashran as a state pseudophile system or tempfs so that if services have state in Zashran they find it again when they come back.
+This is not recursive but and also Zashtemp is reset completely because that's a scratch area.
+So by doing this we can accelerate the time that the services need to go back to fully functional after a software boot.
+But is that all we can do again and what the hell does any of these have to do with containers is it a container dev room.
+So here's an idea now some payloads are completely independent of your router fest for example containers but also portable services.
+Now if you don't know what a portable service is I suggest to check it out they're awesome they're a way to attach a system service to your OS that runs from a different root file system.
+But it comes with its own image but it's fully integrated with your system services it's quite cool.
+But it applies to these but not only this so these these are these services these containers these payloads are independent of the root file system.
+So can we let them run during this software boot process the answer is well yes why not.
+And the configuration to that is a bit complex it's linked there I want to show it here we show it in a demo later.
+But basically you can configure a system service so that system you will not kill it or stop it when the software boot happens.
+So is the service keeps running while the router fest is updated under it.
+Net or is it accessible we keep it up the current doesn't go away doesn't the conflict devices same thing for the disks.
+So for this kind of payloads we go from some interruption to zero interruptions we quite nice.
+Of course there's a catch there's always a catch these payloads they really need to have nothing to do with the root file system because for example if you keep anything.
+And if I open for the old root file system and you will keep the resource pin and they will be free that you use more memory or whatever else.
+So you need to make sure they are disconnected and also other parts of the US are going away for example the bus.
+So in the documentation there it shows up but you need to change the way you use the bus via the SD bus library for example to automatically reconnect when it comes up.
+It's usually not done because the bus never goes away normally but if you have one of these payloads so virus of the boot you need to change our use the but it's very simple and it's a.
+Describing the documentation there.
+Now one thing I will look at in the near future is also if we can if we have actual bind parts from the host.
+The first into the services if you can automatically refresh them after software boot I'm halfway through that is all done yet.
+So let's see this happening with Podman now because I am a coward I did not I'm not doing a live demo I'm showing a recording.
+Now this is a dead end image dead end testing and it's running podman some version and so podman has this thing called a quadlet where it generates.
+Some system services for your container and now this is not exactly what podman generates though it's a bit different as most stuff here and we see what that is in a moment.
+Or you can see down here it runs a very important production use case of sleep infinity that's typical production use case everybody uses.
+But to show what the actual difference is because this is a demo to put it together I am not a podman developer or user.
+I thought it was cool to make it work and I have it a bit together so podman gives you some some systems service I change it and show you the deep here so.
+These settings up here are necessary to make the containers service survive the software boot.
+This is a bit of a hack and if this is supported by podman natively it would have to be solved in a better way but basically this ties the container to the root file system to the var directory.
+So I have to comment that out so that they are not tied and it doesn't get shut down and then there's four more things down here that are suspicious and we'll see what they are in a moment.
+Now which is simple to explain if I start this container this.
+Sleep service and it takes a second because it downloads the image in the background and I resolve the complaints that we don't care.
+Now.
+The way podman works when you run it as part of a system service is works correctly creates some subc groups so there is the payload.
+C group node and then there is an additional sidecar control service that runs as part of the same C group and is also a group is dedicated to podman.
+Now the reason for this for settings here is because this common binary comes from the root file system.
+So we need to make sure if we just do this it will keep the root file system pin that we don't want that.
+So my my hack to make the demo work is actually we're running on a different the service runs on a different route image.
+So it's another big image with podman inside.
+So this binary and the podman binary that runs they come from this image not from the system that way they are independent and they are not tied together.
+And then we disconnect a couple of things.
+So.
+So now we we have that prepared and there's other things so you saw the two C groups there.
+Now the way system makes marks a C group for survival of software boot is by setting these extended attribute here.
+Now because podman gets a delegation from this C group which is the right thing to do but we don't touch the children.
+We do not set these extended attribute automatically for these two payoffs and if podman wanted to support this natively it would have to do that when he sets up the C groups.
+Now of course again this is how to gather so I'm doing that by hand just setting the that's a group there.
+The extended attribute so that system we won't kill all the these processes when they are running and now we can finally type software boot and we see all the US space going away.
+And then shortly thereafter we come back and we get a shell and then we check with us some errors in the C H and we don't care about so just ignore them.
+I was too lazy to hide them and then we can see that the sleep is still running and the control monitor as well and it's the same PID is the same processes.
+The containers kept running while we shut down all this stuff.
+All the system services have been shut down and restarted but the container is just going without interruption.
+So yeah again this is very quickly out together.
+I am not a podman developer is pondering there interested into supporting this or maybe LXD developers.
+I'm happy to help them but this is a have to get a demo I have another one which I think is a bit more interesting.
+So as your boost if you're not familiar is the an offload card that is installed in every Azure node so your Azure nodes that run your virtual machines have these arms 64 offloading card that runs the operating system that I work on.
+It's called Azure boost and I'm showing here a demo of this recorded in production on an Azure boost that he pulls for a second now we recorded this my colleague Maya to my oh my thanks go for recording this go record this amount ago so far executives and then I asked hey can I show this in public at a conference.
+This is never shown before I didn't only in turn on Microsoft stuff super secret and surprisingly they went yes you're going to like what now I have to do it so I had to unfortunately blank out the host names because this is a real node somewhere in the fleet in that it's entering the US and I couldn't show the host name which identifies the node so you will see this blank things I apologize for that but I had to hide those but we are showing here let's start going again.
+So in Azure we are running this Microsoft operating system it is just a machine it's arm some version of the kernel 5.10 we have what we call agents these are containers running as portable services.
+Some of these are critical for the actual customer VMs if they go away the network is interrupted you cannot make new connections.
+The agent is the critical one that goes away network goes away up local is a local one that does some local service so it doesn't matter so we configure the first one that portable service to survive the software boot.
+And the second one will will we just go away and disappear now we attach the update agent that does the software boot you can see the portable service is just a touch as a new image so we are moving to a new image here in the background there you can see Sierra console going away.
+Now we switch to a new SSH because of course SSH is not a critical service like it went away issue come up in a second.
+And we reconnect and we will check and compare the US versions before and after kind of version before and after and check on the status of these containers and see that actually run again so yes the version and the zero three so it was zero one before so we did update the root of S.
+It always read only the and very to the fast so we updated as a one block the corner is the same we didn't I didn't cheat and do not show a boot there the current is exactly the same same big than everything so let's check on how these containers are doing.
+And we can see this is the critical one the the net agent and we compare the P. I. D. is before and after they are the same so the same process is one nine seven and two zero nine nine they're the same the same process is the same pale.
+It keeps running to the software with while we change the the and very to the fast image behind the other one as we started because it's it's just a non critical service so we let that that be a starter so yes this is it for the demo and hope this was interesting this Nick pick at the Azure production machines and running in.
+Down in the fleet and we have five meals for questions questions.
+Any questions.
+I cannot.
+So checkpoint restore we don't and that's a very different thing right so checkpoint restore gives you an interruption service.
+This doesn't so you check point and then you come back to the same state of the process but you still have an interruption while you do your update this is different this is.
+Aim to let us update the root file system with zero interruption for this payloads so it's a bit different and we don't have plans for that at the moment now these are a bit complex payloads so we have a look into CRU at all.
+Think there was.
+Any other questions.
+So I end.
+No questions everything clear.
+I don't believe that there you go there we go.
+I know that guy I'm gonna second.
+I'm gonna second.
+So.
+Excellent question now the demo was recorded in production with a custom image loaded.
+Thank you.
+The demo we show was on a production node with a custom image with a new feature we are deploying this sometimes this year so it's not yet deployed a scale we will see I'm sure it will explode in horrible ways.
+But for now the main thing we found was debas reconnecting to debas was the main thing that broke the services but it's easy to fix that was the main thing for now.
+Other questions.
+Going.
+I can't hear shout.
+Shout with the microphone shout.
+Yes so the pen is on the local system I showed it before.
+You need to prepare them ahead of time.
+From here.
+It can work it can work.
+Thank you.

@@ -1,0 +1,671 @@
+WEBVTT
+
+00:00.000 --> 00:23.940
+Hold on.
+
+00:23.940 --> 00:28.940
+Hello everyone.
+
+00:28.940 --> 00:29.940
+Sorry?
+
+00:29.940 --> 00:33.940
+No, I think people are just using the arrow keys.
+
+00:33.940 --> 00:34.940
+Sorry.
+
+00:34.940 --> 00:38.940
+Less high tech.
+
+00:38.940 --> 00:39.940
+Hello everyone.
+
+00:39.940 --> 00:42.940
+So our next speaker is Bryce Kenta,
+
+00:42.940 --> 00:44.940
+introducing Taining the Beast,
+
+00:44.940 --> 00:48.940
+managing high growth postgres databases at CircleCI.
+
+00:48.940 --> 00:50.940
+Thank you.
+
+00:50.940 --> 00:59.940
+Hi everyone.
+
+00:59.940 --> 01:02.940
+My name is Bryce Kenta and welcome to my talk
+
+01:02.940 --> 01:04.940
+on Taining the Beast,
+
+01:04.940 --> 01:09.940
+the CircleCI journey to managing high growth postgres databases.
+
+01:09.940 --> 01:11.940
+First, who am I?
+
+01:11.940 --> 01:13.940
+So I'm a staff engineer at CircleCI,
+
+01:13.940 --> 01:16.940
+where I've been working for the last three years.
+
+01:16.940 --> 01:18.940
+I have over eight years of engineering experience
+
+01:18.940 --> 01:21.940
+spending the full stack back in front end.
+
+01:21.940 --> 01:25.940
+At CircleCI, I've been focusing on backend architecture
+
+01:25.940 --> 01:28.940
+and reliability.
+
+01:28.940 --> 01:30.940
+Over a period of hyper growth,
+
+01:30.940 --> 01:33.940
+reliability became a big problem at CircleCI
+
+01:33.940 --> 01:36.940
+to the point where our CTO started posting
+
+01:36.940 --> 01:39.940
+a monthly blog post to keep our customers updated
+
+01:39.940 --> 01:42.940
+about the improvements.
+
+01:42.940 --> 01:44.940
+So a key part of those improvements
+
+01:44.940 --> 01:47.940
+was dealing with large databases,
+
+01:47.940 --> 01:50.940
+which I'll be talking about today.
+
+01:50.940 --> 01:53.940
+I'm very enthusiastic about the develop experience
+
+01:53.940 --> 01:54.940
+and making that better,
+
+01:54.940 --> 01:56.940
+which is why I love my work at CircleCI.
+
+01:56.940 --> 01:58.940
+And when I'm not in front of a computer,
+
+01:58.940 --> 02:00.940
+you can find me on the driving range
+
+02:00.940 --> 02:02.940
+because Canada is very cold
+
+02:02.940 --> 02:06.940
+and occasionally traveling the world of my wife.
+
+02:06.940 --> 02:09.940
+All right, so let's get started.
+
+02:09.940 --> 02:12.940
+Just to give you a little bit of background about CircleCI,
+
+02:12.940 --> 02:15.940
+it's a global CI CD platform
+
+02:15.940 --> 02:18.940
+with a wide range of customers.
+
+02:18.940 --> 02:21.940
+A bunch of open source projects build on CircleCI,
+
+02:21.940 --> 02:23.940
+such as React Native, Angular.
+
+02:23.940 --> 02:27.940
+Anytime you see a .CircleCI folder in a repo
+
+02:27.940 --> 02:30.940
+that typically is building on CircleCI,
+
+02:30.940 --> 02:33.940
+and on the right screenshot,
+
+02:33.940 --> 02:36.940
+that's an example of a React Native workflow,
+
+02:36.940 --> 02:40.940
+which is currently just running some tests.
+
+02:40.940 --> 02:42.940
+And so this should be familiar to any of you
+
+02:42.940 --> 02:45.940
+that are maintaining any CI CD pipelines.
+
+02:45.940 --> 02:48.940
+So our platform runs about
+
+02:48.940 --> 02:50.940
+4 million of these workflows per week
+
+02:50.940 --> 02:53.940
+and over 20 million jobs per week.
+
+02:53.940 --> 02:56.940
+Each workflow that runs on our platform
+
+02:56.940 --> 03:00.940
+generates net new data to be stored,
+
+03:00.940 --> 03:03.940
+such as the workflow itself,
+
+03:03.940 --> 03:06.940
+the dependencies between the workflow,
+
+03:06.940 --> 03:09.940
+the workflow graph, the job states,
+
+03:09.940 --> 03:13.940
+and test outputs and things like that.
+
+03:13.940 --> 03:20.940
+So to handle all of this traffic,
+
+03:20.940 --> 03:24.940
+our infrastructure runs over 150 services
+
+03:24.940 --> 03:28.940
+and 70 plus post-grace databases.
+
+03:28.940 --> 03:31.940
+However, some of these databases
+
+03:31.940 --> 03:34.940
+were growing very rapidly.
+
+03:34.940 --> 03:39.940
+The particularly one that supports the platform's engine.
+
+03:39.940 --> 03:41.940
+The growth of such databases
+
+03:41.940 --> 03:43.940
+was directly correlated with
+
+03:43.940 --> 03:46.940
+the number of workflows and jobs that are created per second.
+
+03:46.940 --> 03:48.940
+So an example of high-growth database
+
+03:48.940 --> 03:50.940
+that my team was responsible for
+
+03:50.940 --> 03:52.940
+had grown to 5 terabytes in size
+
+03:52.940 --> 03:57.940
+and growing by 500 gigabytes per quarter.
+
+03:57.940 --> 04:00.940
+The right amplification on that database
+
+04:00.940 --> 04:03.940
+was a recurring cause for incidents.
+
+04:03.940 --> 04:05.940
+The nail in the coffin, though,
+
+04:05.940 --> 04:08.940
+was when we tried to upgrade that database
+
+04:08.940 --> 04:13.940
+from an end-of-life 9.5 post-grace RDS instance
+
+04:13.940 --> 04:15.940
+to a 12.5 instance.
+
+04:15.940 --> 04:18.940
+This took months to complete
+
+04:18.940 --> 04:22.940
+and incurred significant downtime
+
+04:22.940 --> 04:24.940
+because of incidents.
+
+04:24.940 --> 04:27.940
+The first attempt at migrating the RDS instance
+
+04:27.940 --> 04:29.940
+took a couple of hours
+
+04:29.940 --> 04:33.940
+and resulted in poorer query performance.
+
+04:33.940 --> 04:36.940
+This is because the large tables
+
+04:36.940 --> 04:40.940
+required lengthy vacuum operations, post-upgrades,
+
+04:40.940 --> 04:44.940
+which led to massively degraded performance.
+
+04:44.940 --> 04:49.940
+We considered using AWS Database Migration Service, DMS,
+
+04:49.940 --> 04:53.940
+but it would take too long to complete
+
+04:53.940 --> 04:55.940
+given the database size
+
+04:55.940 --> 04:58.940
+because DMS uses logical replication
+
+04:59.940 --> 05:01.940
+which is concerned with the number of rows
+
+05:01.940 --> 05:04.940
+and the amount of bytes that you're transferring.
+
+05:06.940 --> 05:10.940
+We were finally able to do the version upgrade
+
+05:10.940 --> 05:15.940
+using a form of home-brewed logical replication,
+
+05:15.940 --> 05:18.940
+taking advantage of application-level knowledge
+
+05:18.940 --> 05:20.940
+of the database.
+
+05:20.940 --> 05:23.940
+But this required significant engineering effort
+
+05:23.940 --> 05:25.940
+with engineers working weekends.
+
+05:25.940 --> 05:27.940
+So that wasn't great.
+
+05:27.940 --> 05:29.940
+At the end of all this, it was clear to the business
+
+05:29.940 --> 05:32.940
+that operating these large databases is very risky
+
+05:32.940 --> 05:35.940
+and could cause a company-ending event.
+
+05:35.940 --> 05:37.940
+So we needed to tame this growth.
+
+05:39.940 --> 05:42.940
+So now I'll take you on the journey
+
+05:42.940 --> 05:45.940
+that we took to taming this beast.
+
+05:45.940 --> 05:48.940
+So first, I'll talk about the storage reduction,
+
+05:48.940 --> 05:51.940
+so the immediate savings that we gained
+
+05:51.940 --> 05:54.940
+by deleting some of the low-hanging fruits.
+
+05:55.940 --> 05:57.940
+Next, I'll talk about the growth restrictions
+
+05:57.940 --> 06:00.940
+that we put in place to make sure that the data growth
+
+06:00.940 --> 06:03.940
+remained at manageable levels.
+
+06:03.940 --> 06:06.940
+And lastly, I'll talk about some of the optimizations
+
+06:06.940 --> 06:10.940
+that we made to ensure long-term success.
+
+06:12.940 --> 06:16.940
+So the first thing we did to reduce the storage
+
+06:16.940 --> 06:20.940
+was to drop unused columns, tables, and indexes.
+
+06:20.940 --> 06:23.940
+Indexes in particular can grow large
+
+06:23.940 --> 06:27.940
+in size over time, so dropping them was a quick win.
+
+06:27.940 --> 06:29.940
+We leveraged a tool called PG Analyze
+
+06:29.940 --> 06:32.940
+to identify indexes with those scans.
+
+06:32.940 --> 06:34.940
+So that means they were not used,
+
+06:34.940 --> 06:36.940
+and then dropping the indexes
+
+06:36.940 --> 06:39.940
+not only benefits the storage size,
+
+06:39.940 --> 06:41.940
+but it also reduces write amplification,
+
+06:41.940 --> 06:44.940
+so the writes to the database are actually faster.
+
+06:44.940 --> 06:48.940
+Next, we switched a bunch of B3 indexes
+
+06:48.940 --> 06:51.940
+to use Brin indexes instead.
+
+06:51.940 --> 06:56.940
+So Brin indexes are designed for handling very large tables
+
+06:56.940 --> 07:00.940
+where in which certain columns have a natural correlation
+
+07:00.940 --> 07:03.940
+with where they're physically on the table.
+
+07:03.940 --> 07:05.940
+So for example, if you have an Ordis table
+
+07:05.940 --> 07:07.940
+with a created-at column,
+
+07:07.940 --> 07:10.940
+earlier records on the table would physically show up
+
+07:10.940 --> 07:13.940
+earlier in the physical location.
+
+07:13.940 --> 07:17.940
+So those Brin indexes are optimized for that kind of data.
+
+07:17.940 --> 07:20.940
+So from the screenshot, you can see we had a bunch of
+
+07:20.940 --> 07:23.940
+created-at indexes across multiple tables,
+
+07:23.940 --> 07:25.940
+but the thing to note is the size of those indexes.
+
+07:25.940 --> 07:29.940
+That took over 400 gigabytes of storage in a single database.
+
+07:29.940 --> 07:33.940
+So dropping them, or those the ones that were unused,
+
+07:33.940 --> 07:39.940
+or switching to Brin were able to save space immediately.
+
+07:39.940 --> 07:45.940
+The next step we did was to reduce the storage further,
+
+07:45.940 --> 07:50.940
+and we had to upload any static blob data to S3.
+
+07:50.940 --> 07:52.940
+So S3 is much cheaper,
+
+07:52.940 --> 07:57.940
+and you can define object life cycles to automatically delete the data.
+
+07:57.940 --> 08:01.940
+But my greeting to S3 came with some drawbacks,
+
+08:01.940 --> 08:03.940
+such as additional latency,
+
+08:03.940 --> 08:06.940
+because we had to put a Redis cache in front of it.
+
+08:06.940 --> 08:10.940
+And the other drawback was that it added more dependencies
+
+08:10.940 --> 08:14.940
+to our service, and the queries were no longer transactional.
+
+08:14.940 --> 08:17.940
+So we had to add code to stitch together the response from Postgrease
+
+08:17.940 --> 08:21.940
+and S3, so that added a bit of complexity.
+
+08:21.940 --> 08:25.940
+So at this point, we freed up some storage size
+
+08:25.940 --> 08:29.940
+and to give us some runway, but we haven't addressed the growth.
+
+08:29.940 --> 08:33.940
+So let's talk about that next.
+
+08:33.940 --> 08:38.940
+So the first thing we did to slow down the growth of our databases
+
+08:38.940 --> 08:41.940
+was to put in place data retention policies.
+
+08:41.940 --> 08:46.940
+Our product management team collaborated with other parts of the business
+
+08:46.940 --> 08:49.940
+to identify data retention periods.
+
+08:49.940 --> 08:53.940
+So the data retention period differs based on the customer plan.
+
+08:53.940 --> 08:56.940
+So for example, a free customer will get three months of data,
+
+08:56.940 --> 09:00.940
+and higher-plan customers will get up to two years.
+
+09:00.940 --> 09:05.940
+We communicated these policies to all of our customers ahead of time.
+
+09:05.940 --> 09:09.940
+We gave them a quarter, so three months of leeway,
+
+09:09.940 --> 09:12.940
+before actually enforcing any restrictions.
+
+09:12.940 --> 09:17.940
+So the next step after that was to implement data access restriction,
+
+09:17.940 --> 09:21.940
+but at the API layer before actually deleting any data.
+
+09:21.940 --> 09:26.940
+So this meant customers no longer have access to data beyond their retention period,
+
+09:26.940 --> 09:30.940
+which enabled us to go to step three, which is safely delete the data,
+
+09:30.940 --> 09:35.940
+because now customers don't have access to it anymore, using background jobs.
+
+09:35.940 --> 09:39.940
+I should point out that at this point we still have growth,
+
+09:39.940 --> 09:45.940
+but mainly due to new customers, or existing customers that are building more on the platform.
+
+09:45.940 --> 09:51.940
+But the growth is contained because we don't retain data older than two years.
+
+09:51.940 --> 09:54.940
+But we ran into some issues.
+
+09:54.940 --> 10:01.940
+So the first issue that we ran into was, as we're deleting data from the primary database,
+
+10:01.940 --> 10:07.940
+it caused degraded performance on the replicas, as the deletions are getting replicated.
+
+10:07.940 --> 10:14.940
+So we experienced like spike in IOPS and CPU usage, and so we needed to upsize the replicas.
+
+10:14.940 --> 10:18.940
+Another issue that we faced was index bloat.
+
+10:18.940 --> 10:24.940
+So frequent background deletions without a periodic maintenance of the indexes,
+
+10:24.940 --> 10:28.940
+reduces the efficiency of those indexes over time.
+
+10:28.940 --> 10:35.940
+So a solution for regularly re-indexing the database was necessary to make deletions sustainable.
+
+10:35.940 --> 10:40.940
+This is something that we're still figuring out. We haven't found a proper solution yet.
+
+10:40.940 --> 10:48.940
+But lastly, post-grace databases do not automatically reclaim space when a record is deleted.
+
+10:48.940 --> 10:50.940
+This is something that we found out.
+
+10:50.940 --> 10:54.940
+So there is a built-in vacuum operation to reclaim space,
+
+10:54.940 --> 11:00.940
+but this process only frees up space back to the table for reuse.
+
+11:00.940 --> 11:07.940
+So once disk is allocated for a table, it may never be released until that table is dropped.
+
+11:07.940 --> 11:15.940
+The vacuum operation has a full option which builds a new table and swaps the old table for the new,
+
+11:15.940 --> 11:18.940
+but it requires an exclusive lock.
+
+11:18.940 --> 11:23.940
+So this was not a viable solution for us because, again, it requires downtime.
+
+11:23.940 --> 11:28.940
+We're able to use PG-REPAC, which is an open-source post-grace equalization
+
+11:28.940 --> 11:34.940
+that allows us to reclaim space on the drop columns with minimal locking of the table.
+
+11:34.940 --> 11:36.940
+So that was great.
+
+11:36.940 --> 11:43.940
+And then the last step on our journey was to establish a long-term strategy.
+
+11:43.940 --> 11:50.940
+We needed a data archival process that could be applied to all of our high-growth databases.
+
+11:50.940 --> 12:00.940
+So we established a data reliability team with the mandate to own a single historical data store.
+
+12:00.940 --> 12:08.940
+The data store would support functional requirements such as high availability, be horizontally scalable,
+
+12:08.940 --> 12:15.940
+support multiple query patterns, which is needed by the API or the UI to filter data.
+
+12:15.940 --> 12:19.940
+But this historical database is only used to serve customer data only, nothing else.
+
+12:19.940 --> 12:22.940
+No ETL, nothing like that.
+
+12:22.940 --> 12:29.940
+And then each service team would implement a data archival process, which is similar to the diagram at the top.
+
+12:29.940 --> 12:35.940
+The service sends requests to the historical service to archive data.
+
+12:35.940 --> 12:38.940
+What data is archivable and when?
+
+12:38.940 --> 12:41.940
+It depends on that particular service domain.
+
+12:41.940 --> 12:48.940
+There's a sweeper job that makes sure that any missed archivable data is archived.
+
+12:48.940 --> 12:54.940
+And then there's a deletion job that is continuously deleting archive data.
+
+12:54.940 --> 13:03.940
+Also, as product teams are building new features that require net new tables to be added or to be created,
+
+13:03.940 --> 13:06.940
+we aim to partition them from the beginning.
+
+13:06.940 --> 13:14.940
+We use PG Partman, an open source partition manager to create time-based partitions.
+
+13:14.940 --> 13:23.940
+PG Partman enables us to configure retention periods and will automatically delete any old partition.
+
+13:23.940 --> 13:28.940
+So as soon as the partition falls out of the retention period, so in our case 24 months,
+
+13:28.940 --> 13:34.940
+it is automatically deleted by PG Partman so we don't have to worry about it.
+
+13:34.940 --> 13:45.940
+And finally, so now that I've taken you on the full journey from reducing our storage size to establishing long-term data archival processes,
+
+13:45.940 --> 13:57.940
+I'd like to take a moment to acknowledge some of the key learnings because an initiative of this magnitude was spanning almost two years and was non-trivial for us.
+
+13:57.940 --> 14:06.940
+So the first learning was to implement a brief retention policy as early as possible.
+
+14:06.940 --> 14:19.940
+Ideally, one that allows you to serve more data at your discretion because this means you don't have to implement the code to delete the data until you really need to.
+
+14:19.940 --> 14:27.940
+That would have saved us hours of engineering effort and downtime dealing with massive databases.
+
+14:27.940 --> 14:38.940
+The second learning rehearsed any major database maintenance, things like major version upgrades, space reclamation, re-indexing, anything like that.
+
+14:38.940 --> 14:47.940
+Make a copy of your production database, validate your changes there, compare query performance against the production database
+
+14:47.940 --> 14:52.940
+before actually running that maintenance in production.
+
+14:52.940 --> 15:01.940
+And finally, write down your learnings. This creates a knowledge base for everyone to learn from and helps other teams move faster.
+
+15:01.940 --> 15:12.940
+The extensive documentation that my team put together throughout the last two years is what helped me a lot to come up with this presentation.
+
+15:12.940 --> 15:17.940
+And that is it from me. So thank you for listening. I hope this was helpful to you.
+

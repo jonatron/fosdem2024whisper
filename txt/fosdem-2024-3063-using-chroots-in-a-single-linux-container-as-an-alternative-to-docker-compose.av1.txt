@@ -1,0 +1,199 @@
+All right.
+So next up we're going to have Aiden who is going to be talking to us about multi-image
+and container.
+All right.
+Ready?
+Okay.
+All right.
+Hi, everyone.
+I'm Aiden McClelland.
+I work for a company called Start 9.
+So this project here is a little bit of a work in progress,
+but it is something we are trying out because we have a little bit of a less common use case
+for our containers, and we decided to try something a little different.
+So first some background.
+We develop an operating system called Start OS.
+The purpose of this operating system is to allow end users without technical expertise
+to run their own home servers.
+So the idea being like trying to bring the desktop experience to home server administration,
+and that way we can bring a lot of these self-hosted applications to a wider variety of people
+on their own hardware without them having to learn everything you need to learn about Docker
+and the hosting tools that we're all familiar with.
+So as part of this, we do have a little bit of a different use case than is generally intended
+for things like Kubernetes or Ansible or a lot of these tools that are designed
+for deploying corporate infrastructure at scale.
+We're really looking at like a single host machine that the user wants very low touch with.
+They don't want to spend a lot of time configuring their applications at a granular level.
+So we decided, you know, like a lot of these applications, they come with these Docker-composed setups, right?
+You have a main image that has your application code and then you have things like databases
+and reverse proxies, etc.
+And commonly we deploy this as a Docker-compose file, and what this does is it creates a bunch of containers
+that now have to be managed by the OS and by proxy by the user, right?
+So what we've always tried to do with Start OS is we've maintained this idea of one container, one service.
+And what this allows us to do is it reduces a lot of the complexity of the management of a bunch of different containers
+and also provides a single IP address and virtual interface on which the application is running.
+So when you're doing all of your network mapping, all of that can be mapped to a single virtual IP address
+that can then be viewed either from within the subnet within the device or is then exported through the host.
+This also means that you can define resource limits on a single container basis as opposed to having to do a group of containers
+and managing that as a group, a C group with subgroups, right?
+Another final reason that we did this is that our package maintainer scripts, we prefer to run inside the contained environment
+and these package maintainer scripts are run in JavaScript.
+So we run a service manager in the container that reads the package maintainer scripts
+and then is able to set up all of our subcontainers, our sub file systems from there, and execute our actual binaries.
+Okay, so the question is why do people want multiple containers at all, right?
+Like oftentimes you can take a single Docker image, a single application image
+and install all of the software you might need, but in practice this is not as easy for the service developer, right?
+A lot of times we have people coming to us asking for, hey, I want to be able to use an off-the-shelf Postgres image,
+I want to use an off-the-shelf Nginx image, I don't want to have to use like the package manager for the distribution of my container,
+to install that and manage it.
+So that's like the number one use case that we have for that.
+It also allows you to run applications, like say you have one in Debian, one in Alpine, run all of them together.
+Then, you know, the other reason that you might want multiple containers is you can isolate the subcomponents of an application away from each other
+and also do resource limits on individual application subcomponents.
+If anybody has additional reasons why you might want to do separate containers as opposed to a single container for an application,
+I would love to hear them, but these are the reasons we came up with.
+So our solution, we cover this first use case using trutes.
+Number two, as far as we can tell, works for the most part, but that is remaining to be teased out.
+This does not allow us to isolate the subcomponents of our application from each other or create resource limits on individual applications.
+Subcomponents as easily, those will have to be managed by manual tuning of resource limits within the prokates of the container.
+So, yeah, we've ultimately decided that those last two components aren't really necessary for our use case.
+Ultimately, a single application is where we define our sandbox.
+So sandboxing separate parts of an application from each other, like has some security benefit,
+we've decided isn't worth the complexity.
+So we decided to do this with LXC.
+Why do we do LXC as opposed to something like Docker or Podman?
+LXC is a lot more composable.
+It allows us to pop the hood on a lot of the very subcomponents of container technology and manage it more manually.
+So we can, for example, easily manipulate the container root FS at runtime.
+So even with an unprivileged container, that unprivileged container can communicate with the host and modify its root file system very easily.
+We use our shared mount propagation for our root FS, which allows the host operating system to easily manipulate that file system.
+And then it's also unlike some other container tools, you can perform commands like shrewt and mount from inside an unprivileged container,
+which is not allowed on a lot of other technologies.
+So to put together a service, an application,
+we have effectively a single root FS image that all of our applications share.
+This root FS image is just a base image that we use for all of our containers that has a, like, we use Alpine right now,
+but it loads a Node.js application that runs the package maintainer scripts and then launches the various actual demons inside their trues.
+It communicates with the host using a JSON RPC API over a Unix domain socket.
+So there's bi-directional communication between the host and the service manager in the container,
+and then, yeah, it can perform the actual application code inside the shrewts.
+So the host API, what it does for the container is it can perform some manipulation of the root file system of the container,
+and this allows creating overlaid images in the same way you might be creating a container.
+All we do is we create a root FS image with an overlay file system and attach it to the container in a way that they can trude into it.
+And then we also have a bunch of other APIs that these packages can interact with,
+mostly for integration with the end user experience,
+and integration with other services and applications on the host in a way that the user might have to intermediate.
+And then we also have a set of APIs designed for hassle-free networking.
+If you have, you know, some application bound to a port, you can now attach that port to a Tor address,
+to a clearnet address, or to just a LAN address so that you can be accessed by your local area network.
+And the host OS manages all of the certificate management, either through Let's Encrypt,
+or through a host root CA for the LAN communication,
+because obviously you can't get a Let's Encrypt certificate for a .local.
+Okay, so then the service itself, it runs a very basic API that receives commands from the hosts.
+So when the application is running, it can receive like an initialization command,
+it can start or stop the service, and then shut down the service entirely in order to kill the container.
+And then it also invokes all of the various package maintainer scripts, such as editing user configuration,
+installing the service, or updating the service.
+All of those perform various package maintainer scripts that get called from the host.
+Okay, so when we actually launch a binary,
+the package developer defines in some JavaScript, we have some well-typed TypeScript APIs for this to describe this structure,
+but it defines what binaries to launch, what images to launch each binary in,
+where to mount its persistence volume.
+So we have a series of persistence volumes that are mounted to the container,
+and can be attached to any path within these sub-file systems,
+and then it defines any environment variables or arguments in any standard way that you would launch a program.
+And then for each command that you have,
+when you just similar to how you would define a system deservice file,
+you can define all of these arguments and then any dependencies or health checks associated with your service.
+And then for each of these commands, the in-container service manager will mount an overlaid image for the requested image ID to the container.
+It will then take our special directories, proxys, dev, and run, and bind them inside the container.
+So all of the containers share the same proxys, dev, and run.
+And then it will run the command in the true.
+Okay, so here is an example I have of a package maintainer script.
+I don't know if that's actually visible to everyone.
+Is that, are you guys able to see that?
+Okay.
+Well, I suppose I can just talk about it.
+But effectively, you have a fairly simple JSON configuration where you define your image ID, your command, your arguments,
+and then some health checks defining when is this thing ready, as well as some dependencies.
+So like if you don't want to launch a various demon until another service is ready,
+you can just specify that and then it won't launch until its health check passes.
+So all of this is available on the GitHub if you want to check it out.
+This particular example is in GitHub's start9labs slash hello world startOS.
+There should be a link on the talk.
+So time to do a little demo of what I have working so far.
+Let's see if I can get my shells over here.
+All right.
+So here I have an instance running, hold on.
+There we go.
+Here I have an instance running startOS.
+I've already installed a package.
+This package in this case is NextCloud.
+This NextCloud package contains two images.
+It's got the NextCloud base image, which also contains the Nginx server
+because it's running the PHP for NextCloud.
+And then we have Postgres, which is our database persistence layer for NextCloud.
+So what we're going to do, so we've attached into this container,
+and then I'm going to go ahead and just inject,
+basically run a REPL inside the JavaScript engine here.
+And I'm going to go ahead and do my imports here as well.
+And what this has done is it has connected us to our JSON RPC APIs,
+both the hosting of the container and the container into the host.
+And then we're going to create a couple of overlay images.
+So first we're going to do our Postgres image.
+And so what this is going to do is it's going to tell the host,
+hey, I want to mount this Postgres image to the container.
+It says, okay, here you go.
+Here's the path at which I have attached it.
+I'm going to do the same thing for the main image.
+And there we are.
+I'm going to go ahead and define a couple environment variables.
+Okay.
+So I have a set of temporary hacks that I've put in
+that will later be managed by the actual container service manager.
+But it's mainly around permissions of the container.
+I still need to get Shift FS working properly.
+Because LXC, what it does is it maps the UIDs
+within the unprivileged container to UIDs on the host.
+And so when we mount stuff to the container,
+we also need to perform that same mapping.
+So we're not doing that yet,
+but I have a set of ownership changes that will manage that.
+And then all we have to do is go ahead and launch our application.
+So I'll go ahead and launch Postgres first.
+And here we go.
+We have Postgres running inside a tru, inside the container.
+And it looks like it's ready.
+And then now I can also launch.
+Next slide.
+So here we have, now both of these applications are running
+within the same process namespace, the same C group, the same container.
+But they're running from completely separate images.
+And that's all I have to show you guys.
+I think we can open up for Q&A.
+Thank you.
+So we have considered the idea.
+Right now we actually haven't found it necessary yet.
+Like the tru seems to be sufficient for the sandboxing we need to do.
+As far as we can tell, the technology is at a point where it wouldn't be too difficult
+to do containers and containers, but realistically we haven't found it necessary.
+That's all.
+So I think you're asking as a package developer how we distribute your application.
+So if you have a service that you want to distribute to our users,
+to people who are running on StartOS, we have our own, like the company Start9 runs a marketplace.
+But we just have a very standardized package format.
+In this package format, you could host on any website.
+If you want to charge for it, you can charge for it.
+But ultimately the APIs are generic enough that you can run your own marketplace
+to offer whatever services you want using whatever protocols you'd like to
+to gate access to those S9PKs.
+So as a service developer, in general, if you're publishing to our official registry,
+that means that you have a free and open source project that you're looking to distribute for free.
+But that does not stop you from running your own paid marketplace.
+One more question.
+I'm sorry, I couldn't hear that.
+Other resources for our application?
+Yeah, so the resources are managed on the scale of the entire application
+using the configuration of the outer LXC container that everything runs inside of.
+So you can just modify that LXC config.
+Well, we modify that LXC config automatically based off of the host APIs.
+Thank you.

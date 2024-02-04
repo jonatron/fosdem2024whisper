@@ -1,0 +1,770 @@
+WEBVTT
+
+00:00.000 --> 00:16.240
+Hi everyone, my name is Dorin de Basse and I work at Red Hat.
+
+00:16.240 --> 00:21.440
+I currently work on enabling the audio stack and other features in the automotive team.
+
+00:21.440 --> 00:23.480
+And with me here is Matthias.
+
+00:23.480 --> 00:26.600
+Hello everyone, I'm Matthias.
+
+00:26.600 --> 00:27.960
+I also work at Red Hat.
+
+00:27.960 --> 00:32.680
+I am working at the automotive and the beautification team.
+
+00:32.680 --> 00:37.640
+And I'm going to talk about the audio sound and implementation we did last year in this year too.
+
+00:37.640 --> 00:39.280
+So yeah.
+
+00:39.280 --> 00:45.960
+Okay, so in this presentation, we'll be talking about making VETAIO sync.
+
+00:45.960 --> 00:52.280
+And we'll focus on the implementation of the VETAIO sound in the RASVMM project.
+
+00:52.280 --> 00:53.960
+So just a brief outline.
+
+00:53.960 --> 00:56.200
+I'll be talking about the automotive use case.
+
+00:56.200 --> 00:59.120
+I'll go through the VETAIO sound device on the driver.
+
+00:59.120 --> 01:08.400
+And Matthias will take care of the VHOS design implementation, the audio back end architecture and the upstream status.
+
+01:08.400 --> 01:11.160
+Okay, so let's get right into it.
+
+01:11.160 --> 01:13.800
+One might ask why VETAIO sound?
+
+01:13.800 --> 01:16.400
+Our main use case is the automotive industry.
+
+01:16.400 --> 01:22.120
+And in automotive, Android guests are being used for deploying infotainment systems.
+
+01:22.120 --> 01:33.520
+So in order to support these Android guests, the virtual machine monitor, as in our case, Quemo, requires a set of virtual hardware like VETAIO sound, VETAIO net and VETAIO GPU.
+
+01:33.520 --> 01:44.400
+And having a VETAIO sound device emulation would allow for Android to be deployed in different virtual machine monitors that currently support the VETAIO device emulation.
+
+01:44.400 --> 01:50.120
+Examples of these VMMs are Quemo, CrossVM and the likes of them.
+
+01:50.120 --> 02:00.400
+The Android reference platform, which I linked in the slide there, it defines a set of VETAIO interfaces that are expected from any VMM monitor that runs Android.
+
+02:00.400 --> 02:13.400
+So based on our expectation for Quemo KVM as a hardware diagnostic hypervisor, we decided to close the gap, which involves enabling the VETAIO sound device emulation as an external process.
+
+02:13.400 --> 02:23.960
+So now Quemo or any other VMM that currently implements the VHOSESA protocol can actually interact with the user space application.
+
+02:23.960 --> 02:31.000
+So before showing you how we build this device, let's present to you what the device is.
+
+02:31.000 --> 02:38.200
+So the VETAIO sound device is a parametriolized sound device and is based off on the VETAIO specification standard.
+
+02:38.200 --> 02:44.720
+It's consisting of the VETAIO driver, the PCI bus transport and the VETAIO sound device.
+
+02:44.720 --> 02:48.800
+And this is an architectural view of what the sound stack looks like.
+
+02:48.800 --> 02:52.720
+And I will show you how the different VETAIO components come together.
+
+02:52.720 --> 03:00.880
+So first we have the user application in the guest that's interacting with the driver using a set of SISC calls and common user space libraries,
+
+03:00.880 --> 03:10.760
+such as, take for example the ALSA library in the case of a normal application in the guest or tiny ALSA library as in the case of an Android application.
+
+03:10.760 --> 03:19.080
+And then the VETAIO sound driver on the other side takes the information that it received from the guest user space and shares it over a transport method.
+
+03:19.080 --> 03:21.560
+And in our case is the PCI bus.
+
+03:21.560 --> 03:28.960
+Now this PCI bus is a way to expose the VETAIO sound device to the driver that's in the guest.
+
+03:28.960 --> 03:47.360
+And the VETAIO sound device, just like any user space application that's running in your host, it sends the audio streams to the host sound drivers and the necessary sound libraries and the E-mone would route it to the host, to the sound driver that's running in the host canal space.
+
+03:47.360 --> 03:50.640
+So I mentioned something about the VHUCHESA protocol in the previous slide.
+
+03:50.640 --> 03:52.040
+So what is it?
+
+03:52.040 --> 04:02.960
+The VHUCHESA protocol is a set of messages that has been designed to offload the VETAIO data part processing from QEMU to a user space application on the host.
+
+04:02.960 --> 04:11.160
+And this user space process application is what's responsible for configuring the VETAIO rings and doing the actual processing.
+
+04:11.160 --> 04:16.680
+The VHUCHESA protocol actually uses communication over the Unix domain circuit.
+
+04:16.680 --> 04:25.080
+And it allows the control planes to initialize the shared memory regions and also exchange the file descriptors.
+
+04:25.080 --> 04:27.960
+The protocol defines two sides for communication.
+
+04:27.960 --> 04:30.520
+We have the front end and the back end.
+
+04:30.520 --> 04:37.240
+For the front end, we have it sending the message request while the back end is sending the message replies.
+
+04:37.240 --> 04:46.440
+The protocol itself also implements the control plane for establishing VETQ sharing between the guest and the user space process.
+
+04:46.440 --> 04:53.080
+And this user space process utilizes the VHUCHESA library.
+
+04:53.080 --> 04:57.400
+So I attached an example here of what the VHUCHESA protocol message would look like.
+
+04:57.400 --> 05:03.120
+We have the front end that's sending the VETQ memory layout and configuration to the back end.
+
+05:03.120 --> 05:06.400
+And you can see the message outputs in hex formats.
+
+05:06.440 --> 05:10.160
+An example of one of these messages is the VHUCHESA get feature message.
+
+05:10.160 --> 05:12.240
+It's expecting an acknowledgement reply.
+
+05:12.240 --> 05:18.040
+But sometimes not all messages from the driver expect a reply from the back end.
+
+05:18.040 --> 05:26.600
+We attached here a subdom tool, which is a tracing tool that can help you while you're debugging in case you want to play around with the traffic messages.
+
+05:26.600 --> 05:32.360
+So this subdom tool would actually dump the socket traffic between the front end and the back end.
+
+05:32.360 --> 05:38.520
+And it's being used if you pass the parts of the socket and also specify formats.
+
+05:38.520 --> 05:46.200
+Maybe you want the format in hex and the subdoms could also provide your format in a pickup format if you want.
+
+05:46.200 --> 05:57.040
+So the VETL memory region, which is this guest memory here, is initially being allocated by the guest.
+
+05:57.040 --> 06:01.400
+And in Quemo, this is being done by the memperealock option.
+
+06:01.400 --> 06:10.040
+And the VETL memory region, when it's been allocated by the guest, it's smacked by both the front end and the back end using the M-MAPS CIS calls.
+
+06:10.040 --> 06:17.160
+So this memory region would be accessed by the file descriptors on M-MAP.
+
+06:17.160 --> 06:20.600
+OK, so what happens during the device initialization?
+
+06:20.600 --> 06:23.680
+We have the feature bit negation that goes on there.
+
+06:23.680 --> 06:29.480
+During this initialization, the device and the driver both have feature bits that need to be negotiated.
+
+06:29.480 --> 06:38.520
+And at this point here, the driver would read the feature bits that the VETL sound device is exposing to the driver.
+
+06:38.520 --> 06:46.160
+And then the driver would tell the device, OK, hey, man, I only support this subset of features or I do not accept this set of features.
+
+06:46.160 --> 06:57.680
+So take a example, when we have the VETL ring event IDX feature, when it's been negotiated, it would allow the device to control how the notification from the driver should be handled.
+
+06:57.680 --> 07:01.560
+And we have other features like the indirect descriptor feature.
+
+07:01.560 --> 07:09.080
+And this one thing to note about the VETL sound driver is that it doesn't have any specific features that are currently defined.
+
+07:09.080 --> 07:13.320
+So it uses a generic feature bit set of the VETL device.
+
+07:13.320 --> 07:23.720
+And there are a couple of other driver requirements for this feature bit negation, which you can find it in the VETL specification link.
+
+07:23.760 --> 07:28.840
+So in a nutshell, a VETQ is a queue of guest allocated buffers.
+
+07:28.840 --> 07:32.640
+And this VETL sound driver is consistent on four VETQs.
+
+07:32.640 --> 07:38.000
+We have the control queue, the event queue, the TX queue and the RX queue.
+
+07:38.000 --> 07:40.920
+And each of these VETQs are consistent of three parts.
+
+07:40.920 --> 07:43.720
+So first we have the descriptor table.
+
+07:43.720 --> 07:48.440
+And the descriptor table is occupied the descriptor area.
+
+07:48.440 --> 07:52.400
+We have the available ring, which is occupying the driver area.
+
+07:52.400 --> 07:58.200
+And we have the used ring that's occupying the device area.
+
+07:58.200 --> 08:02.400
+So to further explain how the VETQs are being mapped in the driver and the device,
+
+08:02.400 --> 08:05.920
+take for example, we have the user application that's running in the guest.
+
+08:05.920 --> 08:13.360
+It would notify the driver of the audio streams that needs to be processed through the corresponding libraries and interfaces.
+
+08:13.360 --> 08:17.440
+And when the driver wants to send a buffer to the device,
+
+08:17.440 --> 08:24.920
+it fills the descriptor table with the M-Mapped buffer and writes that descriptor index into the available ring.
+
+08:24.920 --> 08:29.000
+Now after writing it, it has to notify the device of those available buffers.
+
+08:29.000 --> 08:33.320
+So it would notify the device saying, hey, I have some buffers that need to be processed.
+
+08:33.320 --> 08:36.520
+Now, depending on the buffer size, it could create a descriptor chain,
+
+08:36.520 --> 08:41.160
+which it would always because of the sound buffers are usually a lot of them.
+
+08:41.160 --> 08:45.880
+So for the device side, when it's done consuming these buffers,
+
+08:45.880 --> 08:53.760
+it would write the descriptor index into the used ring and send a used buffer notification to the driver itself.
+
+08:53.760 --> 08:58.880
+Now in the past, this was not how the driver used to work.
+
+08:58.880 --> 09:02.960
+That's when the user application sends messages to the driver,
+
+09:02.960 --> 09:09.160
+because it was unable to actually determine when the buffer has been updated from the user application that's running in the guest.
+
+09:09.160 --> 09:15.640
+And some of our upstream contributions was to ensure that this acknowledgement callback was being used to notify
+
+09:15.640 --> 09:19.800
+the updated buffers and also prevent the reading of steel buffers.
+
+09:19.800 --> 09:23.240
+Thanks to Matthias for some of those contributions.
+
+09:23.240 --> 09:29.760
+And let's see how the requests have been processed for each of the vertio sound red queue.
+
+09:29.760 --> 09:35.920
+So for the control queue, it's been used for sending the control messages from the driver to the device.
+
+09:35.920 --> 09:43.320
+And this control red queues have been translated into a VHOS user request and it's been forwarded to the backend for processing.
+
+09:43.360 --> 09:50.880
+So on the device side is going to respond to these messages indicating the status of the operation.
+
+09:50.880 --> 09:54.960
+For the event queue, it's been used for sending notifications to the driver,
+
+09:54.960 --> 09:59.880
+but in our current implementation, we did not use it because it's not necessary.
+
+09:59.880 --> 10:05.200
+Then we have the TX queue, which is used for sending the PCM frames for our P streams.
+
+10:05.200 --> 10:07.320
+And this TX queue is being used for playback.
+
+10:07.320 --> 10:12.320
+So it would carry the PCM frames that have been initiated by the driver
+
+10:12.320 --> 10:18.680
+and also replied to the previous received frames from the device.
+
+10:18.680 --> 10:24.080
+For the RX queue, it's being used to receive the PCM frames for input stream.
+
+10:24.080 --> 10:26.320
+And this is being used during the capture.
+
+10:26.320 --> 10:31.240
+So the RX queue would carry the PCM frames that have been initiated by the device
+
+10:31.240 --> 10:35.320
+and also replied to the previously transmitted frames.
+
+10:35.320 --> 10:40.320
+So I'll let Matthias take over.
+
+10:40.320 --> 10:44.520
+So now I'm going to talk about the VHOS user implementation.
+
+10:44.520 --> 10:50.320
+The VHOS user implementation is split into the front end and the backend.
+
+10:50.320 --> 10:59.320
+So the backend and the front end communicate by using the VHOS user protocol as Doreen explained before.
+
+10:59.320 --> 11:04.440
+So for the front end, we based on the word from Alex Benet from Linario
+
+11:04.440 --> 11:07.560
+that simplified the boilerplate code in Kimu,
+
+11:07.560 --> 11:11.400
+which is common for all the VHOS user devices.
+
+11:11.400 --> 11:18.560
+So if you want to see this work, I leave the patch set there.
+
+11:18.560 --> 11:22.920
+Then for the backend, we decided to implement it under the RASP-MM project
+
+11:22.920 --> 11:25.760
+in the VHOS device repository.
+
+11:25.760 --> 11:29.960
+And the benefits of doing that are the following.
+
+11:29.960 --> 11:35.280
+So for example, we show the device implementation between multiple virtual machine monitors
+
+11:35.280 --> 11:37.480
+like Kimu or cross-PM.
+
+11:37.480 --> 11:40.000
+And we use RASP as our main language.
+
+11:40.000 --> 11:43.600
+So we leverage the features that this language have.
+
+11:43.600 --> 11:49.560
+Also the process that emulates the device runs separately from the Kimu.
+
+11:49.560 --> 11:52.280
+So that's reducing the attack surface of Kimu.
+
+11:52.280 --> 11:59.800
+And also the current implementation has less context which that, for example, the Kimu built in device.
+
+12:00.760 --> 12:09.200
+And I leave you the link to the script that you can use if you want to try it, you compare.
+
+12:09.200 --> 12:12.400
+And also you have the link to the RASP-MM project.
+
+12:12.400 --> 12:17.200
+You can look for the implementation.
+
+12:17.200 --> 12:21.560
+So now let's see how the backend is designed.
+
+12:21.560 --> 12:29.960
+So basically the current implementation is made of a device and the audio backends.
+
+12:29.960 --> 12:35.360
+The audio backends implement the driver for different libraries like PyWear or ALSA.
+
+12:35.360 --> 12:39.240
+And the whole backend is implemented by a single thread.
+
+12:39.240 --> 12:42.880
+And current implementation has called the number of strings.
+
+12:42.880 --> 12:48.680
+So we have only one for input and one for output.
+
+12:48.680 --> 12:56.560
+So when a new request comes from the guest, depending on the queue in which the request arrives,
+
+12:56.560 --> 12:58.440
+we're going to have different handler.
+
+12:58.440 --> 13:05.960
+And depending on the queue, the semantic of how we handle that request change.
+
+13:05.960 --> 13:09.280
+So I'm going to talk about that a bit.
+
+13:09.280 --> 13:18.160
+So for example, for the control queue, when the driver's in a request, what we're going to do is just to process
+
+13:18.160 --> 13:20.200
+that request immediately.
+
+13:20.200 --> 13:26.280
+So for example, we're going to pass the request and depending on the control message,
+
+13:26.280 --> 13:29.760
+we're going to call a different method.
+
+13:29.760 --> 13:36.840
+What we use here is a genetic interface so anyone can write a driver for the audio backends
+
+13:36.840 --> 13:44.560
+because they share the interface.
+
+13:44.560 --> 13:55.920
+And then after processing the request, we notify immediately the guest that the request has been processed.
+
+13:55.920 --> 14:03.200
+So in this case, the methods in the interface are not blocking.
+
+14:03.200 --> 14:09.920
+In the case of the transmission queue, when a request arrives from the guest and the transmission queue,
+
+14:09.920 --> 14:14.120
+as Doreen said before, it is when we're doing playback.
+
+14:14.120 --> 14:16.880
+So we're going to reproduce some sound in the host.
+
+14:16.880 --> 14:23.480
+What happens is how we process that request is by just picking up the request,
+
+14:23.480 --> 14:28.640
+I mean, storing a pointer to the request and putting it in a 5.0 queue, which is per stream.
+
+14:28.640 --> 14:38.960
+And then at some point, the worker's going to wake up and pop the queue request and process that.
+
+14:39.000 --> 14:43.760
+Here we have to make sure that we're going to consume all the payload that the request has
+
+14:43.760 --> 14:51.440
+or at least to fill the buffer that the audio engine proposes because otherwise what happens is that
+
+14:51.440 --> 14:56.800
+the worker's thread is going to wake up more often and we're not going to use the buffer,
+
+14:56.800 --> 15:02.280
+I mean, the whole buffer that the engine has for the playback.
+
+15:02.280 --> 15:08.920
+So we have to be sure that at least we consume the whole period.
+
+15:09.920 --> 15:18.320
+So in this case for the transmission, we notify the guest only after consumption.
+
+15:18.320 --> 15:24.320
+We have to do that, have to wait because otherwise we can make the user application run out of data.
+
+15:24.320 --> 15:29.920
+So the spec said that we have to do that, I mean, to notify just after consumption.
+
+15:30.920 --> 15:40.920
+So in the case of the reception queue, I mean, the transmission queue, reception queue were exactly the same.
+
+15:40.920 --> 15:46.920
+The only difference is that in the case of the transmission queue, we have, and the payload has data to reproduce in the host.
+
+15:46.920 --> 15:52.920
+And in the case of the reception queue, we have data in the host that we want to send to the guest for capturing.
+
+15:52.920 --> 16:02.920
+So what we do is the only difference is that when we pop requests, we're going to use that space to fill with data from the host and then send it back.
+
+16:06.920 --> 16:12.920
+So if you want to try it, as I said before, we have to launch two processes.
+
+16:12.920 --> 16:18.920
+One is going to be for the emulation, for the device, and this is the command line in which you use it up there.
+
+16:18.920 --> 16:22.920
+For example, the backing that you want to use in this case is pipe wire.
+
+16:22.920 --> 16:25.920
+And in the other command line is for chemo.
+
+16:25.920 --> 16:32.920
+And the only parameter that you have to take into account is the unique socket that you're going to use to communicate with the demo.
+
+16:40.920 --> 16:44.920
+So I would like to mention some of the afterword that these were required.
+
+16:45.920 --> 16:52.920
+And for example, we fixed the BitDio sound driver because it was not respecting the BitDio specification.
+
+16:52.920 --> 16:55.920
+So that is what Doreen mentioned before.
+
+16:55.920 --> 16:57.920
+And so we fixed that.
+
+16:57.920 --> 17:01.920
+And also we have been working in the spec to make it more clear.
+
+17:01.920 --> 17:06.920
+So we have we sub-streamed some patches to the BitDio spec.
+
+17:07.920 --> 17:18.920
+And other work we did was to add the descriptor util module to the build queue crate, which allows, I mean, which is what's before in BitDio FS, before,
+
+17:18.920 --> 17:22.920
+and we move it to the build queue crate so anyone can use it.
+
+17:22.920 --> 17:30.920
+And the point to do that is because you cannot, you cannot hack all the way that request is distributed over at the scriptor.
+
+17:31.920 --> 17:39.920
+So the guest can use any distribution of the, use descriptors he wants and because the spec doesn't say how to do it.
+
+17:39.920 --> 17:41.920
+And we have to be independent of that.
+
+17:41.920 --> 17:43.920
+And that is the reason of that.
+
+17:43.920 --> 17:54.920
+So also there were the patches to add the generic because user device, which used the boilerplate code code that you have to put in chemo for because user devices.
+
+17:55.920 --> 18:02.920
+And also there were some, I mean, there were many development in the pipe wire arrays crate, thanks to the Linda.
+
+18:02.920 --> 18:05.920
+So for example, we added the fill out module.
+
+18:05.920 --> 18:08.920
+Also the sparring buffer.
+
+18:08.920 --> 18:11.920
+There were many also backfixing that we did doing this work.
+
+18:11.920 --> 18:20.920
+So yeah, we are getting at the end of the presentation.
+
+18:20.920 --> 18:27.920
+So if you want to get in touch, feel free to participate in the because device project.
+
+18:27.920 --> 18:31.920
+Also we have a Slack channel called a big dios on if you have any questions.
+
+18:31.920 --> 18:40.920
+And we also submitted a proposal for how Google somebody of course, so we are, if you're really interested in participating, we are trying to add a new.
+
+18:41.920 --> 18:44.920
+Audio backing for she is streamer.
+
+18:44.920 --> 18:50.920
+So feel free to submit your candidate to that.
+
+18:50.920 --> 18:55.920
+And if you have any questions, feel free to contact us directly.
+
+18:55.920 --> 18:57.920
+We have the email here.
+
+18:57.920 --> 18:59.920
+So yeah, that's all I think.
+
+18:59.920 --> 19:10.920
+So I think now we're going to questions.
+
+19:30.920 --> 19:35.920
+The question is what happened if I want to use it.
+
+19:35.920 --> 19:45.920
+It's going when you launch the first program is going to launch the device emulation and then it's going to launch Kimo.
+
+19:45.920 --> 19:54.920
+And then, for example, if you are in the guest, you want to use it, you're going to use for example, speaker test or apply or something like this to do.
+
+19:54.920 --> 19:57.920
+And then you are going to listen something in the host.
+
+19:57.920 --> 20:02.920
+So, yes, but what is now nothing is happening.
+
+20:02.920 --> 20:09.920
+What is happening when you use the back end?
+
+20:09.920 --> 20:10.920
+No.
+
+20:10.920 --> 20:17.920
+So she's asking what happens when we use the now backing.
+
+20:17.920 --> 20:19.920
+It's clean.
+
+20:19.920 --> 20:20.920
+No audio.
+
+20:20.920 --> 20:22.920
+He doesn't use any library.
+
+20:22.920 --> 20:30.920
+Yes, nothing because the pipe wire would use the pipe, I correspond in libraries and also would use the also libraries, but no, nothing.
+
+20:30.920 --> 20:31.920
+Okay.
+
+20:31.920 --> 20:33.920
+Sorry, I missed the question.
+
+20:33.920 --> 20:42.920
+Can you disclose some car brands that is using your feet?
+
+20:42.920 --> 20:48.920
+Can you can we mention some brand that is using this implementation?
+
+20:48.920 --> 20:56.920
+No.
+
+20:56.920 --> 21:04.920
+Can I ask why you chose to implement this in Rust?
+
+21:04.920 --> 21:05.920
+Okay.
+
+21:05.920 --> 21:08.920
+He's asking why we choose to implement this in Rust.
+
+21:08.920 --> 21:19.920
+So as you all know, Rust, like going to Rust design safety and features of Rust, we choose to implement it in Rust and also the memory usage.
+
+21:19.920 --> 21:22.920
+So, yeah.
+
+21:22.920 --> 21:28.920
+I can compliment a bit because also there was the was already the Rust BMM project that existed before.
+
+21:28.920 --> 21:34.920
+So for a lot of things, we was quite easy to implement the device because we could use many, many things.
+
+21:34.920 --> 21:41.920
+For example, to work through the beer queues, notify the guests, it was already all in that project already.
+
+21:41.920 --> 21:45.920
+So for us was just to implement the parsing of the request.
+
+21:45.920 --> 21:51.920
+But for example, the beer queue handling was already there and also it was easier to implement.
+
+21:51.920 --> 21:52.920
+Yeah.
+
+21:52.920 --> 21:55.920
+That's it.
+
+21:55.920 --> 22:04.920
+Maybe it's a bit out of scope, but have you made any benchmarks compared to like fully virtualized audio devices?
+
+22:04.920 --> 22:13.920
+What's the like overhand of using this compared to one of the audio devices already existing in KMU?
+
+22:13.920 --> 22:14.920
+Okay.
+
+22:14.920 --> 22:23.920
+So he's asking what is the benefit of using this audio device in comparison to the other audio devices in KMU?
+
+22:23.920 --> 22:35.920
+So regarding the PipeWire backend, PipeWire provides reduced latency, low latency and also low CPU usage and memory usage.
+
+22:35.920 --> 22:39.920
+And using it in the audio backend, we did some latency benchmarks.
+
+22:39.920 --> 22:44.920
+You can look up the PipeWire Wikipedia and how to do this latency benchmarks.
+
+22:44.920 --> 22:49.920
+You could also use the CPU check for CPU cycles and context switches and also latency.
+
+22:49.920 --> 22:54.920
+So that's, yeah.
+
+22:54.920 --> 22:59.920
+I think we compare it with the KMU built in device, for example.
+
+22:59.920 --> 23:05.920
+And it looked like the less context switch for the user application in the guess.
+
+23:05.920 --> 23:06.920
+Yeah.
+
+23:06.920 --> 23:19.920
+One of my colleagues who is a computer sound developer device, but completely different.
+
+23:19.920 --> 23:27.920
+I don't know.
+
+23:27.920 --> 23:28.920
+I think I'm going to go into details.
+
+23:28.920 --> 23:41.920
+So he said that the way how good that sound specification is written doesn't allow proper implementation of the device reset functionality.
+
+23:41.920 --> 23:51.920
+So I just want to ask if you've had any troubles with the device resets or just curious how you've handled that.
+
+23:51.920 --> 23:58.920
+So the question is that the built-in aspect, rather than built-in sound, doesn't exactly well describe the reset method.
+
+23:58.920 --> 24:00.920
+That's it.
+
+24:00.920 --> 24:06.920
+I said that the question is that the built-in sound aspect doesn't explain very well the reset method.
+
+24:06.920 --> 24:08.920
+That's it.
+
+24:08.920 --> 24:16.920
+There are some conflicts in the sound.
+
+24:16.920 --> 24:22.920
+We didn't have that issue yet, at least.
+
+24:22.920 --> 24:28.920
+And now I tried to remember if we had any feature to call it reset or something like this, but we don't.
+
+24:28.920 --> 24:36.920
+So maybe we can talk offline if you want.
+
+24:36.920 --> 24:40.920
+Any more questions?
+
+24:40.920 --> 24:41.920
+Thank you.
+
+24:41.920 --> 24:42.920
+Thank you.
+
+24:42.920 --> 24:48.920
+Thank you.
+

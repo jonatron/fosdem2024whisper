@@ -1,0 +1,1175 @@
+WEBVTT
+
+00:00.000 --> 00:11.480
+Actually, an ex-collworker of mine, we worked together on CertManager, if I recall correctly.
+
+00:11.480 --> 00:15.740
+We wrote a lot of tests there, not enough tests in my opinion, but there is never enough
+
+00:15.740 --> 00:16.740
+tests in the world.
+
+00:16.740 --> 00:25.660
+And I have to be honest, when I code and I'm not being paid for it, I do not write tests.
+
+00:25.660 --> 00:30.300
+So Josh does, and that's why he's going to talk to us about how to make your testing
+
+00:30.300 --> 00:31.300
+life way, way better.
+
+00:31.300 --> 00:32.300
+Right, that's possible Josh?
+
+00:32.300 --> 00:33.300
+Thank you very much.
+
+00:33.300 --> 00:34.300
+Cheers, Marsha.
+
+00:34.300 --> 00:35.300
+Good.
+
+00:35.300 --> 00:36.300
+So hi, Ron.
+
+00:36.300 --> 00:42.980
+Yeah, hopefully I can change Marsha's opinion on that during this talk.
+
+00:42.980 --> 00:44.220
+So I'm Josh.
+
+00:44.220 --> 00:47.940
+I work on the project DAPA, which is an open source project.
+
+00:47.940 --> 00:50.900
+I'm going to talk about that in a second.
+
+00:50.900 --> 00:53.540
+And the talk is about efficient integration testing in Go.
+
+00:53.540 --> 00:55.140
+So it's a case study on DAPA.
+
+00:55.140 --> 00:59.620
+I work on DAPA, I'm coming from a DAPA perspective, but the idea here is the kind of learnings
+
+00:59.620 --> 01:04.180
+that we have did through DAPA, you can kind of bring to your own project and make your
+
+01:04.180 --> 01:08.340
+project better, more efficient and correct and these kinds of things.
+
+01:08.340 --> 01:09.340
+So this is the agenda.
+
+01:09.340 --> 01:12.740
+Like I say, we'll talk about testing, we'll talk about DAPA a bit, the framework that I
+
+01:12.740 --> 01:17.620
+wrote for the integration testing in DAPA, and then some learnings and some gotchas and
+
+01:17.620 --> 01:21.020
+some things you can pick up for your own project.
+
+01:21.020 --> 01:22.020
+Cool.
+
+01:22.020 --> 01:23.020
+So testing.
+
+01:23.020 --> 01:24.340
+Why do we test software?
+
+01:24.340 --> 01:27.060
+Fundamentally, why do we test software?
+
+01:27.060 --> 01:30.900
+So the first thing is to prove the correctness of software.
+
+01:30.900 --> 01:32.620
+That's the main point, right?
+
+01:32.620 --> 01:36.020
+We write software, software is complex.
+
+01:36.020 --> 01:40.940
+Code is hardly readable by humans and we make mistakes and the more software you write,
+
+01:40.940 --> 01:46.580
+the harder it gets to keep track of the state and yeah, we all write bugs.
+
+01:46.580 --> 01:51.060
+But it's not necessarily the case that this is the only reason why we write tests.
+
+01:51.060 --> 01:55.420
+If it was the only reason why we write tests, we would write our test once and then once
+
+01:55.420 --> 01:58.060
+they start passing, we would delete the test file.
+
+01:58.060 --> 02:01.980
+So writing tests just for the correctness is not the only reason.
+
+02:01.980 --> 02:05.460
+Another reason is for putting guardrails in place.
+
+02:05.460 --> 02:09.700
+Implementation code changes over time and so assertions you want to make about your code
+
+02:09.700 --> 02:13.740
+behaving in a certain way, you want to kind of keep into the future.
+
+02:13.740 --> 02:18.060
+So yeah, that's why we don't want to delete our test files after we've written them.
+
+02:18.060 --> 02:22.260
+The next thing is ensuring compatibility with external APIs.
+
+02:22.260 --> 02:27.620
+So if you have external services, I'm thinking I come from like a Kubernetes world and things
+
+02:27.620 --> 02:28.620
+like this.
+
+02:28.620 --> 02:31.140
+So Kubernetes version changes, they break stuff all the time.
+
+02:31.140 --> 02:34.660
+You want to make sure that your code still behaves in the expected way when external
+
+02:34.660 --> 02:37.500
+things change.
+
+02:37.500 --> 02:40.740
+Verifying performance, performance testing, these kinds of things, making sure that not
+
+02:40.740 --> 02:45.820
+only your code is correct but it also does things in a timely manner or uses less resources
+
+02:45.820 --> 02:49.420
+than is your limit or things like this.
+
+02:49.420 --> 02:54.980
+And finally, and what we'll follow in this talk is hopefully that if you write a testing
+
+02:54.980 --> 03:03.460
+framework which is usable by humans and is efficient and is easy to read and use, then
+
+03:03.460 --> 03:08.140
+that testing framework itself can then be used as your kind of sandbox on how you can
+
+03:08.140 --> 03:13.060
+test or do experiments in your software and test features and things like this.
+
+03:13.060 --> 03:19.580
+So a really good testing framework is really important to improve your developer experience
+
+03:19.580 --> 03:25.500
+and the final thing is increasing developer velocity which is largely a big thing that
+
+03:25.500 --> 03:26.620
+we care about, right?
+
+03:26.620 --> 03:28.820
+We want to write features.
+
+03:28.820 --> 03:35.660
+So test types, if you open a textbook on testing, you'll probably see this graph somewhere.
+
+03:35.660 --> 03:39.020
+It's a very kind of classic visualization of the different types of testing.
+
+03:39.460 --> 03:43.060
+At the bottom you have a unit test, that's your test bar, that's your logic code, and
+
+03:43.060 --> 03:46.700
+it tests a variable equals another variable, really exciting stuff.
+
+03:46.700 --> 03:50.340
+And then at the very top you have things like your performance testing, your testings and
+
+03:50.340 --> 03:51.980
+things like this.
+
+03:51.980 --> 03:57.780
+And then the middle section you have your end-to-end and integration testing.
+
+03:57.780 --> 04:01.100
+The difference between these two things is semantic and depends what project you're talking
+
+04:01.100 --> 04:03.900
+about and who you're asking and things like this.
+
+04:03.900 --> 04:06.620
+Again, I'm coming from a dapper perspective.
+
+04:06.620 --> 04:11.500
+End-to-end tests for us are deploying to Kubernetes and running it in a Kubernetes environment
+
+04:11.500 --> 04:13.100
+and invoking it there.
+
+04:13.100 --> 04:18.540
+Integration testing is running binaries locally, typically, and that's where the differential
+
+04:18.540 --> 04:21.340
+takes place.
+
+04:21.340 --> 04:24.460
+Integration testing ideally runs quicker than your end-to-end testing.
+
+04:24.460 --> 04:28.780
+Kubernetes is a slow software so it's a pain in the ass to write loads of tests for an
+
+04:28.780 --> 04:31.620
+end-to-end test.
+
+04:31.620 --> 04:35.540
+So yeah, the talks about integration testing, what are integration tests?
+
+04:35.540 --> 04:41.900
+Fundamentally, this is what an integration test is, and this is true for a lot of testing
+
+04:41.900 --> 04:42.900
+as well.
+
+04:42.900 --> 04:46.860
+But fundamentally, you're setting up your system to be in a particular state that you
+
+04:46.860 --> 04:47.860
+care about.
+
+04:47.860 --> 04:51.700
+You're then asserting a particular behavior and then you are then cleaning up that system
+
+04:51.700 --> 04:52.700
+state.
+
+04:52.700 --> 04:53.700
+That is it.
+
+04:53.700 --> 04:56.260
+That is fundamentally what you're doing.
+
+04:56.260 --> 05:00.060
+As an example, again, going back to dapper, this might be executing one of the dapper
+
+05:00.060 --> 05:05.540
+services, then doing a curl, in this case, to make sure that the healthy endpoint returns
+
+05:05.540 --> 05:11.340
+a 200 or something like this, and then finally killing that process at the end.
+
+05:11.340 --> 05:12.340
+That's it.
+
+05:12.340 --> 05:14.500
+That's what an integration test is.
+
+05:14.500 --> 05:18.500
+Keep talking about dapper.
+
+05:18.500 --> 05:21.860
+That's interesting.
+
+05:21.860 --> 05:23.020
+That's not dapper.
+
+05:23.020 --> 05:24.020
+Okay.
+
+05:24.020 --> 05:25.700
+Try that again.
+
+05:25.700 --> 05:26.700
+What is dapper?
+
+05:26.700 --> 05:27.700
+Not that.
+
+05:27.980 --> 05:32.300
+Dapper is an open source project, all written in go.
+
+05:32.300 --> 05:39.380
+The tagline, the marketing headline, is that it is a set of APIs and SDKs and frameworks
+
+05:39.380 --> 05:44.300
+to make a developer more productive in a cloud-native environment.
+
+05:44.300 --> 05:48.220
+What that means fundamentally is that the project will expose a bunch of APIs for you
+
+05:48.220 --> 05:51.620
+that you typically need to write some business logic that does something interesting.
+
+05:51.620 --> 05:57.460
+They have a list of APIs here, so it gives you some state management, PubSub, Actors,
+
+05:58.220 --> 06:03.460
+and then you can back those APIs by whatever implementation that you want.
+
+06:03.460 --> 06:08.660
+It might have different concerns, so the infrateam might manage your postgres, and then to you
+
+06:08.660 --> 06:11.780
+as a developer, you're just exposed with the state support API.
+
+06:11.780 --> 06:13.620
+That's fundamentally what dapper is.
+
+06:13.620 --> 06:18.460
+What is important for this talk is that dapper is a complex software system.
+
+06:18.460 --> 06:21.380
+We have multiple services running, and they're all doing different things.
+
+06:21.380 --> 06:22.620
+We're all talking to each other.
+
+06:22.620 --> 06:24.900
+Maybe sometimes they're MTLS, sometimes it's not.
+
+06:24.940 --> 06:26.700
+Sometimes GRPC, sometimes HTTP.
+
+06:26.700 --> 06:28.180
+We have a whole set of APIs.
+
+06:28.180 --> 06:34.460
+We have a bunch of backing services that we support, whether it be postgres or some
+
+06:34.460 --> 06:37.460
+Google stuff, whatever it might be.
+
+06:37.460 --> 06:43.140
+The point here is that this is a very complex software system, which all software turns
+
+06:43.140 --> 06:47.580
+into over a longer period of time.
+
+06:47.580 --> 06:54.500
+When your software system becomes this complicated spaghetti mess, it becomes a house of cards.
+
+06:54.580 --> 06:59.620
+It will happen, and if anyone who's worked on a larger project will have first-hand experience,
+
+06:59.620 --> 07:04.020
+you make a small change, and that will have unexpected consequences or behaviors in a
+
+07:04.020 --> 07:08.540
+completely seemingly unrelated part of the system.
+
+07:08.540 --> 07:11.340
+You'll have software turns into house of cards, you don't want to make changes, and
+
+07:11.340 --> 07:15.140
+again you slow your developer velocity that we were talking about.
+
+07:15.140 --> 07:16.580
+How do we resolve this?
+
+07:16.580 --> 07:17.980
+Tests.
+
+07:17.980 --> 07:20.180
+We use integration testing.
+
+07:20.260 --> 07:25.380
+When I joined the project, there wasn't any integration tests, so it was kind of a blank
+
+07:25.380 --> 07:26.380
+slate.
+
+07:26.380 --> 07:31.100
+I could start from the very beginning of how I wanted our integration tests to look.
+
+07:31.100 --> 07:34.420
+I came with these set of design decisions.
+
+07:34.420 --> 07:38.380
+First of all, I wanted to go as the sole dependency on these integration tests.
+
+07:38.380 --> 07:40.500
+I hate make files.
+
+07:40.500 --> 07:46.060
+I think make is terrible, and I don't want that anywhere near having to invoke tests.
+
+07:46.140 --> 07:49.660
+The next thing that I wanted to do was to run a test.
+
+07:49.660 --> 07:54.380
+I wanted to do something like a test, and it would be worse, something like needing
+
+07:54.380 --> 07:58.020
+Python or God forbid having to run Docker or something like this.
+
+07:58.020 --> 07:59.820
+It just run my tests.
+
+07:59.820 --> 08:04.980
+We want them to be as close to what developers are doing in their day-to-day, because remember
+
+08:04.980 --> 08:08.420
+it's a community project, we have lots of contributors.
+
+08:08.420 --> 08:11.860
+Having go as a sole dependency was really important.
+
+08:11.860 --> 08:13.860
+They need to be quick.
+
+08:13.980 --> 08:17.140
+Time.sleepers.band, we'll talk about that later.
+
+08:17.140 --> 08:18.540
+Tests need to be portable.
+
+08:18.540 --> 08:22.820
+We basically get that for free with go, because go is very good in that it can be compiled
+
+08:22.820 --> 08:26.060
+to different architectures and operating systems and things like this, and it's designed from
+
+08:26.060 --> 08:29.260
+a portability perspective from the start, so we get that for free.
+
+08:29.260 --> 08:31.500
+It needs to be extensible.
+
+08:31.500 --> 08:33.580
+We have lots of contributors.
+
+08:33.580 --> 08:38.460
+People need to be able to write code for the integration tests as they contribute to the
+
+08:38.460 --> 08:41.140
+project, and it needs to be readable.
+
+08:41.140 --> 08:42.140
+Similar reasons.
+
+08:42.380 --> 08:48.300
+That was the design philosophy, the design decisions I came into the project with, or
+
+08:48.300 --> 08:50.740
+into the integration test with.
+
+08:50.740 --> 08:52.220
+Next was actually writing the framework itself.
+
+08:52.220 --> 09:00.060
+If we go back to our original diagram of fundamentally this is what an integration test is, the first
+
+09:00.060 --> 09:03.660
+thing we can do is turn this into go stuff.
+
+09:03.660 --> 09:08.940
+We create what I call the process, which is the thing that is managing the setup and also
+
+09:08.940 --> 09:12.500
+the cleanup, and then we have the test case, which is doing the assertions that we want
+
+09:12.500 --> 09:15.140
+on that particular test scenario.
+
+09:15.140 --> 09:19.340
+We can then put in some kind of wrapper stuff, so this is actually executable, and there's
+
+09:19.340 --> 09:23.420
+like an entry point into this kind of test case.
+
+09:23.420 --> 09:28.220
+And then we're in go, so it probably makes sense to make these interfaces.
+
+09:28.220 --> 09:30.700
+So this is what a test case is fundamentally.
+
+09:30.700 --> 09:34.620
+If you can do a setup and you can run, it will be able to be executable in the integration
+
+09:34.620 --> 09:37.100
+test suite.
+
+09:37.260 --> 09:40.820
+This is what an integration test looks like in DAPA.
+
+09:40.820 --> 09:44.860
+It's a single self-contained file, we do some registration on the test, and we'll talk about
+
+09:44.860 --> 09:49.220
+that in a second, and then we do a setup and then we do a run.
+
+09:49.220 --> 09:53.860
+You can see here in my setup that I'm creating a process, which is going to do the setup
+
+09:53.860 --> 10:00.220
+and the cleanup, and then the run bit is where I'm going to do the actual assertions.
+
+10:00.220 --> 10:05.940
+Talking about the process part, the bit that's responsible for the kind of dependency creation
+
+10:05.940 --> 10:07.340
+and cleanup.
+
+10:07.340 --> 10:11.820
+Again, similar story, it's an interface, it does a run, and it does a cleanup.
+
+10:11.820 --> 10:14.620
+Really simple, and that's the point, it needs to be simple.
+
+10:14.620 --> 10:21.860
+We'll talk about a bit in a second on why this is a great thing.
+
+10:21.860 --> 10:24.100
+This is what a process would look like.
+
+10:24.100 --> 10:29.540
+This is kind of like a no-op kind of example, not super important to read the whole thing.
+
+10:29.540 --> 10:32.940
+The whole idea is it's, again, a self-contained package.
+
+10:32.940 --> 10:39.540
+We have the new, which creates the thing with a bunch of options, using functional option
+
+10:39.540 --> 10:42.540
+style here, which isn't necessarily people's favorite.
+
+10:42.540 --> 10:44.980
+It made sense in this particular case.
+
+10:44.980 --> 10:50.060
+The kind of struct versus the kind of functional style is a bit of a hot topic.
+
+10:50.060 --> 10:53.860
+Yeah, it has a run and then it has a cleanup further down.
+
+10:53.860 --> 10:59.220
+I know very abstract, but it's clear, it's obviously very important to get your interfaces
+
+10:59.220 --> 11:03.100
+correct because you're going to live with these forever.
+
+11:03.100 --> 11:04.100
+Cool.
+
+11:04.100 --> 11:07.700
+We have a framework run.
+
+11:07.700 --> 11:12.860
+The thing that I wanted to point out here is we do a process run here, and then you can
+
+11:12.860 --> 11:19.740
+see that we're using the go test cleanup function, which is amazing because it puts things on
+
+11:19.740 --> 11:20.940
+a stack.
+
+11:20.940 --> 11:25.220
+When you create your dependencies, whether these be binaries or whatever else that we're
+
+11:25.220 --> 11:30.460
+using in our processes, it will clean them up in reverse order.
+
+11:30.460 --> 11:36.180
+You have that stack, which is the natural order for things to be executed and then cleaned
+
+11:36.180 --> 11:37.180
+up in.
+
+11:37.180 --> 11:38.180
+Cool.
+
+11:38.180 --> 11:40.660
+We have all our test cases defined.
+
+11:40.660 --> 11:42.100
+They're running various processes.
+
+11:42.100 --> 11:46.100
+Again, there might be executing binaries, writing to files, things like this.
+
+11:46.100 --> 11:49.020
+We do our assertions and then we do our cleanups.
+
+11:49.020 --> 11:52.900
+These will get put into test cases and then we have some kind of sweet runner that executes
+
+11:52.900 --> 11:54.900
+these tests.
+
+11:55.660 --> 11:57.660
+That's what it looks like.
+
+11:57.660 --> 12:00.460
+It's a for loop over a set of tests and it executes them.
+
+12:00.460 --> 12:03.380
+Simple stuff.
+
+12:03.380 --> 12:09.300
+The next thing is how does the integration sweet runner know about these tests?
+
+12:09.300 --> 12:14.300
+What we need is a case registry, which is just a very fancy way of saying that we have
+
+12:14.300 --> 12:19.260
+a global variable that has a slice of test cases.
+
+12:19.340 --> 12:26.340
+What is important here that I wanted to point out was that it was a design decision that
+
+12:26.340 --> 12:31.460
+our test cases, and I mentioned it before, that they should be self-isolated in single
+
+12:31.460 --> 12:32.860
+files.
+
+12:32.860 --> 12:37.820
+I think as a developer, when you're reading test cases and things like this and you're
+
+12:37.820 --> 12:42.500
+having to go backwards and forwards into various places to even follow what the test is doing,
+
+12:42.500 --> 12:44.540
+is not good practice and it's confusing.
+
+12:44.540 --> 12:47.300
+Again, you can run into these problems.
+
+12:47.380 --> 12:51.820
+In order to eliminate that, we went for the style of having an init function, which does
+
+12:51.820 --> 12:58.820
+the registration to that global variable, and then using the bare import and style to
+
+12:58.820 --> 13:03.820
+import our init functions up into the top-level registry.
+
+13:06.100 --> 13:10.100
+Next thing is naming, which is always hard.
+
+13:10.100 --> 13:15.340
+I think there's a thing where developers generally don't necessarily respect testing
+
+13:15.340 --> 13:16.900
+code as much as they should.
+
+13:16.900 --> 13:21.620
+They care a lot about their implementation code and make it look pretty and performant
+
+13:21.620 --> 13:26.580
+and things like this, but they don't necessarily respect their testing code as much.
+
+13:26.580 --> 13:30.500
+This leads on to the kind of mess that people don't want to add to it because it's difficult
+
+13:30.500 --> 13:31.500
+to read.
+
+13:31.500 --> 13:36.340
+Having respect to your test code is really important.
+
+13:36.340 --> 13:39.700
+Similarly, naming is generally really important.
+
+13:39.700 --> 13:44.220
+Go has good standard on how you should name things, i.e. meaning should be derived through
+
+13:44.260 --> 13:45.260
+context.
+
+13:45.260 --> 13:50.180
+If you have a HTTP package, don't call your thing HTTP server, call it server.
+
+13:50.180 --> 13:51.740
+It should be hierarchical.
+
+13:51.740 --> 13:59.260
+Similarly, derived meaning through context, package path, describe your thing.
+
+13:59.260 --> 14:00.260
+Less is more.
+
+14:00.260 --> 14:02.180
+Go is not an IDE language.
+
+14:02.180 --> 14:03.500
+It's a good language.
+
+14:03.500 --> 14:08.620
+You don't need to have really long names.
+
+14:08.620 --> 14:10.900
+Just be very specific.
+
+14:10.980 --> 14:15.340
+No under scores, things like this.
+
+14:15.340 --> 14:24.100
+The benefit of then treating our test cases to be this package hierarchy with very meaningful
+
+14:24.100 --> 14:31.460
+being purposeful names is that we can do some reflect magic that gets us a lot of benefits.
+
+14:31.460 --> 14:38.140
+So when I showed before that we're doing this kind of sweet test case registration, when
+
+14:38.180 --> 14:43.100
+we are registering a test or when we're pulling out all the tests, you don't need to read
+
+14:43.100 --> 14:44.100
+the code.
+
+14:44.100 --> 14:50.340
+But basically what we're doing is using reflect to name the test its package path plus that
+
+14:50.340 --> 14:52.380
+struct name.
+
+14:52.380 --> 14:57.940
+So before our thing was called base, so it pulls out the package path of where that base
+
+14:57.940 --> 15:01.580
+test file is plus the struct name itself.
+
+15:01.580 --> 15:08.180
+So in this particular case, this test would be test underscore integration, DAPID foo
+
+15:08.180 --> 15:09.740
+base.
+
+15:09.740 --> 15:13.220
+Why is this a cool thing to do?
+
+15:13.220 --> 15:17.260
+Because that means we can start doing reject searches over our tests.
+
+15:17.260 --> 15:22.100
+So you can imagine for example if I'm writing a feature for DAPID or trying to fix a bug,
+
+15:22.100 --> 15:27.980
+if I'm working on maybe the active subsystem or something like this or placement, I can
+
+15:28.060 --> 15:31.420
+in another time and I'll have my integration test running and I can just do a search, a
+
+15:31.420 --> 15:37.660
+reject search on all the tests that are in the project for related things.
+
+15:37.660 --> 15:43.300
+So yeah, being very specific about your naming means that you can search through them and
+
+15:43.300 --> 15:44.820
+run all the relevant tests.
+
+15:44.820 --> 15:49.820
+Again being quick, developer focus, good UX.
+
+15:49.820 --> 15:57.140
+Yeah, that's how you do rejects in Go for loop and then you filter out all the test names
+
+15:57.180 --> 15:58.780
+that don't match the rejects.
+
+15:58.780 --> 16:03.780
+Here's another example, I'm working on century related things or MTS related things, I want
+
+16:03.780 --> 16:08.620
+to run all the century tests, I can just give it a query.
+
+16:08.620 --> 16:10.940
+The next is processes.
+
+16:10.940 --> 16:16.660
+So these are the two bits down here, the kind of dependency setup and the cleanup.
+
+16:16.660 --> 16:21.340
+We've been talking a lot about the different services in DAPID, so these are obviously
+
+16:21.380 --> 16:30.380
+using the exec, we're exacting processes on the computer, using the exec package.
+
+16:30.620 --> 16:36.380
+What we've decided to do is follow the kind of UNIX philosophy of running these processes
+
+16:36.380 --> 16:39.060
+as in do one thing and do one thing really well.
+
+16:39.060 --> 16:44.540
+So the exec process does really good at exacting a binary on the computer.
+
+16:44.540 --> 16:50.140
+You can then wrap that process in another more meaningful, again being intentional about
+
+16:50.140 --> 16:54.020
+naming which has a bit more context about how that binary should be run.
+
+16:54.020 --> 16:58.180
+So for example, this century process has all the context of knows what the CLI flags and
+
+16:58.180 --> 17:03.140
+things like this gives it same defaults, exposes the options in a human readable way in order
+
+17:03.140 --> 17:06.140
+to run that binary.
+
+17:06.140 --> 17:10.340
+And then as I mentioned before, DAPID has lots of different services, it's a complex software
+
+17:10.340 --> 17:15.620
+system but following this UNIX philosophy you can do this wrapping in your processes
+
+17:15.700 --> 17:22.700
+to make more meaningful, higher level naming and interfaces for your developer.
+
+17:23.260 --> 17:26.900
+So I can talk about a Kubernetes process and it's very easy as a developer in my test
+
+17:26.900 --> 17:31.500
+suite to say run Kubernetes, whatever that might mean, under the hood that's actually
+
+17:31.500 --> 17:37.020
+like a mocked Kubernetes API server which is actually a HTTP server, yada yada yada.
+
+17:37.020 --> 17:41.020
+So yeah, having this kind of wrapped process is kind of an elegant way to handle that.
+
+17:42.020 --> 17:48.020
+Here's an example of another one, so there's an operator service, we're doing some log
+
+17:48.020 --> 17:53.020
+line stuff in here, some DAPID stuff, but these are very high order concepts of dependencies
+
+17:53.020 --> 17:59.020
+that we're creating and these are all wrapped going down.
+
+17:59.020 --> 18:06.020
+Process binaries, so I mentioned before that we want to go as the sole dependency and go
+
+18:06.020 --> 18:13.020
+is a good language and it's got a very good build caching system and what that means is
+
+18:13.020 --> 18:18.020
+that in our testing integration testing itself is we're building the binaries in the test,
+
+18:18.020 --> 18:21.020
+so one of the first things it's going to do is it's going to build all the binaries
+
+18:21.020 --> 18:25.020
+that are in the project, that's the code that's doing that.
+
+18:25.020 --> 18:31.020
+It's then going to write them to a deterministic static file location and what that means is
+
+18:31.020 --> 18:36.020
+that every time I invoke the test it's going to run that go build, but because of go builds
+
+18:36.020 --> 18:42.020
+cache magic it's not going to take any time at all, so I can completely retry my go test
+
+18:42.020 --> 18:45.020
+and it will just be quick.
+
+18:45.020 --> 18:49.020
+The other nice thing about this is that if I change my implementation code and just write
+
+18:49.020 --> 18:54.020
+go test in my integration test, it's going to pull all the changes that I've just made
+
+18:54.020 --> 18:57.020
+to the code right because it is building from source every time.
+
+18:58.020 --> 19:02.020
+So that's a neat thing with go piping.
+
+19:02.020 --> 19:09.020
+So software writes things to logs and these can typically be very noisy if you're running
+
+19:09.020 --> 19:14.020
+lots and lots and lots of tests and this is going to take up a lot of disk space potentially,
+
+19:14.020 --> 19:19.020
+it's going to write a lot of things to the screen and it makes it impossible to read the test output.
+
+19:19.020 --> 19:24.020
+If you've got oodles, like a gigabyte of test logs and you're trying to find one test failure
+
+19:24.020 --> 19:27.020
+and read the logs from what happened, it becomes impossible.
+
+19:27.020 --> 19:34.020
+So write these things to in-memory buffers and then you can do things like only write
+
+19:34.020 --> 19:39.020
+the in-memory log buffer to the screen if the test actually fails, which is the only time
+
+19:39.020 --> 19:42.020
+where you actually care about what the log line is.
+
+19:42.020 --> 19:47.020
+Then obviously you can do things like because it's in memory, you've got a reference to it,
+
+19:47.020 --> 19:50.020
+you've got a pointer to it, you can then do some assertions on what was in the log lines
+
+19:50.020 --> 19:53.020
+and test log lines that way.
+
+19:53.020 --> 19:56.020
+It's quite good for this, you can create pipes and things like this.
+
+19:56.020 --> 20:02.020
+All very idiomatic kind of go stuff that you're familiar with.
+
+20:02.020 --> 20:09.020
+Asserting eventually, so all software is eventually consistent fundamentally like computers
+
+20:09.020 --> 20:15.020
+that are any as quick as the speed of light that is as fast as they can go, they're not as fast as that.
+
+20:15.020 --> 20:21.020
+But fundamentally computers to do a thing will take some time.
+
+20:21.020 --> 20:26.020
+And so we have to wait a period of time to observe some behavior when we put it into a particular state.
+
+20:26.020 --> 20:29.020
+Just fundamentally we have to do that.
+
+20:29.020 --> 20:35.020
+However you should never use time.sleep to do this, which I think is very, it's always there
+
+20:35.020 --> 20:39.020
+and it's very easy to just be like, time.sleep three seconds or something like this,
+
+20:39.020 --> 20:41.020
+but you should never do it.
+
+20:41.020 --> 20:44.020
+Time.sleep is the nuclear option.
+
+20:44.020 --> 20:49.020
+So to kind of illustrate this, if a single test sleeps for five seconds
+
+20:49.020 --> 20:54.020
+and DAPA CI for example runs four times a day, not counting PRs or anything like this,
+
+20:54.020 --> 21:00.020
+just standardly runs every four times a day, this equates to two hours of idle CPU time a year.
+
+21:00.020 --> 21:06.020
+If we then do it more than this, so like DAPA currently has 133 integration tests,
+
+21:06.020 --> 21:13.020
+if just 10% of those tests sleep for five seconds, then that equates to more than an entire day in a year of idle CPU.
+
+21:13.020 --> 21:15.020
+Which is crazy, right?
+
+21:15.020 --> 21:20.020
+This is bad for the polar bears, bad for the environment, it's bad for our developers too, which, yeah.
+
+21:20.020 --> 21:24.020
+If your test takes ages to run, no one will want to run them and no one wants to add to them.
+
+21:24.020 --> 21:30.020
+So being very intentional about the speed of your tests is very important.
+
+21:30.020 --> 21:38.020
+The way to do this would be to do polling basically, so in Go there's the kind of testifier package
+
+21:38.020 --> 21:43.020
+that is really, really good and highly recommend using it and it has this eventually function.
+
+21:43.020 --> 21:49.020
+All of the functions in this package are like super sane and highly recommend used to use them.
+
+21:49.020 --> 21:52.020
+And yeah, computers are faster than you think they are.
+
+21:52.020 --> 21:58.020
+Stuff does not take as much as you think it does, so like HTTP calls over local hosts take like milliseconds.
+
+21:58.020 --> 22:01.020
+It doesn't confuse as fast as you think they are.
+
+22:01.020 --> 22:07.020
+So even I've got here an appalling of like every 100 milliseconds, maybe that is even too slow itself.
+
+22:07.020 --> 22:10.020
+So yeah, computers are faster than you think they are.
+
+22:10.020 --> 22:14.020
+Be more aggressive with your kind of assertions and your polling.
+
+22:16.020 --> 22:17.020
+Clean up.
+
+22:17.020 --> 22:19.020
+Tests should never leak.
+
+22:19.020 --> 22:25.020
+Having data leaking from one test case to another will invalidate your assertions just fundamentally.
+
+22:25.020 --> 22:30.020
+So it's very important that you clean up state in between test case runs.
+
+22:31.020 --> 22:39.020
+And yeah, and it's also the case that if you're not cleaning up the state in your project in between case runs,
+
+22:39.020 --> 22:44.020
+then you're going to reduce the resource utilization that each test case can do and it's going to slow down your tests.
+
+22:44.020 --> 22:49.020
+So I'm thinking, you know, if you've got database tests or something like this, you're writing a bunch of stuff to disk.
+
+22:49.020 --> 22:52.020
+What if you fill up the disk? You're not running any more tests, right?
+
+22:52.020 --> 22:54.020
+So clean up is important.
+
+22:55.020 --> 23:03.020
+To list through some of the things that could be interesting for you to use, use temporary directories, using the test package.
+
+23:03.020 --> 23:04.020
+That's really good.
+
+23:04.020 --> 23:07.020
+T.cleanup, we just spoke about that earlier.
+
+23:07.020 --> 23:12.020
+That's doing the kind of stack thing, so it does things in the kind of reverse order.
+
+23:12.020 --> 23:13.020
+Use port zero.
+
+23:13.020 --> 23:17.020
+Ideally your kernel is going to give you a free port if you ask for zero.
+
+23:17.020 --> 23:18.020
+Use in-memory stuff.
+
+23:18.020 --> 23:20.020
+Don't use the internet.
+
+23:20.020 --> 23:23.020
+Don't give stop channels into functions.
+
+23:23.020 --> 23:24.020
+And use context.
+
+23:24.020 --> 23:29.020
+Context is one of the best things in Go and always use context.
+
+23:29.020 --> 23:31.020
+Very quick to talk about operating systems.
+
+23:31.020 --> 23:33.020
+Operating systems are very weird.
+
+23:33.020 --> 23:39.020
+Use build tags where you need to do different file types and things like this depending on their operating system.
+
+23:39.020 --> 23:40.020
+Work through the pain.
+
+23:40.020 --> 23:42.020
+Use if statements.
+
+23:42.020 --> 23:44.020
+Yeah, and then finally being productive.
+
+23:44.020 --> 23:50.020
+So building a culture of integration tests in a distributed team is always a work in progress.
+
+23:50.020 --> 23:55.020
+To know unnecessarily really likes writing tests, however, if you write a really good test framework,
+
+23:55.020 --> 23:58.020
+that's going to encourage people to add to them.
+
+23:58.020 --> 24:02.020
+And if they're quick, they're easy to use, then yeah.
+
+24:02.020 --> 24:06.020
+A good testing framework should be usable as a development sandbox.
+
+24:06.020 --> 24:09.020
+So what I mean by that is if you're writing a new feature,
+
+24:09.020 --> 24:13.020
+your testing framework should be your first port of call to wanting to use that new feature.
+
+24:13.020 --> 24:17.020
+Tests are great because they're encode, which means they're reproducible,
+
+24:17.020 --> 24:20.020
+and I can execute them and I can make changes over time.
+
+24:20.020 --> 24:22.020
+And it's very clear what's going on.
+
+24:22.020 --> 24:25.020
+Just running binaries on your terminal and things like this are fine,
+
+24:25.020 --> 24:30.020
+but having it in test code makes the reproducible better.
+
+24:30.020 --> 24:35.020
+And then the more, again, the more higher order your processes are,
+
+24:35.020 --> 24:37.020
+the more productive your team will be.
+
+24:37.020 --> 24:44.020
+So don't describe things like your developer shouldn't be describing things like exec, this binary, things like this.
+
+24:44.020 --> 24:48.020
+They should always be in a high order kind of thing that they're describing.
+
+24:48.020 --> 24:53.020
+Again, it decreases the amount of code that you have to write in your test case
+
+24:53.020 --> 24:57.020
+and makes them more approachable for contributors.
+
+24:57.020 --> 25:00.020
+And that's me. Thank you, everyone.
+
+25:00.020 --> 25:06.020
+APPLAUSE
+
+25:06.020 --> 25:11.020
+Saved some time for you, but I don't know if you want some questions or leave it there.
+
+25:11.020 --> 25:14.020
+I can fit in one quick question.
+
+25:14.020 --> 25:17.020
+Otherwise, you can just grab them in the hallway.
+
+25:17.020 --> 25:20.020
+Ah, no question there. Let me run one second.
+
+25:20.020 --> 25:24.020
+Keep holding your hand up.
+
+25:24.020 --> 25:29.020
+So, quickly, why did you make your own sort of test filtering system
+
+25:29.020 --> 25:32.020
+instead of using Go's test filtering system?
+
+25:32.020 --> 25:37.020
+And secondly, why didn't you use an event hub instead of polling?
+
+25:37.020 --> 25:40.020
+Say the first one again, sorry.
+
+25:40.020 --> 25:42.020
+Why didn't you...
+
