@@ -1,0 +1,351 @@
+about Kubernetes and HBC and AI.
+Hello everyone.
+Yeah, so today I'm going to be talking to you about what the Kubernetes community is doing to improve batch workloads in general.
+So just a brief background about who I am. I work as a senior software engineer at Red Hat.
+I'm a big upstream developer in Kubernetes and OpenShift.
+At Red Hat I focus mostly on Cryo and KubeLit now,
+but I also dabble where I'm also a reviewer in the job area in Kubernetes
+and a project I'll talk about also called JobSet.
+I was a maintainer of a batch project called Armada,
+which was for running batch jobs across multiple Kubernetes clusters.
+And generally I actually started my Kubernetes experience by trying to run,
+trying to build a platform that could run jobs on Slurm and Kubernetes.
+So I kind of liked the Kubernetes aspect a little bit better in some ways,
+but the Slurm scheduler was a lot more easier to use in Kubernetes.
+But I think I saw a gap in Kubernetes and I've been kind of helping try to contribute since.
+So just to give a little outline,
+I'm going to kind of give a historical perspective about Kubernetes
+and how it developed and why we're in this area that we are now.
+I will not really be talking too much about how best to get the most performance
+out of your cloud vendor or what other things you need to do to get Kubernetes.
+I'm going to be kind of focusing on the APIs that users could use in Kubernetes.
+So this is my couple slides of what is Kubernetes.
+It's pretty complicated.
+But generally I've noticed that when people start using Kubernetes as a library,
+I like to kind of think of it as sort of a react, but for distributed systems.
+So you're kind of using all the Kubernetes client libraries,
+you're using the APIs, you're composing custom resources on top of objects
+and exposing them to your customers.
+That's kind of where I've seen a lot of companies start using Kubernetes,
+especially when you're trying to build like a quote-unquote Kubernetes native platform.
+So what does that mean really for most people?
+Well generally I think the benefit for in this community is you have declarative API for workloads.
+If you're running on the cloud, failures happen, it sucks, but it does.
+And a lot of times your users also don't want to be told,
+oh yeah, you had a network failure so your job failed.
+Sorry, restart it.
+And a lot of users are pesky and they ask more and more of you as time goes on.
+We all know this.
+So and also for better or for worse, everything starts with YAML.
+You take it with what you want.
+But generally what that really means is that we have a big focus in Kubernetes
+on what is your API, backwards compatibility, most of the time,
+and also how to make it useful for people.
+So generally a Kubernetes cluster has not too many components,
+but I want to try to focus a little bit on a couple of components for this talk.
+So generally you have the API server which everyone talks to, CLI, whatever.
+NCD is your database essentially for storing all your objects in Kubernetes.
+The scheduler is an interesting component because it's, I think,
+the hardest thing for the HVC community to kind of grasp with the Kubernetes scheduler
+versus Slurm is Kubernetes is a scheduler focus for the node.
+You don't get as much fine-grained control in a slur,
+you get a lot more control in a slurm scheduler than you would in Kubernetes
+because slurm can actually target like, I don't know, sockets and everything on a node.
+It's much more fine-grained than Kubernetes.
+So I like to think of the Kubernetes scheduler as kind of a heat-seeking missile for a node.
+You give it hints and it just, it targets it and then your pod is on a node.
+So in the node, what is actually on a node?
+Well, there's this thing called KubeLit which talks to the container runtime
+and actually I will talk about that next slide.
+So the point of KubeLit is to actually start a pod,
+but I want to walk through what actually happens with a pod.
+Like this is, you know, step one, a user creates a pod that's a workload
+and it goes to the API server, the API server stores it in that CD
+and then the scheduler says, oh, you don't have a node specified on your pod.
+Okay, let me do a little scheduling loop, finding a node.
+And then once it's, once your pod is located on a node,
+KubeLit will pick it up and actually start running it
+and if you're running a batch job, it will run into completion.
+If you're running a microservices, it's just there and it keeps running.
+And KubeLit actually talks to a container runtime and the host.
+KubeLit also handles a lot of stuff with volumes.
+It's a pretty, it does a lot.
+So now you saw the pod lifecycle and I'll be honest,
+my first time using Kubernetes, I was like, deployment, stateful sets,
+this is so complicated. I'm just going to use a pod.
+Unfortunately, I learned pretty early on that you kind of lose a lot of the benefits of Kubernetes
+if you're using pods directly.
+Pods are stateless, so if your node goes down, you essentially lose your pod.
+And a lot of times if your cluster is overworked, you're actually going to lose,
+you, well, not overworked, but your pods will get deleted after a while.
+You also don't get self-healing.
+That is an important part of Kubernetes, even in, I think, the batch community.
+It just means that when you define an API, things are going to keep running
+and if you have, like, a job, you are going to keep retrying, is one example.
+The more pragmatic thing is the pod API fits the need in both microservices
+and the batch area, and you cannot really change it for one area, not the other.
+So generally, I don't recommend people using learning stuff that people like.
+Unicorn is actually, it's more popular in Spark community.
+It's trying to bring the yarn scheduler to Kubernetes by replacing
+or by adding a separate scheduler.
+And then MCAT is a project from IBM around trying to deploy arbitrary objects
+to multiple Kubernetes clusters and adding its own queuing.
+So now, what does this mean when you have all these projects?
+Well, you have chaos.
+You have Kubeflow, I'll pick on Kubeflow a little bit.
+I only have two machine learning frameworks, but from the last I checked,
+there's like six different APIs for representing a machine learning job in Kubeflow.
+And that means that there is a lot of APIs for running a batch job from Kubeflow.
+They are trying to consolidate most of them into a single one called a training operator.
+Still, you have a new API.
+You have two versions of running MPI jobs on Kubeflow.
+Now, it isn't as, I actually don't know if that MPI operator fits for all the use cases
+that people can give with MPI, but it is, as far as I know,
+the only public open-source way of running MPI on Kubernetes.
+And you also have things from Armada and Volcano that have their own representation of jobs.
+Well, this is honestly pretty chaotic.
+It's not really fun as a developer to be told, like, you know, how many,
+like if people want to bring a new API, can you support them?
+And you say no, because we don't really want to install all of Kubeflow
+just so you could run a PyTorch job or whatever, or install the controller.
+And it gets kind of complicated.
+So this group was founded, it's like a working group in the Kubernetes community.
+Batch workloads run the full gamut on Kubernetes from the scheduling all the way to the node
+to some representation of the batch APIs.
+So they actually had to form a working group to kind of coordinate,
+not really have to, but it's kind of a way to sort of allow you to focus
+multiple people on a single area and try to improve it.
+And some of the goals of this group are, let's make the batch API useful again.
+Let's allow people to actually use these APIs without having to install
+something like Kubeflow or Volcano to run a batch job.
+And also, the other one I'll talk about is queuing.
+Carlos over there could probably talk to you all about DRA,
+which is another exciting area that's happening,
+and that's about getting more use out of the GPUs,
+and that is in scope of this group,
+but that is actually mostly led by NVIDIA and Intel right now.
+And I'll be focusing on the two bullet points for the rest of this talk.
+So what is the job API?
+Well, this is generally a pretty simple way of representing a batch job,
+and I think that's one of the downsides of it,
+is that it was really focused originally on kind of simple use cases.
+I have an example here of computing Pi,
+and I'll just walk through the API so you'll see it kind of repeated again and again.
+So generally, Kubernetes has this concept where you define a template
+and you define a replica.
+And the job API that's called parallelism,
+and that just means how many pods do you want running in parallel?
+So the first thing that I want to talk about with this group is how many of these
+do you want to actually are complete before you consider my job successful?
+Active deadline is just how long the job takes to run,
+and then back off limit is retry.
+It's kind of how the job gets some self-healing, if you will,
+because it just says if the job fails for any reason,
+I want to retry, in this case, up to the back off limit, or the default is six.
+And one of the first features that this group added
+is a pod failure policy.
+It's essentially a way to kind of short-circuit the retry limit,
+because let's say your user has a segmentation fault and they're using a GPU.
+You probably don't want them to be using that resource when other people could be using it,
+and you probably don't want to keep retrying.
+And there's no limit on these retries, so someone could say 10,000 retries
+and kind of be on that node forever or whatever.
+So generally, that pod failure policy was kind of a way to short-circuit that.
+Now, how do we actually make the job API useful for workloads
+that need to talk to one another, which is pretty much most of the most interesting use cases
+in the HPC world?
+Well, this is kind of this idea of an index job,
+is can we provide a static name and environment variable
+so that the applications can actually refer to a replica of a pod
+and not have to worry about not being able to communicate to it
+and not be able to say, you know, my replica zero, that's my index zero,
+is always going to be this, and so then you can kind of talk to it.
+So you could think of this as sort of being a common way in like an MPI area
+where you have maybe like a rank zero pod and you have a series of workers
+and you probably want to make sure you have a rank zero.
+And that's kind of the idea of an index job.
+Now, I should wish I would have shown a slide here,
+but when you couple an index job and a headless service in Kubernetes speak,
+you're actually able to get all these pods to talk to one another.
+So when the last area is if you're trying to build queuing in Kubernetes,
+you kind of run into this problem where this pod lifecycle,
+I like to kind of joke, the way I envision this lifecycle is it's kind of like a racehorse.
+Once you create the pod, it's just, it's running and it's never going to stop.
+And effectively, the why this can take down a cluster is because if you have
+a million of these things running, it's just an infinite loop
+and it's going to kind of drain all your resources of your cluster.
+But you still need to know kind of how many objects are being created,
+but you also do not want when you create the object to start this loop.
+So this was kind of this idea of suspend in the Kubernetes community,
+adding suspend to our essential queue supports, a wide range of jobs
+via this use of suspend.
+So kubere, all the kubeflow operators, a project I'll talk about next called jobset,
+job, and then another project called a flux, which is, I don't know what I'm going to add,
+but, and so this is kind of a nice thing that queue provides.
+So what do you do about representing a more complicated job?
+Well, generally the job API is only, is, you kind of have to have the same pod definition
+for all of your workloads.
+And that may not fit for a lot of use cases.
+So the job set was kind of created as this way to say,
+can we create a representation of a single job that could have maybe different pod templates
+and then also have its own kind of failure and success policies.
+So when you run these jobs at large scale, you're going to see failures
+and you may want to restart some jobs in case, or maybe you don't want to restart,
+or you want to, and I'll talk about one interesting use case of success policies.
+And one of our goals is Kubernetes is kind of an implementation detail.
+Most people don't want to know about it if you're a researcher,
+you just want to know I'm running this.
+So we kind of want to streamline the creation of stuff like index job and headless services,
+because we know people want to communicate with their pods.
+And so at a high level, the API for a job set looks very close to a job to a pod.
+Instead of replicating pods, we are replicating jobs.
+And I didn't have it specified here, but there's a replica field under the spec,
+which says how many replicas of my replicated job I want to create.
+And then inside of the inside of a replicated job is a job template.
+And so this job is a PyTorch job.
+It creates an index job with a headless service, and then it creates a single job that has four pods.
+And I'll show in a little demo why this is useful.
+And the other area that we've actually gotten quite a bit,
+it's one of both Volcano and Kubeflow have implemented this in their projects,
+is one of the main reasons why they kind of created these projects,
+is what do you do if you kind of have this leader worker paradigm,
+where your leader, let's say, is a Redis database and your workers are talking to it,
+or whatever, you know, a message queue.
+Well, I want my workers just to finish.
+Like, I want to say, hey, once my workers are done,
+my job is successful and I don't really care about the progress of the leader.
+And so this is kind of one of the use cases we had in mind with this project,
+or not, there's a lot of them, but this was one,
+like, can we use something called a success policy to say,
+I only really care about one set of jobs completion,
+the rest are fodder, essentially, or not fodder,
+but they play an important role until the workers are done,
+and then they're also taken down.
+So, how am I doing on time?
+Okay, so I'll walk through the demo a little bit.
+So generally, with a job set, you have this controller,
+a job set controller manager.
+Right now, you can check it's running, great.
+And I kind of, in this demo, I tried to take the PyTorch job
+and kind of show the template,
+and then try to run it as just a normal job and kind of show you what happens.
+You can't communicate to the service,
+because if you try to create this job normally,
+there is no service for the communicate with,
+and it just automatically fails.
+So then, what do you do?
+Well, you can use job set.
+Woo-hoo.
+And so, I already created the job set,
+and you can kind of see that with the kube control logs,
+I'm actually able to, the job set is running,
+it's doing training, using PyTorch.
+And also, I created a headless service called a PyTorch that's there.
+And so, this allows you to kind of hide all this stuff from the user.
+And then, I think in the next part of the demo,
+I'll show the success policy.
+Come on.
+Oh, well.
+So, I guess, I mean, it will go on for a little bit,
+but does anyone have any questions?
+Any questions?
+There's a couple up there.
+Wait, wait, wait.
+Who was first?
+Hi.
+Yeah, I'm very much from the Slurrem bioinformatics
+snake make next-flow world.
+So, and we have an IT department,
+and they have a Kubernetes cluster,
+so this is very interesting talk to me.
+But are you thinking about these kind of workflow managers
+that typical researchers like that use,
+because I was just in a high-energy physics session,
+they also use snake make, and they have schedulers, of course,
+but somehow that also has to interface.
+Do you have any comments on that?
+So, generally, we don't want to get into the...
+We don't want to add another workflow engine,
+and there's too many of them,
+but what I kind of view the job set is like a single node of a DAG,
+and one of our goals could be this,
+like either this job or a job set could be added
+to something like Airflow or Argo workflows.
+It's another example to kind of be like,
+this is a single element that you could run,
+rather than having, like, Argo has their own way of representing,
+like, what they actually run on Kubernetes,
+which is, you know, fine for pods, Airflow is also pods.
+There are a lot of other workflow engines out there.
+I've actually...
+We took a lot of inspiration and two jobs ago for me
+in applying bioinformatics, some of their workflow languages,
+and trying to get...
+Trying to standardize a workflow language
+so we could actually run across different environments.
+And so I'm familiar with the area,
+but we're trying not to be a workflow engine for this project.
+Thank you for the talk.
+I noticed that a lot of the things you were talking about
+seemed to play kind of in the same field,
+sort of where the Slurm plays.
+So, I don't know, a few years down the road,
+do you see Slurm kind of giving way to, you know,
+this Kubernetes-based infrastructure,
+or do you think they're targeting kind of different tasks,
+and Slurm will always have its place?
+That's a really good question.
+I was not at KubeCon North America this year,
+but I heard of a company called CoreWeave
+that was actually collaborating with SchedumD
+to try and kind of provide Slurm on Kubernetes.
+From what I understand, kind of using the Slurm scheduler,
+but also allowing people to run
+some of the more popular Kubernetes stuff,
+like have Kubernetes for services or Slurm for batch.
+Generally, everyone is kind of converging in this area.
+Our motto is actually taking from inspiration of HT Condor
+and trying to apply that to Kubernetes.
+And then I know that the...
+Sorry, I'm pulling a blank.
+The University of Wisconsin, who kind of created HT Condor,
+they're big on trying to actually use Kubernetes
+for a lot of some of their infrastructure also.
+But, and also, we do talk pretty closely with the SchedumD folks,
+at least in my last role,
+and there is a lot of interest in trying to bring Kubernetes to Slurm.
+And part of it is Slurm has been around a long time,
+and so they had to do a lot of work
+to just even to get in the fact of,
+I want to containerize Slurm in Kubernetes.
+Okay, great.
+Now, do I want to schedule a pod,
+or do I want to schedule a single container?
+And that's kind of where I can see...
+That's also what's kind of challenging,
+and the other thing is convincing more and more people
+to use containers, because it's great,
+but it's also a pain to change everything that you want
+to go to a container.
+Okay.
+Any more questions?
+So, if I understand it correctly,
+you're primarily optimizing that I do not schedule 10,000 pods,
+and then have job sets, right?
+Because when I think about batch processing,
+I do think about, let's say, CI,
+and then we are running like 5,000 jobs per day,
+and we do this with Jenkins,
+which actually works super great with Kubernetes plugin,
+but I'm not seeing enough features on this proposal
+to get rid of Jenkins or any other components.
+I'm primarily seeing a way of not overloading
+the cluster with pending pods.
+Is that right?
+No, I would say the main thing is trying,
+if you want to say run a PyTorch job,
+the one option is let's create, let's use Kubeflow.
+Fine, that will work.
+But what if I don't really want to use Kubeflow?
+What if I have my own representation?
+What if I want to add my own...

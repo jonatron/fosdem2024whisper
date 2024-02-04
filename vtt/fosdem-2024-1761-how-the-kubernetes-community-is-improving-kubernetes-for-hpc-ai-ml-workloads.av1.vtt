@@ -1,0 +1,1055 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+about Kubernetes and HBC and AI.
+
+00:07.000 --> 00:11.000
+Hello everyone.
+
+00:11.000 --> 00:20.000
+Yeah, so today I'm going to be talking to you about what the Kubernetes community is doing to improve batch workloads in general.
+
+00:20.000 --> 00:25.000
+So just a brief background about who I am. I work as a senior software engineer at Red Hat.
+
+00:25.000 --> 00:30.000
+I'm a big upstream developer in Kubernetes and OpenShift.
+
+00:30.000 --> 00:35.000
+At Red Hat I focus mostly on Cryo and KubeLit now,
+
+00:35.000 --> 00:42.000
+but I also dabble where I'm also a reviewer in the job area in Kubernetes
+
+00:42.000 --> 00:45.000
+and a project I'll talk about also called JobSet.
+
+00:45.000 --> 00:48.000
+I was a maintainer of a batch project called Armada,
+
+00:48.000 --> 00:52.000
+which was for running batch jobs across multiple Kubernetes clusters.
+
+00:52.000 --> 00:57.000
+And generally I actually started my Kubernetes experience by trying to run,
+
+00:57.000 --> 01:02.000
+trying to build a platform that could run jobs on Slurm and Kubernetes.
+
+01:02.000 --> 01:07.000
+So I kind of liked the Kubernetes aspect a little bit better in some ways,
+
+01:07.000 --> 01:11.000
+but the Slurm scheduler was a lot more easier to use in Kubernetes.
+
+01:11.000 --> 01:17.000
+But I think I saw a gap in Kubernetes and I've been kind of helping try to contribute since.
+
+01:18.000 --> 01:21.000
+So just to give a little outline,
+
+01:21.000 --> 01:24.000
+I'm going to kind of give a historical perspective about Kubernetes
+
+01:24.000 --> 01:28.000
+and how it developed and why we're in this area that we are now.
+
+01:28.000 --> 01:33.000
+I will not really be talking too much about how best to get the most performance
+
+01:33.000 --> 01:37.000
+out of your cloud vendor or what other things you need to do to get Kubernetes.
+
+01:37.000 --> 01:42.000
+I'm going to be kind of focusing on the APIs that users could use in Kubernetes.
+
+01:42.000 --> 01:45.000
+So this is my couple slides of what is Kubernetes.
+
+01:45.000 --> 01:48.000
+It's pretty complicated.
+
+01:48.000 --> 01:53.000
+But generally I've noticed that when people start using Kubernetes as a library,
+
+01:53.000 --> 01:57.000
+I like to kind of think of it as sort of a react, but for distributed systems.
+
+01:57.000 --> 02:01.000
+So you're kind of using all the Kubernetes client libraries,
+
+02:01.000 --> 02:06.000
+you're using the APIs, you're composing custom resources on top of objects
+
+02:06.000 --> 02:08.000
+and exposing them to your customers.
+
+02:08.000 --> 02:12.000
+That's kind of where I've seen a lot of companies start using Kubernetes,
+
+02:12.000 --> 02:17.000
+especially when you're trying to build like a quote-unquote Kubernetes native platform.
+
+02:17.000 --> 02:20.000
+So what does that mean really for most people?
+
+02:20.000 --> 02:25.000
+Well generally I think the benefit for in this community is you have declarative API for workloads.
+
+02:25.000 --> 02:30.000
+If you're running on the cloud, failures happen, it sucks, but it does.
+
+02:30.000 --> 02:33.000
+And a lot of times your users also don't want to be told,
+
+02:33.000 --> 02:35.000
+oh yeah, you had a network failure so your job failed.
+
+02:35.000 --> 02:37.000
+Sorry, restart it.
+
+02:37.000 --> 02:43.000
+And a lot of users are pesky and they ask more and more of you as time goes on.
+
+02:43.000 --> 02:45.000
+We all know this.
+
+02:45.000 --> 02:49.000
+So and also for better or for worse, everything starts with YAML.
+
+02:49.000 --> 02:52.000
+You take it with what you want.
+
+02:52.000 --> 02:56.000
+But generally what that really means is that we have a big focus in Kubernetes
+
+02:56.000 --> 03:01.000
+on what is your API, backwards compatibility, most of the time,
+
+03:01.000 --> 03:04.000
+and also how to make it useful for people.
+
+03:04.000 --> 03:10.000
+So generally a Kubernetes cluster has not too many components,
+
+03:10.000 --> 03:15.000
+but I want to try to focus a little bit on a couple of components for this talk.
+
+03:15.000 --> 03:21.000
+So generally you have the API server which everyone talks to, CLI, whatever.
+
+03:21.000 --> 03:26.000
+NCD is your database essentially for storing all your objects in Kubernetes.
+
+03:26.000 --> 03:29.000
+The scheduler is an interesting component because it's, I think,
+
+03:29.000 --> 03:33.000
+the hardest thing for the HVC community to kind of grasp with the Kubernetes scheduler
+
+03:33.000 --> 03:38.000
+versus Slurm is Kubernetes is a scheduler focus for the node.
+
+03:38.000 --> 03:41.000
+You don't get as much fine-grained control in a slur,
+
+03:41.000 --> 03:45.000
+you get a lot more control in a slurm scheduler than you would in Kubernetes
+
+03:45.000 --> 03:49.000
+because slurm can actually target like, I don't know, sockets and everything on a node.
+
+03:49.000 --> 03:52.000
+It's much more fine-grained than Kubernetes.
+
+03:52.000 --> 03:56.000
+So I like to think of the Kubernetes scheduler as kind of a heat-seeking missile for a node.
+
+03:56.000 --> 04:03.000
+You give it hints and it just, it targets it and then your pod is on a node.
+
+04:03.000 --> 04:06.000
+So in the node, what is actually on a node?
+
+04:06.000 --> 04:11.000
+Well, there's this thing called KubeLit which talks to the container runtime
+
+04:11.000 --> 04:13.000
+and actually I will talk about that next slide.
+
+04:13.000 --> 04:17.000
+So the point of KubeLit is to actually start a pod,
+
+04:17.000 --> 04:20.000
+but I want to walk through what actually happens with a pod.
+
+04:20.000 --> 04:25.000
+Like this is, you know, step one, a user creates a pod that's a workload
+
+04:25.000 --> 04:30.000
+and it goes to the API server, the API server stores it in that CD
+
+04:30.000 --> 04:34.000
+and then the scheduler says, oh, you don't have a node specified on your pod.
+
+04:34.000 --> 04:38.000
+Okay, let me do a little scheduling loop, finding a node.
+
+04:38.000 --> 04:42.000
+And then once it's, once your pod is located on a node,
+
+04:42.000 --> 04:45.000
+KubeLit will pick it up and actually start running it
+
+04:45.000 --> 04:48.000
+and if you're running a batch job, it will run into completion.
+
+04:48.000 --> 04:51.000
+If you're running a microservices, it's just there and it keeps running.
+
+04:51.000 --> 04:55.000
+And KubeLit actually talks to a container runtime and the host.
+
+04:55.000 --> 04:58.000
+KubeLit also handles a lot of stuff with volumes.
+
+04:58.000 --> 05:01.000
+It's a pretty, it does a lot.
+
+05:01.000 --> 05:04.000
+So now you saw the pod lifecycle and I'll be honest,
+
+05:04.000 --> 05:08.000
+my first time using Kubernetes, I was like, deployment, stateful sets,
+
+05:08.000 --> 05:11.000
+this is so complicated. I'm just going to use a pod.
+
+05:11.000 --> 05:17.000
+Unfortunately, I learned pretty early on that you kind of lose a lot of the benefits of Kubernetes
+
+05:17.000 --> 05:19.000
+if you're using pods directly.
+
+05:19.000 --> 05:23.000
+Pods are stateless, so if your node goes down, you essentially lose your pod.
+
+05:23.000 --> 05:27.000
+And a lot of times if your cluster is overworked, you're actually going to lose,
+
+05:27.000 --> 05:32.000
+you, well, not overworked, but your pods will get deleted after a while.
+
+05:32.000 --> 05:35.000
+You also don't get self-healing.
+
+05:35.000 --> 05:39.000
+That is an important part of Kubernetes, even in, I think, the batch community.
+
+05:39.000 --> 05:43.000
+It just means that when you define an API, things are going to keep running
+
+05:43.000 --> 05:51.000
+and if you have, like, a job, you are going to keep retrying, is one example.
+
+05:51.000 --> 05:56.000
+The more pragmatic thing is the pod API fits the need in both microservices
+
+05:56.000 --> 06:01.000
+and the batch area, and you cannot really change it for one area, not the other.
+
+06:01.000 --> 06:06.000
+So generally, I don't recommend people using learning stuff that people like.
+
+06:06.000 --> 06:09.000
+Unicorn is actually, it's more popular in Spark community.
+
+06:09.000 --> 06:14.000
+It's trying to bring the yarn scheduler to Kubernetes by replacing
+
+06:14.000 --> 06:17.000
+or by adding a separate scheduler.
+
+06:17.000 --> 06:24.000
+And then MCAT is a project from IBM around trying to deploy arbitrary objects
+
+06:24.000 --> 06:27.000
+to multiple Kubernetes clusters and adding its own queuing.
+
+06:27.000 --> 06:30.000
+So now, what does this mean when you have all these projects?
+
+06:30.000 --> 06:32.000
+Well, you have chaos.
+
+06:32.000 --> 06:36.000
+You have Kubeflow, I'll pick on Kubeflow a little bit.
+
+06:36.000 --> 06:39.000
+I only have two machine learning frameworks, but from the last I checked,
+
+06:39.000 --> 06:44.000
+there's like six different APIs for representing a machine learning job in Kubeflow.
+
+06:44.000 --> 06:49.000
+And that means that there is a lot of APIs for running a batch job from Kubeflow.
+
+06:49.000 --> 06:54.000
+They are trying to consolidate most of them into a single one called a training operator.
+
+06:54.000 --> 06:57.000
+Still, you have a new API.
+
+06:57.000 --> 07:00.000
+You have two versions of running MPI jobs on Kubeflow.
+
+07:00.000 --> 07:05.000
+Now, it isn't as, I actually don't know if that MPI operator fits for all the use cases
+
+07:05.000 --> 07:08.000
+that people can give with MPI, but it is, as far as I know,
+
+07:08.000 --> 07:13.000
+the only public open-source way of running MPI on Kubernetes.
+
+07:13.000 --> 07:18.000
+And you also have things from Armada and Volcano that have their own representation of jobs.
+
+07:18.000 --> 07:22.000
+Well, this is honestly pretty chaotic.
+
+07:22.000 --> 07:26.000
+It's not really fun as a developer to be told, like, you know, how many,
+
+07:26.000 --> 07:29.000
+like if people want to bring a new API, can you support them?
+
+07:29.000 --> 07:34.000
+And you say no, because we don't really want to install all of Kubeflow
+
+07:34.000 --> 07:38.000
+just so you could run a PyTorch job or whatever, or install the controller.
+
+07:38.000 --> 07:41.000
+And it gets kind of complicated.
+
+07:41.000 --> 07:47.000
+So this group was founded, it's like a working group in the Kubernetes community.
+
+07:47.000 --> 07:53.000
+Batch workloads run the full gamut on Kubernetes from the scheduling all the way to the node
+
+07:53.000 --> 07:56.000
+to some representation of the batch APIs.
+
+07:56.000 --> 07:59.000
+So they actually had to form a working group to kind of coordinate,
+
+07:59.000 --> 08:05.000
+not really have to, but it's kind of a way to sort of allow you to focus
+
+08:05.000 --> 08:08.000
+multiple people on a single area and try to improve it.
+
+08:08.000 --> 08:14.000
+And some of the goals of this group are, let's make the batch API useful again.
+
+08:14.000 --> 08:19.000
+Let's allow people to actually use these APIs without having to install
+
+08:19.000 --> 08:23.000
+something like Kubeflow or Volcano to run a batch job.
+
+08:23.000 --> 08:27.000
+And also, the other one I'll talk about is queuing.
+
+08:27.000 --> 08:30.000
+Carlos over there could probably talk to you all about DRA,
+
+08:30.000 --> 08:32.000
+which is another exciting area that's happening,
+
+08:32.000 --> 08:35.000
+and that's about getting more use out of the GPUs,
+
+08:35.000 --> 08:38.000
+and that is in scope of this group,
+
+08:38.000 --> 08:43.000
+but that is actually mostly led by NVIDIA and Intel right now.
+
+08:43.000 --> 08:47.000
+And I'll be focusing on the two bullet points for the rest of this talk.
+
+08:47.000 --> 08:49.000
+So what is the job API?
+
+08:49.000 --> 08:55.000
+Well, this is generally a pretty simple way of representing a batch job,
+
+08:55.000 --> 08:57.000
+and I think that's one of the downsides of it,
+
+08:57.000 --> 09:02.000
+is that it was really focused originally on kind of simple use cases.
+
+09:02.000 --> 09:05.000
+I have an example here of computing Pi,
+
+09:05.000 --> 09:09.000
+and I'll just walk through the API so you'll see it kind of repeated again and again.
+
+09:09.000 --> 09:13.000
+So generally, Kubernetes has this concept where you define a template
+
+09:13.000 --> 09:16.000
+and you define a replica.
+
+09:16.000 --> 09:18.000
+And the job API that's called parallelism,
+
+09:18.000 --> 09:22.000
+and that just means how many pods do you want running in parallel?
+
+09:22.000 --> 09:26.000
+So the first thing that I want to talk about with this group is how many of these
+
+09:26.000 --> 09:30.000
+do you want to actually are complete before you consider my job successful?
+
+09:30.000 --> 09:33.000
+Active deadline is just how long the job takes to run,
+
+09:33.000 --> 09:36.000
+and then back off limit is retry.
+
+09:36.000 --> 09:39.000
+It's kind of how the job gets some self-healing, if you will,
+
+09:39.000 --> 09:42.000
+because it just says if the job fails for any reason,
+
+09:42.000 --> 09:46.000
+I want to retry, in this case, up to the back off limit, or the default is six.
+
+09:46.000 --> 09:49.000
+And one of the first features that this group added
+
+09:49.000 --> 09:51.000
+is a pod failure policy.
+
+09:51.000 --> 09:55.000
+It's essentially a way to kind of short-circuit the retry limit,
+
+09:55.000 --> 10:00.000
+because let's say your user has a segmentation fault and they're using a GPU.
+
+10:00.000 --> 10:04.000
+You probably don't want them to be using that resource when other people could be using it,
+
+10:04.000 --> 10:06.000
+and you probably don't want to keep retrying.
+
+10:06.000 --> 10:10.000
+And there's no limit on these retries, so someone could say 10,000 retries
+
+10:10.000 --> 10:12.000
+and kind of be on that node forever or whatever.
+
+10:12.000 --> 10:18.000
+So generally, that pod failure policy was kind of a way to short-circuit that.
+
+10:18.000 --> 10:27.000
+Now, how do we actually make the job API useful for workloads
+
+10:27.000 --> 10:31.000
+that need to talk to one another, which is pretty much most of the most interesting use cases
+
+10:31.000 --> 10:33.000
+in the HPC world?
+
+10:33.000 --> 10:36.000
+Well, this is kind of this idea of an index job,
+
+10:36.000 --> 10:40.000
+is can we provide a static name and environment variable
+
+10:40.000 --> 10:44.000
+so that the applications can actually refer to a replica of a pod
+
+10:44.000 --> 10:47.000
+and not have to worry about not being able to communicate to it
+
+10:47.000 --> 10:52.000
+and not be able to say, you know, my replica zero, that's my index zero,
+
+10:52.000 --> 10:56.000
+is always going to be this, and so then you can kind of talk to it.
+
+10:56.000 --> 11:01.000
+So you could think of this as sort of being a common way in like an MPI area
+
+11:01.000 --> 11:06.000
+where you have maybe like a rank zero pod and you have a series of workers
+
+11:06.000 --> 11:09.000
+and you probably want to make sure you have a rank zero.
+
+11:09.000 --> 11:11.000
+And that's kind of the idea of an index job.
+
+11:11.000 --> 11:14.000
+Now, I should wish I would have shown a slide here,
+
+11:14.000 --> 11:19.000
+but when you couple an index job and a headless service in Kubernetes speak,
+
+11:19.000 --> 11:22.000
+you're actually able to get all these pods to talk to one another.
+
+11:22.000 --> 11:30.000
+So when the last area is if you're trying to build queuing in Kubernetes,
+
+11:30.000 --> 11:34.000
+you kind of run into this problem where this pod lifecycle,
+
+11:34.000 --> 11:38.000
+I like to kind of joke, the way I envision this lifecycle is it's kind of like a racehorse.
+
+11:38.000 --> 11:42.000
+Once you create the pod, it's just, it's running and it's never going to stop.
+
+11:42.000 --> 11:46.000
+And effectively, the why this can take down a cluster is because if you have
+
+11:46.000 --> 11:49.000
+a million of these things running, it's just an infinite loop
+
+11:49.000 --> 11:52.000
+and it's going to kind of drain all your resources of your cluster.
+
+11:52.000 --> 11:56.000
+But you still need to know kind of how many objects are being created,
+
+11:56.000 --> 12:00.000
+but you also do not want when you create the object to start this loop.
+
+12:00.000 --> 12:04.000
+So this was kind of this idea of suspend in the Kubernetes community,
+
+12:04.000 --> 12:08.000
+adding suspend to our essential queue supports, a wide range of jobs
+
+12:08.000 --> 12:10.000
+via this use of suspend.
+
+12:10.000 --> 12:16.000
+So kubere, all the kubeflow operators, a project I'll talk about next called jobset,
+
+12:16.000 --> 12:22.000
+job, and then another project called a flux, which is, I don't know what I'm going to add,
+
+12:22.000 --> 12:26.000
+but, and so this is kind of a nice thing that queue provides.
+
+12:26.000 --> 12:31.000
+So what do you do about representing a more complicated job?
+
+12:31.000 --> 12:37.000
+Well, generally the job API is only, is, you kind of have to have the same pod definition
+
+12:37.000 --> 12:40.000
+for all of your workloads.
+
+12:40.000 --> 12:43.000
+And that may not fit for a lot of use cases.
+
+12:43.000 --> 12:46.000
+So the job set was kind of created as this way to say,
+
+12:46.000 --> 12:52.000
+can we create a representation of a single job that could have maybe different pod templates
+
+12:52.000 --> 12:55.000
+and then also have its own kind of failure and success policies.
+
+12:55.000 --> 12:59.000
+So when you run these jobs at large scale, you're going to see failures
+
+12:59.000 --> 13:04.000
+and you may want to restart some jobs in case, or maybe you don't want to restart,
+
+13:04.000 --> 13:09.000
+or you want to, and I'll talk about one interesting use case of success policies.
+
+13:09.000 --> 13:14.000
+And one of our goals is Kubernetes is kind of an implementation detail.
+
+13:14.000 --> 13:16.000
+Most people don't want to know about it if you're a researcher,
+
+13:16.000 --> 13:18.000
+you just want to know I'm running this.
+
+13:18.000 --> 13:22.000
+So we kind of want to streamline the creation of stuff like index job and headless services,
+
+13:22.000 --> 13:26.000
+because we know people want to communicate with their pods.
+
+13:26.000 --> 13:34.000
+And so at a high level, the API for a job set looks very close to a job to a pod.
+
+13:34.000 --> 13:38.000
+Instead of replicating pods, we are replicating jobs.
+
+13:38.000 --> 13:42.000
+And I didn't have it specified here, but there's a replica field under the spec,
+
+13:42.000 --> 13:47.000
+which says how many replicas of my replicated job I want to create.
+
+13:47.000 --> 13:51.000
+And then inside of the inside of a replicated job is a job template.
+
+13:51.000 --> 13:54.000
+And so this job is a PyTorch job.
+
+13:54.000 --> 14:01.000
+It creates an index job with a headless service, and then it creates a single job that has four pods.
+
+14:01.000 --> 14:06.000
+And I'll show in a little demo why this is useful.
+
+14:06.000 --> 14:09.000
+And the other area that we've actually gotten quite a bit,
+
+14:09.000 --> 14:14.000
+it's one of both Volcano and Kubeflow have implemented this in their projects,
+
+14:14.000 --> 14:17.000
+is one of the main reasons why they kind of created these projects,
+
+14:17.000 --> 14:21.000
+is what do you do if you kind of have this leader worker paradigm,
+
+14:21.000 --> 14:25.000
+where your leader, let's say, is a Redis database and your workers are talking to it,
+
+14:25.000 --> 14:27.000
+or whatever, you know, a message queue.
+
+14:27.000 --> 14:30.000
+Well, I want my workers just to finish.
+
+14:30.000 --> 14:33.000
+Like, I want to say, hey, once my workers are done,
+
+14:33.000 --> 14:38.000
+my job is successful and I don't really care about the progress of the leader.
+
+14:38.000 --> 14:41.000
+And so this is kind of one of the use cases we had in mind with this project,
+
+14:41.000 --> 14:43.000
+or not, there's a lot of them, but this was one,
+
+14:43.000 --> 14:46.000
+like, can we use something called a success policy to say,
+
+14:46.000 --> 14:51.000
+I only really care about one set of jobs completion,
+
+14:51.000 --> 14:54.000
+the rest are fodder, essentially, or not fodder,
+
+14:54.000 --> 14:57.000
+but they play an important role until the workers are done,
+
+14:57.000 --> 15:00.000
+and then they're also taken down.
+
+15:00.000 --> 15:04.000
+So, how am I doing on time?
+
+15:04.000 --> 15:06.000
+Okay, so I'll walk through the demo a little bit.
+
+15:06.000 --> 15:10.000
+So generally, with a job set, you have this controller,
+
+15:10.000 --> 15:12.000
+a job set controller manager.
+
+15:12.000 --> 15:15.000
+Right now, you can check it's running, great.
+
+15:15.000 --> 15:20.000
+And I kind of, in this demo, I tried to take the PyTorch job
+
+15:20.000 --> 15:23.000
+and kind of show the template,
+
+15:23.000 --> 15:27.000
+and then try to run it as just a normal job and kind of show you what happens.
+
+15:27.000 --> 15:29.000
+You can't communicate to the service,
+
+15:29.000 --> 15:32.000
+because if you try to create this job normally,
+
+15:32.000 --> 15:34.000
+there is no service for the communicate with,
+
+15:34.000 --> 15:37.000
+and it just automatically fails.
+
+15:37.000 --> 15:39.000
+So then, what do you do?
+
+15:39.000 --> 15:41.000
+Well, you can use job set.
+
+15:41.000 --> 15:42.000
+Woo-hoo.
+
+15:42.000 --> 15:46.000
+And so, I already created the job set,
+
+15:46.000 --> 15:48.000
+and you can kind of see that with the kube control logs,
+
+15:48.000 --> 15:52.000
+I'm actually able to, the job set is running,
+
+15:52.000 --> 15:55.000
+it's doing training, using PyTorch.
+
+15:55.000 --> 16:02.000
+And also, I created a headless service called a PyTorch that's there.
+
+16:02.000 --> 16:09.000
+And so, this allows you to kind of hide all this stuff from the user.
+
+16:09.000 --> 16:12.000
+And then, I think in the next part of the demo,
+
+16:12.000 --> 16:16.000
+I'll show the success policy.
+
+16:16.000 --> 16:22.000
+Come on.
+
+16:22.000 --> 16:24.000
+Oh, well.
+
+16:24.000 --> 16:29.000
+So, I guess, I mean, it will go on for a little bit,
+
+16:29.000 --> 16:32.000
+but does anyone have any questions?
+
+16:33.000 --> 16:38.000
+Any questions?
+
+16:38.000 --> 16:41.000
+There's a couple up there.
+
+16:48.000 --> 16:50.000
+Wait, wait, wait.
+
+16:50.000 --> 16:52.000
+Who was first?
+
+16:55.000 --> 16:56.000
+Hi.
+
+16:56.000 --> 17:00.000
+Yeah, I'm very much from the Slurrem bioinformatics
+
+17:00.000 --> 17:02.000
+snake make next-flow world.
+
+17:02.000 --> 17:04.000
+So, and we have an IT department,
+
+17:04.000 --> 17:06.000
+and they have a Kubernetes cluster,
+
+17:06.000 --> 17:08.000
+so this is very interesting talk to me.
+
+17:08.000 --> 17:11.000
+But are you thinking about these kind of workflow managers
+
+17:11.000 --> 17:14.000
+that typical researchers like that use,
+
+17:14.000 --> 17:16.000
+because I was just in a high-energy physics session,
+
+17:16.000 --> 17:19.000
+they also use snake make, and they have schedulers, of course,
+
+17:19.000 --> 17:21.000
+but somehow that also has to interface.
+
+17:21.000 --> 17:23.000
+Do you have any comments on that?
+
+17:23.000 --> 17:28.000
+So, generally, we don't want to get into the...
+
+17:28.000 --> 17:30.000
+We don't want to add another workflow engine,
+
+17:30.000 --> 17:32.000
+and there's too many of them,
+
+17:32.000 --> 17:36.000
+but what I kind of view the job set is like a single node of a DAG,
+
+17:36.000 --> 17:38.000
+and one of our goals could be this,
+
+17:38.000 --> 17:41.000
+like either this job or a job set could be added
+
+17:41.000 --> 17:46.000
+to something like Airflow or Argo workflows.
+
+17:46.000 --> 17:48.000
+It's another example to kind of be like,
+
+17:48.000 --> 17:50.000
+this is a single element that you could run,
+
+17:50.000 --> 17:54.000
+rather than having, like, Argo has their own way of representing,
+
+17:54.000 --> 17:56.000
+like, what they actually run on Kubernetes,
+
+17:56.000 --> 18:01.000
+which is, you know, fine for pods, Airflow is also pods.
+
+18:01.000 --> 18:04.000
+There are a lot of other workflow engines out there.
+
+18:04.000 --> 18:06.000
+I've actually...
+
+18:06.000 --> 18:10.000
+We took a lot of inspiration and two jobs ago for me
+
+18:10.000 --> 18:15.000
+in applying bioinformatics, some of their workflow languages,
+
+18:15.000 --> 18:17.000
+and trying to get...
+
+18:17.000 --> 18:19.000
+Trying to standardize a workflow language
+
+18:19.000 --> 18:22.000
+so we could actually run across different environments.
+
+18:22.000 --> 18:25.000
+And so I'm familiar with the area,
+
+18:25.000 --> 18:29.000
+but we're trying not to be a workflow engine for this project.
+
+18:39.000 --> 18:41.000
+Thank you for the talk.
+
+18:41.000 --> 18:45.000
+I noticed that a lot of the things you were talking about
+
+18:45.000 --> 18:48.000
+seemed to play kind of in the same field,
+
+18:48.000 --> 18:50.000
+sort of where the Slurm plays.
+
+18:50.000 --> 18:53.000
+So, I don't know, a few years down the road,
+
+18:53.000 --> 18:56.000
+do you see Slurm kind of giving way to, you know,
+
+18:56.000 --> 18:58.000
+this Kubernetes-based infrastructure,
+
+18:58.000 --> 19:03.000
+or do you think they're targeting kind of different tasks,
+
+19:03.000 --> 19:06.000
+and Slurm will always have its place?
+
+19:06.000 --> 19:08.000
+That's a really good question.
+
+19:08.000 --> 19:11.000
+I was not at KubeCon North America this year,
+
+19:11.000 --> 19:14.000
+but I heard of a company called CoreWeave
+
+19:14.000 --> 19:16.000
+that was actually collaborating with SchedumD
+
+19:16.000 --> 19:21.000
+to try and kind of provide Slurm on Kubernetes.
+
+19:21.000 --> 19:24.000
+From what I understand, kind of using the Slurm scheduler,
+
+19:24.000 --> 19:26.000
+but also allowing people to run
+
+19:26.000 --> 19:28.000
+some of the more popular Kubernetes stuff,
+
+19:28.000 --> 19:33.000
+like have Kubernetes for services or Slurm for batch.
+
+19:33.000 --> 19:39.000
+Generally, everyone is kind of converging in this area.
+
+19:39.000 --> 19:44.000
+Our motto is actually taking from inspiration of HT Condor
+
+19:44.000 --> 19:46.000
+and trying to apply that to Kubernetes.
+
+19:46.000 --> 19:49.000
+And then I know that the...
+
+19:49.000 --> 19:51.000
+Sorry, I'm pulling a blank.
+
+19:51.000 --> 19:55.000
+The University of Wisconsin, who kind of created HT Condor,
+
+19:55.000 --> 19:57.000
+they're big on trying to actually use Kubernetes
+
+19:57.000 --> 20:01.000
+for a lot of some of their infrastructure also.
+
+20:01.000 --> 20:06.000
+But, and also, we do talk pretty closely with the SchedumD folks,
+
+20:06.000 --> 20:08.000
+at least in my last role,
+
+20:08.000 --> 20:14.000
+and there is a lot of interest in trying to bring Kubernetes to Slurm.
+
+20:14.000 --> 20:18.000
+And part of it is Slurm has been around a long time,
+
+20:18.000 --> 20:20.000
+and so they had to do a lot of work
+
+20:20.000 --> 20:22.000
+to just even to get in the fact of,
+
+20:22.000 --> 20:25.000
+I want to containerize Slurm in Kubernetes.
+
+20:25.000 --> 20:26.000
+Okay, great.
+
+20:26.000 --> 20:29.000
+Now, do I want to schedule a pod,
+
+20:29.000 --> 20:31.000
+or do I want to schedule a single container?
+
+20:31.000 --> 20:35.000
+And that's kind of where I can see...
+
+20:35.000 --> 20:37.000
+That's also what's kind of challenging,
+
+20:37.000 --> 20:39.000
+and the other thing is convincing more and more people
+
+20:39.000 --> 20:41.000
+to use containers, because it's great,
+
+20:41.000 --> 20:44.000
+but it's also a pain to change everything that you want
+
+20:44.000 --> 20:46.000
+to go to a container.
+
+20:46.000 --> 20:48.000
+Okay.
+
+20:48.000 --> 20:50.000
+Any more questions?
+
+20:53.000 --> 20:55.000
+So, if I understand it correctly,
+
+20:55.000 --> 20:59.000
+you're primarily optimizing that I do not schedule 10,000 pods,
+
+20:59.000 --> 21:01.000
+and then have job sets, right?
+
+21:01.000 --> 21:04.000
+Because when I think about batch processing,
+
+21:04.000 --> 21:07.000
+I do think about, let's say, CI,
+
+21:07.000 --> 21:10.000
+and then we are running like 5,000 jobs per day,
+
+21:10.000 --> 21:12.000
+and we do this with Jenkins,
+
+21:12.000 --> 21:16.000
+which actually works super great with Kubernetes plugin,
+
+21:16.000 --> 21:19.000
+but I'm not seeing enough features on this proposal
+
+21:19.000 --> 21:23.000
+to get rid of Jenkins or any other components.
+
+21:23.000 --> 21:26.000
+I'm primarily seeing a way of not overloading
+
+21:26.000 --> 21:29.000
+the cluster with pending pods.
+
+21:29.000 --> 21:31.000
+Is that right?
+
+21:31.000 --> 21:34.000
+No, I would say the main thing is trying,
+
+21:34.000 --> 21:37.000
+if you want to say run a PyTorch job,
+
+21:37.000 --> 21:42.000
+the one option is let's create, let's use Kubeflow.
+
+21:42.000 --> 21:44.000
+Fine, that will work.
+
+21:44.000 --> 21:46.000
+But what if I don't really want to use Kubeflow?
+
+21:46.000 --> 21:48.000
+What if I have my own representation?
+
+21:48.000 --> 21:50.000
+What if I want to add my own...
+

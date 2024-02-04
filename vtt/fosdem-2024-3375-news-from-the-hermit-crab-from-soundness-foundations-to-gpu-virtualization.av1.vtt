@@ -1,0 +1,761 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Go Martin, go!
+
+00:07.000 --> 00:10.000
+Okay, I guess.
+
+00:10.000 --> 00:13.000
+So let's get this started.
+
+00:13.000 --> 00:17.000
+Wow. Okay, thanks everyone for coming.
+
+00:17.000 --> 00:20.000
+I'm Martin from Avitiha-Aachen University,
+
+00:20.000 --> 00:24.000
+and I'll talk about the Hermit operating system.
+
+00:24.000 --> 00:27.000
+I'm here together with my colleague Jonathan,
+
+00:27.000 --> 00:31.000
+and a few students are also scattered around the room.
+
+00:31.000 --> 00:35.000
+Yeah, let's get started.
+
+00:35.000 --> 00:38.000
+These are the things that I'll talk about today.
+
+00:38.000 --> 00:41.000
+First, a general introduction into Hermit and Juni kernels,
+
+00:41.000 --> 00:45.000
+although if you've been to this room in the past few hours,
+
+00:45.000 --> 00:48.000
+you already know some of that.
+
+00:48.000 --> 00:53.000
+Then I'll cover some arguably interesting internals structurally,
+
+00:53.000 --> 00:58.000
+and then talk about two applications,
+
+00:58.000 --> 01:02.000
+namely GPU virtualization using Cricut,
+
+01:02.000 --> 01:06.000
+and application kernel profiling.
+
+01:06.000 --> 01:11.000
+Okay, we've been through this a few times now,
+
+01:11.000 --> 01:13.000
+but let's go through it again.
+
+01:13.000 --> 01:17.000
+We have compared to a standard VM
+
+01:17.000 --> 01:21.000
+where we have a hardware and a host operating system,
+
+01:21.000 --> 01:25.000
+which might also be missing if we have a level one hypervisor,
+
+01:25.000 --> 01:28.000
+and a hypervisor, we then have this virtual machine.
+
+01:28.000 --> 01:33.000
+And this virtual machine runs a virtual machine image, which...
+
+01:33.000 --> 01:36.000
+What's happening?
+
+01:36.000 --> 01:41.000
+Okay, this virtual machine image is just a full-blown operating system
+
+01:41.000 --> 01:45.000
+with its own guest kernel, user space, and everything else.
+
+01:45.000 --> 01:48.000
+Then we've also talked about containers before,
+
+01:48.000 --> 01:51.000
+which throws away the guest kernel
+
+01:51.000 --> 01:54.000
+and really tries to minimize the image for the application,
+
+01:54.000 --> 01:59.000
+and we have unicarnals, which then run in virtual machines again,
+
+01:59.000 --> 02:03.000
+but inside the unicarnal, everything is packed together as tightly as possible.
+
+02:03.000 --> 02:07.000
+We have the application, we have some user-provided libraries,
+
+02:07.000 --> 02:12.000
+and we have the library operating system all statically linked together.
+
+02:12.000 --> 02:16.000
+What this gives us then is an image
+
+02:16.000 --> 02:20.000
+that we can really specialize to the use case at hand.
+
+02:20.000 --> 02:23.000
+So that means for the environment, namely the hypervisor,
+
+02:23.000 --> 02:27.000
+and for the application itself, and what it should do.
+
+02:27.000 --> 02:34.000
+This leads to tiny images, only a few megabytes in size for Hello World, for example.
+
+02:34.000 --> 02:39.000
+And since we only have one process in this whole unicarnal image,
+
+02:39.000 --> 02:45.000
+we don't need any isolation between this process, other processes, or the kernel.
+
+02:45.000 --> 02:49.000
+That means we can do this as a single address-based operating system
+
+02:49.000 --> 02:53.000
+without any costly address-based context switches between.
+
+02:53.000 --> 02:58.000
+We can run everything at kernel level, have no privileged context switches,
+
+02:58.000 --> 03:04.000
+and then can just make system calls to function calls.
+
+03:04.000 --> 03:06.000
+And that's pretty cool.
+
+03:06.000 --> 03:11.000
+Enter the Hermit operating system, as you can probably guess by the logo.
+
+03:11.000 --> 03:17.000
+The logo is written in Rust, 100%, well, not 100%,
+
+03:17.000 --> 03:19.000
+but there's no C in there, at least.
+
+03:19.000 --> 03:23.000
+There's only Rust and a bit of assembly, of course.
+
+03:23.000 --> 03:26.000
+We mainly target Rust applications, too.
+
+03:26.000 --> 03:32.000
+So we have an official tier 3 Rust target for Rust applications that we can use.
+
+03:32.000 --> 03:37.000
+But we also have a GCC and NewLip fork if you really want to run C applications,
+
+03:37.000 --> 03:40.000
+though that's not our primary focus.
+
+03:40.000 --> 03:44.000
+We have multi-core support, we are easily configurable,
+
+03:44.000 --> 03:49.000
+and we can now also compile on Windows.
+
+03:49.000 --> 03:52.000
+Yeah, we can also support stable Rust nowadays
+
+03:52.000 --> 03:55.000
+through our own distribution of the Rust standard library,
+
+03:55.000 --> 03:58.000
+which you can check out here.
+
+03:58.000 --> 04:02.000
+Okay, let's talk about the platform support.
+
+04:02.000 --> 04:05.000
+Okay, once we have this image seen on the left
+
+04:05.000 --> 04:09.000
+where we have the application, standard library, NewLip, and the kernel,
+
+04:09.000 --> 04:12.000
+we can then run it on our own hypervisor, for example.
+
+04:12.000 --> 04:18.000
+U-Hive is a specialized Hermit hypervisor that is specialized to running
+
+04:18.000 --> 04:23.000
+Hermit unique kind of images, which is the focus of Jonathan.
+
+04:23.000 --> 04:27.000
+The main target for that is Linux KVM on x86,
+
+04:27.000 --> 04:34.000
+though there's also some degree of support for Mac OS on both x86 and ARM.
+
+04:34.000 --> 04:41.000
+And also upcoming, though not yet merged, is Linux KVM support for RISC-5,
+
+04:41.000 --> 04:44.000
+which is something that Simon worked on.
+
+04:44.000 --> 04:46.000
+Philip, sorry.
+
+04:46.000 --> 04:51.000
+We can also target generic VMs through our Hermit loader,
+
+04:51.000 --> 04:54.000
+which then chain loads the Hermit ELF image.
+
+04:54.000 --> 04:59.000
+We can support multi-boot on x86, we support firecracker,
+
+04:59.000 --> 05:04.000
+and there's also UEFI work going on, which will be there soon, hopefully.
+
+05:04.000 --> 05:12.000
+For ARM and RISC-5, we use the Linux boot protocol to be able to run on things like KAML.
+
+05:12.000 --> 05:17.000
+Okay, so that's all you need to know if you want to use Hermit.
+
+05:17.000 --> 05:19.000
+Let's take a look inside.
+
+05:19.000 --> 05:24.000
+This is the same unique kind of image again, but from a different point of view now.
+
+05:24.000 --> 05:27.000
+The left stack is the application stack.
+
+05:27.000 --> 05:29.000
+It is the application.
+
+05:29.000 --> 05:35.000
+It's some user defined libraries, Rust crates in this case,
+
+05:35.000 --> 05:43.000
+and the core crates of the Rust 2 chain itself, so standard, Alagon core.
+
+05:43.000 --> 05:50.000
+On the right side, we have the Hermit kernel, which depends on some crates as well, and Alagon core.
+
+05:50.000 --> 05:54.000
+These two things are compiled for different targets, though,
+
+05:54.000 --> 05:59.000
+because we don't want to use any floating point operations in the kernel target,
+
+05:59.000 --> 06:03.000
+because that's costly to switch between.
+
+06:03.000 --> 06:07.000
+And the user code is compiled for a special Hermit target,
+
+06:07.000 --> 06:12.000
+which does have floating point support and also tells the Rust standard library
+
+06:12.000 --> 06:17.000
+how to communicate with the Hermit kernel.
+
+06:17.000 --> 06:20.000
+We also provide together with the Hermit kernel,
+
+06:20.000 --> 06:28.000
+but compiled for the user target some intrinsic such as libm for math functions,
+
+06:28.000 --> 06:31.000
+or mem intrinsics for things like mem copy,
+
+06:31.000 --> 06:38.000
+which really benefit from having this floating point support available.
+
+06:38.000 --> 06:43.000
+One thing that I personally worked on a lot are soundness foundations.
+
+06:43.000 --> 06:46.000
+You can see unsafe and safe Rust on the right.
+
+06:46.000 --> 06:48.000
+And we published a paper on that.
+
+06:48.000 --> 06:52.000
+It's called on the challenge of sound code for operating system,
+
+06:52.000 --> 06:59.000
+and what this basically aims for is to make the Hermit target sound.
+
+06:59.000 --> 07:03.000
+That means any safety reasoning must not require context.
+
+07:03.000 --> 07:07.000
+That's extremely important, and the history behind that is that
+
+07:08.000 --> 07:17.000
+Hermit was once written in C without much strictness around the locality of this kind of reasoning,
+
+07:17.000 --> 07:25.000
+and we put a lot of work into going forward and migrating to a more Rust-like approach here.
+
+07:25.000 --> 07:28.000
+One thing that came out of this is Hermit sync,
+
+07:28.000 --> 07:32.000
+which is a collection of synchronization primitives used inside the Hermit kernel.
+
+07:33.000 --> 07:38.000
+Most of these are also independently published as single crates
+
+07:38.000 --> 07:43.000
+and republished through this image, so you can also pick whatever you like in your own project.
+
+07:43.000 --> 07:52.000
+Another thing is count unsafe, which you can use to count the amount of unsafe code inside your Rust thing
+
+07:52.000 --> 07:55.000
+that we use to analyze our progress there.
+
+07:55.000 --> 08:01.000
+The next thing I want to talk about is our evolving network stack.
+
+08:02.000 --> 08:06.000
+Originally, it was just a user-side thing,
+
+08:06.000 --> 08:15.000
+so the Rust applications would compile some network stack with small TCP, a Rust network stack,
+
+08:15.000 --> 08:22.000
+and C applications would use what's it called LWIP, such as Unicraft does.
+
+08:22.000 --> 08:26.000
+In 2022, we moved that from user space into kernel space,
+
+08:26.000 --> 08:31.000
+which is not that meaningful since everything is kernel space, actually,
+
+08:31.000 --> 08:35.000
+but we moved it to the distribution of the kernel.
+
+08:37.000 --> 08:41.000
+Then we implemented support for these D-Style sockets
+
+08:41.000 --> 08:44.000
+because before we had a custom-made API for networking,
+
+08:44.000 --> 08:48.000
+and now we want to standardize it and adopt these things
+
+08:48.000 --> 08:54.000
+because that will allow us to throw away all the user space network stack,
+
+08:54.000 --> 08:58.000
+which can then both C applications and Rust applications
+
+08:58.000 --> 09:02.000
+use the kernel-provided small TCP network stack.
+
+09:02.000 --> 09:06.000
+In 2024, we are going for Pulse support for async.io,
+
+09:06.000 --> 09:11.000
+which would enable us to run a whole bunch of Rust networking applications,
+
+09:11.000 --> 09:15.000
+which usually run on Tokyo or something like that,
+
+09:15.000 --> 09:18.000
+and work on this is already well underway.
+
+09:19.000 --> 09:25.000
+Okay, then let's talk about the two application-focused things.
+
+09:25.000 --> 09:28.000
+First, GPU virtualization with Cricut.
+
+09:28.000 --> 09:34.000
+Short introduction to Cricut, which is another project developed at our institute, ACS.
+
+09:34.000 --> 09:40.000
+It's basically just plugging networking in between some API.
+
+09:40.000 --> 09:45.000
+So classical GPU CUDA applications work like seen on top,
+
+09:45.000 --> 09:48.000
+where we have this CUDA app that calls CUDA APIs,
+
+09:48.000 --> 09:53.000
+a library from NVIDIA, which then performs the actual computations on the GPU.
+
+09:53.000 --> 09:58.000
+With Cricut, we plug a Cricut client next to the app
+
+09:58.000 --> 10:01.000
+and a server to the CUDA APIs,
+
+10:01.000 --> 10:05.000
+and then just tunnel through all requests and answers.
+
+10:06.000 --> 10:09.000
+That separates these two things,
+
+10:09.000 --> 10:13.000
+and we can move them wherever we want and control what's happening there.
+
+10:13.000 --> 10:16.000
+And we found it's not that...
+
+10:17.000 --> 10:20.000
+Yeah, it's not that high of an overhead.
+
+10:20.000 --> 10:26.000
+We can then use this for remote execution, scheduling, or monitoring of GPU applications, as seen here.
+
+10:26.000 --> 10:29.000
+We can have several nodes with virtual GPUs,
+
+10:29.000 --> 10:34.000
+which then run on another node for computation.
+
+10:35.000 --> 10:38.000
+We then adapted Cricut for Unicornals,
+
+10:38.000 --> 10:41.000
+and published a paper on that.
+
+10:42.000 --> 10:46.000
+And how we did this is Cricut is based on ONCRPCs,
+
+10:46.000 --> 10:49.000
+which came out of Sun way back when.
+
+10:49.000 --> 10:52.000
+And the reference implementation is Oden Complex
+
+10:52.000 --> 10:55.000
+and uses Linux-specific networking features,
+
+10:55.000 --> 10:59.000
+so it wasn't easy to port to our Rust toolchain, for example.
+
+10:59.000 --> 11:03.000
+And as you can already guess, we ported it to Rust.
+
+11:04.000 --> 11:07.000
+Our user code is then run inside the Unicornal
+
+11:07.000 --> 11:16.000
+and only like the server part serving the GPU is not run inside the Unicornal.
+
+11:16.000 --> 11:19.000
+We did this for Hermit and Unicraft.
+
+11:20.000 --> 11:23.000
+For Unicraft we had to develop Rust application support first,
+
+11:23.000 --> 11:27.000
+but we did that and now it's working fine.
+
+11:29.000 --> 11:34.000
+The last topic that I want to talk about is application and kernel profiling.
+
+11:35.000 --> 11:38.000
+It's a project that has been dormant for a while,
+
+11:38.000 --> 11:46.000
+but we are reawakening it and getting it up to date and getting it working again.
+
+11:46.000 --> 11:49.000
+It's called RF Trace for Rust Function Tracer.
+
+11:52.000 --> 11:55.000
+How this works is that essentially we want to find out
+
+11:55.000 --> 12:00.000
+how much time is spent in which functions when we run software.
+
+12:00.000 --> 12:07.000
+Instrumentation does this by changing the code that is output by the compiler.
+
+12:07.000 --> 12:10.000
+We are essentially changing the program that we measure,
+
+12:10.000 --> 12:14.000
+which kind of falsifies the results a little bit,
+
+12:14.000 --> 12:20.000
+but for that we get extremely reliable things
+
+12:20.000 --> 12:25.000
+because we measure each and every time frame inside a function.
+
+12:26.000 --> 12:27.000
+It works like this.
+
+12:27.000 --> 12:30.000
+We have our Rust source, which squares some number.
+
+12:30.000 --> 12:35.000
+That corresponds to this assembly for inter-architectures.
+
+12:35.000 --> 12:39.000
+If we just append the corresponding flex to the compiler,
+
+12:39.000 --> 12:44.000
+the compiler nicely inserts this call to a special mCount function.
+
+12:45.000 --> 12:50.000
+What this mCount function then does is it can inspect the stack
+
+12:50.000 --> 12:53.000
+to find out which function we are currently in.
+
+12:53.000 --> 13:02.000
+It can then take some timestamp and it can also insert a return trampoline into this stack
+
+13:02.000 --> 13:06.000
+so that it also knows when we leave the function again.
+
+13:06.000 --> 13:15.000
+Together, all of this together, then lets us measure the time of functions, which is cool.
+
+13:17.000 --> 13:19.000
+In the image it looks like this.
+
+13:19.000 --> 13:24.000
+Our F trace is just another static library, which is inside the whole image.
+
+13:24.000 --> 13:32.000
+It works for Rust programs, C programs, and also for images, obviously.
+
+13:34.000 --> 13:38.000
+It is very encapsulated, so it exposes only a few symbols like mCount
+
+13:38.000 --> 13:42.000
+and then does everything internally.
+
+13:43.000 --> 13:48.000
+When we measure such a trace, we can then look at it
+
+13:48.000 --> 13:56.000
+and have a trace replay and really see which function we go into how
+
+13:56.000 --> 13:58.000
+and how long it takes inside them.
+
+13:58.000 --> 14:01.000
+We can also have a look at these graphically, of course.
+
+14:01.000 --> 14:04.000
+There are tools available for trace visualization.
+
+14:04.000 --> 14:11.000
+You could also create flame graphs out of this and then optimize the kernel.
+
+14:11.000 --> 14:16.000
+We are looking forward to using that for further optimizing the network stack, for example.
+
+14:19.000 --> 14:24.000
+All in all, I think that is all I have to say for today.
+
+14:24.000 --> 14:29.000
+That is a broad overview of the different topics that we covered last year.
+
+14:33.000 --> 14:35.000
+You can check us out on GitHub.
+
+14:35.000 --> 14:37.000
+You can say hi on Zulip.
+
+14:37.000 --> 14:40.000
+With that, I thank you for your kind attention.
+
+14:48.000 --> 14:50.000
+Thanks, Martin, for the talk.
+
+14:50.000 --> 14:54.000
+We have a working mic, so we can have some questions.
+
+14:54.000 --> 14:55.000
+Five minutes.
+
+15:03.000 --> 15:04.000
+Hi.
+
+15:04.000 --> 15:06.000
+My question is how do you instrument the Rust code
+
+15:06.000 --> 15:09.000
+and how do you actually get the function codes in there?
+
+15:09.000 --> 15:10.000
+The what?
+
+15:10.000 --> 15:16.000
+The instrumentation and turn some calls into the Rust code, usually, that you have.
+
+15:16.000 --> 15:21.000
+My question is how do you get those function codes in there?
+
+15:21.000 --> 15:26.000
+The question was, you said it to the mic, so it should be.
+
+15:26.000 --> 15:29.000
+There is a compiler flag for that.
+
+15:29.000 --> 15:32.000
+For C code, it is much simpler.
+
+15:32.000 --> 15:37.000
+You would just compile with GCC and then say dash PG, I think.
+
+15:37.000 --> 15:39.000
+For Rust code, it is more complicated.
+
+15:39.000 --> 15:41.000
+Well, it is not more complicated.
+
+15:41.000 --> 15:43.000
+It is just more lengthy.
+
+15:43.000 --> 15:47.000
+I did not put it on the slide because it was two lines or something.
+
+15:47.000 --> 15:54.000
+But those are features available to us through LLVM.
+
+15:54.000 --> 16:00.000
+Rust work is on the way to make this easier because it is not a stable thing
+
+16:00.000 --> 16:10.000
+exposed by the Rust 2 chain, but through manually enabling the corresponding LLVM passes for the code,
+
+16:10.000 --> 16:11.000
+this works.
+
+16:11.000 --> 16:15.000
+Thank you.
+
+16:15.000 --> 16:17.000
+More questions?
+
+16:17.000 --> 16:29.000
+I had a similar question.
+
+16:29.000 --> 16:34.000
+We also have a track on profiling, benchmarking and Unicraft.
+
+16:34.000 --> 16:37.000
+You are using instrumentation for profiling.
+
+16:37.000 --> 16:42.000
+Are you also considering sampling profiling?
+
+16:42.000 --> 16:48.000
+For example, what you are using is Unicraft, we are trying to tie in VMI, virtual machine interface.
+
+16:48.000 --> 16:52.000
+That will be able to do some sort of snapshotting and the others.
+
+16:52.000 --> 16:54.000
+Is this enough?
+
+16:54.000 --> 17:02.000
+Also, Unicraft, you have GCof support now because GCC 13 has embedded GCof support, so that makes things easier.
+
+17:02.000 --> 17:07.000
+Is this enough for what you have tested so far, the instrumented approach?
+
+17:07.000 --> 17:13.000
+Because you have to build the application, you then have to run the instrumented one,
+
+17:13.000 --> 17:17.000
+maybe it is not similar practice, is this enough at this point?
+
+17:17.000 --> 17:19.000
+We will have to see.
+
+17:19.000 --> 17:26.000
+In general, we are not that automated yet compared to Unicraft.
+
+17:27.000 --> 17:36.000
+Our Rust application story is quite seamless, I think, and you just enable profiling through a simple feature flag,
+
+17:36.000 --> 17:41.000
+and then you run it and it gets dumped on the disk and you can look into it.
+
+17:41.000 --> 17:44.000
+This is also what Gaby is working on.
+
+17:44.000 --> 17:49.000
+Did you consider, I am not sure how F-TracingPerox does it,
+
+17:49.000 --> 17:54.000
+but for example, there is something called K-Probes or K-Raid-Probes or something like that,
+
+17:54.000 --> 18:01.000
+which is a dynamic way of instrumenting the calls.
+
+18:01.000 --> 18:05.000
+What that does to you is you don't have to have these items done at build time,
+
+18:05.000 --> 18:09.000
+so that means when you want to instrument the application, you can tie in some flags
+
+18:09.000 --> 18:16.000
+and then while you execute it, it replaces some sort of function, pro or web, with some sort of jumps.
+
+18:16.000 --> 18:17.000
+Interesting.
+
+18:17.000 --> 18:19.000
+There may be something interesting to look at.
+
+18:19.000 --> 18:21.000
+We are looking at that on Unicraft's side.
+
+18:21.000 --> 18:29.000
+Is this like inserting a general hook into every function and then dynamically chain?
+
+18:29.000 --> 18:31.000
+Gaby knows a bit more about that.
+
+18:31.000 --> 18:34.000
+It is a bit of a rewrite of the function for organic load.
+
+18:34.000 --> 18:41.000
+Basically, you have a function that you want to jump in and then you can do the whole function that you want to jump in.
+
+18:41.000 --> 18:46.000
+Similar to that, just by hand and for some functions only and switchable.
+
+18:46.000 --> 18:48.000
+Okay, makes sense.
+
+18:48.000 --> 18:50.000
+Still very cool with the flame graph.
+
+18:50.000 --> 18:53.000
+I mean, this is the most important item because everyone does profiling,
+
+18:53.000 --> 18:58.000
+but having some sort of visual way of determining what's actually being spent, that's really useful.
+
+18:58.000 --> 19:00.000
+Yeah.
+
+19:00.000 --> 19:04.000
+We have to switch to another talk, so Martin will be around for more questions.
+
+19:04.000 --> 19:05.000
+Thanks again.
+

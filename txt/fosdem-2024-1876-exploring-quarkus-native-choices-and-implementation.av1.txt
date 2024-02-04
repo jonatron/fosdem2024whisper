@@ -1,0 +1,257 @@
+Hello everyone, I'm Fivo Zakat and today I will talk about Quarkus native and some choices
+it makes and how it implements them.
+So how many of you are familiar with Quarkus?
+Know what Quarkus is?
+Well, less than I expected.
+Okay, so what it is?
+It's a Java framework.
+Well, it's an open source stack for building Java web apps, so it's a Java framework that
+aims to bring developer joy, it's Kubernetes native, brings the best of breed of libraries
+and standards and supports both imperative and reactive code.
+And that stopped working.
+So what does typically a framework do when you use it?
+Well, usually you write your Java application using the framework, then you package it, you
+save it wherever you want to deploy it and you start the application.
+And what it does, it will load configuration files, perform some annotations, perform some
+annotation processing, create some metadata graphs or whatever is needed and eventually
+run the application.
+So what Quarkus does to improve that situation is that it moves part of this configuration
+to build time, so you only run once the configuration and setup of your application and then when
+you deploy your application, it starts up faster and you don't have to repeat all this
+process.
+One benefit of this Quarkus feature is that it allows you to also go native.
+So instead of deploying on the JVM, you can deploy a native binary.
+So why would someone want to go native?
+We have put so much effort on making the JVM very mature, very stable, very high performance,
+et cetera, so why would someone want to go native?
+Without going in too much detail, I will list some of the pros and cons of going native.
+So first we will start with the pros.
+One of the major advantages of going native is that you get faster startup because you
+don't have a JVM that needs to start up, load classes, do classification, warm up, stuff
+like this, you get faster startup.
+You also get close to peak performance right from the beginning because you don't do just
+in time compilation, everything is ahead of time compile and that gives you close to your
+peak performance right from the beginning.
+You get a smaller standalone binary.
+Hint here, I'm comparing with shaping your application with the JVM.
+Otherwise the JAR file is smaller than the binary.
+And you also get smaller memory footprint when running your application because you don't
+have to keep all this data that the JVM keeps to track internal things.
+And another benefit is that if you launch the same application multiple times on the
+same host, they can share the heap as a copy and write memory segment.
+Now what are the disadvantages?
+First of all, you get slower development cycle.
+Compiling to native takes more than it takes to compiling to a JAR file.
+So we suggest that you develop on JVM, debug on the JVM and only when you are happy with
+your application then move to native because that takes some time.
+You also get lower peak performance because when you run binary, you don't get just in
+time compilation.
+So the compiler doesn't have the benefit to profile your code and to do better optimizations.
+It also can perform very aggressive optimizations relying on the deoptimizer to fall back to
+a slower version if something doesn't go as assumed during compilation time.
+Another issue is that security patches require recompilation.
+So even if a third-party library is vulnerable, you can just update the JAR file of that third-party
+library and don't recompile your code.
+You have to rebuild your code because parts of that third-party library might be empty
+in your application.
+So you have to recompile.
+Your application is also not portable.
+You lose the right ones run anywhere, principle.
+So because you are generating a binary file, it will only work on the target platform that
+you compile for.
+And last but not least, it lacks behind in terms of tooling support.
+So debugging is not as simple as in the JVM world.
+And the same goes for observability.
+That doesn't work.
+Okay.
+Now that we have seen that there are some benefits in using native code, let's see how
+it works.
+Quarkus uses GraVM and particularly GraVM's native image to generate the binary code from
+Java code.
+And how this works is that GraVM will take as input your Java application classes, the
+JDK classes, and the substrate VM classes.
+The substrate VM is a thin runtime layer that allows your application to run on bare metal.
+So it takes care of some of the system things going on.
+Then it performs a static analysis and this will allow it to perform dead code elimination.
+So it essentially doesn't compile any code that you don't need.
+If your application doesn't reference some part of your class path or your dependencies,
+it won't go in the binary.
+So it creates a graph like this where your Java applications reference some JDK classes
+and the JDK classes reference some substrate VM classes and it will eventually compile
+it to a native binary.
+However, GraVM comes with some limitations.
+There are things that are not supported and there are things that are supported but need
+manual configuration.
+And some of the not supported parts are currently working progress.
+I don't have enough time to go through this.
+So how does Quarkus offer, what does Quarkus offer on top of that?
+So GraVM takes Java and produces native code.
+So where does Quarkus native come into play?
+Because of the limitations I mentioned earlier, developing native applications for GraVM's
+native image might be painful and that's where Quarkus comes into play.
+It aims to help Java developers write their application and compile it to native without
+having to handle all the extra things that GraVM native image requires.
+First Quarkus will drive all the gathering of the metadata that the GraVM needs.
+So what's reflectively accessed, how many JNI interfaces are used, what are the resources
+we want to include our binary and stuff like this.
+Another benefit is that most of the ecosystem, so anything that comes with Quarkus is already
+supported for native image compilation.
+So if you want to use a library that's already supported by Quarkus, you don't have to do
+anything special, you just put it as a dependency to your application and it should work with
+native as well.
+It minimizes the dependencies because Quarkus already does a dependency analysis before going
+to native, so that allows you to pass less things to the class path and it helps the
+static analysis do the dead code elimination.
+Furthermore Quarkus through annotations, APIs and some configuration properties allow you
+to further find the configuration of your application for native.
+So some might think that that's not the only framework that does that, right?
+So why Quarkus?
+Quarkus takes an opinionated approach and it's different than the other frameworks in
+that it will try and build time initialize all the classes, while by default, Graph VMs
+native image runtime initializes the classes.
+And this might create some issues, so Quarkus will take care of reinitializing anything
+that's necessary like random seeds or some platform specific values and it will also
+reset fields that we don't need at runtime.
+It also doesn't allow incomplete class paths, so when you build everything needs to be on
+the class path, otherwise the build will fail and this ensures that you won't get any unexpected
+no class defound exceptions at runtime.
+And class, it uses Mandrel instead of the upstream Graph VM community addition, which
+is based on the Eclipse Temuring Open JDK build instead of the Laps JDK build and it's specifically
+tailored to Quarkus and maintained by Red Hat.
+So how does this really work under the covers?
+First of all, the Quarkus will take care of generating the Graph native image json configuration
+files.
+It will perform code substitutions wherever necessary.
+Code substitutions allow us to go and patch third-party libraries or even the JDK itself.
+So if we don't like there something or if something is not compatible with native compilation,
+we can adapt it.
+It will generate some byte code that is responsible for configuring things and it will change the
+defaults for Graph VM native image and it will also allow the user to pass additional parameters.
+So for the json configuration part, it generates these five files, one for JNI, for proxy classes,
+for reflective accesses, resources and serialization.
+These are the generation of these files is handled by the classes here.
+So it's native image reflective configs, let's say.
+And it decides what to put in these json files based on the build items that exist in your
+application.
+In Quarkus, you can define the build pipeline using these build items.
+And earlier I mentioned substitutions.
+Substitutions are heavily used in Quarkus because they assist in dead code elimination
+and they also make sure that things that are not supported in native code are not reachable
+and it will throw some appropriate exceptions for that.
+So Quarkus performs 303 method substitutions and 32 field recommendations in a total of
+208 classes.
+This means that you don't have to do any of these on your own.
+They are already handled by Quarkus and this is only on Quarkus core.
+If you go and use some Quarkus extension, it performs its own substitutions and stuff
+like this.
+To see an example here, here we substitute the method allocate buffer in this class and
+we only do that when ZSTD is absent from the class path.
+And what we substitute the method with is a throw of an exception that this operation
+is unsupported.
+So if you compile your code to native and it invokes this method while the ZSTD library
+is not available, you will get this exception.
+And this is how we recompute fields.
+So here in Bouncy Castle's easy point, we go and reset the test random field because
+this is a secure random class and we don't want it to be preceded and pre-initialized
+in the native image.
+But whenever we restart the application, we get different random numbers.
+We can similarly change the value of a field by reinitializing from an alias.
+That means that we can pass whatever value we want not just reset it to null.
+Here we change the field unavailability cause to put a Quarkus specific exception in there.
+And we also substitute the method is available to return false to show that OpenSSL is not
+supported in this specific case.
+Regarding features generation, this is handled by the native image features step class and
+it will use Quarkus Gizmo to generate bytecode.
+And this bytecode is used to invoke Grail VMs APIs to perform stuff that cannot be done
+through the json configuration.
+So here is a part of the native image features that we generate.
+And what it essentially does is that it invokes first it gets the method descriptor for the
+runtime class initialization.initialize at build time method.
+And it will invoke this method passing it a string array with the empty string.
+This instructs Grail VM to build time initialize everything, which is different than what it
+does by default.
+And we can also parameterize the options that are passed to the native image build.
+And we do that in the native image build step.
+And here we see part of it.
+And what it does is that it always enables allow fold methods, which is off by default.
+It makes our application headless by default.
+It doesn't allow the creation of fallback images because fallback images are essentially
+JVM lancers.
+So you don't get the native application that you asked for.
+And we also always ask it to link at build time.
+And that concludes the talk.
+I would like to acknowledge that Quarkus participates in the IROEU funded project.
+And I'm ready to take questions, if any.
+Any questions in the chat?
+Yeah, the custom class loader is a bit tricky because Quarkus.
+The question was whether Quarkus also supports the standard JDK instead of Grail VM JDK.
+So this is the first part of the question.
+And the answer to that is yes.
+This is Quarkus native and this is optional.
+This is only if you want to go native.
+If you want to stay on the JVM path, you can use any JDK and it will work just fine.
+Now to the second question about custom class loaders.
+Although I'm not very familiar with that, I think that this might be a bit tricky because
+Quarkus already uses custom class loaders.
+So you have to make sure that they are somehow compatible.
+I couldn't hear the question, so.
+Okay, you find out a library and you wonder whether you can use it or not.
+Okay, if the library is supported by Quarkus itself, you will find it listed in the Quarkus
+supported libraries or in a Quarkus extension that supports this library.
+In that case, everything should work out of the box and you don't need to do anything.
+In the case that your library is not supported by Quarkus Core or any of the Quarkus extensions,
+then you need to use some of the trickings that Quarkus does to make it work.
+And Quarkus gives you some APIs and annotations that may assist you.
+Let's see that.
+There is a website like supported libraries that I can go to and have a look.
+I think if you go to code.quarkus.io, then you can see a list of supported extensions
+in libraries.
+Do we have time to get some more questions?
+One more question.
+Sorry.
+I was wondering if Worker's Native works with GNI-based providers, sorry, the provider
+interface, not GNI.
+The foreign API?
+No, no, sorry, like classes discovery when you want to load a specific service, SPI,
+that's the name, sorry, the service provider interface.
+I think I don't know.
+Okay, thank you.
+Okay, for the rest of the questions, please feel free to approach me on the break.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.

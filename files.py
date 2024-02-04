@@ -12,7 +12,8 @@ for(let link of links) {
 '''
 
 
-files = [
+files = \
+[
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2850-where-have-the-women-of-tech-history-gone-.av1.webm",
     "title": "Where have the women of tech history gone?\n"
@@ -62,6 +63,10 @@ files = [
     "title": "Debug your stage-1 systemd with GDB and the NixOS test framework\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-3056-dns-for-i2p-distributed-network-without-central-authority.av1.webm",
+    "title": "DNS for I2P: Distributed Network without Central Authority\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3264-an-open-source-open-hardware-offline-finding-system.av1.webm",
     "title": "An open-source, open-hardware offline finding system\n"
   },
@@ -74,8 +79,16 @@ files = [
     "title": "The Linux Phone App Ecosystem\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2386-flutter-about-the-nightmare-of-cross-platform-development-targetting-linux-mobile.av1.webm",
+    "title": "Flutter - about the nightmare of cross platform development targetting Linux mobile\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2851-the-journey-to-ubuntu-touch-20-04-on-pine64.av1.webm",
     "title": "The Journey to Ubuntu Touch 20.04 on PINE64\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-1876-exploring-quarkus-native-choices-and-implementation.av1.webm",
+    "title": "Exploring Quarkus Native: Choices and Implementation\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1704-the-secret-life-of-a-goroutine.av1.webm",
@@ -94,8 +107,16 @@ files = [
     "title": "Automating Spark (and Pipeline) Upgrades While \"Testing\" in Production\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1761-how-the-kubernetes-community-is-improving-kubernetes-for-hpc-ai-ml-workloads.av1.webm",
+    "title": "How the Kubernetes Community is Improving Kubernetes for HPC/AI/ML Workloads\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2540-codebase-conquest-how-nx-turbocharged-our-react-workflow.av1.webm",
     "title": "Codebase Conquest: How Nx Turbocharged Our React Workflow\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3375-news-from-the-hermit-crab-from-soundness-foundations-to-gpu-virtualization.av1.webm",
+    "title": "News from the Hermit Crab — From Soundness Foundations to GPU Virtualization\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2388-zeekjs-javascript-support-in-zeek.av1.webm",
@@ -132,6 +153,10 @@ files = [
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2390-corinna-perl-s-new-object-oriented-system.av1.webm",
     "title": "Corinna—Perl's new object-oriented system\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-2528-open-source-docops.av1.webm",
+    "title": "Open Source DocOps\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-1910-making-virtio-sing-implementing-virtio-sound-in-rust-vmm-project.av1.webm",

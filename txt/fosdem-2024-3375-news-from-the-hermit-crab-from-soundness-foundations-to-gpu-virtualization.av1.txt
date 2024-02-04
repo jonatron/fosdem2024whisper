@@ -1,0 +1,253 @@
+Go Martin, go!
+Okay, I guess.
+So let's get this started.
+Wow. Okay, thanks everyone for coming.
+I'm Martin from Avitiha-Aachen University,
+and I'll talk about the Hermit operating system.
+I'm here together with my colleague Jonathan,
+and a few students are also scattered around the room.
+Yeah, let's get started.
+These are the things that I'll talk about today.
+First, a general introduction into Hermit and Juni kernels,
+although if you've been to this room in the past few hours,
+you already know some of that.
+Then I'll cover some arguably interesting internals structurally,
+and then talk about two applications,
+namely GPU virtualization using Cricut,
+and application kernel profiling.
+Okay, we've been through this a few times now,
+but let's go through it again.
+We have compared to a standard VM
+where we have a hardware and a host operating system,
+which might also be missing if we have a level one hypervisor,
+and a hypervisor, we then have this virtual machine.
+And this virtual machine runs a virtual machine image, which...
+What's happening?
+Okay, this virtual machine image is just a full-blown operating system
+with its own guest kernel, user space, and everything else.
+Then we've also talked about containers before,
+which throws away the guest kernel
+and really tries to minimize the image for the application,
+and we have unicarnals, which then run in virtual machines again,
+but inside the unicarnal, everything is packed together as tightly as possible.
+We have the application, we have some user-provided libraries,
+and we have the library operating system all statically linked together.
+What this gives us then is an image
+that we can really specialize to the use case at hand.
+So that means for the environment, namely the hypervisor,
+and for the application itself, and what it should do.
+This leads to tiny images, only a few megabytes in size for Hello World, for example.
+And since we only have one process in this whole unicarnal image,
+we don't need any isolation between this process, other processes, or the kernel.
+That means we can do this as a single address-based operating system
+without any costly address-based context switches between.
+We can run everything at kernel level, have no privileged context switches,
+and then can just make system calls to function calls.
+And that's pretty cool.
+Enter the Hermit operating system, as you can probably guess by the logo.
+The logo is written in Rust, 100%, well, not 100%,
+but there's no C in there, at least.
+There's only Rust and a bit of assembly, of course.
+We mainly target Rust applications, too.
+So we have an official tier 3 Rust target for Rust applications that we can use.
+But we also have a GCC and NewLip fork if you really want to run C applications,
+though that's not our primary focus.
+We have multi-core support, we are easily configurable,
+and we can now also compile on Windows.
+Yeah, we can also support stable Rust nowadays
+through our own distribution of the Rust standard library,
+which you can check out here.
+Okay, let's talk about the platform support.
+Okay, once we have this image seen on the left
+where we have the application, standard library, NewLip, and the kernel,
+we can then run it on our own hypervisor, for example.
+U-Hive is a specialized Hermit hypervisor that is specialized to running
+Hermit unique kind of images, which is the focus of Jonathan.
+The main target for that is Linux KVM on x86,
+though there's also some degree of support for Mac OS on both x86 and ARM.
+And also upcoming, though not yet merged, is Linux KVM support for RISC-5,
+which is something that Simon worked on.
+Philip, sorry.
+We can also target generic VMs through our Hermit loader,
+which then chain loads the Hermit ELF image.
+We can support multi-boot on x86, we support firecracker,
+and there's also UEFI work going on, which will be there soon, hopefully.
+For ARM and RISC-5, we use the Linux boot protocol to be able to run on things like KAML.
+Okay, so that's all you need to know if you want to use Hermit.
+Let's take a look inside.
+This is the same unique kind of image again, but from a different point of view now.
+The left stack is the application stack.
+It is the application.
+It's some user defined libraries, Rust crates in this case,
+and the core crates of the Rust 2 chain itself, so standard, Alagon core.
+On the right side, we have the Hermit kernel, which depends on some crates as well, and Alagon core.
+These two things are compiled for different targets, though,
+because we don't want to use any floating point operations in the kernel target,
+because that's costly to switch between.
+And the user code is compiled for a special Hermit target,
+which does have floating point support and also tells the Rust standard library
+how to communicate with the Hermit kernel.
+We also provide together with the Hermit kernel,
+but compiled for the user target some intrinsic such as libm for math functions,
+or mem intrinsics for things like mem copy,
+which really benefit from having this floating point support available.
+One thing that I personally worked on a lot are soundness foundations.
+You can see unsafe and safe Rust on the right.
+And we published a paper on that.
+It's called on the challenge of sound code for operating system,
+and what this basically aims for is to make the Hermit target sound.
+That means any safety reasoning must not require context.
+That's extremely important, and the history behind that is that
+Hermit was once written in C without much strictness around the locality of this kind of reasoning,
+and we put a lot of work into going forward and migrating to a more Rust-like approach here.
+One thing that came out of this is Hermit sync,
+which is a collection of synchronization primitives used inside the Hermit kernel.
+Most of these are also independently published as single crates
+and republished through this image, so you can also pick whatever you like in your own project.
+Another thing is count unsafe, which you can use to count the amount of unsafe code inside your Rust thing
+that we use to analyze our progress there.
+The next thing I want to talk about is our evolving network stack.
+Originally, it was just a user-side thing,
+so the Rust applications would compile some network stack with small TCP, a Rust network stack,
+and C applications would use what's it called LWIP, such as Unicraft does.
+In 2022, we moved that from user space into kernel space,
+which is not that meaningful since everything is kernel space, actually,
+but we moved it to the distribution of the kernel.
+Then we implemented support for these D-Style sockets
+because before we had a custom-made API for networking,
+and now we want to standardize it and adopt these things
+because that will allow us to throw away all the user space network stack,
+which can then both C applications and Rust applications
+use the kernel-provided small TCP network stack.
+In 2024, we are going for Pulse support for async.io,
+which would enable us to run a whole bunch of Rust networking applications,
+which usually run on Tokyo or something like that,
+and work on this is already well underway.
+Okay, then let's talk about the two application-focused things.
+First, GPU virtualization with Cricut.
+Short introduction to Cricut, which is another project developed at our institute, ACS.
+It's basically just plugging networking in between some API.
+So classical GPU CUDA applications work like seen on top,
+where we have this CUDA app that calls CUDA APIs,
+a library from NVIDIA, which then performs the actual computations on the GPU.
+With Cricut, we plug a Cricut client next to the app
+and a server to the CUDA APIs,
+and then just tunnel through all requests and answers.
+That separates these two things,
+and we can move them wherever we want and control what's happening there.
+And we found it's not that...
+Yeah, it's not that high of an overhead.
+We can then use this for remote execution, scheduling, or monitoring of GPU applications, as seen here.
+We can have several nodes with virtual GPUs,
+which then run on another node for computation.
+We then adapted Cricut for Unicornals,
+and published a paper on that.
+And how we did this is Cricut is based on ONCRPCs,
+which came out of Sun way back when.
+And the reference implementation is Oden Complex
+and uses Linux-specific networking features,
+so it wasn't easy to port to our Rust toolchain, for example.
+And as you can already guess, we ported it to Rust.
+Our user code is then run inside the Unicornal
+and only like the server part serving the GPU is not run inside the Unicornal.
+We did this for Hermit and Unicraft.
+For Unicraft we had to develop Rust application support first,
+but we did that and now it's working fine.
+The last topic that I want to talk about is application and kernel profiling.
+It's a project that has been dormant for a while,
+but we are reawakening it and getting it up to date and getting it working again.
+It's called RF Trace for Rust Function Tracer.
+How this works is that essentially we want to find out
+how much time is spent in which functions when we run software.
+Instrumentation does this by changing the code that is output by the compiler.
+We are essentially changing the program that we measure,
+which kind of falsifies the results a little bit,
+but for that we get extremely reliable things
+because we measure each and every time frame inside a function.
+It works like this.
+We have our Rust source, which squares some number.
+That corresponds to this assembly for inter-architectures.
+If we just append the corresponding flex to the compiler,
+the compiler nicely inserts this call to a special mCount function.
+What this mCount function then does is it can inspect the stack
+to find out which function we are currently in.
+It can then take some timestamp and it can also insert a return trampoline into this stack
+so that it also knows when we leave the function again.
+Together, all of this together, then lets us measure the time of functions, which is cool.
+In the image it looks like this.
+Our F trace is just another static library, which is inside the whole image.
+It works for Rust programs, C programs, and also for images, obviously.
+It is very encapsulated, so it exposes only a few symbols like mCount
+and then does everything internally.
+When we measure such a trace, we can then look at it
+and have a trace replay and really see which function we go into how
+and how long it takes inside them.
+We can also have a look at these graphically, of course.
+There are tools available for trace visualization.
+You could also create flame graphs out of this and then optimize the kernel.
+We are looking forward to using that for further optimizing the network stack, for example.
+All in all, I think that is all I have to say for today.
+That is a broad overview of the different topics that we covered last year.
+You can check us out on GitHub.
+You can say hi on Zulip.
+With that, I thank you for your kind attention.
+Thanks, Martin, for the talk.
+We have a working mic, so we can have some questions.
+Five minutes.
+Hi.
+My question is how do you instrument the Rust code
+and how do you actually get the function codes in there?
+The what?
+The instrumentation and turn some calls into the Rust code, usually, that you have.
+My question is how do you get those function codes in there?
+The question was, you said it to the mic, so it should be.
+There is a compiler flag for that.
+For C code, it is much simpler.
+You would just compile with GCC and then say dash PG, I think.
+For Rust code, it is more complicated.
+Well, it is not more complicated.
+It is just more lengthy.
+I did not put it on the slide because it was two lines or something.
+But those are features available to us through LLVM.
+Rust work is on the way to make this easier because it is not a stable thing
+exposed by the Rust 2 chain, but through manually enabling the corresponding LLVM passes for the code,
+this works.
+Thank you.
+More questions?
+I had a similar question.
+We also have a track on profiling, benchmarking and Unicraft.
+You are using instrumentation for profiling.
+Are you also considering sampling profiling?
+For example, what you are using is Unicraft, we are trying to tie in VMI, virtual machine interface.
+That will be able to do some sort of snapshotting and the others.
+Is this enough?
+Also, Unicraft, you have GCof support now because GCC 13 has embedded GCof support, so that makes things easier.
+Is this enough for what you have tested so far, the instrumented approach?
+Because you have to build the application, you then have to run the instrumented one,
+maybe it is not similar practice, is this enough at this point?
+We will have to see.
+In general, we are not that automated yet compared to Unicraft.
+Our Rust application story is quite seamless, I think, and you just enable profiling through a simple feature flag,
+and then you run it and it gets dumped on the disk and you can look into it.
+This is also what Gaby is working on.
+Did you consider, I am not sure how F-TracingPerox does it,
+but for example, there is something called K-Probes or K-Raid-Probes or something like that,
+which is a dynamic way of instrumenting the calls.
+What that does to you is you don't have to have these items done at build time,
+so that means when you want to instrument the application, you can tie in some flags
+and then while you execute it, it replaces some sort of function, pro or web, with some sort of jumps.
+Interesting.
+There may be something interesting to look at.
+We are looking at that on Unicraft's side.
+Is this like inserting a general hook into every function and then dynamically chain?
+Gaby knows a bit more about that.
+It is a bit of a rewrite of the function for organic load.
+Basically, you have a function that you want to jump in and then you can do the whole function that you want to jump in.
+Similar to that, just by hand and for some functions only and switchable.
+Okay, makes sense.
+Still very cool with the flame graph.
+I mean, this is the most important item because everyone does profiling,
+but having some sort of visual way of determining what's actually being spent, that's really useful.
+Yeah.
+We have to switch to another talk, so Martin will be around for more questions.
+Thanks again.
