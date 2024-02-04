@@ -48,14 +48,14 @@ for file_dict in files:
 
     vtt = ''
     if file_dict['vtt']:
-        vtt = f' <a href="{file_dict["vtt"]}">WebVTT</a>'
+        vtt = f' <a class="avtt" href="{file_dict["vtt"]}">WebVTT</a>'
     gen_html += f'''<tr>
       <td>
       <b>{file_dict['title']}</b>
       </td>
       <td>
-        {summary}<a href="{json_file_name}">JSON</a> <a href="{txt_file_name}">txt</a>{vtt}
-        <a href="{file_dict['href']}">Video</a> <a href="{docsrc}">Mirror&nbsp;Vid</a>
+        {summary}<a class="ajson" href="{json_file_name}">JSON</a> <a class="atxt" href="{txt_file_name}">txt</a>{vtt}
+        <a class="avideo" href="{file_dict['href']}">Video</a> <a class="amirror" href="{docsrc}">Mirror&nbsp;Vid</a> <a href="#video_area" class="play">Play</a>
       </td>
       </tr>'''
 
@@ -64,5 +64,5 @@ gen_html += "</table>"
 tpl = open('template.html', 'r').read()
 out_html = tpl.replace("###", gen_html)
 
-out_file = open('links.html', 'w')
+out_file = open('index.html', 'w')
 out_file.write(out_html)
