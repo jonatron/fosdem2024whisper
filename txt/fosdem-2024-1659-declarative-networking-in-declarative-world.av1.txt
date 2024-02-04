@@ -1,0 +1,203 @@
+So welcome to the next one in this track.
+My name is Mateusz.
+I will be talking about declarative networking now.
+Yes, that's very good.
+Yeah.
+Yes, we spent quite some time talking already about Kubernetes, how networking is done.
+I'm very glad that people from MULTUS took the hard part of explaining, you know, multi-networking
+at the level of containers.
+I'm also glad they didn't say anything about host networking because this is what they
+don't do, this is what I do.
+So we are going like very smoothly lowering the stack.
+So I work at Red Hat like they did.
+I'm best in Switzerland when I'm not touching computers.
+I do farming.
+I actually like it much more, but it doesn't pay my bills so well.
+Here we are.
+I don't do AI.
+That's something, you know.
+Everyone does it, but no.
+So I will skip why multi-networking because Federico was talking about this and, you know,
+if there are reasons for you to do multi-networking, you know that you need to do it.
+And if you don't, then you don't.
+It all started because, you know, clouds never care about multi-networking.
+You go to AWS, GCP, FB, ICIA, you pick your three letters.
+You get a VM.
+It has a single network interface and that's it.
+But at some point you realize you need more network, bandwidth and all this kind of stuff
+and you're just going to start doing bare metal.
+It won't fly anywhere else.
+And once you start doing bare metal and network configuration, probably more than once you've
+seen, you know, the very ugly network manager config file.
+It's just a static file and, you know, the syntax is somehow opinionated.
+It's okay once you learn it, but it's still a static file and it flies if you have one
+server.
+It flies if you have three servers, but does it still fly if you have 300 servers?
+I'm not sure.
+And one problem is that, you know, those are all files and they don't apply changes automatically.
+So you modify your file and until you restart the interface or the machine, you may not
+even notice that you've made a mistake.
+So you may have some configuration that flies for, you know, last five years, but in reality
+it shouldn't and the reason is just because you've never rebooted.
+So, yeah.
+There was another talk about this before, yeah, you shouldn't have your servers run for two
+years at a time, but, you know, that's another story.
+So what is done to somehow change this?
+So you don't need to modify this file manually.
+Network Manager gives you command, which is NMCLI and you can modify those configurations
+using somehow nicer syntax.
+You can say, you know, modify connection, IP address, yada, yada and it has slightly
+better error handling because you can see in this example, I never distinguish slash
+and backslash.
+Sometimes I will just write, you know, I will write slash 24, but it's not really slash,
+it's backslash and I will see an error, you know, invalid IP address.
+That's super easy.
+But then I fix that, well, I think I fix, but I'm putting IP gateway, which is not in
+the subnet of my IP address.
+It cannot fly, like this configuration is utterly wrong, but syntax wise it's perfectly
+fine and system will allow me to do this.
+So, you know, is it really the state that we want to have?
+Well, we could discuss.
+So we have some basic protection about some basic bugs, but yeah, we could do better.
+So we got this tool, which is NM State CTL, so we still live in the realm of, you know,
+Network Manager, but we want to try to be a bit more declarative now.
+We want to change this syntax so that, you know, at the end we do this for Kubernetes
+and Kubernetes got this very nice notion of APIs, everything is well defined, everything
+is declarative.
+So let's try making cost networking declarative also.
+So how about we create some API which would look almost like a Kubernetes CR and allow
+changing this.
+So let's fix a YAM in which you define your state and I think this is the biggest improvement
+over the previous file, that you define how you want your network to be configured and
+afterwards let's event a tool which will be taking care that this configuration really
+works.
+So I don't want to dig into details of, you know, this example here because it shows some
+basic configuration.
+IP address, IP, IP routes, DNS server, so in general something that you always need, it
+does that I claim that this syntax here is much nicer than the syntax of this file.
+We can argue afterwards that I still claim it's nicer and, you know, at this moment there
+are no containers in the game.
+We are talking about vanilla Linux, you can do it and you may not know about containers.
+But now how about we wrap it around API and kind and let's take it to Kubernetes.
+So let's make CRD out of this and use everything that we built in the previous three minutes
+to have something that is declarative and something that Kubernetes will be reconciling.
+So in this scenario and I think that's pretty descriptive use case, you know, you have multiple
+network interfaces, you want to bond two of them and doing this using all the static network
+manager yada yada, it's ugly.
+So how about you just write that you want to create a bond and let something else make
+it happen and let something else make sure that this bond is all the time there, that
+no matter what you do, you start SSHing to your Kubernetes nodes and all this kind of
+yada yada, let this be the safeguard that once you define this configuration is there.
+When you define a pod, you go, you may delete the pod, but if you have, you know, deployment,
+demon set, all this kind of stuff, something is there to recreate this pod.
+Why cannot we have something similar about the networking?
+Well, we can, so let me do the very short demo on that.
+So what I have now, I created and we will go through the examples in a moment.
+So first of all, this is something I didn't mention, but you know, Kubernetes CRs and
+Kubernetes API in general tries to protect you from doing stuff that won't fly.
+And you know, you have very extensive validations at the level of Kubernetes API and it's super
+amazing.
+I also would like to have something like this here.
+For example, I will try to configure on one of my worker of the Kubernetes cluster some
+stupid DNS server that simply doesn't exist.
+For people not familiar with IPv6, I defined here link local IPv6 address.
+So there is a very, very low probability that something like this actually exists in your
+network.
+And on the other hand, I have this worker and let's just look at the DNS configuration.
+So I'm running on my default setup, it's there, and I will try to now apply this configuration,
+which I told you is wrong and you should trust me that there is no DNS server behind this
+address.
+Okay, so we created this CR and okay, now it's not what I said because we see in the
+ETC results, which we watch all the time, that this address appeared here.
+But this is only because we are doing some kind of reconciliation of that and I have
+a time of 20 seconds on this controller now.
+So you can see that this CR is in the state progressing, yeah, 20 seconds already passed.
+So failed to configure and my configuration is reverted.
+I won't go into logs of what happened, but you need to trust me this server doesn't exist
+so it makes no sense for my real server in the cluster to get this configuration.
+So that's it.
+So we think you revert that and you get the feedback that, sorry, we cannot apply this
+configuration because it's nonsense.
+Apart from this, what I can also do is I have another file in which I will simply take some
+additional network interface and I will add IP address.
+Very simple, we do this very often when we are provisioning servers, but you know, maybe
+you just got some additional network interfaces installed or whatever.
+Doesn't really matter.
+At some point you want to configure the next network interface.
+So this server, we don't need it anymore.
+And so the output is big, but you want to look into this part.
+3S0, we don't have IPv4 address, we only have the IPv6 because you always get this one.
+So I'm going to apply this configuration now.
+Now that should not be a magic.
+This address appeared, but that's boring.
+You apply some configuration and it's there.
+But what I will do right now is I will manually on this server delete this IP address and
+I will make my controller, which is behind every CRD in Kubernetes, to reapply this so
+that this IP address is back there because if I define something via CRD, I don't want
+some admin going around my servers and change this configuration.
+If we agree that we are configuring cost networking via Kubernetes API, let it be like this.
+So I'm deleting this.
+We don't have that.
+So we have the previous state.
+Now I will do some small hack for the purpose of this demo because I realize that the timeout
+is set to five minutes.
+So we'll need now to sit five minutes and let the controller to realize that something
+changed.
+I will just kick the controller and...
+So we were in the worker two, which is this one, so I will just kill it.
+But not the only thing I did, I deleted this pod.
+So it's not like I somehow magically apply this configuration again.
+And we see that the IP address is back.
+So again, if we just sit here and wait for five minutes drinking or whatever, this would
+be the same.
+So that's it.
+And also for the sake of completeness, I have a setup with the proper DNS server.
+So, well, I already applied this one, so there is no point in doing this.
+But you've seen the wrong one, so you have to trust me that the good one would be also
+configured there.
+And the slide back is here.
+So that concludes the demo.
+So some final remarks because, yeah, that was really lightning talk.
+So all this stuff that I showed you, the backend, which is nm state, this is written in Rust
+because why not because we can.
+It uses network manager as a backend, well, pretty obvious, but we could discuss, and
+this is something that should come afterwards.
+That today I have this, it works using network manager because this is what I do and this
+is what customers that I have behind want.
+But if there is someone without network manager with a strong reason not to do network manager,
+but would like to have this, we can discuss and I would be very happy to discuss.
+Of course, there is a Kubernetes operator behind this because this is what I just demoed.
+And you are not bound to using this as a CLI tool and this kind of stuff.
+There is usable API, so you can get Rust create for that.
+You can get Golang library, you can get Python, probably something else, but those are the
+most popular and this probably should, I assume, those three make everyone on this audience
+happy.
+And yeah, we have a moment for questions.
+If you want to talk more about this, you can find me on the Kubernetes Slack and yeah,
+that's it.
+My personal wish would be that, you know, Kubernetes, and we know it from previous talk,
+previous two talks, never really cared about managing cost networking.
+No one really wanted to take this into the realm of Kubernetes.
+Well, it's not like I wish that we got this API now into Kubernetes upstream, but I wish.
+So yeah.
+Maybe we have time for just one question.
+With networking, you can do the worst thing and pull up the network up to what you want.
+So what if, for example, you misconfigure the IP address of a node and the node is unreachable
+from the controller?
+All of it can be fixed.
+Yeah, so this is exactly what I showed with the example of DNS.
+I could have shown it with the example of IP address, but if you wanted to create a CR
+so that you configure, for example, IP address and the gateway and applying this configuration
+would make your node unreachable, then we will revert this configuration exactly like
+reverted DNS because that's the purpose of the operator, that it has a safety checks so
+that it applies configuration.
+It checks if all the connectivity works as before.
+In this case, we had DNS, so it applied new DNS.
+It was checking in the background.
+Can I still resolve names?
+After 20 seconds, it realized, no, I cannot.
+I'm reverting this change and the CR is marked as degraded.
+So exactly the same would be happened if you have IP address and you don't get connectivity
+there.
+All right, thank you.
+Great, thanks.

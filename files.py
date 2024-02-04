@@ -58,8 +58,20 @@ files = [
     "title": "Debug your stage-1 systemd with GDB and the NixOS test framework\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3264-an-open-source-open-hardware-offline-finding-system.av1.webm",
+    "title": "An open-source, open-hardware offline finding system\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2214/fosdem-2024-2509-using-flexmeasures-to-build-a-climate-tech-startup-in-15-minutes.av1.webm",
+    "title": "Using FlexMeasures to build a climate tech startup, in 15 minutes\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-3303-the-linux-phone-app-ecosystem.av1.webm",
     "title": "The Linux Phone App Ecosystem\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2851-the-journey-to-ubuntu-touch-20-04-on-pine64.av1.webm",
+    "title": "The Journey to Ubuntu Touch 20.04 on PINE64\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1704-the-secret-life-of-a-goroutine.av1.webm",
@@ -84,6 +96,10 @@ files = [
   {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2388-zeekjs-javascript-support-in-zeek.av1.webm",
     "title": "ZeekJS: JavaScript support in Zeek\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1659-declarative-networking-in-declarative-world.av1.webm",
+    "title": "Declarative Networking in Declarative World\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3486-introduction-to-the-public-code-and-digital-public-goods-devroom.av1.webm",

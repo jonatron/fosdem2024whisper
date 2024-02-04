@@ -1,0 +1,611 @@
+WEBVTT
+
+00:00.000 --> 00:07.480
+So welcome to the next one in this track.
+
+00:07.480 --> 00:08.480
+My name is Mateusz.
+
+00:08.480 --> 00:11.240
+I will be talking about declarative networking now.
+
+00:11.240 --> 00:13.800
+Yes, that's very good.
+
+00:13.800 --> 00:14.800
+Yeah.
+
+00:14.800 --> 00:20.120
+Yes, we spent quite some time talking already about Kubernetes, how networking is done.
+
+00:20.120 --> 00:26.320
+I'm very glad that people from MULTUS took the hard part of explaining, you know, multi-networking
+
+00:26.320 --> 00:27.960
+at the level of containers.
+
+00:27.960 --> 00:31.680
+I'm also glad they didn't say anything about host networking because this is what they
+
+00:31.680 --> 00:33.520
+don't do, this is what I do.
+
+00:33.520 --> 00:37.120
+So we are going like very smoothly lowering the stack.
+
+00:37.120 --> 00:40.880
+So I work at Red Hat like they did.
+
+00:40.880 --> 00:43.280
+I'm best in Switzerland when I'm not touching computers.
+
+00:43.280 --> 00:44.280
+I do farming.
+
+00:44.280 --> 00:47.960
+I actually like it much more, but it doesn't pay my bills so well.
+
+00:47.960 --> 00:48.960
+Here we are.
+
+00:48.960 --> 00:50.280
+I don't do AI.
+
+00:50.280 --> 00:51.520
+That's something, you know.
+
+00:51.520 --> 00:53.640
+Everyone does it, but no.
+
+00:53.640 --> 00:59.480
+So I will skip why multi-networking because Federico was talking about this and, you know,
+
+00:59.480 --> 01:02.920
+if there are reasons for you to do multi-networking, you know that you need to do it.
+
+01:02.920 --> 01:04.800
+And if you don't, then you don't.
+
+01:04.800 --> 01:08.840
+It all started because, you know, clouds never care about multi-networking.
+
+01:08.840 --> 01:13.080
+You go to AWS, GCP, FB, ICIA, you pick your three letters.
+
+01:13.080 --> 01:14.080
+You get a VM.
+
+01:14.080 --> 01:15.840
+It has a single network interface and that's it.
+
+01:15.840 --> 01:19.840
+But at some point you realize you need more network, bandwidth and all this kind of stuff
+
+01:19.840 --> 01:22.200
+and you're just going to start doing bare metal.
+
+01:22.200 --> 01:24.120
+It won't fly anywhere else.
+
+01:24.120 --> 01:28.800
+And once you start doing bare metal and network configuration, probably more than once you've
+
+01:28.800 --> 01:32.640
+seen, you know, the very ugly network manager config file.
+
+01:32.640 --> 01:37.920
+It's just a static file and, you know, the syntax is somehow opinionated.
+
+01:37.920 --> 01:42.520
+It's okay once you learn it, but it's still a static file and it flies if you have one
+
+01:42.520 --> 01:43.520
+server.
+
+01:43.520 --> 01:47.120
+It flies if you have three servers, but does it still fly if you have 300 servers?
+
+01:47.120 --> 01:49.320
+I'm not sure.
+
+01:49.320 --> 01:54.720
+And one problem is that, you know, those are all files and they don't apply changes automatically.
+
+01:54.720 --> 02:00.320
+So you modify your file and until you restart the interface or the machine, you may not
+
+02:00.320 --> 02:02.200
+even notice that you've made a mistake.
+
+02:02.200 --> 02:06.880
+So you may have some configuration that flies for, you know, last five years, but in reality
+
+02:06.880 --> 02:09.640
+it shouldn't and the reason is just because you've never rebooted.
+
+02:09.640 --> 02:10.640
+So, yeah.
+
+02:10.640 --> 02:14.560
+There was another talk about this before, yeah, you shouldn't have your servers run for two
+
+02:14.560 --> 02:18.360
+years at a time, but, you know, that's another story.
+
+02:18.360 --> 02:22.240
+So what is done to somehow change this?
+
+02:22.240 --> 02:24.800
+So you don't need to modify this file manually.
+
+02:24.800 --> 02:31.960
+Network Manager gives you command, which is NMCLI and you can modify those configurations
+
+02:31.960 --> 02:33.560
+using somehow nicer syntax.
+
+02:33.560 --> 02:39.240
+You can say, you know, modify connection, IP address, yada, yada and it has slightly
+
+02:39.240 --> 02:43.800
+better error handling because you can see in this example, I never distinguish slash
+
+02:43.800 --> 02:44.800
+and backslash.
+
+02:44.800 --> 02:50.000
+Sometimes I will just write, you know, I will write slash 24, but it's not really slash,
+
+02:50.000 --> 02:54.000
+it's backslash and I will see an error, you know, invalid IP address.
+
+02:54.000 --> 02:55.000
+That's super easy.
+
+02:55.000 --> 03:01.480
+But then I fix that, well, I think I fix, but I'm putting IP gateway, which is not in
+
+03:01.480 --> 03:03.160
+the subnet of my IP address.
+
+03:03.160 --> 03:07.840
+It cannot fly, like this configuration is utterly wrong, but syntax wise it's perfectly
+
+03:07.840 --> 03:09.960
+fine and system will allow me to do this.
+
+03:09.960 --> 03:14.680
+So, you know, is it really the state that we want to have?
+
+03:14.680 --> 03:16.920
+Well, we could discuss.
+
+03:16.920 --> 03:23.040
+So we have some basic protection about some basic bugs, but yeah, we could do better.
+
+03:23.040 --> 03:28.360
+So we got this tool, which is NM State CTL, so we still live in the realm of, you know,
+
+03:28.360 --> 03:32.600
+Network Manager, but we want to try to be a bit more declarative now.
+
+03:32.600 --> 03:36.920
+We want to change this syntax so that, you know, at the end we do this for Kubernetes
+
+03:36.920 --> 03:41.760
+and Kubernetes got this very nice notion of APIs, everything is well defined, everything
+
+03:41.760 --> 03:43.120
+is declarative.
+
+03:43.120 --> 03:47.400
+So let's try making cost networking declarative also.
+
+03:47.400 --> 03:55.200
+So how about we create some API which would look almost like a Kubernetes CR and allow
+
+03:55.200 --> 03:56.200
+changing this.
+
+03:56.200 --> 04:00.960
+So let's fix a YAM in which you define your state and I think this is the biggest improvement
+
+04:00.960 --> 04:07.160
+over the previous file, that you define how you want your network to be configured and
+
+04:07.160 --> 04:11.560
+afterwards let's event a tool which will be taking care that this configuration really
+
+04:11.560 --> 04:12.560
+works.
+
+04:12.560 --> 04:16.760
+So I don't want to dig into details of, you know, this example here because it shows some
+
+04:16.760 --> 04:17.760
+basic configuration.
+
+04:17.760 --> 04:23.160
+IP address, IP, IP routes, DNS server, so in general something that you always need, it
+
+04:23.160 --> 04:27.600
+does that I claim that this syntax here is much nicer than the syntax of this file.
+
+04:27.600 --> 04:32.480
+We can argue afterwards that I still claim it's nicer and, you know, at this moment there
+
+04:32.480 --> 04:33.800
+are no containers in the game.
+
+04:33.800 --> 04:39.040
+We are talking about vanilla Linux, you can do it and you may not know about containers.
+
+04:39.040 --> 04:46.520
+But now how about we wrap it around API and kind and let's take it to Kubernetes.
+
+04:46.520 --> 04:52.880
+So let's make CRD out of this and use everything that we built in the previous three minutes
+
+04:52.880 --> 04:58.400
+to have something that is declarative and something that Kubernetes will be reconciling.
+
+04:58.400 --> 05:05.200
+So in this scenario and I think that's pretty descriptive use case, you know, you have multiple
+
+05:05.200 --> 05:10.280
+network interfaces, you want to bond two of them and doing this using all the static network
+
+05:10.280 --> 05:12.560
+manager yada yada, it's ugly.
+
+05:12.560 --> 05:18.560
+So how about you just write that you want to create a bond and let something else make
+
+05:18.560 --> 05:24.120
+it happen and let something else make sure that this bond is all the time there, that
+
+05:24.120 --> 05:28.200
+no matter what you do, you start SSHing to your Kubernetes nodes and all this kind of
+
+05:28.200 --> 05:34.560
+yada yada, let this be the safeguard that once you define this configuration is there.
+
+05:34.560 --> 05:40.320
+When you define a pod, you go, you may delete the pod, but if you have, you know, deployment,
+
+05:40.320 --> 05:45.040
+demon set, all this kind of stuff, something is there to recreate this pod.
+
+05:45.040 --> 05:47.560
+Why cannot we have something similar about the networking?
+
+05:47.560 --> 05:52.480
+Well, we can, so let me do the very short demo on that.
+
+05:52.480 --> 05:59.320
+So what I have now, I created and we will go through the examples in a moment.
+
+05:59.320 --> 06:05.240
+So first of all, this is something I didn't mention, but you know, Kubernetes CRs and
+
+06:05.240 --> 06:10.240
+Kubernetes API in general tries to protect you from doing stuff that won't fly.
+
+06:10.240 --> 06:15.960
+And you know, you have very extensive validations at the level of Kubernetes API and it's super
+
+06:15.960 --> 06:16.960
+amazing.
+
+06:17.360 --> 06:22.160
+I also would like to have something like this here.
+
+06:22.160 --> 06:28.120
+For example, I will try to configure on one of my worker of the Kubernetes cluster some
+
+06:28.120 --> 06:31.120
+stupid DNS server that simply doesn't exist.
+
+06:31.120 --> 06:37.320
+For people not familiar with IPv6, I defined here link local IPv6 address.
+
+06:37.320 --> 06:43.400
+So there is a very, very low probability that something like this actually exists in your
+
+06:43.400 --> 06:44.960
+network.
+
+06:44.960 --> 06:53.840
+And on the other hand, I have this worker and let's just look at the DNS configuration.
+
+06:53.840 --> 06:59.600
+So I'm running on my default setup, it's there, and I will try to now apply this configuration,
+
+06:59.600 --> 07:04.600
+which I told you is wrong and you should trust me that there is no DNS server behind this
+
+07:04.600 --> 07:07.600
+address.
+
+07:08.600 --> 07:17.040
+Okay, so we created this CR and okay, now it's not what I said because we see in the
+
+07:17.040 --> 07:22.560
+ETC results, which we watch all the time, that this address appeared here.
+
+07:22.560 --> 07:28.080
+But this is only because we are doing some kind of reconciliation of that and I have
+
+07:28.080 --> 07:32.000
+a time of 20 seconds on this controller now.
+
+07:32.000 --> 07:40.040
+So you can see that this CR is in the state progressing, yeah, 20 seconds already passed.
+
+07:40.040 --> 07:42.800
+So failed to configure and my configuration is reverted.
+
+07:42.800 --> 07:48.080
+I won't go into logs of what happened, but you need to trust me this server doesn't exist
+
+07:48.080 --> 07:54.240
+so it makes no sense for my real server in the cluster to get this configuration.
+
+07:54.240 --> 07:55.320
+So that's it.
+
+07:55.320 --> 07:58.800
+So we think you revert that and you get the feedback that, sorry, we cannot apply this
+
+07:58.800 --> 08:01.000
+configuration because it's nonsense.
+
+08:01.000 --> 08:10.640
+Apart from this, what I can also do is I have another file in which I will simply take some
+
+08:10.640 --> 08:14.160
+additional network interface and I will add IP address.
+
+08:14.160 --> 08:18.760
+Very simple, we do this very often when we are provisioning servers, but you know, maybe
+
+08:18.760 --> 08:22.320
+you just got some additional network interfaces installed or whatever.
+
+08:22.320 --> 08:23.320
+Doesn't really matter.
+
+08:23.320 --> 08:28.160
+At some point you want to configure the next network interface.
+
+08:28.160 --> 08:34.760
+So this server, we don't need it anymore.
+
+08:34.760 --> 08:41.560
+And so the output is big, but you want to look into this part.
+
+08:41.560 --> 08:48.880
+3S0, we don't have IPv4 address, we only have the IPv6 because you always get this one.
+
+08:48.880 --> 08:56.480
+So I'm going to apply this configuration now.
+
+08:57.200 --> 09:00.200
+Now that should not be a magic.
+
+09:00.200 --> 09:02.320
+This address appeared, but that's boring.
+
+09:02.320 --> 09:04.320
+You apply some configuration and it's there.
+
+09:04.320 --> 09:10.440
+But what I will do right now is I will manually on this server delete this IP address and
+
+09:10.440 --> 09:15.640
+I will make my controller, which is behind every CRD in Kubernetes, to reapply this so
+
+09:15.640 --> 09:20.720
+that this IP address is back there because if I define something via CRD, I don't want
+
+09:20.720 --> 09:25.600
+some admin going around my servers and change this configuration.
+
+09:25.600 --> 09:32.680
+If we agree that we are configuring cost networking via Kubernetes API, let it be like this.
+
+09:32.680 --> 09:37.200
+So I'm deleting this.
+
+09:37.200 --> 09:38.920
+We don't have that.
+
+09:38.920 --> 09:40.720
+So we have the previous state.
+
+09:40.720 --> 09:44.560
+Now I will do some small hack for the purpose of this demo because I realize that the timeout
+
+09:44.560 --> 09:46.040
+is set to five minutes.
+
+09:46.040 --> 09:49.880
+So we'll need now to sit five minutes and let the controller to realize that something
+
+09:49.880 --> 09:50.880
+changed.
+
+09:50.880 --> 09:58.320
+I will just kick the controller and...
+
+09:58.320 --> 10:13.360
+So we were in the worker two, which is this one, so I will just kill it.
+
+10:13.360 --> 10:17.880
+But not the only thing I did, I deleted this pod.
+
+10:17.880 --> 10:21.960
+So it's not like I somehow magically apply this configuration again.
+
+10:21.960 --> 10:24.320
+And we see that the IP address is back.
+
+10:24.320 --> 10:30.040
+So again, if we just sit here and wait for five minutes drinking or whatever, this would
+
+10:30.040 --> 10:32.200
+be the same.
+
+10:32.200 --> 10:33.360
+So that's it.
+
+10:33.360 --> 10:46.000
+And also for the sake of completeness, I have a setup with the proper DNS server.
+
+10:46.160 --> 10:50.960
+So, well, I already applied this one, so there is no point in doing this.
+
+10:50.960 --> 10:55.440
+But you've seen the wrong one, so you have to trust me that the good one would be also
+
+10:55.440 --> 10:59.440
+configured there.
+
+10:59.440 --> 11:02.480
+And the slide back is here.
+
+11:02.480 --> 11:05.080
+So that concludes the demo.
+
+11:05.080 --> 11:08.520
+So some final remarks because, yeah, that was really lightning talk.
+
+11:08.520 --> 11:13.520
+So all this stuff that I showed you, the backend, which is nm state, this is written in Rust
+
+11:13.520 --> 11:15.480
+because why not because we can.
+
+11:15.480 --> 11:20.960
+It uses network manager as a backend, well, pretty obvious, but we could discuss, and
+
+11:20.960 --> 11:24.000
+this is something that should come afterwards.
+
+11:24.000 --> 11:28.720
+That today I have this, it works using network manager because this is what I do and this
+
+11:28.720 --> 11:32.440
+is what customers that I have behind want.
+
+11:32.440 --> 11:36.960
+But if there is someone without network manager with a strong reason not to do network manager,
+
+11:36.960 --> 11:41.560
+but would like to have this, we can discuss and I would be very happy to discuss.
+
+11:41.640 --> 11:46.120
+Of course, there is a Kubernetes operator behind this because this is what I just demoed.
+
+11:46.120 --> 11:51.120
+And you are not bound to using this as a CLI tool and this kind of stuff.
+
+11:51.120 --> 11:54.760
+There is usable API, so you can get Rust create for that.
+
+11:54.760 --> 11:58.960
+You can get Golang library, you can get Python, probably something else, but those are the
+
+11:58.960 --> 12:05.960
+most popular and this probably should, I assume, those three make everyone on this audience
+
+12:05.960 --> 12:07.840
+happy.
+
+12:07.840 --> 12:10.200
+And yeah, we have a moment for questions.
+
+12:10.200 --> 12:16.440
+If you want to talk more about this, you can find me on the Kubernetes Slack and yeah,
+
+12:16.440 --> 12:17.440
+that's it.
+
+12:17.440 --> 12:22.560
+My personal wish would be that, you know, Kubernetes, and we know it from previous talk,
+
+12:22.560 --> 12:26.400
+previous two talks, never really cared about managing cost networking.
+
+12:26.400 --> 12:30.280
+No one really wanted to take this into the realm of Kubernetes.
+
+12:30.280 --> 12:37.560
+Well, it's not like I wish that we got this API now into Kubernetes upstream, but I wish.
+
+12:37.560 --> 12:39.440
+So yeah.
+
+12:39.440 --> 12:55.320
+Maybe we have time for just one question.
+
+12:55.320 --> 13:10.320
+With networking, you can do the worst thing and pull up the network up to what you want.
+
+13:10.320 --> 13:17.760
+So what if, for example, you misconfigure the IP address of a node and the node is unreachable
+
+13:17.760 --> 13:18.760
+from the controller?
+
+13:18.760 --> 13:19.760
+All of it can be fixed.
+
+13:19.760 --> 13:23.480
+Yeah, so this is exactly what I showed with the example of DNS.
+
+13:23.480 --> 13:29.320
+I could have shown it with the example of IP address, but if you wanted to create a CR
+
+13:29.320 --> 13:35.760
+so that you configure, for example, IP address and the gateway and applying this configuration
+
+13:35.760 --> 13:39.840
+would make your node unreachable, then we will revert this configuration exactly like
+
+13:39.840 --> 13:47.080
+reverted DNS because that's the purpose of the operator, that it has a safety checks so
+
+13:47.080 --> 13:49.280
+that it applies configuration.
+
+13:49.280 --> 13:53.040
+It checks if all the connectivity works as before.
+
+13:53.040 --> 13:57.000
+In this case, we had DNS, so it applied new DNS.
+
+13:57.000 --> 13:58.560
+It was checking in the background.
+
+13:58.560 --> 14:00.520
+Can I still resolve names?
+
+14:00.520 --> 14:02.920
+After 20 seconds, it realized, no, I cannot.
+
+14:02.920 --> 14:07.240
+I'm reverting this change and the CR is marked as degraded.
+
+14:07.240 --> 14:11.000
+So exactly the same would be happened if you have IP address and you don't get connectivity
+
+14:11.000 --> 14:12.000
+there.
+
+14:12.000 --> 14:19.000
+All right, thank you.
+
+14:19.000 --> 14:20.320
+Great, thanks.
+
