@@ -67,6 +67,10 @@ files = \
     "title": "DNS for I2P: Distributed Network without Central Authority\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2198-the-first-13-years-of-blockchain-name-systems.av1.webm",
+    "title": "The first 13 years of blockchain name systems\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3264-an-open-source-open-hardware-offline-finding-system.av1.webm",
     "title": "An open-source, open-hardware offline finding system\n"
   },
@@ -87,8 +91,16 @@ files = \
     "title": "The Journey to Ubuntu Touch 20.04 on PINE64\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-3290-towards-a-bright-future-with-mobian-.av1.webm",
+    "title": "Towards a bright future with Mobian?\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-1876-exploring-quarkus-native-choices-and-implementation.av1.webm",
     "title": "Exploring Quarkus Native: Choices and Implementation\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-3085-java-to-unlock-gpu-acceleration-for-polyglot-language-runtimes.av1.webm",
+    "title": "Java… to unlock GPU acceleration for Polyglot Language Runtimes\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1704-the-secret-life-of-a-goroutine.av1.webm",
@@ -119,12 +131,20 @@ files = \
     "title": "News from the Hermit Crab — From Soundness Foundations to GPU Virtualization\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-3215-iputils-project-introduction.av1.webm",
+    "title": "iputils project introduction\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2388-zeekjs-javascript-support-in-zeek.av1.webm",
     "title": "ZeekJS: JavaScript support in Zeek\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1659-declarative-networking-in-declarative-world.av1.webm",
     "title": "Declarative Networking in Declarative World\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3135-bad-ux-is-bad-security-adventures-in-qubes-os-ux-design.av1.webm",
+    "title": "Bad UX is Bad Security: Adventures in Qubes OS UX Design\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3486-introduction-to-the-public-code-and-digital-public-goods-devroom.av1.webm",
