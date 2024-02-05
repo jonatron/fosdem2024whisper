@@ -1,0 +1,593 @@
+WEBVTT
+
+00:00.000 --> 00:09.520
+Hi everyone, my name is Robert Swenaga and I work at Red Hat. Today I'll be talking a
+
+00:09.520 --> 00:15.240
+little bit about JDK Flight Recorder in Gravium Native Image. And from now on we'll just refer
+
+00:15.240 --> 00:21.960
+to JDK Flight Recorder as JFR. So as a high level breakdown, I broke in this presentation
+
+00:21.960 --> 00:27.280
+to two sections. The first section is a high level overview of JFR Native Image and then
+
+00:27.280 --> 00:31.240
+we'll go into a low level deep dive of JFR Native Image and talk about some comparisons between
+
+00:31.240 --> 00:38.360
+substrate VM and hotspot. And I want to make note that even if you're not interested in Gravium
+
+00:38.360 --> 00:42.720
+Native Image at all, you may still be interested in the second half of this presentation because the
+
+00:42.720 --> 00:47.120
+details of JFR are going to be talking about there extend beyond just native image and also apply
+
+00:47.120 --> 00:55.200
+to hotspot more generally as well. Okay, so as a very quick refresher, JFR is an event-based
+
+00:55.200 --> 00:59.960
+monitoring and profiling tool. It's built directly into the JDK and it can give you some really
+
+00:59.960 --> 01:04.840
+valuable insights into what your application is doing both at a high level and also at the VM level.
+
+01:04.840 --> 01:12.600
+Okay, so Phoebus already talked about this a little bit, but Gravium Native Image is essentially a
+
+01:12.600 --> 01:18.760
+technology that allows you to convert your Java applications into binary executables. The appeal
+
+01:18.760 --> 01:22.960
+of this is you get much faster startup and use less resources and a big reason for that is you
+
+01:23.000 --> 01:28.320
+don't have to warm up your traditional JVM alongside your application code. And how it works is you
+
+01:28.320 --> 01:33.000
+compile your Java application to bytecode like you normally would and then you run the native
+
+01:33.000 --> 01:39.720
+image tool to convert that bytecode into your executable which you can later run. So why is
+
+01:39.720 --> 01:48.200
+JFR different to native image than in OpenJDK? The reasoning behind this is that a native image
+
+01:48.240 --> 01:53.960
+executable doesn't require a traditional JVM to run, however it still requires certain runtime
+
+01:53.960 --> 01:59.840
+components that your Java code expects such as GC and synchronization constructs like monitors,
+
+01:59.840 --> 02:04.320
+for example, and what's providing that in native images is something called substrate VM, which
+
+02:04.320 --> 02:08.960
+you can think of as sort of like a scoped down replacement for a hotspot. So it does a lot of
+
+02:08.960 --> 02:13.280
+the things that your Java code requires, but strips out a lot of the dynamic stuff that hotspot
+
+02:13.360 --> 02:19.080
+does that we don't really need in this environment. And the key here is that since a lot of the
+
+02:19.080 --> 02:23.720
+JFR code is embedded within hotspots, when we transfer it over to native image, we're using
+
+02:23.720 --> 02:29.560
+substrate VM so it has to be re-implemented in that VM instead. So that involves everything from
+
+02:29.560 --> 02:35.440
+the low-level JFR event instrumentation to the actual infrastructure that varies that JFR data
+
+02:35.440 --> 02:42.800
+from the point of instrumentation to the point where it's later consumed by a user. Yeah, so
+
+02:42.840 --> 02:48.440
+in terms of the current state of JFR support in native image, you can do things such as starting
+
+02:48.440 --> 02:52.920
+and stopping recording from the command line or from within your application code via the
+
+02:52.920 --> 02:58.920
+recording API. Several events are implemented, especially at the VM level. We have events for
+
+02:58.920 --> 03:04.600
+threads, monitors, allocations, you see, save points, etc. You can dump, snap, shot, to disk and
+
+03:04.600 --> 03:10.320
+inspect them with tools such as visual VM or JDK mission control as you normally would. The custom
+
+03:10.360 --> 03:16.560
+event API is also working, so you can create your own custom application level events. Stack traces
+
+03:16.560 --> 03:22.400
+and CPU profiling are also possible. Event streaming has recently been added as well. You can also
+
+03:22.400 --> 03:26.960
+even connect via remote GMX to flight recorder MaxBean, which practically means you can do things
+
+03:26.960 --> 03:33.360
+like from within the JMCUI, interact with JFR recordings that way, start them and manage them
+
+03:33.400 --> 03:41.400
+on the fly. How you might first interact with JFR in native image is at build time, you specify
+
+03:41.400 --> 03:47.800
+that you want the enable monitoring flag, specify you want JFR specifically, and that builds the JFR
+
+03:47.800 --> 03:54.000
+components into your executable. So then at runtime you can use the normal start recording, start
+
+03:54.000 --> 03:58.640
+flight recording option and pass all of the normal parameters that you would require, such as
+
+03:58.920 --> 04:05.840
+specifying a file name to dump the recording to or a duration, etc. There are still quite a few
+
+04:05.840 --> 04:11.200
+limitations to JFR native image. So not all events are implemented yet. It's an ongoing effort to
+
+04:11.200 --> 04:16.640
+keep up with open JDK in that area. Specifically, events related to bytecode instrumentation are not
+
+04:16.640 --> 04:21.560
+yet supported and of course some new JDK events we're trying to keep pace with that as well.
+
+04:21.560 --> 04:27.280
+Event streaming doesn't yet support stack traces, so that's one limitation of that. And we have a
+
+04:27.320 --> 04:31.000
+couple things that are in the review pipeline as well and are not yet supported in any release.
+
+04:31.000 --> 04:38.000
+That said, we've reached the deep dive, which is going to take up the majority of the presentation.
+
+04:38.000 --> 04:47.600
+And yeah, let's take a deep breath. So this road map essentially represents a very high level zoomed
+
+04:47.600 --> 04:52.320
+out view of the flow of JFR data through the system. And from now on each slide is going to
+
+04:52.320 --> 04:57.920
+contain this road map and the highlighted part will indicate the part that we're currently talking
+
+04:57.920 --> 05:05.360
+about just for convenience and easy reference. So firstly, the point of instrumentation. These
+
+05:05.360 --> 05:10.360
+are various points where JFR events are made at either an application level code or a VM level.
+
+05:10.360 --> 05:15.160
+And the screenshot on the slide is just from JDK Mission Control. I'm just using it to show some
+
+05:15.160 --> 05:19.920
+content that an event may contain. You can see there's a bunch of fields and corresponding values.
+
+05:20.320 --> 05:26.040
+And this is just one example. It'll vary by event. And you can think of JFR events as the primary
+
+05:26.040 --> 05:31.520
+thing that we're concerned with really. And the rest of the slides going forth are basically just
+
+05:31.520 --> 05:36.560
+piping to get that JFR data from the point of instrumentation to the chunk file where it can
+
+05:36.560 --> 05:41.600
+be consumed later. So yeah, speaking of chunk files, we're jumping all the way to the end of the
+
+05:41.600 --> 05:49.400
+road map. So chunk files are essentially the resting place of the JFR data as far as we're
+
+05:49.400 --> 05:53.600
+concerned for this presentation. And they must contain basically the same information, the same
+
+05:53.600 --> 05:59.840
+format regardless of whether OpenJDK or native images generating them. And they can be dumped
+
+05:59.840 --> 06:04.920
+to snapshots, the JFR snapshot which is the .JFR file format. And that's usually how people are
+
+06:04.920 --> 06:13.080
+going to interact with them via JMC or Visual VM or the JFR command line tool. Yeah, so chunk
+
+06:13.080 --> 06:18.080
+files are self-contained and they have four distinct sections. You can see in the diagram here
+
+06:18.120 --> 06:24.000
+header which contains pointers and other metadata. There is the event data section which contains the
+
+06:24.000 --> 06:28.640
+core JFR event data. Then there's the metadata section which describes the format and layout of
+
+06:28.640 --> 06:33.720
+the events in the event data section. And then we have the constant pools which contain constants
+
+06:33.720 --> 06:44.920
+which are referenced from the event data section. So the constants, in order to reduce the size of
+
+06:44.960 --> 06:56.040
+JFR data, we use a referencing ID scheme to increase compactness. And how this works is entries in
+
+06:56.040 --> 07:01.400
+the event data section of the chunk file will use unique IDs to reference into the constant pool
+
+07:01.400 --> 07:08.400
+section of the chunk file. And this helps with deduplicating the actual constants that are used
+
+07:08.400 --> 07:14.720
+by the JFR events. So in this slide you can see there's an example of one event entry which
+
+07:14.720 --> 07:19.280
+uses the unique ID 12 which is then going to be used to index the thread constant pool and reference
+
+07:19.280 --> 07:26.640
+the actual thread data residing there. So all this increases the compactness of the JFR data and
+
+07:26.640 --> 07:31.200
+what that does is it reduces overhead when dealing with it while it's in flight and when writing it
+
+07:31.200 --> 07:37.880
+to disk. It reduces the overall chunk file size as well. However the downside of this increased
+
+07:37.920 --> 07:44.480
+compactness in this referencing ID scheme is that we have a tight coupling of the event data and the
+
+07:44.480 --> 07:48.520
+constant pool data so that if they're ever separated and not found in the same self-contained
+
+07:48.520 --> 07:54.120
+chunk file then we can't decode the event data section and it's basically unreadable. So that's
+
+07:54.120 --> 08:00.480
+when down side. Right, so now that we've talked about the very beginning and the end of the road map
+
+08:00.520 --> 08:10.080
+we'll jump and fill in the middle. So now, so after event emission the JFR data splits. So the event
+
+08:10.080 --> 08:15.920
+data, the core event data goes to the JFR thread local buffers while the constant data goes to the
+
+08:15.920 --> 08:22.360
+constant pools. And in both hotspot and substrate VM the JFR thread local buffers essentially have
+
+08:22.360 --> 08:28.440
+the same purpose and same structure. So their structure in a segment way that allows for concurrent
+
+08:28.480 --> 08:34.920
+rating and reading of data and there are various pointers which define the sections. So there's
+
+08:34.920 --> 08:38.680
+the rate position pointer which basically determines where new data is written into the
+
+08:38.680 --> 08:43.720
+buffer. So when the event rate is in progress that's the pointer that's going to be in use. Then
+
+08:43.720 --> 08:47.240
+there's the committed position pointer which represents the end of the committed data section.
+
+08:47.240 --> 08:51.160
+And the committed data section is data that has been fully written so it's not an in-progress
+
+08:51.160 --> 08:57.560
+rate but it hasn't migrated anywhere else yet. The flush data section is essentially committed data
+
+08:57.800 --> 09:01.240
+that has been migrated somewhere else so it can be overridden at the earliest convenience.
+
+09:01.240 --> 09:08.120
+Eventually the buffers will fill up with committed data and will have to be flushed elsewhere and
+
+09:08.120 --> 09:13.480
+at that point all the pointers reset back to the start position. Hotspot is a little bit different
+
+09:13.480 --> 09:19.880
+in that it uses buffer pools to recycle buffers. So there's a live list and a free list and when a
+
+09:19.880 --> 09:24.880
+new thread requires a T.O.B. from JFR one will be taken off of the free list and put on the live
+
+09:24.880 --> 09:28.560
+list and vice versa when that thread goes away. But in such a threat we have it a little bit
+
+09:28.560 --> 09:33.680
+simpler. We just allocate a native memory, a thread local buffer when it's required and when the
+
+09:33.680 --> 09:39.120
+thread goes away we destroy that memory. So we don't really have to manage access to these buffer
+
+09:39.120 --> 09:47.600
+pools and maintain them. Right, in the case of virtual threads, multiple virtual threads may share
+
+09:47.600 --> 09:53.200
+the same thread local buffer of the carrier thread and that's not really an issue because each one
+
+09:53.200 --> 09:57.280
+has exclusive access at any point in time and the JFR data is eventually going to the same place
+
+09:57.280 --> 10:04.800
+anyways. Right, so after the thread local buffers fill up they are migrated, the data is migrated
+
+10:04.800 --> 10:10.880
+to a set of global buffers and the global buffers essentially act as a capacity for overflow storage
+
+10:10.880 --> 10:14.320
+and it's more efficient than increasing the size of all the thread local buffers because not all
+
+10:14.320 --> 10:23.680
+threads will be equally as busy with respect to JFR events. Right, so constant pools. Previously we
+
+10:23.680 --> 10:29.760
+mentioned how constant pools use a referencing ID scheme to reduce the size of JFR data and they do
+
+10:29.760 --> 10:36.720
+this essentially works by deduplicating constants. In a hotspot the deduplication works, one way the
+
+10:36.720 --> 10:42.400
+deduplication works is by using JFR specific bits and the metaspace data for certain constant types
+
+10:42.400 --> 10:50.160
+such as class with a K and also methods. So these JFR specific bits act essentially as Boolean toggles
+
+10:50.160 --> 10:57.600
+so when an event data reference from in a JFR local buffer somewhere references a constant
+
+10:57.600 --> 11:01.840
+that bit in that constant is flipped to indicate that it's referenced somewhere that way when it's
+
+11:01.840 --> 11:06.160
+time to actually persist the constants to disk we only have to persist the ones that are actually
+
+11:06.160 --> 11:11.760
+referenced not all of them. Additionally if multiple events reference the same constant
+
+11:11.840 --> 11:15.680
+that bit is only flipped once and that's only used to be written once so that's where the deduplication
+
+11:15.680 --> 11:21.120
+happens. There are some constant types such as stack traces that don't have metaspace data
+
+11:21.120 --> 11:26.240
+and those cases a lookup table is instead used for the deduplication and tracking and an interesting
+
+11:26.240 --> 11:30.560
+thing is in substrate VM native image there is no metaspace at all so we have to rely on the
+
+11:30.560 --> 11:38.720
+lookup table approach for all the various constant types. Right, so after enough JFR data has been
+
+11:38.720 --> 11:44.800
+generated a chunk rotation must be requested and what this is is essentially the way that JFR
+
+11:44.800 --> 11:51.680
+data is continually persisted to disk. The current chunk file and disk that's open is sealed and
+
+11:51.680 --> 11:57.840
+then a new chunk file is opened and in that process all the in-flight and memory data is flushed
+
+11:57.840 --> 12:04.160
+to that chunk file before it's sealed and the thread that's performing this the chunk rotation
+
+12:04.160 --> 12:08.400
+must flush the thread local buffers of other threads and to do that safely we have to request
+
+12:08.480 --> 12:16.240
+a save point. So the order of operations at a chunk rotation save point is as follows on the slide
+
+12:18.000 --> 12:24.400
+I want to make note that it's pretty similar in open JDK as it is in substrate VM and the space
+
+12:24.400 --> 12:31.760
+between chunk rotation save points the recording time between is called an epic and you can see
+
+12:31.760 --> 12:35.760
+in the green save point box that that's where we're actually flushing the JFR buffers both local
+
+12:35.840 --> 12:41.440
+and global to disk but the most interesting thing here is that we're writing the constant pool to
+
+12:41.440 --> 12:46.400
+disk outside of the save points when we're already starting epic 2 so what that means is we'll
+
+12:46.400 --> 12:52.000
+we're simultaneously writing the constants from epic 1 to disk while recording constants for
+
+12:52.000 --> 12:57.120
+relative to epic 2 so they're kind of mingling inside the constant pools so we need to keep them
+
+12:57.120 --> 13:02.160
+isolated however because we want to avoid writing constants perspective to epic 2 to disk into chunk
+
+13:02.640 --> 13:09.760
+file for epic 1 otherwise we'll have that mismatch and we won't be able to decode the data for
+
+13:09.760 --> 13:15.360
+constant for epic 2 the same issue that I explained a few slides back so how we do this is we tag each
+
+13:15.360 --> 13:22.000
+constant according to the respective epic to keep them isolated and essentially overall the
+
+13:22.000 --> 13:25.840
+more of the story is it allows us to reduce save point pause time by writing these constant pools
+
+13:25.840 --> 13:30.400
+outside of the save point and another way we actually reduce save point pause time is by
+
+13:31.520 --> 13:37.040
+having a dedicated JFR thread flush the global buffers to disk periodically throughout the
+
+13:37.040 --> 13:41.280
+epic time so it's not actually happening in the save points so there's less work to actually be done
+
+13:41.280 --> 13:49.040
+when we are stopping the worlds to flush the buffers to disk right um
+
+13:49.520 --> 13:50.240
+um
+
+13:51.840 --> 13:59.200
+one related note on save pointing is the question of can a chunk rotation save point interrupts
+
+13:59.200 --> 14:04.720
+concurrent event emission that may be happening in other threads so we have a scenario here where
+
+14:05.280 --> 14:10.560
+the save point actually and save points and epic transition actually interrupts the event
+
+14:10.560 --> 14:16.240
+emission and separates the constant data and the event data into different epics and different
+
+14:16.240 --> 14:21.840
+chunk files and then it will be unreadable then so that's a scenario that is in question right now
+
+14:23.040 --> 14:29.760
+um and in j in open JDK in hotspot the JFR code is written in C++ it's native code so it can
+
+14:29.760 --> 14:35.120
+actually be interrupted for a save point so it's not really an issue at all however in
+
+14:35.120 --> 14:41.280
+substrate VM it's Java on Java and the VM code is written in Java so the JFR stuff is Java code
+
+14:41.280 --> 14:45.920
+and potentially could save point at a very inopportune moment so how do we prevent that
+
+14:45.920 --> 14:51.520
+stuff from happening in substrate VM um how it's done is we have this annotation called an
+
+14:51.520 --> 14:55.600
+interruptible and what that does is that build time prevents the insertion of save point checks
+
+14:55.600 --> 14:59.840
+so that the code that's in the annotated with an interruptible annotation doesn't actually
+
+14:59.840 --> 15:04.560
+save point at all so you find that a lot of the JFR code is sprinkled with this annotation all over
+
+15:04.560 --> 15:09.200
+the place in the VM especially dealing with buffers and constant pools and event writes
+
+15:10.160 --> 15:14.320
+but this has pretty big consequences for the implementation itself because
+
+15:14.320 --> 15:17.840
+un-interruptible code that can't save point can only call other un-interruptible code that can't
+
+15:17.840 --> 15:22.080
+save point which means a lot of the JDK code that's written in Java is off limits so we can't use
+
+15:22.080 --> 15:26.960
+things like the normal hash tables, re-entrant locks, etc. we have to kind of like roll our own
+
+15:26.960 --> 15:31.840
+versions of that which are un-interruptible another thing is we can't even use manage memory on the
+
+15:31.840 --> 15:36.160
+Java heap because that can induce a garbage collection which requires save point and that's
+
+15:36.960 --> 15:42.000
+not un-interruptible so we have to use unmanaged native memory in order to craft
+
+15:42.000 --> 15:46.640
+room data structures to deal with a lot of these things so it's a little bit of work
+
+15:46.640 --> 15:52.720
+dealing with that and the last thing I want to talk about and the last difference I want to
+
+15:52.720 --> 16:01.680
+mention between JFR and substrate VM and hotspot is related to how JFR interfaces from the the
+
+16:01.760 --> 16:09.840
+Java level JFR code to the VM level JFR code and in open JDK it happens in the JVM class here
+
+16:09.840 --> 16:16.480
+you can see on the left side of sorry the right side of the slide and these are basically the
+
+16:16.480 --> 16:25.360
+points where the Java level JFR code and the JDK calls down to hotspot at the VM level using JNI
+
+16:25.360 --> 16:31.920
+so we reuse that code in native image we reuse that Java level JFR code from the JDK
+
+16:32.800 --> 16:37.920
+but there's no underlying hotspot implementation to call into so how do we resolve that mismatch
+
+16:39.040 --> 16:44.880
+what we use is we use substitutions which Feeb has talked about a little bit but I'll mention again
+
+16:44.880 --> 16:51.520
+but essentially what it does is allows us at build time to specify redirects from these
+
+16:52.240 --> 16:57.840
+Java methods to our own implementation the JFR VM level code so on the right side you can see
+
+16:58.720 --> 17:02.880
+mark chunk final is highlighted and that corresponds to the Java level code on the left
+
+17:03.520 --> 17:09.840
+sorry on the right I keep getting mixed up on the right side of the of the slide so we can see
+
+17:09.840 --> 17:13.840
+that we're actually grabbing that and then redirecting it to our own substrate VM base
+
+17:13.840 --> 17:18.000
+implementation of that code so that's how we kind of resolve that mismatch
+
+17:18.960 --> 17:24.640
+um yeah with that said um that basically concludes my presentation if you're interested
+
+17:25.520 --> 17:30.640
+there are further links for for more reading there's some documentation and some blog posts as well
+
+17:31.280 --> 17:36.720
+and you can always approach me as outside as well if you have more questions um yeah how good
+
+17:36.720 --> 17:49.040
+you are for time Chris okay if there's any questions I'm happy to answer them now
+
+17:50.000 --> 17:57.040
+you just did such a good job explaining it
+
+17:59.440 --> 18:00.880
+thanks yeah
+
+18:04.480 --> 18:10.480
+on on substrate VM is there did you measure impagant time to save point because if is it
+
+18:10.480 --> 18:16.640
+uninterruptible you know this uninterruptible trade oh time to save points yeah yeah I could imagine
+
+18:16.640 --> 18:21.840
+yeah um I'm not really sure of the exact figures I can't really give you a number but um I I know
+
+18:21.840 --> 18:27.440
+what you're saying it it would potentially an issue I haven't not really aware of it um but yeah
+
+18:27.440 --> 18:32.320
+that that's definitely a concern um but it's not just the jfr code that's marked as interruptible
+
+18:32.320 --> 18:36.880
+a lot of the gc code as well a lot of the low-level operations they they must also be
+
+18:36.880 --> 18:43.760
+uninterruptible so it's not just jfr yeah understood thanks yeah actually to tag on to that a lot of
+
+18:43.760 --> 18:49.360
+jfr code is really just instrumenting other low-level code which is already an
+
+18:49.360 --> 18:54.080
+uninterruptible so it's like collateral damage it's not really an issue to add a little bit more on
+
+18:54.960 --> 19:02.640
+to code that's already an intructible such as uh jfr gc event handling and uh slow path allocation
+
+19:02.640 --> 19:06.480
+stuff that's already you can't save point there anyways thank you
+
+19:06.560 --> 19:09.680
+okay
+
+19:12.640 --> 19:17.680
+okay uh thank you for listening
+

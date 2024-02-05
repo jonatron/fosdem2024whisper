@@ -31,6 +31,9 @@ out_file.write(out_html)
 
 gen_html = '''<a href="big.html">All text in one big file</a>
 <br><a href="https://fosdem.org/2024/schedule/events/">FOSDEM 2024 Event Page</a>
+<br>Videos are added regularly as they are added to the FOSDEM event page.
+<br>Click "Play" for videos with subtitles.
+<br>
 <table>'''
 for file_dict in files:
     filename = os.path.basename(file_dict['href']).replace(".webm", "")

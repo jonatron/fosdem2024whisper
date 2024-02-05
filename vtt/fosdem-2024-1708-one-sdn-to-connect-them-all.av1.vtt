@@ -1,0 +1,779 @@
+WEBVTT
+
+00:00.000 --> 00:13.640
+Okay, so good afternoon.
+
+00:13.640 --> 00:14.680
+My name is Miguel Duarte.
+
+00:14.680 --> 00:21.400
+I'm a software engineer working for Red Hat and the OpenShift Virtualization Networking
+
+00:21.400 --> 00:23.400
+team.
+
+00:23.400 --> 00:31.480
+Well, in this talk we're going to be discussing an SDN solution for both types of workflows
+
+00:31.480 --> 00:38.840
+so you can have pods and virtual machines in the same network and the use cases that
+
+00:38.840 --> 00:42.920
+this SDN provides and a little bit how it works.
+
+00:42.920 --> 00:45.000
+There are going to be some demos as well.
+
+00:45.000 --> 00:47.640
+So let's jump to the agenda.
+
+00:47.640 --> 00:52.280
+All right, so first thing we're going to do is explain the motivation, like what drives
+
+00:52.280 --> 00:57.880
+us to have like to do this and the actual problem we're trying to solve.
+
+00:57.880 --> 01:02.840
+From there, there's going to be a little short introduction that depends how deep it is going
+
+01:02.840 --> 01:03.840
+to be.
+
+01:03.840 --> 01:06.000
+Well, it depends on a few things.
+
+01:06.000 --> 01:09.920
+And then I'm going to walk you through the use cases for this SDN solution, show the
+
+01:09.920 --> 01:16.040
+demos, finalize with the roadmap for the future and with the lessons we've learned during
+
+01:16.040 --> 01:18.360
+this development.
+
+01:18.360 --> 01:25.040
+So first thing, how many of you have used or like worked for stuff that has anything
+
+01:25.040 --> 01:27.600
+to do with Kubernetes?
+
+01:27.600 --> 01:28.760
+Like yeah, pretty much everyone.
+
+01:28.760 --> 01:33.320
+How many of you use Kubeverts or know what it is?
+
+01:33.320 --> 01:34.960
+Well, more than I thought.
+
+01:34.960 --> 01:35.960
+Okay, cool.
+
+01:35.960 --> 01:39.640
+So the introduction is not going to be that deep.
+
+01:39.640 --> 01:40.960
+But yeah, let's start.
+
+01:40.960 --> 01:44.920
+First thing, going to be discussing the Kubernetes networking model.
+
+01:44.920 --> 01:50.400
+Like as most of you will know, pretty much it's very simple.
+
+01:50.400 --> 01:56.680
+And one of its few premises is that any pod that is deployed on the Kubernetes cluster
+
+01:56.680 --> 02:00.840
+can contact and can reach any other pods in the Kubernetes cluster.
+
+02:00.840 --> 02:06.400
+Like basically you have cluster-wide communication between whatever type of workloads that are
+
+02:06.400 --> 02:09.000
+deployed in your cluster.
+
+02:09.000 --> 02:10.880
+Without NAT, by the way.
+
+02:10.880 --> 02:19.640
+So another thing you get as a byproduct of that is like VSC and all that, it pretty much
+
+02:19.640 --> 02:23.240
+it configures a way for you to reach the outside world.
+
+02:23.240 --> 02:30.120
+So you get free batteries to reach the outside world, to reach the internet.
+
+02:30.120 --> 02:35.800
+The thing it does not allow you to do is to connect to a pre-existing network.
+
+02:35.800 --> 02:40.480
+If it's, for instance, I say you want to connect to a database that's deployed on an existing
+
+02:40.480 --> 02:42.520
+network, well, you're out of luck.
+
+02:42.520 --> 02:44.520
+Kubernetes does not solve this.
+
+02:44.520 --> 02:48.600
+More things, if you, for instance, you want to deploy a VNF, for instance, and you require
+
+02:48.600 --> 02:55.400
+more than an interface, Kubernetes will also not do that for you.
+
+02:55.400 --> 03:01.840
+There are solutions out of three, but we're not going to go there right now.
+
+03:01.840 --> 03:08.200
+So the motivation for our talk pretty much comes that you don't have like an entryway
+
+03:08.440 --> 03:16.940
+for you to access like stuff on physical networks and to get access to additional networks.
+
+03:16.940 --> 03:21.040
+The default cluster network that you have that comes bundled and Kubernetes gives you
+
+03:21.040 --> 03:26.400
+for free or whatever Kubernetes distributions you have give you, well, it's not suited for
+
+03:26.400 --> 03:27.760
+all types of use cases.
+
+03:27.760 --> 03:32.560
+For instance, for virtualization, like the ones that you, of you that use Qvert, should
+
+03:32.560 --> 03:41.800
+know like you'll get IP addresses and well, IPAM management in for virtualization is extremely
+
+03:41.800 --> 03:45.440
+tricky and it will not mix well.
+
+03:45.440 --> 03:50.800
+Pretty much because you have like different IPs when you migrate from the source to the
+
+03:50.800 --> 03:55.880
+destination pod and that thing will not play along correctly.
+
+03:55.880 --> 04:02.480
+And finally, in virtualization, you typically like use secondary networks to do all sorts
+
+04:02.480 --> 04:08.440
+of east-west communication and you pretty much rely on the default cluster network just
+
+04:08.440 --> 04:15.600
+to like get batteries of the Kubernetes services, stuff like cluster DNS and things like that.
+
+04:15.600 --> 04:20.520
+So on your secondary networks, you need to figure out other ways.
+
+04:20.520 --> 04:26.280
+So you could do like bridge CNI and other types of plugins, but that leaves like your
+
+04:26.280 --> 04:31.920
+operation teams will need to know how to debug yet another totally different solution.
+
+04:31.920 --> 04:37.760
+Where admins will need to know and configure yet another like bunch of solutions and depending
+
+04:37.760 --> 04:43.360
+on the use cases, you'll realize that this plugin will work, but this other will not.
+
+04:43.360 --> 04:50.560
+So like the matrix of things that your operations team has to know and your administrators need
+
+04:50.560 --> 04:58.320
+to learn how to configure, it skyrockets like it's and it becomes literally too expensive
+
+04:58.320 --> 05:00.200
+to actually handle.
+
+05:00.200 --> 05:06.680
+So now the objectives we have the first is we want these cluster admins to like go do
+
+05:06.680 --> 05:13.520
+something else like we want to push all the complexity of these different sorts of use
+
+05:13.520 --> 05:22.280
+cases and this mix and match technology to be pushed from their heads and from this lots
+
+05:22.280 --> 05:24.880
+of tools that they need to learn and know.
+
+05:24.880 --> 05:27.960
+We want to push all this complexity to the network.
+
+05:27.960 --> 05:34.800
+And finally we want to have like a single like a single plugin be able to handle like
+
+05:34.800 --> 05:36.760
+a multitude of use cases.
+
+05:36.760 --> 05:42.560
+So pretty much what we want to have is like to have the whatever the CNI that comes bundled
+
+05:42.560 --> 05:48.080
+with the with our Kubernetes distribution, we want that to be able to to to work properly
+
+05:48.080 --> 05:53.360
+both for the cluster default network and for the secondaries.
+
+05:53.360 --> 05:57.040
+Okay, so very short introduction now.
+
+05:57.040 --> 05:58.280
+So Qvert.
+
+05:58.280 --> 06:05.720
+Qvert is a Kubernetes plugin that allows you to run virtual machines inside pods.
+
+06:05.720 --> 06:08.680
+So you basically get two different types of workloads.
+
+06:08.680 --> 06:17.080
+You have pods and VMs and like you manage them from the same from the same solution.
+
+06:17.080 --> 06:22.440
+As a like an implementation detail like the virtual machine actually runs inside of the
+
+06:22.440 --> 06:24.120
+pod.
+
+06:24.120 --> 06:29.000
+And each pod has like a live version instance running in it and the QML process and all that
+
+06:29.000 --> 06:35.960
+and like just to finalize you have like the networking requirements that virtual machine
+
+06:35.960 --> 06:42.560
+has is a lot more than a pod like a pod is something like entirely stateful.
+
+06:42.560 --> 06:47.640
+It's like a cattle you just kill it and a new one will spawn and do it a new thing while
+
+06:47.640 --> 06:54.920
+a VM is stateful and you need to treat it very careful carefully.
+
+06:54.920 --> 07:05.480
+Now kind of a little disclaimer our SDN solution that we developed uses Oven and Oven stands
+
+07:05.480 --> 07:13.000
+for open virtual network and it is essentially like an SDN control an SDN control plane to
+
+07:13.000 --> 07:14.240
+open V switch.
+
+07:14.240 --> 07:18.600
+So you have like a bunch of you have open V switch installed in each of the nodes of
+
+07:18.600 --> 07:19.600
+the cluster.
+
+07:19.600 --> 07:25.800
+You have Oven on top that is kind of rendering open flow and installing it in each of the
+
+07:25.800 --> 07:31.720
+open V switches in the nodes from like higher level entities like you have things like a
+
+07:31.720 --> 07:37.200
+logical switch that grants you connect L2 connectivity between the workloads on these
+
+07:37.200 --> 07:43.960
+two nodes and this thing gets rendered into open flow and installed to the nodes.
+
+07:43.960 --> 07:46.400
+Then we have Oven Kubernetes on top of it.
+
+07:46.400 --> 07:54.920
+It's a CNI plugin that what it does is translate from Kubernetes entities into Oven logical
+
+07:54.920 --> 07:55.920
+entities.
+
+07:55.920 --> 08:00.400
+So for instance when we have like a secondary network what we end up having is a logical
+
+08:00.400 --> 08:04.960
+switch when you have like pod attachments what we have is logical switch ports that
+
+08:04.960 --> 08:10.120
+are connected to the logical switches and for instance in network policy is nothing more
+
+08:10.120 --> 08:15.960
+than like a port group that associates a list of ports of logical switch ports to a bunch
+
+08:15.960 --> 08:17.460
+of ACLs.
+
+08:17.460 --> 08:27.000
+Alright, so supported use cases as I said in the initially in the motivation section
+
+08:27.000 --> 08:32.600
+for virtualization use cases mostly you do not rely on the default cluster network to
+
+08:32.600 --> 08:35.720
+do east-west communication.
+
+08:35.720 --> 08:36.880
+You use secondary networks.
+
+08:36.880 --> 08:42.280
+So that's the first use case we are focused on is east-west communication.
+
+08:42.280 --> 08:46.960
+So as you can see here like pretty much what we end up having like these things here are
+
+08:46.960 --> 08:52.520
+pods or virtual machines it doesn't matter what we actually end up doing is attaching
+
+08:52.520 --> 08:58.160
+a new internet network interface to it configure it and what we get is like the logical view
+
+08:58.160 --> 09:04.120
+of having like them connected via a cluster wide switch.
+
+09:04.120 --> 09:07.760
+So that's literally what we get a cluster wide switch a connection to this cluster
+
+09:07.760 --> 09:13.680
+wide switch and everybody that is disconnected that is connected to it can communicate across
+
+09:13.680 --> 09:16.320
+that network.
+
+09:16.320 --> 09:23.880
+There's a short demo right here and we'll see that oh god no internet I knew that that's
+
+09:23.880 --> 09:26.560
+why I have this terminal here.
+
+09:26.560 --> 09:32.720
+I'm really sorry for the font size but if I put this a little bit bigger it'll basically
+
+09:32.720 --> 09:36.240
+mess up like the window configuration.
+
+09:36.240 --> 09:38.960
+I hope you can still see it.
+
+09:38.960 --> 09:47.720
+So first thing we're going to see is what the network configuration is.
+
+09:47.720 --> 09:53.400
+I'm not sure if you're used to using MULTUS the ones of you that use Kieferd I guess they
+
+09:53.400 --> 09:58.280
+are so this is the first thing that we need to look at the network attachment definition.
+
+09:58.280 --> 10:04.800
+This explains this pretty much holds the CNI configuration from which the CNI plugin will
+
+10:04.800 --> 10:08.320
+just configure networking for your pod.
+
+10:08.320 --> 10:13.240
+So the interesting thing here is pretty much like the name of the network so the idea here
+
+10:13.240 --> 10:17.900
+is that the networks are not namespaced but the network attachments are.
+
+10:17.900 --> 10:24.440
+So this means that if your network admin wants to grant a namespace connection to a network
+
+10:24.440 --> 10:29.640
+he needs to provision or she needs to provision one of these like in the proper namespace
+
+10:29.640 --> 10:34.400
+and this will connect your namespace to this network.
+
+10:34.400 --> 10:38.920
+Finally the oops sorry it does not go back.
+
+10:38.920 --> 10:44.640
+Another interesting thing that was there was the topology which is layer 2 so pretty much
+
+10:44.640 --> 10:49.520
+what we have is an overlay network this is totally disconnected from the physical network
+
+10:49.520 --> 10:52.640
+that allows you to have like east-west communication.
+
+10:52.640 --> 10:59.120
+And we do not have IPAM because IPAM for work loads is very tricky and we'll see more on
+
+10:59.120 --> 11:00.960
+that later on.
+
+11:00.960 --> 11:05.560
+So we're connecting two different namespaces as I said.
+
+11:05.560 --> 11:13.360
+Now we're going to provision these into the cluster like fun fact this is like all lazy
+
+11:13.360 --> 11:19.880
+so I just put like a bunch of stuff in the cluster but nothing happened yet.
+
+11:19.880 --> 11:25.360
+It's just like the definitions are provisioned and nothing else and now we're going to show
+
+11:25.360 --> 11:30.240
+the workload definitions.
+
+11:30.240 --> 11:35.840
+Here they are so we have one virtual machine remember we do not have IPAM in the network
+
+11:35.840 --> 11:41.280
+so we need to configure the IP statically you have there in the bottom we configure the
+
+11:41.280 --> 11:49.840
+IP statically using cloud init in the VM and that's its IP 192, 168, 200 dot 10.
+
+11:49.840 --> 11:56.680
+And then we have like our pod we have two pods here specified we have the blue server
+
+11:56.680 --> 12:02.680
+pod and you have like a yellow server pod and the blue pod has the dot 20 IP that we
+
+12:02.680 --> 12:10.160
+configure using the network selection elements this is like multis lingo and what this is
+
+12:10.160 --> 12:17.560
+doing is exposing like an HTTP server on port 9000 and what we want to do is so we have
+
+12:17.560 --> 12:21.880
+two servers the blue and the yellow and we have the VM is the client and we're going
+
+12:21.880 --> 12:29.600
+to be curling to each of the servers by their hostname so that's what we're going to see
+
+12:29.600 --> 12:41.400
+in well let's first provision this the windows in the bottom are so we can kind of see when
+
+12:41.400 --> 12:47.560
+they're ready so the old service ready the tenant so the VM is booting up let's speed
+
+12:47.560 --> 12:55.640
+up this part so we're now going to log in via console to the virtual machine and we're
+
+12:55.640 --> 13:02.760
+going to curl both the servers and they're going to echo back their hostnames.
+
+13:02.760 --> 13:24.600
+So God it's going to take forever if only I had internet and I could play a video oh
+
+13:24.600 --> 13:36.440
+God.
+
+13:36.440 --> 13:44.000
+Does anybody know how you can ask an emma tell it wow amazing I don't know.
+
+13:44.000 --> 13:48.440
+It stopped again.
+
+13:48.440 --> 14:03.400
+Okay it's playing cool so yeah login via console I hope it did not stop what's happening
+
+14:03.400 --> 14:15.040
+so yeah I should have known better but again we're going to log via console the UI of this
+
+14:15.040 --> 14:22.240
+thing is absolutely preposterous like I don't know if it's playing or not.
+
+14:22.240 --> 14:30.680
+Okay so yeah you get curl to the dot 20 IP address it replies with the blue server thing
+
+14:30.680 --> 14:35.200
+we do the same thing to the dot 30 IP address it replies with its hostname which is the yellow
+
+14:35.200 --> 14:41.000
+server this concludes the first demo which shows us like east-west communication between
+
+14:41.000 --> 14:46.360
+well different workloads in different namespaces.
+
+14:46.360 --> 14:54.500
+Now going to the second use case which now we want to have like remember the motivation
+
+14:54.500 --> 15:00.520
+slides where I mentioned stuff about accessing things on a pre-existing physical network
+
+15:00.520 --> 15:06.480
+that's exactly what we're going to be seeing now so as before we see like we have a logical
+
+15:06.480 --> 15:11.760
+view of a cluster wide switch the difference is that this switch is actually connected
+
+15:11.760 --> 15:17.120
+to a physical network and you can access stuff that's there in our example it's going to
+
+15:17.120 --> 15:22.460
+be like a database that has well the data the VM needs.
+
+15:22.460 --> 15:30.720
+The first thing we need to kind of elaborate a little bit is that you need to configure
+
+15:30.720 --> 15:37.280
+the physical network so first of all it's not something that a typical user will get
+
+15:37.280 --> 15:43.320
+access to it needs to happen by a cluster admin and for that we're going to be using
+
+15:43.320 --> 15:47.200
+two tools first NM state and Kubernetes NM state.
+
+15:47.200 --> 15:51.840
+NM state is basically like a declarative tool that configures networking you just give it
+
+15:51.840 --> 15:57.160
+like the desired state I want my network to be like this and it's going to go while punching
+
+15:57.160 --> 16:02.840
+buttons attempting to make the current state be what you desire to be if it fails it rolls
+
+16:02.840 --> 16:08.360
+everything back so no changes to your network so it cannot destroy it and if it succeeds
+
+16:08.360 --> 16:12.560
+it'll tell you you succeeded so basically what we want to do is use Kubernetes NM state
+
+16:12.560 --> 16:19.320
+which is kind of a cluster wide thing send YAML specification to the cluster and all
+
+16:19.320 --> 16:24.000
+my network specification will be applied in all the nodes in our cluster so it would
+
+16:24.000 --> 16:29.280
+look like this so in the in the left we have an example of a policy and in the right we
+
+16:29.280 --> 16:35.360
+have like a diagram of the topology we're trying to do here so if you look here we this is
+
+16:35.360 --> 16:40.480
+going to be applied to all the Kubernetes worker nodes because of this node selector
+
+16:40.480 --> 16:46.080
+that we have here and what we're going to do is create an OVS bridge in each of these
+
+16:46.120 --> 16:54.720
+worker nodes attach this ENS for interface to the OVS bridge and then using this these
+
+16:54.720 --> 17:01.000
+oven bridge mappings in the bottom we're going we're saying that we want traffic from the
+
+17:01.000 --> 17:07.400
+network called default network to be sent to the OVS bridge called BRX and we want the
+
+17:07.400 --> 17:15.360
+traffic from the tenant blue physical network to be sent to the OVS one bridge it's literally
+
+17:15.360 --> 17:24.600
+what you diagram you see there in the right now we are granting access to from workloads to the
+
+17:24.600 --> 17:31.560
+physical network you should not mean should fret carefully when you do this and for that we need
+
+17:31.560 --> 17:37.320
+to have like micro segmentation this pretty much is like what you have in for the primary network
+
+17:37.320 --> 17:43.280
+for the cluster default network network policies this is the exact same thing but applied to
+
+17:43.400 --> 17:48.120
+secondary networks so in our example what we want to have is like a virtual machine that
+
+17:48.120 --> 17:54.920
+wants data from the database but we do not allow it to actually consume the data directly from
+
+17:54.920 --> 18:01.280
+the database so we expose that information from a pod so the pod actually can connect to the
+
+18:01.280 --> 18:10.080
+database and expose this information from a RESTful API over port 9000 so this is kind of what we
+
+18:10.080 --> 18:16.000
+want to do ensure that the VM cannot reach the database directly over the port the posgrasql
+
+18:16.000 --> 18:26.200
+port but and ensure you can using well this tiny pod as its proxy data proxy so again another
+
+18:26.200 --> 18:33.200
+demo this is going to be a disaster I have tempted to tell you to just check this at home but how
+
+18:33.200 --> 18:41.800
+many times we have more than five minutes right again this does not work sorry it's the other cast
+
+18:41.800 --> 18:54.560
+so now in this demo what we do have we do have two namespaces data consumer and data adapter we
+
+18:54.600 --> 19:08.240
+just provisioned them let's first thing some information like this I'm running a kind cluster
+
+19:08.240 --> 19:20.080
+here and I botched this again so I'm running a kind cluster here and so my Kubernetes nodes are
+
+19:20.120 --> 19:29.160
+running basic as containers in in my laptop and so the physical network that we see in the diagram
+
+19:29.160 --> 19:34.440
+is basically like my laptop it's going to be connected by a Linux bridge in the in the laptop
+
+19:34.440 --> 19:40.040
+and for that I need to kind of since I'm using a VLAN I'm going to need to pre provision the
+
+19:40.040 --> 19:47.760
+VLAN and that's the interface you see here in the bottom like this podman 1.123 it's a VLAN on
+
+19:47.800 --> 20:00.760
+top of the Linux bridge management interface I'm going to show this again and so again VLAN
+
+20:00.760 --> 20:09.560
+1.123 that's subnet and we have a database running in containerized database running here and we
+
+20:09.600 --> 20:16.040
+are going you see we have access to the database now let's check our manifests
+
+20:16.040 --> 20:26.000
+really sorry so I think you should check the demo at home and we have five minutes yeah I don't
+
+20:26.000 --> 20:32.200
+think this is going to work please do check the demo at home but pretty much what you'll see is
+
+20:32.720 --> 20:40.280
+what I showed in this diagram so you'll have access on one port you'll have access direct access
+
+20:40.280 --> 20:47.320
+from the VM to the database like you can PSQL to the data directly and to get the data from using
+
+20:47.320 --> 20:52.640
+HTTP from the pod and then I provision some policies and then you stop having access to the
+
+20:52.680 --> 21:03.360
+database and that's pretty much it now roadmap what what are we going for next first thing we need
+
+21:03.360 --> 21:11.160
+to have is like IPAM for the workloads so we need to find a way to tie the IP allocation to the
+
+21:11.160 --> 21:16.760
+virtual machine and not to the pod where the VM runs like remember the our big issue where the
+
+21:17.000 --> 21:23.200
+virtualization is migration and that means that when you migrate the VM to a new node the pod gets a
+
+21:23.200 --> 21:28.760
+new interface the VM is still with the old interface and basically networking is not properly
+
+21:28.760 --> 21:35.280
+configured we wanted to address that first and that will unlock the next thing in our in our queue
+
+21:35.280 --> 21:41.880
+which is selective selective policies so our kind of policies for the secondary networks right now
+
+21:42.480 --> 21:48.480
+you can only use IP blocks you cannot use like semantic things like I want to allow all workloads
+
+21:48.480 --> 21:53.320
+from this namespace we're having these labels to access this sort of workload you cannot do that
+
+21:53.320 --> 22:00.920
+you need to specify IP ranges directly once we have these two things we're going for services
+
+22:00.920 --> 22:06.920
+next like we want to have like exposed via services like egress from VMs and to have like load
+
+22:06.960 --> 22:13.200
+balancer services so that you can access them directly over the secondary networks finally
+
+22:13.200 --> 22:20.560
+self-service networks this is instead of having the cluster admin provision these for you since
+
+22:20.560 --> 22:27.200
+network overlay a simple overlay that does not touch the physical network you could directly
+
+22:27.200 --> 22:34.560
+use like a self-service functionality to just create the network yourself and connect and provide
+
+22:34.600 --> 22:43.680
+east-west connectivity to your workloads okay well lessons learned this was a let's say a joint
+
+22:43.680 --> 22:50.120
+venture like or a collaboration between both Red Hat and NVIDIA and the fun thing is we had the
+
+22:50.120 --> 22:58.320
+exact use cases in mind like both of them focusing on Qvert but with different scope so we are a lot
+
+22:58.360 --> 23:05.880
+more into the generic kind of world we want we give you a platform and you do whatever you want
+
+23:05.880 --> 23:11.040
+with your platform and NVIDIA notes they have like their use case in mind which is I guess gaming in
+
+23:11.040 --> 23:18.880
+a data center and their tooling is a lot more let's say pointed in that direction but was a really
+
+23:18.880 --> 23:26.160
+nice collaboration and we're hoping to see more in the future on a less positive note we get the
+
+23:26.200 --> 23:33.280
+user experience of this is not amazing like it's better than originally intended because like for
+
+23:33.280 --> 23:40.400
+instance the thing I've showed you about the the nm state policy that was something that we came up
+
+23:40.400 --> 23:47.000
+with because we felt like this feature is entirely unusable like people are going to be breaking their
+
+23:47.000 --> 23:52.360
+default cluster network every time they use this or risk doing that so we've provided that but we
+
+23:52.400 --> 23:59.440
+still have some sort of nightmarish stories every now and then because of the the way network
+
+23:59.440 --> 24:06.920
+attachment definitions look like and how easy it is for you to get things wrong and how silently
+
+24:06.920 --> 24:13.360
+and how these silent errors kind of creep up it's absolutely insane like sometimes things work but
+
+24:13.360 --> 24:18.920
+not in the way you expect because it just doesn't recognize one of the parameters because you typed
+
+24:18.960 --> 24:26.280
+it wrong but everything else works it's insanely hard and yeah I'm really sorry about the demo but
+
+24:26.280 --> 24:35.680
+yeah thank you for listening and if you have any questions in one minute one question
+
+24:35.840 --> 24:59.880
+it's the same thing yeah so the question yeah so the question is basically there's another cni so
+
+24:59.920 --> 25:05.880
+we're doing this in oven Kubernetes and there's another cni cni called cube oven so it's kind of it
+
+25:05.880 --> 25:12.120
+really screams that it does the same thing and yeah it really does the same thing the use cases are
+
+25:12.120 --> 25:18.320
+mostly the same the thing is that they do a lot more than we do like quite honestly like their
+
+25:18.320 --> 25:26.200
+feature set is a lot more complete than ours and we're trying to get there like if your question is
+
+25:26.320 --> 25:33.640
+like why didn't you just use that well we do not have any let's say current stake in that cni we do
+
+25:33.640 --> 25:40.680
+not have maintainers there we do not like we would have to try to gain entry there and in some cases
+
+25:40.680 --> 25:45.720
+we do not like their API so we're trying to do things in another way it might seem like we're
+
+25:45.720 --> 25:50.920
+reinventing the wheel sometimes but yeah kind of we kind of are like we both do the same thing and
+
+25:51.160 --> 25:56.840
+their feature set is more complete but again we're trying to do more and reach their feature set
+
+25:58.600 --> 26:03.160
+thank you for the question and I think it's that's it well
+
