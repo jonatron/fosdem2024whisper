@@ -1,0 +1,412 @@
+Okay, hello everyone.
+We are here to present Mambo, a dynamic binary modification tool, and what's the better way
+to start the presentation than with a demo.
+So we are going to see a fairly complex application running on risk five within our system.
+So let's see it.
+So we are going to use it to learn something about the running binary.
+So here it is.
+Okay, so this is not our tool.
+So this is just an image viewer of Linux, and we generated this picture with one of these
+fancy AI tools so we can kind of promote our talk on LinkedIn.
+But what's really happening is that this image viewer is running under our tool that
+runs on risk five, and then we use it to find some information about the binary.
+So here we have a very simple tool that counts the number of threads that the application
+was used so we can see we have eight threads.
+So the application run under our tool on risk five, and then we can see that we have
+eight threads.
+Okay, but thanks for your first.
+I'm Igor.
+This is Alistair, and we are here from the University of Manchester.
+And as I said, we are going to talk about Mambo, which is a binary modification tool
+for risk architectures.
+Okay, but thanks.
+But okay, has anyone knows here what the dynamic binary modification is, or heard the term
+in the first place?
+Raise your hands if you did.
+Okay, wow.
+Okay, a few people.
+That's good.
+But you may haven't heard the term, but I'm pretty sure if you did any development, you
+used those frameworks.
+So the examples of the very known open source tools that do dynamic binary modification
+are Valgrind and KMU.
+So I'm pretty sure you use Valgrind and one of these tools, which is called Memcheck.
+And most of you probably are in the risk five room use KMU.
+So both Valgrind and KMU are dynamic binary modification framework, and they have a various
+tool built on top of that.
+So this is what Mambo is.
+Okay, but let's break down this term a bit.
+So what do I mean by dynamic binary modification?
+So dynamic is working at the runtime.
+So while the binary is running, the tool is working.
+Binary, we are working on the natively compiled code.
+So we don't need a source code, we just take a binary that was already compiled, and we
+can analyze it.
+And modification means that we can alter the application in a specific way.
+So we can add extra functionality, we can remove functionality, we can swap functionality.
+So there are two terms that are related to that.
+There is also dynamic binary instrumentation and translation.
+So instrumentation is basically a subset of modification.
+We just insert new functionality into the binary.
+So for example, if I want to do some sort of profiling, I can input some sort of counters
+into the running binary.
+And then translation is kind of an overlapping term.
+I can swap one, I say to another, so we could do it by modifying the binary, or there are
+more specialized tools that do the translation.
+So you are probably familiar with the Apple Rosetta, which translates now Intel to ARM
+when you got your new MacBook, but there is also the KMU also can act as a translator
+and usually use like that because they can translate one architecture to another.
+But now, so very few uses of the tools.
+So you can do program analysis, you can do error detection.
+So I'm pretty sure most of you are familiar with that use case, and there is a dynamic
+translation.
+OK, but now the question is why would you like to use Mambo if there are other tools?
+So the Mambo has been specifically optimized for risk 5, ARM, risk 5 64, ARM 32 and ARM
+64.
+So in the stock, we are focusing on the ARM, on the risk 5, but we also have the version
+of the tool that can run on ARM.
+And the tool features low overhead, and to our knowledge, this is the only at the moment
+available DBM tools that has been optimized for risk 5.
+And the tool itself is fairly low in complexity, so if you would like to dive into the database,
+is around 20,000 line of code.
+So if you want to learn how it works, or if you want to modify the internals, the entry
+bar is not that high.
+And then it has a simple plugin API that allows you to write the architecture agnostic plugins.
+So you can write the plugin for risk 5 and later on you can deploy it on ARM if you
+would like.
+But it's worth to say it is not a toy.
+So we showed it before in the video that we can run fairly complex applications, so it's
+a full GUI tool from the ship with Inux.
+It could run stuff like GIMP or library office as well.
+So the tool itself is not a toy.
+OK, and if you are interested what the numbers would be roughly, so we evaluated it on the
+spec benchmark, so don't worry about too much about numbers.
+If you want, we can point you to the paper or we can talk about it later.
+But the idea is for like, FP benchmark, which is more like data processing.
+We get around 6% overhead if we just run the tool.
+We just run a framework without an extra tool built on top of it.
+And it's around 30% when we do more general purpose computing.
+So the baseline then, if you have no plugins enabled when you just run the tool under, if
+you run the binary on the RL tool, you get around 30% overhead.
+OK, so that was the brief introduction of what the dynamic binary modification is.
+And I'm going to briefly talk about how Mambo works internally.
+So I'm going to mention a few details, so it's useful if you would like to, I don't know,
+contribute to the internal of the tools that may help you.
+But the focus of the talk will be more the developer side, so I'm just going to talk
+about it as well.
+But I would like to just highlight a few bits and pieces so you will understand how Mambo works.
+OK, so this is the simplified diagram, and I'm going to talk you through the more important
+bits of that.
+So the instrumentation plugin API, so this is the part that Alistair is going to talk
+in much detail about, and I'm going to cover everything else.
+OK, so first of all, the first component is the elf loader.
+So if you run any binary on Linux, it has to be first loaded into memory, and then we
+can run it.
+So in case if we use our framework, so if we use Mambo, then the Mambo itself is loaded
+by Linux using its default loader, and then Mambo itself has to load the application,
+which we call a hosted application.
+So the Mambo has a custom build loader inside of it, which takes the application and loads
+it alongside the Mambo, so it can interact with it, it can modify it, and it can run it.
+So that's the first element.
+The second element is instruction and decoder.
+So while we execute the application, we have to modify some of the instruction.
+We have to know what instruction we are copying and scanning and modifying, so this is what
+the instruction and decoder and decoder does.
+So you may be familiar with the custom project, which is like a fully fledged assembler.
+This is a very simple module that basically takes a text specification of the instruction
+and what the fields it has and uses some rubbish scripts to generate the C functions to encode
+any code fields, and this is what Mambo uses because it's fairly simple and low overhead,
+and that's something that we want inside the tool that runs dynamically.
+Okay, and now the two most important parts of Mambo, it will be a code scanner and the
+dispatcher and the code cache.
+So let me maybe first talk about what the code cache is.
+So we have our Mambo, and the Mambo uses the loader to load the binary into a memory.
+And now we want to run this binary, but we also want to modify it.
+So if we just load the binary and run it, then it will run as it would be before.
+So that's why where the code cache comes in.
+So this is not the instruction cache that we have hardware.
+This is just allocated space in memory that we call the code cache.
+And now the Mambo scanner will copy the instruction from the binary that we loaded into memory
+into the code cache.
+And in the process of copying those instructions, we can introduce any functionality, we can
+remove some instructions, we can replace some instructions.
+So the scanner is responsible for copying instructions from the binary that we loaded
+into the code cache.
+And then the code cache is what will actually execute on the processor.
+And then we have a dispatcher, which is responsible for actually running the code.
+So the scanner will copy a basic block, and then it will say, I finished copying a basic
+block.
+Now I go to the dispatcher and dispatcher will start the basic block, and it will actually
+natively execute it on a RISC-5 processor.
+And then when we finish the basic block, the control will return back to Mambo to scan
+the other basic block, and then again we'll go back to the dispatcher and dispatcher will
+execute the next basic block, and it will have this back and forth.
+And if the code is ready to the code cache, we don't have to scan it so we can directly
+execute another basic block without scanning.
+So this is very simplified.
+If we did it that way, it would be very, very slow.
+So there is a number of optimizations there.
+So for Mambo to stay in the code cache as long as possible.
+So it does scan things ahead of time and tries to guess what would be the next thing it jumps
+to and then if it can do it, then it can stay within the code cache.
+Otherwise it has to go back to the scanner and back to the dispatcher if it doesn't know
+what the next basic block is.
+Okay, and this is what I was talking about.
+So when we execute the application, we have a single process with two binaries in it and
+two contexts.
+So there is a Mambo context that scans instruction, and then the dispatcher changes from the Mambo
+context into the application context.
+So it will save the state of the Mambo, jump to the code cache, execute the code cache
+as long as it can, and then if it cannot find the next target in the code cache, it will
+go back to Mambo.
+So it will save the application state, restore the state of Mambo, and then the scanner will
+kick in and then it will go back and forth.
+So this is like a principle of it, of how it works.
+Okay, so the dispatcher and the scanner are like the two main elements in Mambo that allow
+us to do the modification and execute the code.
+And the last thing is the kernel interaction.
+So on top of just executing the application, the framework itself has to interact with the
+Linux kernel, so we have to handle and pass signals and handle and pass system calls.
+So this is important because for signals, if there is a signal coming from the operating
+system, it will first hit our framework, so it will first hit Mambo.
+But if you don't want Mambo to handle the signals, in many cases you want to pass it
+to the application because the application may have a handler installed to handle this
+signal.
+And in the same way, if there is a system call, so if the hosted binary is doing a system
+call, for example, let's say a thread creation, Mambo needs to know that it created a thread
+because it has to track every thread that gets created.
+So the Mambo has to learn first what was the system call and only then it can pass it to
+the Linux kernel.
+So that's also, I talked briefly about the architecture of Mambo, so we had the L flow
+there, we had the instruction encoder and encoder, two main elements, one free management
+scanner, dispatcher and the code cache, and then we had a bit about the handling signals
+and system calls.
+So that's, if you are going to just use Mambo to write your plugins and the tools probably
+you don't have to know all of that, it may help to know how Mambo works.
+And if you want to contribute to the internals of it, that hopefully will give you some rough
+idea how the system works.
+But now the bit probably people are more interested in is how we can write our own plugins, our
+own tools within our framework.
+And for that I will pass the microphone to Alistair.
+Hi, so yes, I will talk to you about the API, this is how you take Mambo and you build
+your own tool on top of it.
+So this is where it actually gets really useful.
+So we've mentioned use cases but it's worth repeating.
+We're talking about things like code analysis so you can build a control flow graph, you
+can generate new functionality, you can instrument code, you can analyze it, you can re-implement
+library functions, you can patch library functions, you can do all sorts because you can modify
+this running binary.
+So Mambo's API exposes events, so it's event driven.
+So you as the user of this API define functions which you register as callbacks on these events.
+And when one of these events is encountered Mambo will trigger the callback and execute
+the function that you registered to it.
+So there are two categories of events, there's hosted application, runtime events.
+So these are events that happen to the hosted application as it's being executed in the
+code cache.
+So here we're talking things like system calls, thread creation and we have Mambo scan time
+events so these happen as Mambo is scanning instructions from the loaded elf into the
+code cache.
+So this is something like pre-instruction, post-instruction, you can do stuff with these
+callbacks.
+So as I was mentioning pre-instruction, post-instruction, this kind of gives you an idea, you can insert
+something before and after an instruction, before and after a basic block, before and
+after a thread.
+So you can see it can be very, very fine grained or it can be at a high level of abstraction
+and of course before and after an application runs.
+So taking all of this, you see a slightly chopped off diagram there but it kind of gives
+you an idea of the order in which these callbacks will be executed.
+So at the very highest level, at the very start you have the initialization function
+which is where you set up a plugin and then you'll have pre-thread so that's quite high
+level, pre-basic block, you also have pre-function and so it kind of gets narrower and narrower
+and then it kind of expands out after these things have executed.
+So this is something that's important to bear in mind.
+So how do you actually use Mambo's API?
+I'm going to talk to you about the following things.
+So the functions that you'll need to register your callbacks, the functions that perform
+code analysis, the functions that perform instrumentation, so how you actually emit code into the code
+cache and then there are various helper functions which you can use.
+So the first thing you need to do is initialize your plugin and this is done in the plugin
+constructor function and there are two main things that you do here.
+You create a Mambo context which is a global data structure which holds the current state
+of Mambo and also the application that's being executed by Mambo and pretty much all of Mambo's
+helper functions will use this context to get for instance the current instruction that
+you're looking at.
+And this is also where you'll register callbacks.
+So for instance here we have Mambo register pre-instruction callback.
+So before an instruction is actually scanned into the code cache something that you register
+here will execute.
+And to register callbacks it follows this signature so you have Mambo register then you have an
+event time so that's pre or post something happening then you have the event so this
+can be Mambo pre-instruction callback.
+So it's quite easy to remember that way.
+So you've registered your callback so let's say we're building a plugin that counts the
+number of branches that are executed.
+So you've registered a pre-instruction callback.
+So now Mambo's scanning things and your pre-instruction callback has executed.
+So one of the first things you're going to want to do is use a code analysis function.
+You're going to want to know which instruction am I looking at.
+So you have things like Mambo get branch type, Mambo get condition which would for instance
+give you the condition of the branch that you're looking at if it's a conditional branch.
+So these give you information that you can use and choose to act on.
+So the function signature of these analysis functions follows Mambo action so that would
+be get set is and then the information.
+So Mambo get function type, Mambo get branch type even relating back to our example would
+get you the type of the branch that you're looking at.
+So bringing all of this together into a simplified plugin we have the constructor where we initialize
+context and we register a pre-instruction callback and when that's executed we get the
+branch type and then based on what type of branch it is we do something.
+It's also worth pointing out that the branch types that we're looking at here are generic
+so that's how it is portable between architectures.
+So you've found out you're looking at a branch.
+Now you're going to actually want to emit instrumentation.
+So this is instructions that you can put into the code cache to do something.
+So for instance we have emit64 counter increments so this is how you can tell Mambo to emit
+the instructions that you need to increment a counter.
+You can emit pushes, you can emit pops, you can set registers so you can do all sorts
+of things and there are two main types.
+You have emit instructions so that would be for example emit increment so that's more
+portable because we implement the backend tell Mambo which instructions to emit into
+the code cache for that.
+And then we have the more architecture dependent ones which are emit risk five instructions
+so this is when you know exactly what you are trying to achieve with the plugin.
+Let's say you need to emit an arithmetic instruction.
+You can do that until Mambo emit this arithmetic instruction.
+The only drawback to this is that it's riskier doing that.
+You have to make sure that you save and restore registers and that kind of thing which we
+do for you in the safer generic ones.
+And then finally you have additional helper functions so for instance Mambo will expose
+a hash table which is really useful for when you're instrumenting code and you have lots
+of data to associate with different addresses.
+So we have hash tables, we have Mambo allocator so these will help you to write your plugin.
+And then finally it can be very difficult to get your head around this.
+It took me a while to fully understand it and that is the difference between scan time
+and run time.
+So when we talk about scan time we talk about something that happens once when Mambo is
+scanning something and run time is when that scanned code is executing in the code cache
+and the reason this difference matters is if you are for instance counting the number
+of branches that are executed at scan time you need to emit instructions into the code
+cache to increment a counter so that when that code is executing you get the actual
+number of instructions, times that instruction is executed.
+Okay so it's time for an example.
+The code I'm about to show you can find on the Mambo repository in the plugins directory
+and it's time for a live demo.
+So I will be running Vim under Mambo on risk 5 to show you the source code of the branch
+counter plugin which is something that you can run and is in the Mambo repository and
+whilst running Vim I will also have enabled the branch counter plugin so you can see it
+in action.
+Sounds very convoluted I know.
+Okay so here we run Mambo and I don't know how well you can actually see that but...
+Command shift plus.
+Oh command shift.
+Hooray.
+Do we need more or?
+Bigger.
+Oh bigger.
+Even bigger.
+I'm trying to call it that wrong.
+Okay yeah.
+Okay so we start with the constructor function which is where we set up Mambo's context
+and we're registering four callbacks so we have a pre-instruction callback, we have a
+pre-thread callback, a post-thread callback and an exit callback and the order that these
+will actually be executed in will go pre-thread, pre-instruction, post-thread and then exit.
+So I'll start with the pre-thread.
+So in the...
+Let's hear some more.
+Oh yeah yeah yeah.
+In the pre-thread handler we're initializing the counters for that thread so we have a
+direct branch counter, indirect branch counter and return branch counter.
+The reason why we have this per thread is because each thread has its own code cache
+and therefore its own numbers of branches that we'll be executing which is why for each
+thread that we create we initialize its own set of counters.
+And then we have a pre-instruction callback.
+So for each instruction that's executed we're checking if this is a branch, we're getting
+the branch type and then for each of the types of branches, the return branch, the
+direct branch and the indirect branch we select the correct counter for that thread
+and we then emit a counter increment into the code cache so that the correct counter
+will be incremented.
+Okay so at this point Vim is running away, running away and when we close it the post-thread
+handler will first be executed and this will say okay so this thread is terminating let's
+take this thread count for each type of branch and add it to the global total and it does
+that atomically and then finally we have, oh yeah the exit handler which just says okay
+this application has now terminated let's print out the global totals which are composed
+of the individual threads. Since Vim is a single threaded application we'll get one thread
+and one total which you can see there.
+Okay and now I'll quickly talk to you about some lessons that we learned from porting
+Mantlot to risk 5 because it was originally written for ARM so there are differences that
+we had to take into consideration. So the first thing was the range of branches. So for
+conditional branches and direct jumps they have a range of branches and they have a range
+of branches. So for conditional branches and direct jumps they have quite a limited range
+which is less of an issue on ARM because they have a much longer range. Why this matters
+is because in a compiled binary obviously the offsets will be fine because that's how it
+was compiled. When you take that code and you put it into a code cache it's done as it's
+needed and so the ordering of that code may be different and therefore the offsets may be
+different and exceed the offsets of the original binary. And so we may have to replace these
+instructions with instructions that have a longer range. So with a conditional branch we may
+have to insert an additional jump instruction that is triggered when the branch condition is true
+to extend the range of that branch. And same for a direct jump it may need to be replaced with
+instructions that first load the address into a register and then take a register jump. We also
+have load reserve and store conditional. You can only have a limited number of instructions
+between these two instructions and you can't also have a limited number of instructions
+between loads and stores in between otherwise the lock will fail. This matters in dynamic binary
+modification because we can insert additional instructions so we have to place limits on
+what you can do with atomic instructions in plugins and with other optimizations implemented
+we have to be mindful of this limitation. And finally we have the thread pointer register X4.
+There isn't a dedicated register in the general register file on ARM that does this. And so when
+we create a new thread Mambo will save and restore the context by saving and restoring all registers.
+We need to make sure that the thread pointer actually points to the newly allocated thread local
+storage otherwise there will be a world of pain which we found out.
+Okay so in terms of road map where we take it from here we of course want to foster our open source
+community. We really welcome collaborations and contributions not only plugins but also any
+contributions to the main internals of Mambo. As part of this we are currently in the process of
+improving documentation and also developing more tools to kind of give people a flavor of what's
+possible. So for instance we're currently porting Mambo's Memchecker from ARM to RISC 5. We also are
+trying our very best to keep up with all of the new RISC 5 and also ARM extensions that keep
+appearing. We also have various research projects ongoing that make use of Mambo. And probably goes
+without saying since this is a talk at FOSTEM but Mambo is open source on GitHub with an Apache 2.0
+license so definitely check it out. And we'd like to thank our sponsors. So yeah any questions?
+Yeah. Oh yeah yeah. So you're asking how do we handle pointers when we scan code from the binary
+into the code cache. Those pointers are still pointing into the binary. So we actually in the scanner
+we have instructions like that specifically. So for instance if we take a branch instruction the first
+time that branch instruction is executed it will point to Mambo's dispatcher which will perform a lookup. We then
+have optimizations which will replace that branch instruction with a direct branch to the next basic block. And the
+same for loads and stores. We update these to point to the new location.
+So basic block is a single pointer. Oh sorry. Yeah I'll repeat the question. So what is a basic block?
+A basic block is a single entry single exit point. So you essentially ends when there's a branch to somewhere else.
+At the back.
+Yeah so in a general case. Oh I keep doing this. So how often is the load reserve store conditional an issue. We find it's
+not that much of an issue. Most applications won't have an issue with it. It becomes more of an issue when you have
+plugins that do something in between. So for instance if you're counting a specific type of instruction that may occur
+between these two instructions and you emit stuff into the code cache you may end up exceeding this 16 instruction limit.
+You mentioned translation early in your presentation. Does Mambo support running ARM on the RISC-5 machine and vice versa?
+So does Mambo support translation? Not currently. You need to be on that architecture.
+What happens if I try to run a just-in-time compiler under a Mambo?
+What happens with a just-in-time compiler? I'm not sure.
+So the Mambo is designed to support self-modifying code. So basically what it does, you have some code in the code cache
+and just in time compiler recompile it so basically the cache will be flushed and then it will re-scan it again.
+So it carries some performance penalty but it will react to the things like that and it will re-scan the code and put the new
+version into the code cache. So it does support self-modifying code.
+It should be. Hopefully.
+This isn't tested on RISC-5 because most browsers don't seem to be ported.
+Any other questions?
+So what do we interested in about RISC-5 applications from plugins?
+We're interested in building tools that kind of perform things like memory checking,
+data race detectors, that kind of thing. So tools that are very useful to people developing software on RISC-5
+to kind of help them do that.
+So just out of it, so we haven't mentioned it on the slides but we also have some research.
+That was for R but done on the architectural simulation, so kind of code design of accelerators and CPUs on the SOC system.
+So there's some stuff going on but yeah. So at the moment I think for RISC-5 the biggest push was to get the base system to work
+and now we are exploring on RISC-5 what we can actually do with the system.
+Any other questions?
+Does it update sections that refer to pieces of code like jump tables, different things between basic blocks?
+So the question is about does MAMBO support the jump tables? How does it do?
+So we do not rewrite any of the sections of the original binary so basically MAMBO works in a way on demand.
+So we have a jump that uses a jump table. MAMBO will try to remember the most recent jumps but then if you miss it you have to go back to the scanner, scan the code again and then go to the dispatcher.
+So we are going to use the addresses that are already there and then we are going to keep the translation of some addresses in the code cache but none of them.
+But we are not going to rewrite the actual jump tables in the data section of the binary.
+Any more questions?
+Okay so the question is about the data-raised detector and whether we could implement some sort of stepping back within MAMBO.
+So the data detection is in the early stages but you will not have such a verbose functionality as RR or GDB replay or whatever but what you can do in the very easy way when you scan the basic blocks.
+So you would have to probably have some sort of we don't have functionality to detect the data-raised.
+But let's say in the general case if you want to inspect what's happening you can introduce a trap instruction into the code cache and then you can run under GDB and then you will trap the instruction and you can inspect what's in the basic block after the translation and you could try to look what was in there before the translation.
+So you can do some sort of things in the manual but there is no automated way to replay and go back in time.
+Thank you.

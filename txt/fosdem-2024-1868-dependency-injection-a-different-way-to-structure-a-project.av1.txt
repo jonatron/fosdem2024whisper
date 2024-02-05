@@ -1,0 +1,361 @@
+I'm going to talk about using Go.
+What is important when you use Go is dependency management.
+You cannot write a program these days without depending on something.
+Dylan is a co-worker of mine.
+We work on Cillium together.
+He's going to talk about anything to do with dependency management.
+So run of applause.
+Hey everyone.
+Thanks for coming.
+So dependency injection.
+Before we start, a little introduction.
+Already got one technically.
+My name is Dylan Reimering.
+I work at Isovalent on the foundations and the loader team.
+So we're responsible for basically doing dependent or a lot of changes that I'm going
+to talk about within the Cillium project.
+You can find my get up there.
+In case you find anything interesting.
+I don't know.
+You never see.
+You never know.
+So before we dive into the dependency injection, why, how it works, what it is for those who
+don't know, a little journey about why I'm here, why I'm talking about this and how I
+got here.
+So what is Cillium?
+Cillium is a CNI.
+So it's long, long talk short.
+We use EBPF to do networking in EBPF.
+We secure it and we make sure that you can see what's going on.
+And that actually involves a lot of components.
+So this is our nice visual about a lot of the different features and we actually have way
+more that wouldn't even fit on the slide.
+You can imagine that with a lot of components that we get quite a large application.
+I checked and we are currently the third most active project on the CNCF.
+We have, I think, so again last time I checked this is like a month ago.
+We have 650,000 lines of code that are not the vendor directory.
+So we have a big code base, a lot of things that happen, which also means that we have
+a lot of dependencies.
+So to illustrate that, I picked one of the features that I personally worked a lot on,
+which is called the Alto announcer.
+And it's a little feature in Cillium that basically makes sure that certain IP addresses
+are reachable in the local network via ARP.
+So both gratuitous ARP and responding.
+So we have like the big Alto announcer block there, which contains most of the business
+logic, but all of the other things are dependencies.
+So all the way to top, we have, in the white still, are our external dependencies.
+So we have to create ports.
+We set up, we get environments, configuration, standard outputs, et cetera.
+Those are connected to our infrastructure layer.
+So our infrastructure layer does all of the things that are really common in the application,
+logging, metrics, configuration, da, da, da, da.
+And then we get to the orange layer, which is our control plane.
+And there are abstract business logic happens.
+So this business logic gets go objects, and it also writes go objects.
+It's all pure go world, and it doesn't have to care mostly about all the things.
+And then we go down to our data path, where the translations happens from this perfect
+abstract world into the real world, which in turn often means, for our case, that we
+talk to the kernel via net link, ebpf, maps, raw sockets, et cetera.
+So we have to, but for this one, for my big component to be able to work, I basically
+need all of this to exist, at least in production.
+So I went back to 111, which is before we started working on dependency injection in
+Cilium, and looked at what does initialization look like at that point.
+So we have our main program.
+We could call into Cobra.
+This is common, hopefully.
+We go into our run function.
+It starts up three components.
+It initializes the environment, where we already have 50 components.
+Then we call something called run daemon, which has 50 components spread both before
+and after the new daemon.
+And then in our new daemon constructor, we actually create at least 150 components.
+I started counting, or stopped counting, sorry.
+So we have a lot of components, but they all have to somehow wire into each other.
+And at some point, the development team decided is that we are going for sort of hub-nispoke
+model because we had so many components.
+We had this big daemon, which was our hub, and it had pointers to almost all components.
+And then it's easy.
+You only have to give the daemon to everything, and then via the daemon, you can find every
+other component.
+So it was, but that becomes a real mess because when is this pointer nil, when is it not,
+et cetera.
+So I started looking into this new daemon function, like what is this about.
+And then you'll see a pattern.
+You don't have to read everything.
+So we initialize this before we're creating this.
+We must close this before we open that.
+This must be done before we start identity allocation.
+IP cache must be done after the initialization below.
+This must be read.
+You said after this happened.
+So we discussed some for a while.
+So at some point, so at this slide, I'm at sort of the first snippets that 350 about.
+And then I basically, I stopped.
+So I just scrolled down at that point.
+My point was made.
+In the last reference I found something like before, do this before, do this after was
+at 718.
+But what is perhaps interesting to note is that this top snippet is basically a sort
+of defer.
+So it talks about cleanup instead of initialization, which is also a really big thing that we have.
+So to summarize the problem that we were facing at this point in development.
+So we have a lot of dependencies, but this is just inherent to the product that we're
+making.
+Just nothing to do about that.
+What we can do something about and what is a lot of the source of the pain are these
+implicit dependencies.
+So we have dependencies on global variables, these very big objects or system states, which
+require us to use comments to tell our other developers which how our dependencies work.
+So our dependencies are all implicit in this state, which makes things really hard to modify.
+Like when I started and I created a component, it broke CI, it broke everything.
+I couldn't figure out why.
+And it turned out that I had to move it up a few hundred lines in the initialization
+or down in some cases to make sure that everything that I needed or implicitly dependent on
+was there.
+So it's really hard and it really destroys confidence.
+It's hard to shut this application down at least correctly.
+You can kill the application, sure, but then open files are not saved.
+And if you are running end-to-end tests or anything like it, then you need to make sure
+that all your resources are cleaned up.
+So the next time you start, you are not blocking other things.
+So this was really hard and it made it really hard to test because if I wanted to test my
+L2 announcer, I had to recreate all of this additional infrastructure a lot of the time,
+even if I had interfaces because some dependencies were still problematic or whatever.
+So for us, we started looking into solutions and this led us to dependency injection for
+a few reasons.
+So before I go deeper, for the ones for people that don't know, dependency injection is basically
+a way to instead of explicitly initializing your project, so basically having a very big
+main file, you define your components and you explicitly define what their dependencies
+are.
+And then you can have some component, in this case I call it a graph builder but it's
+basically the name of your framework that you use to actually initialize that and you
+hand off the job of correctly initializing your application, you hand it off to some
+piece of software.
+We know software never has problems or bugs.
+But in all honesty, so this is actually quite popular pattern in other languages like Java,
+C sharp, PHP, but we don't see it that often in Go projects.
+So the only thing that is required for this to work is that you always, or at least work
+correctly, is that you specify your dependencies explicitly, so as arguments to a constructor
+function.
+So what I would like to introduce to you is the Uber FX library, so it's made and maintained
+by Uber.
+Originally developed by Glipp, who is now actually a colleague of mine, which is why
+how we got into this library.
+It's really well battle tested and I'm going to show you how it works and what this looks
+like.
+But what's important to know is that it is an, as is the Penesy injection library.
+The Penesy injection libraries might not all work for your use case, it didn't for us.
+So we actually, if you were to look at Cilium today, we actually use our own custom flavored
+framework, build on dig, which is basically the underlying library under FX.
+But FX is if you go ahead and first try something, then FX is your starting point.
+And this actually solved most of, like it was made to solve a lot of the problems we
+had, not only for this initialization issue, but also because we have a lot of binaries
+in a big mono repo, so it also allows for really good reuse, which is, as far as I understand
+it, where Uber first started.
+So to explain this, I first created a very, very small application.
+Normally you wouldn't use dependency injection on such a small application.
+So we just have a simple web server.
+And this is, I why, for example, might have, might write this without dependency injection.
+So if a main, we construct everything, link everything together, call server.serve, and
+we're done.
+So this is nice and short.
+So when we do dependency injection, we have to be a bit more formal.
+So I defined a new listener, a new logger, and a new server.
+My listener and logger at this moment don't have any dependencies.
+I could give them configuration or something else, but that wouldn't fit on the slides.
+And the server takes both of these and constructs itself.
+So we defined everything, what everything needs, and then on the top left in our main,
+we say we create a new effects application, and we provide the listener and the logger,
+and we invoke the server, because if you recall, the server was, the serve function was the
+thing that we were interested in, that we called.
+In practice, what this does is the invokes are basically your entry points.
+So and the library will look for all dependencies of that, of that entry point.
+So you could, for example, create a very big graph and have multiple entry points or remove
+entry points depending on, call different entry points depending on, for example, commands
+in your, in your binary.
+And then it will only construct and start your dependencies that you need.
+So it also does a little bit of that code elimination implicitly.
+And then you call the run, which actually wouldn't do anything in this example.
+So I'm sorry, because the serve is not called.
+So this would start and it would construct everything, but nothing extra would actually
+happen.
+For that, FX has something called life cycles, which are really useful.
+So we, the last slide talked about the construct time.
+So when we construct our graph and then when we run it, the life cycle gets invoked.
+So what we can do is we give this, we say, okay, the server is now dependent on a life
+cycle.
+And within the constructor, we, we tell the life cycle, okay, I can, I have some, something
+while, while I'm alive, I want to do something.
+So I have an on stop and an on, on, on start and on stop hook.
+And when I start, I want to start a go routine and serve out whatever I do.
+And when I stop, I want to shut down, which is something that my initial program didn't
+even do, do a proper shutdown of the, of the HTTP server.
+So when, when it's, it's a little bit hard to like show that in the original example.
+So I threw together a very small sample that still fit on the slide, which is important
+here.
+So I have ABC and they basically all depend on each other.
+So it's a very deep dependency chain.
+And then I have this print function, which you can decipher later, but it basically,
+I call it in every constructor.
+It's both prints at that time and it prints in the life cycle hooks.
+So you can see what happens.
+And when I would were to run this program, the output would be something like this.
+So it says, A is constructed, B is constructed, C is constructed, because that's the order
+in which the, so, so we have all the dependencies there when we are, but it's just some construction.
+Then the start hooks are called in the exact same order as we constructed them.
+So if you have dependencies, for example, A opened the file and we need that file to
+be open because B will start calling things in this life cycle.
+And we know that the, that the start hook of A is always called before any of its dependencies
+get time to run.
+And then when we stop the application, we control C or something else happens, we shut
+down.
+But the nice thing is, is we automatically shut down in the exact opposite order, just
+like you would add the first somewhere, but it's at the application level.
+And this allows you to do proper shutdown, write your files away, do everything else.
+And you also know that you, because you depend on everything else, that you get the first
+chance to shut down properly and no one will call into you after that, because, in their
+shutdown functions, because they don't have references to you.
+They are not your, you depend on everything else.
+There's also a nice feature called groups.
+There are actually quite a bit of features.
+I couldn't touch on everything because of time constraints, but this one is nice for,
+for a small section of problems.
+And it's called a group.
+What you can do is, so I actually use two features.
+I use the effects in and effects out feature.
+And it basically allows you to, to return multiple dependencies from a constructor or
+take multiple dependencies in a nice way.
+So I can, for example, have a parameter structure that takes in 20 different dependencies and
+don't have to spell them all out separately in my arguments.
+And I can also return multiple things.
+Crucially, in my case, I can specify group names to basically route outputs from one,
+from an output, from, from one place to another.
+And in this case, I created a mox.
+And this mox collects all of the mox handle, mox handle objects that are there.
+And I have a foo and a bar and they both admit their own thing.
+And they are collected by, they are collected by this, by this mox which we could, could
+give to, to a server.
+And the cool thing about this is that you, you have this once.
+And you can then add a lot of additional, you can add a lot of additional parts to the,
+to your whole application.
+And it all collects as an array into this group.
+There's some caveats.
+I'll come to that in a bit.
+So under the hood, how this works, very simplified, is we have our definitions.
+At least effects and dig use reflection to then look at the parameters and then based
+on the types, it creates a directional acyclic graph.
+And that graph can then be walked to get the, to get that correct ordering.
+So there is a small bit of magic there and it's called reflection, but it's not much.
+Like it's quite understandable if you actually go dive into, into how something like this
+works.
+And then again, the constructors to start and stop are called in that, in that determined
+order by the deck.
+It also means that you can't have cyclical dependencies.
+That's, that's a no, no.
+So it's a good reason to remove those from your code as well.
+So I would like to share with you in case you want to try this, try dependency injection.
+Some tips, tricks and lessons we learned because there are, there's a good way to do this and
+there's definitely also bad ways to do this.
+So inject, but in moderation.
+So not everything has to be a component.
+For example, math libraries are stateless.
+There's no reason why you would make that a component as like a dependency in this system
+because you can just, you can just use them and they are pure functions, etc.
+So my rule of thumb is if it has states, make it, make it a dependency because then you
+benefit from all of the state specific things.
+But if you have libraries that don't use state, please don't make it harder than it has to
+be.
+And also a note of inject, but in moderation is that we saw that doing dependency injection
+adds a lot of boilerplate, which is worth it in very, very big applications or even
+moderate applications, I would say.
+But it's likely not for your small CLI tool or whatever.
+So pick, this is really a technique for medium to larger projects.
+When you do this, pick logical boundaries.
+So we, for example, we started and then made 20 cells within the same package and then
+no one outside the package actually ended up using those cells, which is massive amounts
+of complexity and overhead is just not necessary.
+In my experience using packages as logical boundaries for these components is the best
+thing to do because you can also leverage what types I export, which type, because you
+can export, you can provide something and not export that type, for example, and then only
+export an interface that matches it or whatever.
+So that's a really powerful combination.
+So and the last thing to note is that one of the other features that I wasn't able to
+show you because of time constraints is FX options.
+So FX options is really cool because it allows you to basically take multiple of these components
+and bundle them under a single variable.
+So while global variables are big no-no's when doing this, you can still use them or
+you can use a variable, global variable on your package to export these constructors.
+And the nice thing there is you can make a sort of hierarchy.
+So if you have a package hierarchy that's three layers deep, you can basically reflect
+that.
+So in your main application you don't have to list 200 constructors all separately.
+So that also really helps with readability, seeing where what is provided and so on.
+Provide targeted interfaces.
+So go idioms still apply.
+The smaller your interface is, the more powerful it is, the better you can swap it out.
+So when I provide a very small interface or when I depend on the smallest interfaces
+I can, and it's really easy for me to mock out in my test, create a new FX app, only
+provide the direct dependencies which are interfaces which I can then mock out and
+it makes everything really nice.
+So this is general advice, not for dependency injection but like it goes hand in hand.
+If you have dependency injection and don't do this then it takes away a lot of the benefits
+you would otherwise get.
+So it also makes it easy to rely on external, for external components to not rely on internal
+implementation.
+So when I export something or when I provide a component I always try to provide it as
+an interface as well.
+And the last thing which is more of a trick is you can actually, if you for example have
+a struct, that struct can implement multiple, so instead of having one interface that implements
+three methods I can provide it as three separate interfaces that implement three separate methods.
+And that way you can, you have both on the receiving and the sending side of your dependency,
+you have the smallest possible interface again to help with mocking out but also so if you
+don't use certain methods that you don't have to like write fake methods that panic
+if you were to call them etc.
+I mentioned groups and they are really powerful but go easy on them.
+Groups are really only ever useful if you have multiple parties that are interested in the
+same list of objects.
+So for example we have metrics, so we have a Permetheus metrics registry which collects
+all of the metrics to actually use them.
+But we also have tooling that automatically generates documentation about these metrics
+and I can write a very small CLI tool that basically just with one component that depends
+on all hooks or all metrics that we have defined in our application and I collect all of them
+automatically and everyone who uses who registers a new metric it automatically appears in this
+metrics tool.
+So it's really great and the same goes for our configuration HTTP elements which will
+also have configuration for or sometimes CLI tools which live want to interact with the
+same things.
+The alternative to using groups is to just use like a registry pattern where you say
+I provide a registry, it just has a registry pattern and everyone else, so if I have 20
+other components I can depend on that and I can register myself during construction
+time.
+And the upside of doing that is that you can, like if you use FreeScope for example or any
+decent editor is that you can follow those traces back.
+So you can always use references to see who actually uses what.
+With groups it's all magic.
+Something everything goes into this group and it comes out but it's not clear.
+You can't trace that back in the code itself without having difficulties.
+Stay with a static graph when possible.
+So you can, with this FX application you can in theory like depending on configuration
+provide or not provide components.
+We have opted in Cilium to never do this because it makes it completely impossible to verify
+that you never have missing dependencies or other problems like circular, the references
+and there are certain combinations.
+The graphs are verified at runtime so you have to have a good CI to run everything, make
+sure that it works.
+What you can do instead is use this life cycle and so you always have the objects but then
+you can always choose if they do or do not subscribe to the life cycle and that way you
+can enable or disable certain logic if you don't want to run it at that time but always
+provide it.
+And that was it.
+Thank you very much.
+Thank you.
+I have time for one question.
+I see a hand there.
+I'll quickly come over and hand to the microphone.
+If you are exiting already do it quietly please.
+What can you make choose, dig and FX instead of Google OIR which is more popular for example?
+So like I mentioned, colleague of mine, Glyb, authored it so it was very, we were very quick
+to jump on that one he suggested using the library.
+So it's purely advertisements.
+Thank you.
+Any questions?

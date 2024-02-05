@@ -1,0 +1,467 @@
+WEBVTT
+
+00:00.000 --> 00:12.000
+Welcome to the DNS Dev Room.
+
+00:12.000 --> 00:15.000
+Our next speaker is Otal, who is an OpenBSD developer.
+
+00:15.000 --> 00:22.000
+We're going to call him a faithful intersection, DNS second, NTP, and maybe two other terrible things.
+
+00:22.000 --> 00:32.000
+Yeah. Okay. So I'm going to talk about bootstrapping time specifically on how we implemented that on OpenBSD,
+
+00:32.000 --> 00:38.000
+but I think the approach could be used in other systems as well.
+
+00:38.000 --> 00:45.000
+So, small introduction, OpenBSD, a BSD derivative. We focus on security.
+
+00:45.000 --> 01:01.000
+We do that in several ways. For example, privilege separated demons, which in which we separate the various tasks a demon has to do into separate processes.
+
+01:01.000 --> 01:12.000
+Each of those processes have minimal capabilities, and they communicate with each other through pipes and exchanging of messages.
+
+01:12.000 --> 01:29.000
+There's also a lot of other techniques from memory management, which I'm also pretty involved in, and new APIs for that are, let's say, less easy to misuse, things like that.
+
+01:30.000 --> 01:44.000
+Apart from that, we also try to make a useful system, and so we like to have St. defaults focus on a system that is out of the box, a nice system to work with.
+
+01:45.000 --> 02:00.000
+By default, we do not have a lot of services active, but if we consider a certain functionality to be included in a default configuration,
+
+02:01.000 --> 02:15.000
+the configuration you get when you install the system, we are quite strict in that, in the sense that it has to be functionality, which is useful for a very, very large fraction of our users.
+
+02:16.000 --> 02:34.000
+But also, the actual implementation is maybe even considered more volatile, it's a higher risk, so we focus on extra on the security aspects of that,
+
+02:34.000 --> 02:40.000
+including the architecture of the software itself and the specific implementation.
+
+02:45.000 --> 02:59.000
+I'm now going to talk about time, and we'll see a bit later how that also involves DNS, but when, originally, when OpenBusy starts,
+
+03:00.000 --> 03:16.000
+it gets the time from a battery backed real-time clock, if your hardware has that, because not all the hardware has it, and even if you have hardware that has it, it's not always functioning properly.
+
+03:17.000 --> 03:33.000
+If you think of it all the hardware, then the case is, my CMOS battery ran out, is pretty well known, and most of the battery backed real-time clocks then give some default value way back in the past.
+
+03:34.000 --> 03:52.000
+But the booting system tries to read clock, if it's available, if that fails or there's no clock, the time is set based on a time step that is stored in the root file system,
+
+03:52.000 --> 04:10.000
+which says, well, this was the last time the file system was modified, and basically, if you unknown mount a root file system, which happens on an ordinary reboot, then, or shut down, then that time step gets set as well.
+
+04:11.000 --> 04:19.000
+So you have, let's say, if you reboot the machine, you probably have a time step, which is a little bit in the past, but, well, reasonably okay.
+
+04:22.000 --> 04:35.000
+It's a bit behind, probably, especially if you shut down your machine, go on vacation, and you don't have a real-time clock, because then you come back from vacation, and your clock is two weeks behind or so.
+
+04:36.000 --> 04:38.000
+So that's the problem.
+
+04:40.000 --> 04:52.000
+We have an NTPD implementation, which I'm going to talk about a bit more in a second, but that originally that implementation did not bump the clock.
+
+04:53.000 --> 05:05.000
+It would only gradually increase or slow down the clock to adjust it to make sure that the time is corresponding to the NTP-derived time.
+
+05:06.000 --> 05:18.000
+You could enable that, but it was not a default, because we said, well, we are not going to make a default, because we don't really have enough confidence that it will do the right thing.
+
+05:19.000 --> 05:25.000
+Why not? Because NTP in itself is not a secure protocol. That's one issue.
+
+05:26.000 --> 05:37.000
+And also, so we would like to have more than one source of time, not only NTP, even if you talk to multiple pairs.
+
+05:38.000 --> 05:44.000
+We would like to have an independent way of validating, or that time we see.
+
+05:45.000 --> 06:00.000
+So we formulated some goals in the beginning a few years back, and we like to say, well, we like to be pretty sure that if you boot up an OpenBISD system that you have the proper time, if you have network connectivity.
+
+06:01.000 --> 06:12.000
+So that's a nice goal, but we made things a bit harder for ourselves by stating, well, we do not fully trust NTP replies.
+
+06:13.000 --> 06:21.000
+Like I said, by default NTP is an insecure protocol, and also the design of the protocol is in a way a bit.
+
+06:21.000 --> 06:30.000
+You can compare it a bit to the original DNS implementations. Security was not a big thing in that time.
+
+06:31.000 --> 06:35.000
+So we'll talk about it a bit more later.
+
+06:36.000 --> 06:47.000
+But the goal is still to get the correct time on boot with high level of trust, not necessarily a very high level of trust in the sense that you have a cryptographic proof of that.
+
+06:48.000 --> 06:55.000
+That's maybe a goal for the coming years or so, but at least we have a high level of trust.
+
+06:56.000 --> 07:08.000
+Well, if there's no battery backed up clock available or it is not functioning properly, we still like to end up with the proper time.
+
+07:09.000 --> 07:19.000
+Like example, I gave this cheap boards with Raspberry Pi, for example, or other boards do not have a battery backed clock at all by default.
+
+07:20.000 --> 07:26.000
+And you can also have cases where very expensive servers forget about time when you switch them off.
+
+07:26.000 --> 07:41.000
+So the setting is if we can solve the problems in this quite difficult situation where we have lack of hardware support and things like that,
+
+07:42.000 --> 07:51.000
+and of course the more easy ones where you do have a proper RTC clock or you do have other facilities, then it comes easier.
+
+07:52.000 --> 08:02.000
+So if we say, yeah, okay, we need to be able to do DNS to resolve NTP peers,
+
+08:03.000 --> 08:08.000
+it might be that the resolver we are using is DNSSEC enabled.
+
+08:09.000 --> 08:16.000
+If that resolver is running on a other system, it's quite easy, probably that other system already has the proper time,
+
+08:16.000 --> 08:25.000
+but if we are running our own system on the same system and we do not have proper time, then DNSSEC is going to complicate matters.
+
+08:26.000 --> 08:33.000
+So we do want to consider that, at least, what we should do in that case.
+
+08:35.000 --> 08:39.000
+So a bit of words about the NTP protocol. It's pretty old.
+
+08:39.000 --> 08:46.000
+Let's say the same era as DNS protocol. There are some design similarities between them.
+
+08:47.000 --> 08:52.000
+For example, in DNS, a request and an answer basically has exactly the same format.
+
+08:53.000 --> 08:54.000
+NTP is the same.
+
+08:55.000 --> 09:14.000
+There's also the focus on UDP, of course, and also the case that the request you sent out and reply that's coming back.
+
+09:15.000 --> 09:23.000
+In reply that's coming back, a lot of information, maybe even all information that you sent out is also coming back.
+
+09:24.000 --> 09:34.000
+So you, as a client, you have a reasonable, easy task. You only have to consider the answer because the answer contains all the information you sent out earlier.
+
+09:35.000 --> 09:42.000
+So you only have to consider what's in the reply packet, do some processing, and you can continue.
+
+09:43.000 --> 09:51.000
+But of course that is, comes with that you have to trust that reply packet even more than you maybe would want to.
+
+09:52.000 --> 09:58.000
+Later, there were additions to the NTP protocol. Shared keys were introduced.
+
+09:59.000 --> 10:11.000
+So if you had a pair, an NTP pair, which you had some form of relationship and you would change some key, you share a key with that other party, then you could secure the NTP packet.
+
+10:12.000 --> 10:18.000
+So you had more confidence or pretty good confidence that you are receiving replies from a trusted source.
+
+10:18.000 --> 10:32.000
+Later on there was even more extensions where you say, oh, you invent NTS, which is a network time security, and that includes a key establishment protocol, which is pretty complex.
+
+10:33.000 --> 10:45.000
+And so far we did not like to implement that yet, but it might come at some point in time because of course that will give you some more cryptographically.
+
+10:45.000 --> 10:53.000
+And there's a process handling constraints, and constraints is a thing which I will talk about with later.
+
+10:57.000 --> 11:07.000
+So we have to do not have in our implementation any cryptographic proofs of any validity of the data, but we have a basic spoof protection.
+
+11:08.000 --> 11:20.000
+In the NTP protocol there's a field which is called transmit time, and according to the protocol the server which answers the question has to just echo that field.
+
+11:21.000 --> 11:30.000
+And if you, that's 64 bits, so we could, the server is not looking at that field for any other reason than just to echo it.
+
+11:31.000 --> 11:50.000
+So if we fill in a random, let's say cookie there, we can at least in some way make sure that an attacker which is spoofing us, trying to spoof an attacker which is not able to read the outgoing packets at least, can we protect against that.
+
+11:51.000 --> 12:04.000
+Of course that comes with storing some state in the client because you have to remember which cookie you sent out, but the protocol without any changes allows for that.
+
+12:05.000 --> 12:30.000
+When you are actually computing the time, and there's an algorithm in NTP protocol which allows you to, let's say, filter out the round trip times and things like that and get a good idea of the service time, you have to use the original sent out time and of course not the random thing you filled in.
+
+12:31.000 --> 12:44.000
+So the trust issue is in the NTP, original NTP protocol is a pretty complex statistical analysis of all the replies you have seen from different pairs.
+
+12:44.000 --> 13:13.000
+We do a bit more simple approach, we send out to several pairs queries, we collect results, we filter out things we consider bad and things which are bad as unreliable servers, servers that do not reply, servers that reply with a bad cookie and we select a median time, median time.
+
+13:15.000 --> 13:32.000
+And we use constraints which is a completely different source of time information by doing HTTPS requests to certain servers and the nice thing about an HTTP request is that the reply header also contains a time stamp.
+
+13:32.000 --> 13:44.000
+That is a rough time stamp, one second granularity, so low resolution, but we also do that to filter out bad NTP replies.
+
+13:44.000 --> 13:56.000
+So we know this NTP reply is outside the rough, our rough low resolution constraints, so we say skip that.
+
+13:57.000 --> 14:18.000
+There is a small complication there because the certificate check we need to, without any idea of the real time, has to use a time stamp, say is this a certificate which is valid now.
+
+14:18.000 --> 14:29.000
+But the question, if you do not know what now is, so what we do is we use the time stamp itself and say well it is at least consistent with what they're saying.
+
+14:29.000 --> 14:43.000
+So the HTTPS request is valid. On the time that server is telling us it is. And we'll come back to that later.
+
+14:43.000 --> 14:51.000
+Okay, but this is also a DNS dependency and that is because we want to be able to select NTP peers based on name.
+
+14:51.000 --> 15:07.000
+Of course we have things like pull.entp.org which are very dynamic, change all the time. Also location based, so depending on your query particulars you get a different answer.
+
+15:08.000 --> 15:18.000
+And you want to have the NSSEC validation. Now the NSSEC signatures contain a validity period with the same problem as with certificates.
+
+15:18.000 --> 15:32.000
+So we have here the hardest case. If we run the NSSEC enabled validating resolver on the same host as we are trying to boot, we have a bootstrap issue.
+
+15:33.000 --> 15:48.000
+Luckily there's a way around that. And that is to check disabled flag in the DNS request header. You can say to a DNS resolver I want to resolve this address.
+
+15:48.000 --> 16:07.000
+But do not do any DNSSEC validation. So that's easy at least from the protocol point of view. You can just set that flag and have at least some idea of that DNS resolving.
+
+16:08.000 --> 16:18.000
+But in the current API or in the API at that time which also is from the 80s or 90s there was no way to enable that.
+
+16:19.000 --> 16:33.000
+So now we come to another point it is because OpenBSD is a complete system. We built the C library, we built the APIs, we built applications and the demons that go come for it.
+
+16:33.000 --> 16:45.000
+We could just add that API and then assume in our application that that API is available. So this is a part of resolve.h, the source code.
+
+16:45.000 --> 17:04.000
+We introduced a new flag, save and use CD. And that enables us to use the APIs, the DNS resolution APIs which also use a bit of an Eucaly system which also stems from the 80s.
+
+17:04.000 --> 17:15.000
+That is a global variable or struct called underscore res which allows you to tweak the way DNS requests are done in a libc.
+
+17:15.000 --> 17:28.000
+These days that will be designed completely different because you would probably have some local object which you pass each time to that code to or have some context or something like that.
+
+17:28.000 --> 17:37.000
+But this is from the old days where a global variable or global struct would contain the flags to be used.
+
+17:37.000 --> 17:48.000
+So what we do is if we know that the time is not synced yet, we retry without with the CD bit and the resolution fails.
+
+17:48.000 --> 17:53.000
+We retry with the CD bit set and hope that it will get better.
+
+17:53.000 --> 17:59.000
+That way we have an answer. Of course it's not DNS validated.
+
+17:59.000 --> 18:04.000
+So we are closer maybe but still not there.
+
+18:05.000 --> 18:15.000
+So what is now the revamped mechanism is we get the time from RTC.
+
+18:15.000 --> 18:20.000
+That fails with time for the root VST and plasma, completely exactly the same.
+
+18:20.000 --> 18:25.000
+So the kernel is doing exactly the same as it did before.
+
+18:25.000 --> 18:30.000
+When open the entity starts, it will get constraints.
+
+18:30.000 --> 18:36.000
+So that's a new thing. It will try to get a rough idea of the time.
+
+18:36.000 --> 18:45.000
+And it will also send out entity requests based on DNS requests it has done.
+
+18:45.000 --> 18:55.000
+And those NTP replies will be validated using the constraints derived from the HTTP requests.
+
+18:55.000 --> 19:08.000
+And we will move, bump the time if it's going forward and otherwise do a gradual increase, a gradual adjust.
+
+19:08.000 --> 19:15.000
+We will bump only forward because we do not like to have logs with time going back.
+
+19:15.000 --> 19:19.000
+So monotony increasing time is pretty important.
+
+19:19.000 --> 19:26.000
+If we see, and that is probably an indication that something is really wrong, if we have to set the time backwards,
+
+19:26.000 --> 19:31.000
+we don't do that and scream in the logs and things like that.
+
+19:31.000 --> 19:35.000
+After that, the regular NTP things just happen,
+
+19:35.000 --> 19:41.000
+gradual adjustment of using several pairs, etc.
+
+19:41.000 --> 19:49.000
+So then we have some idea of time and we'll do it one more time.
+
+19:49.000 --> 19:57.000
+So in the sense that once we are synced, the NTP time and the system time agree,
+
+19:57.000 --> 20:02.000
+which can take several minutes of course because you have to slow adjust in many cases.
+
+20:02.000 --> 20:07.000
+We'll do it again. But then we say, well, we know we are synced.
+
+20:07.000 --> 20:13.000
+So we do have real DNS check validation. We do not have to do fall back to no see.
+
+20:13.000 --> 20:18.000
+And we use the constraints check the actual time.
+
+20:18.000 --> 20:26.000
+If at that point things are not okay, then we will of course scream in the logs that, well, we cannot your NTP,
+
+20:26.000 --> 20:33.000
+your NTP pairs, but then it's a system operator decision to do that.
+
+20:33.000 --> 20:40.000
+In a local LAN, of course, that might be a very suitable case.
+
+20:40.000 --> 20:45.000
+And the default config uses several NTP sources like NTP.pull.org,
+
+20:45.000 --> 20:55.000
+but also time flare offers a NTP server on all their pops.
+
+20:55.000 --> 21:04.000
+So you get a local, with all the same IP, you get a local time source or local close by at least is the idea.
+
+21:04.000 --> 21:15.000
+And also a sorted set of constraints of, let's say, well-known HTTPS servers like from Google.
+
+21:15.000 --> 21:20.000
+And we also use Fortnites servers for that.
+
+21:20.000 --> 21:26.000
+But they're, let's say, stamp of approval.
+
+21:26.000 --> 21:33.000
+So this is the default configuration. We also mix the quad 8.
+
+21:33.000 --> 21:41.000
+We are not using quad 8 for that because we like to have, they are, there's some tie between NTP and not.
+
+21:41.000 --> 21:46.000
+So, of Google, so we will say one is a completely different system set of systems from Google.
+
+21:46.000 --> 22:05.000
+So that is why we say, well, if we're using DNS, that will, let's say, diversify the different sources we're getting time from.
+
+22:05.000 --> 22:15.000
+And a little detail, surface means if the DNS request produces multiple IP addresses, we all query in all of them.
+
+22:15.000 --> 22:20.000
+And the server is a single source.
+
+22:20.000 --> 22:35.000
+And sensor is for, if we run on a system which has hardware clocks, for example, GPS based or you have the Meinberg, some set of hardware which,
+
+22:35.000 --> 22:44.000
+a PCI card you can insert in your system which gets the time from the DCF clock in Germany or other sources.
+
+22:44.000 --> 22:50.000
+We also use those, of course, as trusted sources.
+
+22:50.000 --> 22:55.000
+So that's the thing we call time sensors.
+
+22:55.000 --> 23:02.000
+So that is my talk. I'd like to thank some other OpenBSD developer who cooperated with me on this.
+
+23:02.000 --> 23:08.000
+And reachable and master done, but also OpenBSD, BUD.org.
+
+23:08.000 --> 23:14.000
+And I'd like to ask if there are any questions.
+
+23:14.000 --> 23:15.000
+Yeah.
+
+23:15.000 --> 23:18.000
+So you mentioned that NTP never sets the time back.
+
+23:18.000 --> 23:31.000
+But what happens, for example, if you have a hardware RTC clock that's misconfigured, like, for example, set one year in the future for some bizarre reason, and then you're a bit back.
+
+23:32.000 --> 23:42.000
+Yeah. So the question is, we know our NTP implementation never bumps, really hard set of the clock backwards.
+
+23:42.000 --> 23:54.000
+If that happens, and if you, but for some reason your RTC clock is misconfigured or set to the wrong time and you, then we require operator intervention.
+
+23:54.000 --> 24:03.000
+Then it's a human decision to do that. Of course, you can do that with the date command still or with our date where you say, well, get some time from a different system.
+
+24:03.000 --> 24:09.000
+But that is not a thing which happens automatically. We scream and we say, well, this is not right.
+
+24:09.000 --> 24:13.000
+But we require operator intervention for that case.
+
+24:13.000 --> 24:17.000
+I know the question.
+
+24:17.000 --> 24:29.000
+How much of this is tolerant if you don't have network during boot because it's a laptop that might be going to do a wireless network and that takes 10 seconds?
+
+24:29.000 --> 24:31.000
+Yeah. NTP deepen.
+
+24:32.000 --> 24:46.000
+We have a, if we do not have a working network configuration on when the NTP start, it takes about 10 seconds.
+
+24:46.000 --> 24:52.000
+And if then no actual traffic was seen by the, it says, well, sorry, cannot do it.
+
+24:52.000 --> 25:08.000
+I'm just going to continue booting because at that point in time, the boot script stops because we'd like to have as many demons starting with the correct time already set.
+
+25:08.000 --> 25:10.000
+So that's very early in the boot process.
+
+25:10.000 --> 25:18.000
+Of course, you have, and you have complex configuration with, with freelance and whatever, or then that's not going to work.
+
+25:18.000 --> 25:23.000
+But the NTP tries its best and then said, well, sorry, I cannot do it.
+
+25:23.000 --> 25:29.000
+I'm going to do my background tasks like I do always, but I'm not setting or bumping the time.
+
+25:29.000 --> 25:30.000
+So there.
+
+25:30.000 --> 25:32.000
+Sorry, you're out of time.
+
+25:32.000 --> 25:33.000
+Oh.
+
+25:33.000 --> 25:35.000
+Okay, thank you.
+

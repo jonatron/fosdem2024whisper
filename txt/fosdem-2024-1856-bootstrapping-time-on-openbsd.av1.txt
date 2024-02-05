@@ -1,0 +1,155 @@
+Welcome to the DNS Dev Room.
+Our next speaker is Otal, who is an OpenBSD developer.
+We're going to call him a faithful intersection, DNS second, NTP, and maybe two other terrible things.
+Yeah. Okay. So I'm going to talk about bootstrapping time specifically on how we implemented that on OpenBSD,
+but I think the approach could be used in other systems as well.
+So, small introduction, OpenBSD, a BSD derivative. We focus on security.
+We do that in several ways. For example, privilege separated demons, which in which we separate the various tasks a demon has to do into separate processes.
+Each of those processes have minimal capabilities, and they communicate with each other through pipes and exchanging of messages.
+There's also a lot of other techniques from memory management, which I'm also pretty involved in, and new APIs for that are, let's say, less easy to misuse, things like that.
+Apart from that, we also try to make a useful system, and so we like to have St. defaults focus on a system that is out of the box, a nice system to work with.
+By default, we do not have a lot of services active, but if we consider a certain functionality to be included in a default configuration,
+the configuration you get when you install the system, we are quite strict in that, in the sense that it has to be functionality, which is useful for a very, very large fraction of our users.
+But also, the actual implementation is maybe even considered more volatile, it's a higher risk, so we focus on extra on the security aspects of that,
+including the architecture of the software itself and the specific implementation.
+I'm now going to talk about time, and we'll see a bit later how that also involves DNS, but when, originally, when OpenBusy starts,
+it gets the time from a battery backed real-time clock, if your hardware has that, because not all the hardware has it, and even if you have hardware that has it, it's not always functioning properly.
+If you think of it all the hardware, then the case is, my CMOS battery ran out, is pretty well known, and most of the battery backed real-time clocks then give some default value way back in the past.
+But the booting system tries to read clock, if it's available, if that fails or there's no clock, the time is set based on a time step that is stored in the root file system,
+which says, well, this was the last time the file system was modified, and basically, if you unknown mount a root file system, which happens on an ordinary reboot, then, or shut down, then that time step gets set as well.
+So you have, let's say, if you reboot the machine, you probably have a time step, which is a little bit in the past, but, well, reasonably okay.
+It's a bit behind, probably, especially if you shut down your machine, go on vacation, and you don't have a real-time clock, because then you come back from vacation, and your clock is two weeks behind or so.
+So that's the problem.
+We have an NTPD implementation, which I'm going to talk about a bit more in a second, but that originally that implementation did not bump the clock.
+It would only gradually increase or slow down the clock to adjust it to make sure that the time is corresponding to the NTP-derived time.
+You could enable that, but it was not a default, because we said, well, we are not going to make a default, because we don't really have enough confidence that it will do the right thing.
+Why not? Because NTP in itself is not a secure protocol. That's one issue.
+And also, so we would like to have more than one source of time, not only NTP, even if you talk to multiple pairs.
+We would like to have an independent way of validating, or that time we see.
+So we formulated some goals in the beginning a few years back, and we like to say, well, we like to be pretty sure that if you boot up an OpenBISD system that you have the proper time, if you have network connectivity.
+So that's a nice goal, but we made things a bit harder for ourselves by stating, well, we do not fully trust NTP replies.
+Like I said, by default NTP is an insecure protocol, and also the design of the protocol is in a way a bit.
+You can compare it a bit to the original DNS implementations. Security was not a big thing in that time.
+So we'll talk about it a bit more later.
+But the goal is still to get the correct time on boot with high level of trust, not necessarily a very high level of trust in the sense that you have a cryptographic proof of that.
+That's maybe a goal for the coming years or so, but at least we have a high level of trust.
+Well, if there's no battery backed up clock available or it is not functioning properly, we still like to end up with the proper time.
+Like example, I gave this cheap boards with Raspberry Pi, for example, or other boards do not have a battery backed clock at all by default.
+And you can also have cases where very expensive servers forget about time when you switch them off.
+So the setting is if we can solve the problems in this quite difficult situation where we have lack of hardware support and things like that,
+and of course the more easy ones where you do have a proper RTC clock or you do have other facilities, then it comes easier.
+So if we say, yeah, okay, we need to be able to do DNS to resolve NTP peers,
+it might be that the resolver we are using is DNSSEC enabled.
+If that resolver is running on a other system, it's quite easy, probably that other system already has the proper time,
+but if we are running our own system on the same system and we do not have proper time, then DNSSEC is going to complicate matters.
+So we do want to consider that, at least, what we should do in that case.
+So a bit of words about the NTP protocol. It's pretty old.
+Let's say the same era as DNS protocol. There are some design similarities between them.
+For example, in DNS, a request and an answer basically has exactly the same format.
+NTP is the same.
+There's also the focus on UDP, of course, and also the case that the request you sent out and reply that's coming back.
+In reply that's coming back, a lot of information, maybe even all information that you sent out is also coming back.
+So you, as a client, you have a reasonable, easy task. You only have to consider the answer because the answer contains all the information you sent out earlier.
+So you only have to consider what's in the reply packet, do some processing, and you can continue.
+But of course that is, comes with that you have to trust that reply packet even more than you maybe would want to.
+Later, there were additions to the NTP protocol. Shared keys were introduced.
+So if you had a pair, an NTP pair, which you had some form of relationship and you would change some key, you share a key with that other party, then you could secure the NTP packet.
+So you had more confidence or pretty good confidence that you are receiving replies from a trusted source.
+Later on there was even more extensions where you say, oh, you invent NTS, which is a network time security, and that includes a key establishment protocol, which is pretty complex.
+And so far we did not like to implement that yet, but it might come at some point in time because of course that will give you some more cryptographically.
+And there's a process handling constraints, and constraints is a thing which I will talk about with later.
+So we have to do not have in our implementation any cryptographic proofs of any validity of the data, but we have a basic spoof protection.
+In the NTP protocol there's a field which is called transmit time, and according to the protocol the server which answers the question has to just echo that field.
+And if you, that's 64 bits, so we could, the server is not looking at that field for any other reason than just to echo it.
+So if we fill in a random, let's say cookie there, we can at least in some way make sure that an attacker which is spoofing us, trying to spoof an attacker which is not able to read the outgoing packets at least, can we protect against that.
+Of course that comes with storing some state in the client because you have to remember which cookie you sent out, but the protocol without any changes allows for that.
+When you are actually computing the time, and there's an algorithm in NTP protocol which allows you to, let's say, filter out the round trip times and things like that and get a good idea of the service time, you have to use the original sent out time and of course not the random thing you filled in.
+So the trust issue is in the NTP, original NTP protocol is a pretty complex statistical analysis of all the replies you have seen from different pairs.
+We do a bit more simple approach, we send out to several pairs queries, we collect results, we filter out things we consider bad and things which are bad as unreliable servers, servers that do not reply, servers that reply with a bad cookie and we select a median time, median time.
+And we use constraints which is a completely different source of time information by doing HTTPS requests to certain servers and the nice thing about an HTTP request is that the reply header also contains a time stamp.
+That is a rough time stamp, one second granularity, so low resolution, but we also do that to filter out bad NTP replies.
+So we know this NTP reply is outside the rough, our rough low resolution constraints, so we say skip that.
+There is a small complication there because the certificate check we need to, without any idea of the real time, has to use a time stamp, say is this a certificate which is valid now.
+But the question, if you do not know what now is, so what we do is we use the time stamp itself and say well it is at least consistent with what they're saying.
+So the HTTPS request is valid. On the time that server is telling us it is. And we'll come back to that later.
+Okay, but this is also a DNS dependency and that is because we want to be able to select NTP peers based on name.
+Of course we have things like pull.entp.org which are very dynamic, change all the time. Also location based, so depending on your query particulars you get a different answer.
+And you want to have the NSSEC validation. Now the NSSEC signatures contain a validity period with the same problem as with certificates.
+So we have here the hardest case. If we run the NSSEC enabled validating resolver on the same host as we are trying to boot, we have a bootstrap issue.
+Luckily there's a way around that. And that is to check disabled flag in the DNS request header. You can say to a DNS resolver I want to resolve this address.
+But do not do any DNSSEC validation. So that's easy at least from the protocol point of view. You can just set that flag and have at least some idea of that DNS resolving.
+But in the current API or in the API at that time which also is from the 80s or 90s there was no way to enable that.
+So now we come to another point it is because OpenBSD is a complete system. We built the C library, we built the APIs, we built applications and the demons that go come for it.
+We could just add that API and then assume in our application that that API is available. So this is a part of resolve.h, the source code.
+We introduced a new flag, save and use CD. And that enables us to use the APIs, the DNS resolution APIs which also use a bit of an Eucaly system which also stems from the 80s.
+That is a global variable or struct called underscore res which allows you to tweak the way DNS requests are done in a libc.
+These days that will be designed completely different because you would probably have some local object which you pass each time to that code to or have some context or something like that.
+But this is from the old days where a global variable or global struct would contain the flags to be used.
+So what we do is if we know that the time is not synced yet, we retry without with the CD bit and the resolution fails.
+We retry with the CD bit set and hope that it will get better.
+That way we have an answer. Of course it's not DNS validated.
+So we are closer maybe but still not there.
+So what is now the revamped mechanism is we get the time from RTC.
+That fails with time for the root VST and plasma, completely exactly the same.
+So the kernel is doing exactly the same as it did before.
+When open the entity starts, it will get constraints.
+So that's a new thing. It will try to get a rough idea of the time.
+And it will also send out entity requests based on DNS requests it has done.
+And those NTP replies will be validated using the constraints derived from the HTTP requests.
+And we will move, bump the time if it's going forward and otherwise do a gradual increase, a gradual adjust.
+We will bump only forward because we do not like to have logs with time going back.
+So monotony increasing time is pretty important.
+If we see, and that is probably an indication that something is really wrong, if we have to set the time backwards,
+we don't do that and scream in the logs and things like that.
+After that, the regular NTP things just happen,
+gradual adjustment of using several pairs, etc.
+So then we have some idea of time and we'll do it one more time.
+So in the sense that once we are synced, the NTP time and the system time agree,
+which can take several minutes of course because you have to slow adjust in many cases.
+We'll do it again. But then we say, well, we know we are synced.
+So we do have real DNS check validation. We do not have to do fall back to no see.
+And we use the constraints check the actual time.
+If at that point things are not okay, then we will of course scream in the logs that, well, we cannot your NTP,
+your NTP pairs, but then it's a system operator decision to do that.
+In a local LAN, of course, that might be a very suitable case.
+And the default config uses several NTP sources like NTP.pull.org,
+but also time flare offers a NTP server on all their pops.
+So you get a local, with all the same IP, you get a local time source or local close by at least is the idea.
+And also a sorted set of constraints of, let's say, well-known HTTPS servers like from Google.
+And we also use Fortnites servers for that.
+But they're, let's say, stamp of approval.
+So this is the default configuration. We also mix the quad 8.
+We are not using quad 8 for that because we like to have, they are, there's some tie between NTP and not.
+So, of Google, so we will say one is a completely different system set of systems from Google.
+So that is why we say, well, if we're using DNS, that will, let's say, diversify the different sources we're getting time from.
+And a little detail, surface means if the DNS request produces multiple IP addresses, we all query in all of them.
+And the server is a single source.
+And sensor is for, if we run on a system which has hardware clocks, for example, GPS based or you have the Meinberg, some set of hardware which,
+a PCI card you can insert in your system which gets the time from the DCF clock in Germany or other sources.
+We also use those, of course, as trusted sources.
+So that's the thing we call time sensors.
+So that is my talk. I'd like to thank some other OpenBSD developer who cooperated with me on this.
+And reachable and master done, but also OpenBSD, BUD.org.
+And I'd like to ask if there are any questions.
+Yeah.
+So you mentioned that NTP never sets the time back.
+But what happens, for example, if you have a hardware RTC clock that's misconfigured, like, for example, set one year in the future for some bizarre reason, and then you're a bit back.
+Yeah. So the question is, we know our NTP implementation never bumps, really hard set of the clock backwards.
+If that happens, and if you, but for some reason your RTC clock is misconfigured or set to the wrong time and you, then we require operator intervention.
+Then it's a human decision to do that. Of course, you can do that with the date command still or with our date where you say, well, get some time from a different system.
+But that is not a thing which happens automatically. We scream and we say, well, this is not right.
+But we require operator intervention for that case.
+I know the question.
+How much of this is tolerant if you don't have network during boot because it's a laptop that might be going to do a wireless network and that takes 10 seconds?
+Yeah. NTP deepen.
+We have a, if we do not have a working network configuration on when the NTP start, it takes about 10 seconds.
+And if then no actual traffic was seen by the, it says, well, sorry, cannot do it.
+I'm just going to continue booting because at that point in time, the boot script stops because we'd like to have as many demons starting with the correct time already set.
+So that's very early in the boot process.
+Of course, you have, and you have complex configuration with, with freelance and whatever, or then that's not going to work.
+But the NTP tries its best and then said, well, sorry, I cannot do it.
+I'm going to do my background tasks like I do always, but I'm not setting or bumping the time.
+So there.
+Sorry, you're out of time.
+Oh.
+Okay, thank you.

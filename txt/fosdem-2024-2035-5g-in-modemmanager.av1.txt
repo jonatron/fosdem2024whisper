@@ -1,0 +1,255 @@
+All right, thank you all for coming. So next up we have a very exciting topic, 5G and
+Modem Manager. Have a round of applause for Alexander.
+So let's talk about Modem Manager. Let me know if you don't see me because I'm not sure
+if this is going to work very well. I read about me first. I think I'm going to keep it
+like this. I have been the Modem Manager, Maintainer and Developer for the past 12 years
+and I've also been involved in developing and maintaining the two libraries that we
+use to communicate with Modems, which are the QMI for the QMI protocol and the MBIM
+protocol. I'm not working at the Google Chrome OS team since two years ago. And this talk is going
+to be about not only how we're going to add 5G support properly in Modem Manager, hopefully,
+but also how we added 4G and which are the issues that we had when we added 4G and how we are
+going to overcome these same kind of issues when developing 5G support. So we will look
+at what went well and what didn't go that well with 4G support. So before I joined the
+Modem Manager project, there was already support for 4G in the sense that you could connect
+the Modem, it was using 4G and the Modem will tell you, hey, I'm using 4G and then we will
+expose it and that's about it. So we were treating 4G yesterday as a different mode,
+we had 2G, 3G and now we have 4G, nothing else. So when I joined the project, I started to review
+the 1.0 API suggestion that were in the main list and the major focus at that time was to support
+multi-mode devices. So at that time we had two separate families of Modems, we had 3G,
+3G-Bb-Modems, GSM, MGS, LTE, then you had another family which were 3G, VB2, you had CDMA, EVDO Modems
+for 2G and 3G. So 3G, VB2 had its own standard of 4G they digitized and then they started to use
+LTE as the standard 3G, VB2 Modems as well. So we had these strange 3G, VB2 and 3G, VB, Modems,
+multiple modems that had to be managed kind of in the same way, but it was very different in nature.
+Like 3GPP modems require a SIM card, 3GPP2 modems, most of them require to have some kind of activation with the network
+to bind your user account to the device itself, and it was a manual activation, automatic activation depending on the carrier.
+So there were many different things.
+And managing these new multi-modem devices, we thought this was the most important thing, but it wasn't, because 3GPP2 no longer exists.
+So can anyone tell me which main feature of 4G we missed? Because we didn't think of it.
+What's the mind here?
+No.
+Much more important than that. Actually related sometimes.
+So what we missed is the idea that when you attach to the network in 4G, you are actually creating a data network interface between the modem and the network,
+even if the host hasn't seen it yet. So you actually get an IP address, full data setup, communication between the modem and the network in the user plane,
+but the host knows nothing about that. And why did not we catch that? Because most operators didn't really care about that.
+They would allow you to send a blank APN during the touch, and then that was fine for them.
+They would tell you back, which is the APN that you are using. That was one approach.
+The other approach was that the settings used for data connection were actually going to be the same ones as used for attach.
+So you actually, when you kind of connect, you're actually configuring profile number one, which is the one used for attaching Qualcomm.
+There were lots of assumptions happening at the same time.
+There was also no consolidated approach to define these settings in non-protocols.
+The NBIM 1.0 spec did not have a way to specify attach settings.
+And many of the APIs that we developed at that time were based on looking at what NBIM capable modems were doing.
+So there's a use case where this does not work, which is when the settings are different.
+And so in 1.10, we added the support to explicitly specify attach settings.
+This is the case of Verizon, for example, where they have one specific attach APN and one specific date APN.
+So now we were able to say to the network, okay, we want these specific settings for registration,
+and then the network will tell us, then, yeah, you could have those, or you could have like a subset of those.
+You may ask for v4v6 and then only get back physics.
+So that's a very, very common thing that may happen.
+And this was added very late in 1.10, like many years after the 1.0 device API was introduced.
+Another thing that we missed in 1.0 was the support for profile management.
+So right now, up until that moment, the way you connect the modem,
+you specify all the settings that you want in the connection attempt.
+And in 1.18, we added the support to say, we already have a set of profiles,
+maybe even provided by the modem itself, because when you insert the sim card in the modem,
+the modem itself will build, not build,
+but with some carrier-specific settings, with some predefined profiles.
+This is very common in US carriers.
+So you insert the Verizon sim card, the modem boots, with already profiles defined as the way Verizon wants them.
+And then in that case, you can just say, connect profile three, and that's about it.
+So we did miss that.
+We missed some other things, which are maybe not as important as that one.
+Where did we do it?
+So the first API that we defined for 1.0 had multiple PDN connections in mind from the very beginning.
+Even if we did not support them in the same way as it's implemented now,
+at that time, we had modems that would expose two network interfaces at the same time,
+physical network interfaces that we could choose,
+okay, please connect this one to this APN, please connect this other one to this other APN.
+The multi-PDN support that we have right now is based on multiplexing,
+so we can have one single physical network interface,
+but then we can say, okay, I'm going to connect three different PDN connections,
+I'm going to create three different virtual network interfaces.
+And then the host can assign different data flows to each of these PDNs separately,
+because you have three different network interfaces,
+so you can do all the routing logic in the host itself.
+And this very same support was used to support Qualcomm SOC boards with the IPA driver, for example,
+which requires multiplexing by default.
+Now, where are we right now with the 5G support in Modem Manager?
+The picture is very similar as what we had before 1.0 for 4G.
+We just have the way to say that we are using 5G.
+We can say that we are using 5G SA networks if we only expose 5G access technology,
+but we also have the way to say that we are using NSA,
+so we are registered in 4G and we will use a 5G extra-barre when the bandwidth requirements happen.
+And that's about it. We don't have any other 5G-specific feature for now.
+What are we missing?
+So I'm not going to talk about 5G-specific features that apply, for example,
+in the radio interface because Modem Manager does not really care about any of those.
+We only want to be able to support things that the host is aware of,
+and that is completely hidden to the host.
+So one of the things that we are going to try to support is 5G Slicing,
+which is this important word that if you investigate about 5G, it's everywhere.
+So in 4G networks, there is no clear separation between different types of UEs.
+A UE is the combination of host and Modem.
+And so in 4G networks, you don't have any differentiation between different UEs.
+They are all treated in the same way.
+And in 5G, they do define specific types of UEs with different quality of service requirements.
+So you may have a UE that wants to have a bigger bandwidth.
+You may have a UE that wants to have an extreme low latency.
+You may have UEs that may send data to the network once a day or twice a day,
+but they need to be spread across a very big area.
+So in order to support all these different kinds of UEs, 5G introduces the concept of slicing.
+And so with the slicing, you have one single physical network,
+but then it can be logically divided into separate virtual networks.
+Each of them with its own quality of service requirements.
+And the separation, this is very important, goes up to the base station,
+which is something that 4G did not have.
+So imagine this UEs case.
+We have thousands of people here and for them, all of them with a phone,
+and all of them trying to get access to the network.
+There's congestion, there's a lot of radio interference between older devices.
+With 5G, what you gain is that you could have a phone using that slice
+that has a specific base station only for that slice.
+And so you get priority access to the network through this slice.
+And this may happen even with the same PDN.
+So you have one single APN that you want to connect to to the internet.
+You may have different paths from your host to connect to that same APN,
+based on the quality of service requirements that you have.
+Now 5G, as I said, is a logical partition of the physical network.
+And they are defined, they are specified or named by something called single NSS AI.
+It's a really bad name, I think.
+And so how are we going to support this in model manager?
+There are two main things that we need to support.
+One is during the registration, we want to specify which is the slice we want to connect to.
+At the time of registration, and we can't do that.
+And then you may ask for multiple slices, the network will give you back,
+okay, you are allowed to use this, you are not allowed to use this one,
+and you also have available this other one.
+So this is one simple way of binding, for example,
+all the traffic of the system to a single connection, to a single slice.
+This is the case that I told you before, single,
+this is a UI connected to two different slides separately,
+or both of them going to the same internet APN,
+and they use completely different virtual network connections in the operator side
+with different QoS settings.
+The complex way of using URSP rules is by using,
+the complex way of using five-year slices is by using URSP rules,
+in the way that the operator will tell you which is the way that you need to
+route the traffic through that network.
+So they will give you rules, the UI receives the rules,
+in this case the modem will push the rules to the host,
+and then the host needs to make all these separate traffic differentiation
+and move one data flow from one slice and one data flow for another slice.
+The UI should not be capable of deciding by itself which slice to use,
+so because this is mandated by the network,
+and so if you try to use a slice that you are not supposed to use, they may kick you out.
+So that's a way that the network has to control the access to the high privileged slices.
+Any modem manager that supports the slicing will look very much like a multi-PDN connection.
+We will have virtual network interfaces created for each slice, and that is about it.
+There are all the 5G features that we could consider, but I'm going to name them here only.
+So non-GPB access support that's basically accessing the operator network through Wi-Fi,
+for example, you can authenticate to the network through Wi-Fi,
+and then you also have non-IP based 5G connectivity.
+If you have a network connection between machines using different protocols,
+you could virtually create a 5G network connection between them without using the IP protocol.
+Now, how it's going to look like for the next 10 years?
+I think we need to focus on what went right and try to avoid the mistakes that we made
+in 1.0, but we also know the limitations because everything changes, and what is important now
+may not be important at all in 10 years. So the planning needs to be done carefully,
+and actually made it in a way that if in the future you need to change
+cores, then you can do it more or less easily.
+The first thing we should be doing is remove legacy features. A lot of the structure in the
+modern manager code base is based on this logic of having 3GPP devices as a separate
+type of devices. We can remove all that. Same for the ports, plain old telephony system,
+like these dial-up models. We said we would implement them 13 years ago, and we did not
+do anything. I think it's time to say that we're not going to do it. We had enough time to try to
+do it. And then obviously, all the plugins from modems that are very old, we can't remove them.
+There is no point in having them anymore. The focus should be on 4G and 5G modems,
+and on PCI and USB modems that expose the network interface. So we acknowledge that there are other
+types of modems, that is serial modems or USB modems that don't expose the network interface,
+and you can only do 80 plus PPP connections. Those would still be supported, but let's say
+like in live support only, like bare minimum data connections set up, and not thinking about
+adding many features to those as well. For example, not thinking about trying to add 5G
+S-Lacing in those devices. It wouldn't make much sense.
+We may want to have a new API. This API that we are using right now has been mostly untouched.
+We didn't break API into more than 12 years. I think it's time to do some some breakage.
+As I said before, remove interfaces that we don't want, and probably not the same process as we did
+for 1.0. In 1.0, we spent, I spent one year and a half with my branch, until it was mostly ready
+to be launched. I mean, I want to change that. That cannot happen again. I don't have as much
+time as I had that time. So the idea would be to do it progressively and start to add new APIs,
+at least the basic ones, and so on. We will have registration settings as a
+first-class citizen in the APIs. We no longer treat them as something automatic, which is what we do
+right now. We now want to configure 4G-attached LTE settings. We want to configure 5G registration
+slide settings and 7L-over common settings that you may have in the modern, like the manual
+versus automatic settings. All those should go in its own separate API with the idea that in the
+future we may have more. So it should be open to updates in the future.
+Regarding connection management, I think it's time to use profile-based
+connection management as default whenever possible. There are many reasons for this,
+especially when you use carrier settings, where the modern gives you all the settings that you
+need to use. There's no point in trying to add new settings on top of those when you already have them.
+So using profile management is the way to go there, and enable multiplexed connection by default.
+So as I said, the primary modems to use would be the ones that expose the network interface.
+All those allow you to do multiplexing. Most of them allow you to do multiplexing.
+So we should enable that by default.
+This is one of the main things that I would like to change as well. So right now when you have a
+modern detected by modern manager, and it happens to have voice support, even if you're in a laptop
+and does not have any audio connectivity, modern manager will try to configure voice-related
+stuff, call waiting status, all that. It doesn't make any sense to do that if you know that you're
+not going to use it. So let's move that to separate interfaces as they are right now,
+but as a way that you can actively enable that. And if there's any application with the intent of
+using voice capabilities, you can, hey, please, not a manager, enable voice capabilities in the
+modern. Then we will enable all the URCs, all the unsolicited message support, and everything
+that needs to be done to support voice, for example.
+Oh, no, that's another one. Yeah. This is extended to each list. So things that I would love to have,
+even if they are extremely difficult. So we have QMI proxy, NBIM proxy. Why not have an
+80 proxy? Other programs can use 80 commands through modern manager, through the proxy,
+to do other stuff that does not interfere with the modern manager own control.
+So if you could have that, it will allow many applications to use 80 commands as well. Then
+we could move our GNSS location out of modern manager completely as a separate team. There's
+no reason for modern manager to have all this support for configuring AGPS and injecting extra
+files to the GNSS module. We do that because the modern has that. But if we have the proxies in
+place, there would be no reason not to do it out of modern manager. And, yeah,
+draft maybe for binary parsing of messages and all that. That was something that was already
+investigated. And that is all I have to say.
+Thank you very much for this great talk. Do we have any questions in the audience?
+Yeah. Thanks for the good talk. I was wondering how do you test all this? So what is your CI?
+So in Chrome OS, we have a lot of automatic testing for the moderns that we use. So I do rely a lot
+about that. Like when I joined Google, I found that there were a lot of information metrics about
+crashes and things, back traces. I was like, I need to fix all this. But I do rely also on my own
+testing. I do have a home network, a home LTE network with SLSLT, open 5G, as I have my own SIM cards.
+And that allows me to do a lot of testing that otherwise I would not be able to do.
+Because all the slicing stuff that also is very core network dependent?
+Yes. So you might run into problems. Oh, yeah. I know many operators are doing pilots and
+like private pilots. I do some open ones. I think also in the US, T-Mobile is doing it.
+But for example, for a 5G slicing, I think that my home network is enough for this kind of testing.
+Thanks. Next question from the back.
+Hi. I'm debugging voice calls from my device. And from what the manager I see messages like gained,
+audio, lost audio. And I have no idea what happens after that. And whenever I try to...
+So how do you use 80 commands to control the modern?
+No, it does it by itself. When I'm trying to get to the bottom of what's going on in the code,
+I only see interfaces behind interfaces behind interfaces. But where can I find the actual
+code that makes the audio? Like where should I look? Is there a problem?
+So modern manager is only in charge of starting the code and hanging up the code. That's all
+accepting an incoming call. Nothing audio related. I mean, modern manager knows absolutely nothing.
+About the audio path. You know, who is responsible for getting the audio?
+It depends on the platform, of course. So if you're using Libre and Firephone or something like that,
+then you may need to talk to them. Thank you.
+Thanks. There was a question from the matrix apparently. I'm rushing to the matrix.
+So somebody's asking, can we anticipate 6G features such as sharing machine learning
+data for connection optimization? I have no idea about any of that. I'm still in 5G. Maybe in 10
+years we will talk about. Same talk for 6 years. You talked about REST for the protocol parsing
+and how there's already been experiments. And it's on your wish list. So I assume those experiments
+are somewhat successful. Can you talk any more about what those experiments are?
+So not much. I mean, it's useful. I think it's very useful. And I still keep finding bugs. For
+example, in the 3GPP PTU parsing, which we wrote 10 years ago. And there are still bugs there.
+Nasty memory related bugs. So REST is very promising in that regard.
+Cool. Thanks.
+One more question. And I'm back.
+Thanks for the talk. So the question regarding the AT proxy. With all the possible vendor
+crap, etc. So how do you plan to define if the comment is going to interfere with
+model manager or not? So is it going to be a low by default or is it going to be for be by default?
+So that's why we don't have a proxy yet. That's the main reason. Especially because
+model manager handles a lot of crap that manufacturers push in the AT port. So the idea would be to,
+in the same way that model manager disables a lot of URCs that knows that may happen,
+the proxy could do the same. And so we could still need to work with known URCs as they happen
+in the world. But I hope that manufacturers will start to use other things than AT at some point
+in 20 years. Give a round of applause for Alexander.

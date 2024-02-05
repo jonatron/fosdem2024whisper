@@ -1,0 +1,1085 @@
+WEBVTT
+
+00:00.000 --> 00:09.520
+I'm going to talk about using Go.
+
+00:09.520 --> 00:13.440
+What is important when you use Go is dependency management.
+
+00:13.440 --> 00:17.880
+You cannot write a program these days without depending on something.
+
+00:17.880 --> 00:18.880
+Dylan is a co-worker of mine.
+
+00:18.880 --> 00:19.880
+We work on Cillium together.
+
+00:19.880 --> 00:23.120
+He's going to talk about anything to do with dependency management.
+
+00:23.120 --> 00:28.120
+So run of applause.
+
+00:28.120 --> 00:31.120
+Hey everyone.
+
+00:31.120 --> 00:33.120
+Thanks for coming.
+
+00:33.120 --> 00:35.520
+So dependency injection.
+
+00:35.520 --> 00:38.280
+Before we start, a little introduction.
+
+00:38.280 --> 00:39.960
+Already got one technically.
+
+00:39.960 --> 00:40.960
+My name is Dylan Reimering.
+
+00:40.960 --> 00:44.800
+I work at Isovalent on the foundations and the loader team.
+
+00:44.800 --> 00:49.040
+So we're responsible for basically doing dependent or a lot of changes that I'm going
+
+00:49.040 --> 00:52.840
+to talk about within the Cillium project.
+
+00:52.840 --> 00:53.840
+You can find my get up there.
+
+00:53.840 --> 00:56.560
+In case you find anything interesting.
+
+00:56.560 --> 00:57.560
+I don't know.
+
+00:57.560 --> 00:58.560
+You never see.
+
+00:58.560 --> 00:59.560
+You never know.
+
+00:59.560 --> 01:05.200
+So before we dive into the dependency injection, why, how it works, what it is for those who
+
+01:05.200 --> 01:12.800
+don't know, a little journey about why I'm here, why I'm talking about this and how I
+
+01:12.800 --> 01:14.080
+got here.
+
+01:14.080 --> 01:17.800
+So what is Cillium?
+
+01:17.800 --> 01:20.120
+Cillium is a CNI.
+
+01:20.120 --> 01:23.720
+So it's long, long talk short.
+
+01:23.720 --> 01:26.480
+We use EBPF to do networking in EBPF.
+
+01:26.480 --> 01:31.200
+We secure it and we make sure that you can see what's going on.
+
+01:31.200 --> 01:34.760
+And that actually involves a lot of components.
+
+01:34.760 --> 01:40.920
+So this is our nice visual about a lot of the different features and we actually have way
+
+01:40.920 --> 01:44.080
+more that wouldn't even fit on the slide.
+
+01:44.080 --> 01:51.040
+You can imagine that with a lot of components that we get quite a large application.
+
+01:51.040 --> 01:57.040
+I checked and we are currently the third most active project on the CNCF.
+
+01:57.040 --> 02:01.840
+We have, I think, so again last time I checked this is like a month ago.
+
+02:01.840 --> 02:09.320
+We have 650,000 lines of code that are not the vendor directory.
+
+02:09.320 --> 02:14.680
+So we have a big code base, a lot of things that happen, which also means that we have
+
+02:14.680 --> 02:18.080
+a lot of dependencies.
+
+02:18.080 --> 02:24.120
+So to illustrate that, I picked one of the features that I personally worked a lot on,
+
+02:24.120 --> 02:26.480
+which is called the Alto announcer.
+
+02:26.480 --> 02:31.560
+And it's a little feature in Cillium that basically makes sure that certain IP addresses
+
+02:31.560 --> 02:36.000
+are reachable in the local network via ARP.
+
+02:36.000 --> 02:40.120
+So both gratuitous ARP and responding.
+
+02:40.120 --> 02:47.840
+So we have like the big Alto announcer block there, which contains most of the business
+
+02:47.840 --> 02:52.560
+logic, but all of the other things are dependencies.
+
+02:52.560 --> 02:59.400
+So all the way to top, we have, in the white still, are our external dependencies.
+
+02:59.400 --> 03:04.000
+So we have to create ports.
+
+03:04.000 --> 03:10.040
+We set up, we get environments, configuration, standard outputs, et cetera.
+
+03:10.040 --> 03:13.080
+Those are connected to our infrastructure layer.
+
+03:13.080 --> 03:18.080
+So our infrastructure layer does all of the things that are really common in the application,
+
+03:18.080 --> 03:21.360
+logging, metrics, configuration, da, da, da, da.
+
+03:21.360 --> 03:25.520
+And then we get to the orange layer, which is our control plane.
+
+03:25.520 --> 03:27.960
+And there are abstract business logic happens.
+
+03:27.960 --> 03:32.480
+So this business logic gets go objects, and it also writes go objects.
+
+03:32.480 --> 03:37.120
+It's all pure go world, and it doesn't have to care mostly about all the things.
+
+03:37.120 --> 03:41.960
+And then we go down to our data path, where the translations happens from this perfect
+
+03:41.960 --> 03:49.720
+abstract world into the real world, which in turn often means, for our case, that we
+
+03:49.720 --> 03:56.160
+talk to the kernel via net link, ebpf, maps, raw sockets, et cetera.
+
+03:56.160 --> 04:02.440
+So we have to, but for this one, for my big component to be able to work, I basically
+
+04:02.440 --> 04:08.160
+need all of this to exist, at least in production.
+
+04:08.160 --> 04:15.080
+So I went back to 111, which is before we started working on dependency injection in
+
+04:15.080 --> 04:22.200
+Cilium, and looked at what does initialization look like at that point.
+
+04:22.200 --> 04:23.800
+So we have our main program.
+
+04:23.800 --> 04:25.040
+We could call into Cobra.
+
+04:25.040 --> 04:27.080
+This is common, hopefully.
+
+04:27.080 --> 04:29.640
+We go into our run function.
+
+04:29.640 --> 04:32.840
+It starts up three components.
+
+04:32.840 --> 04:37.240
+It initializes the environment, where we already have 50 components.
+
+04:37.240 --> 04:42.120
+Then we call something called run daemon, which has 50 components spread both before
+
+04:42.120 --> 04:43.680
+and after the new daemon.
+
+04:43.680 --> 04:50.600
+And then in our new daemon constructor, we actually create at least 150 components.
+
+04:50.600 --> 04:54.520
+I started counting, or stopped counting, sorry.
+
+04:54.520 --> 05:02.280
+So we have a lot of components, but they all have to somehow wire into each other.
+
+05:02.280 --> 05:09.640
+And at some point, the development team decided is that we are going for sort of hub-nispoke
+
+05:09.640 --> 05:12.120
+model because we had so many components.
+
+05:12.120 --> 05:18.120
+We had this big daemon, which was our hub, and it had pointers to almost all components.
+
+05:18.120 --> 05:19.120
+And then it's easy.
+
+05:19.120 --> 05:22.800
+You only have to give the daemon to everything, and then via the daemon, you can find every
+
+05:22.800 --> 05:24.200
+other component.
+
+05:24.200 --> 05:30.040
+So it was, but that becomes a real mess because when is this pointer nil, when is it not,
+
+05:30.040 --> 05:31.360
+et cetera.
+
+05:31.360 --> 05:36.920
+So I started looking into this new daemon function, like what is this about.
+
+05:36.920 --> 05:38.840
+And then you'll see a pattern.
+
+05:38.840 --> 05:40.440
+You don't have to read everything.
+
+05:40.440 --> 05:43.520
+So we initialize this before we're creating this.
+
+05:43.520 --> 05:46.960
+We must close this before we open that.
+
+05:46.960 --> 05:49.960
+This must be done before we start identity allocation.
+
+05:49.960 --> 05:54.600
+IP cache must be done after the initialization below.
+
+05:54.600 --> 05:55.600
+This must be read.
+
+05:55.600 --> 05:56.600
+You said after this happened.
+
+05:56.600 --> 05:59.880
+So we discussed some for a while.
+
+05:59.880 --> 06:08.760
+So at some point, so at this slide, I'm at sort of the first snippets that 350 about.
+
+06:08.760 --> 06:10.480
+And then I basically, I stopped.
+
+06:10.480 --> 06:13.120
+So I just scrolled down at that point.
+
+06:13.120 --> 06:15.400
+My point was made.
+
+06:15.400 --> 06:20.440
+In the last reference I found something like before, do this before, do this after was
+
+06:20.440 --> 06:22.940
+at 718.
+
+06:22.940 --> 06:29.240
+But what is perhaps interesting to note is that this top snippet is basically a sort
+
+06:29.240 --> 06:30.240
+of defer.
+
+06:30.240 --> 06:36.320
+So it talks about cleanup instead of initialization, which is also a really big thing that we have.
+
+06:36.320 --> 06:42.520
+So to summarize the problem that we were facing at this point in development.
+
+06:42.520 --> 06:47.800
+So we have a lot of dependencies, but this is just inherent to the product that we're
+
+06:47.800 --> 06:49.000
+making.
+
+06:49.000 --> 06:50.920
+Just nothing to do about that.
+
+06:50.920 --> 06:57.640
+What we can do something about and what is a lot of the source of the pain are these
+
+06:57.640 --> 06:58.960
+implicit dependencies.
+
+06:58.960 --> 07:08.160
+So we have dependencies on global variables, these very big objects or system states, which
+
+07:08.160 --> 07:14.760
+require us to use comments to tell our other developers which how our dependencies work.
+
+07:14.760 --> 07:21.160
+So our dependencies are all implicit in this state, which makes things really hard to modify.
+
+07:21.160 --> 07:28.040
+Like when I started and I created a component, it broke CI, it broke everything.
+
+07:28.040 --> 07:29.560
+I couldn't figure out why.
+
+07:29.560 --> 07:34.560
+And it turned out that I had to move it up a few hundred lines in the initialization
+
+07:34.560 --> 07:41.720
+or down in some cases to make sure that everything that I needed or implicitly dependent on
+
+07:41.720 --> 07:42.720
+was there.
+
+07:42.720 --> 07:47.400
+So it's really hard and it really destroys confidence.
+
+07:47.400 --> 07:50.440
+It's hard to shut this application down at least correctly.
+
+07:50.440 --> 07:56.000
+You can kill the application, sure, but then open files are not saved.
+
+07:56.000 --> 08:00.520
+And if you are running end-to-end tests or anything like it, then you need to make sure
+
+08:00.520 --> 08:02.000
+that all your resources are cleaned up.
+
+08:02.000 --> 08:08.360
+So the next time you start, you are not blocking other things.
+
+08:08.360 --> 08:12.320
+So this was really hard and it made it really hard to test because if I wanted to test my
+
+08:12.320 --> 08:21.640
+L2 announcer, I had to recreate all of this additional infrastructure a lot of the time,
+
+08:21.640 --> 08:29.760
+even if I had interfaces because some dependencies were still problematic or whatever.
+
+08:29.760 --> 08:37.600
+So for us, we started looking into solutions and this led us to dependency injection for
+
+08:37.600 --> 08:39.280
+a few reasons.
+
+08:39.280 --> 08:46.000
+So before I go deeper, for the ones for people that don't know, dependency injection is basically
+
+08:46.000 --> 08:51.960
+a way to instead of explicitly initializing your project, so basically having a very big
+
+08:51.960 --> 08:59.520
+main file, you define your components and you explicitly define what their dependencies
+
+08:59.520 --> 09:00.520
+are.
+
+09:00.520 --> 09:04.400
+And then you can have some component, in this case I call it a graph builder but it's
+
+09:04.400 --> 09:12.280
+basically the name of your framework that you use to actually initialize that and you
+
+09:12.280 --> 09:17.440
+hand off the job of correctly initializing your application, you hand it off to some
+
+09:17.440 --> 09:18.440
+piece of software.
+
+09:18.720 --> 09:21.720
+We know software never has problems or bugs.
+
+09:21.720 --> 09:28.440
+But in all honesty, so this is actually quite popular pattern in other languages like Java,
+
+09:28.440 --> 09:35.960
+C sharp, PHP, but we don't see it that often in Go projects.
+
+09:35.960 --> 09:43.400
+So the only thing that is required for this to work is that you always, or at least work
+
+09:43.400 --> 09:50.480
+correctly, is that you specify your dependencies explicitly, so as arguments to a constructor
+
+09:50.480 --> 09:53.280
+function.
+
+09:53.280 --> 09:59.840
+So what I would like to introduce to you is the Uber FX library, so it's made and maintained
+
+09:59.840 --> 10:01.840
+by Uber.
+
+10:01.840 --> 10:07.680
+Originally developed by Glipp, who is now actually a colleague of mine, which is why
+
+10:07.680 --> 10:11.200
+how we got into this library.
+
+10:11.200 --> 10:17.160
+It's really well battle tested and I'm going to show you how it works and what this looks
+
+10:17.160 --> 10:18.160
+like.
+
+10:18.160 --> 10:23.520
+But what's important to know is that it is an, as is the Penesy injection library.
+
+10:23.520 --> 10:28.400
+The Penesy injection libraries might not all work for your use case, it didn't for us.
+
+10:28.400 --> 10:35.360
+So we actually, if you were to look at Cilium today, we actually use our own custom flavored
+
+10:35.360 --> 10:42.000
+framework, build on dig, which is basically the underlying library under FX.
+
+10:42.000 --> 10:47.320
+But FX is if you go ahead and first try something, then FX is your starting point.
+
+10:47.320 --> 10:51.360
+And this actually solved most of, like it was made to solve a lot of the problems we
+
+10:51.360 --> 10:59.320
+had, not only for this initialization issue, but also because we have a lot of binaries
+
+10:59.320 --> 11:04.640
+in a big mono repo, so it also allows for really good reuse, which is, as far as I understand
+
+11:04.640 --> 11:09.520
+it, where Uber first started.
+
+11:09.520 --> 11:17.240
+So to explain this, I first created a very, very small application.
+
+11:17.240 --> 11:21.120
+Normally you wouldn't use dependency injection on such a small application.
+
+11:21.120 --> 11:24.320
+So we just have a simple web server.
+
+11:24.320 --> 11:30.240
+And this is, I why, for example, might have, might write this without dependency injection.
+
+11:30.240 --> 11:34.840
+So if a main, we construct everything, link everything together, call server.serve, and
+
+11:34.840 --> 11:36.720
+we're done.
+
+11:36.720 --> 11:40.720
+So this is nice and short.
+
+11:40.720 --> 11:46.240
+So when we do dependency injection, we have to be a bit more formal.
+
+11:46.240 --> 11:50.640
+So I defined a new listener, a new logger, and a new server.
+
+11:50.640 --> 11:54.160
+My listener and logger at this moment don't have any dependencies.
+
+11:54.160 --> 11:59.240
+I could give them configuration or something else, but that wouldn't fit on the slides.
+
+11:59.760 --> 12:06.080
+And the server takes both of these and constructs itself.
+
+12:06.080 --> 12:11.440
+So we defined everything, what everything needs, and then on the top left in our main,
+
+12:11.440 --> 12:17.000
+we say we create a new effects application, and we provide the listener and the logger,
+
+12:17.000 --> 12:24.000
+and we invoke the server, because if you recall, the server was, the serve function was the
+
+12:24.000 --> 12:27.520
+thing that we were interested in, that we called.
+
+12:27.520 --> 12:31.480
+In practice, what this does is the invokes are basically your entry points.
+
+12:31.480 --> 12:39.040
+So and the library will look for all dependencies of that, of that entry point.
+
+12:39.040 --> 12:44.800
+So you could, for example, create a very big graph and have multiple entry points or remove
+
+12:44.800 --> 12:49.000
+entry points depending on, call different entry points depending on, for example, commands
+
+12:49.000 --> 12:51.080
+in your, in your binary.
+
+12:51.080 --> 12:54.920
+And then it will only construct and start your dependencies that you need.
+
+12:54.920 --> 12:59.840
+So it also does a little bit of that code elimination implicitly.
+
+12:59.840 --> 13:05.120
+And then you call the run, which actually wouldn't do anything in this example.
+
+13:05.120 --> 13:08.560
+So I'm sorry, because the serve is not called.
+
+13:08.560 --> 13:12.560
+So this would start and it would construct everything, but nothing extra would actually
+
+13:12.560 --> 13:14.480
+happen.
+
+13:14.480 --> 13:19.160
+For that, FX has something called life cycles, which are really useful.
+
+13:19.160 --> 13:22.840
+So we, the last slide talked about the construct time.
+
+13:22.840 --> 13:28.680
+So when we construct our graph and then when we run it, the life cycle gets invoked.
+
+13:28.680 --> 13:33.000
+So what we can do is we give this, we say, okay, the server is now dependent on a life
+
+13:33.000 --> 13:34.320
+cycle.
+
+13:34.320 --> 13:42.080
+And within the constructor, we, we tell the life cycle, okay, I can, I have some, something
+
+13:42.080 --> 13:45.560
+while, while I'm alive, I want to do something.
+
+13:45.560 --> 13:49.600
+So I have an on stop and an on, on, on start and on stop hook.
+
+13:49.600 --> 13:54.120
+And when I start, I want to start a go routine and serve out whatever I do.
+
+13:54.120 --> 13:58.440
+And when I stop, I want to shut down, which is something that my initial program didn't
+
+13:58.440 --> 14:03.440
+even do, do a proper shutdown of the, of the HTTP server.
+
+14:03.440 --> 14:12.480
+So when, when it's, it's a little bit hard to like show that in the original example.
+
+14:12.480 --> 14:18.200
+So I threw together a very small sample that still fit on the slide, which is important
+
+14:18.200 --> 14:19.200
+here.
+
+14:19.200 --> 14:22.360
+So I have ABC and they basically all depend on each other.
+
+14:22.360 --> 14:24.360
+So it's a very deep dependency chain.
+
+14:24.360 --> 14:28.560
+And then I have this print function, which you can decipher later, but it basically,
+
+14:28.560 --> 14:30.200
+I call it in every constructor.
+
+14:30.200 --> 14:34.440
+It's both prints at that time and it prints in the life cycle hooks.
+
+14:34.440 --> 14:36.080
+So you can see what happens.
+
+14:36.080 --> 14:40.040
+And when I would were to run this program, the output would be something like this.
+
+14:40.040 --> 14:45.400
+So it says, A is constructed, B is constructed, C is constructed, because that's the order
+
+14:45.400 --> 14:52.160
+in which the, so, so we have all the dependencies there when we are, but it's just some construction.
+
+14:52.160 --> 14:56.840
+Then the start hooks are called in the exact same order as we constructed them.
+
+14:56.840 --> 15:03.120
+So if you have dependencies, for example, A opened the file and we need that file to
+
+15:03.120 --> 15:06.480
+be open because B will start calling things in this life cycle.
+
+15:06.480 --> 15:12.360
+And we know that the, that the start hook of A is always called before any of its dependencies
+
+15:12.360 --> 15:14.600
+get time to run.
+
+15:14.600 --> 15:20.080
+And then when we stop the application, we control C or something else happens, we shut
+
+15:20.080 --> 15:21.080
+down.
+
+15:21.080 --> 15:24.960
+But the nice thing is, is we automatically shut down in the exact opposite order, just
+
+15:24.960 --> 15:30.240
+like you would add the first somewhere, but it's at the application level.
+
+15:30.240 --> 15:35.680
+And this allows you to do proper shutdown, write your files away, do everything else.
+
+15:35.680 --> 15:41.880
+And you also know that you, because you depend on everything else, that you get the first
+
+15:41.880 --> 15:48.200
+chance to shut down properly and no one will call into you after that, because, in their
+
+15:48.200 --> 15:51.560
+shutdown functions, because they don't have references to you.
+
+15:51.560 --> 15:56.880
+They are not your, you depend on everything else.
+
+15:56.880 --> 15:58.600
+There's also a nice feature called groups.
+
+15:58.600 --> 16:00.200
+There are actually quite a bit of features.
+
+16:00.200 --> 16:04.760
+I couldn't touch on everything because of time constraints, but this one is nice for,
+
+16:04.760 --> 16:09.120
+for a small section of problems.
+
+16:09.120 --> 16:10.120
+And it's called a group.
+
+16:10.120 --> 16:13.080
+What you can do is, so I actually use two features.
+
+16:13.080 --> 16:16.240
+I use the effects in and effects out feature.
+
+16:16.240 --> 16:20.920
+And it basically allows you to, to return multiple dependencies from a constructor or
+
+16:20.920 --> 16:23.440
+take multiple dependencies in a nice way.
+
+16:23.440 --> 16:29.280
+So I can, for example, have a parameter structure that takes in 20 different dependencies and
+
+16:29.280 --> 16:32.840
+don't have to spell them all out separately in my arguments.
+
+16:32.840 --> 16:35.000
+And I can also return multiple things.
+
+16:35.000 --> 16:42.160
+Crucially, in my case, I can specify group names to basically route outputs from one,
+
+16:42.160 --> 16:46.160
+from an output, from, from one place to another.
+
+16:46.160 --> 16:48.240
+And in this case, I created a mox.
+
+16:48.240 --> 16:56.240
+And this mox collects all of the mox handle, mox handle objects that are there.
+
+16:56.240 --> 16:59.840
+And I have a foo and a bar and they both admit their own thing.
+
+16:59.840 --> 17:05.400
+And they are collected by, they are collected by this, by this mox which we could, could
+
+17:05.400 --> 17:07.600
+give to, to a server.
+
+17:07.600 --> 17:12.840
+And the cool thing about this is that you, you have this once.
+
+17:12.840 --> 17:18.480
+And you can then add a lot of additional, you can add a lot of additional parts to the,
+
+17:18.480 --> 17:20.080
+to your whole application.
+
+17:20.080 --> 17:23.880
+And it all collects as an array into this group.
+
+17:23.880 --> 17:24.880
+There's some caveats.
+
+17:24.880 --> 17:26.600
+I'll come to that in a bit.
+
+17:26.600 --> 17:33.600
+So under the hood, how this works, very simplified, is we have our definitions.
+
+17:33.600 --> 17:38.560
+At least effects and dig use reflection to then look at the parameters and then based
+
+17:38.560 --> 17:45.320
+on the types, it creates a directional acyclic graph.
+
+17:45.320 --> 17:50.360
+And that graph can then be walked to get the, to get that correct ordering.
+
+17:50.360 --> 17:55.520
+So there is a small bit of magic there and it's called reflection, but it's not much.
+
+17:55.520 --> 18:00.080
+Like it's quite understandable if you actually go dive into, into how something like this
+
+18:00.080 --> 18:01.240
+works.
+
+18:01.240 --> 18:05.400
+And then again, the constructors to start and stop are called in that, in that determined
+
+18:05.400 --> 18:07.200
+order by the deck.
+
+18:07.200 --> 18:10.640
+It also means that you can't have cyclical dependencies.
+
+18:10.640 --> 18:12.400
+That's, that's a no, no.
+
+18:12.400 --> 18:18.320
+So it's a good reason to remove those from your code as well.
+
+18:18.320 --> 18:25.500
+So I would like to share with you in case you want to try this, try dependency injection.
+
+18:25.500 --> 18:31.180
+Some tips, tricks and lessons we learned because there are, there's a good way to do this and
+
+18:31.180 --> 18:34.900
+there's definitely also bad ways to do this.
+
+18:34.900 --> 18:40.060
+So inject, but in moderation.
+
+18:40.060 --> 18:43.460
+So not everything has to be a component.
+
+18:43.460 --> 18:46.420
+For example, math libraries are stateless.
+
+18:46.420 --> 18:51.420
+There's no reason why you would make that a component as like a dependency in this system
+
+18:51.420 --> 18:58.260
+because you can just, you can just use them and they are pure functions, etc.
+
+18:58.260 --> 19:05.460
+So my rule of thumb is if it has states, make it, make it a dependency because then you
+
+19:05.460 --> 19:08.520
+benefit from all of the state specific things.
+
+19:08.520 --> 19:13.420
+But if you have libraries that don't use state, please don't make it harder than it has to
+
+19:13.420 --> 19:14.700
+be.
+
+19:14.700 --> 19:22.060
+And also a note of inject, but in moderation is that we saw that doing dependency injection
+
+19:22.060 --> 19:27.180
+adds a lot of boilerplate, which is worth it in very, very big applications or even
+
+19:27.180 --> 19:29.420
+moderate applications, I would say.
+
+19:29.420 --> 19:36.500
+But it's likely not for your small CLI tool or whatever.
+
+19:36.500 --> 19:45.540
+So pick, this is really a technique for medium to larger projects.
+
+19:45.540 --> 19:47.740
+When you do this, pick logical boundaries.
+
+19:47.740 --> 19:54.100
+So we, for example, we started and then made 20 cells within the same package and then
+
+19:54.100 --> 19:59.620
+no one outside the package actually ended up using those cells, which is massive amounts
+
+19:59.620 --> 20:02.660
+of complexity and overhead is just not necessary.
+
+20:02.660 --> 20:11.940
+In my experience using packages as logical boundaries for these components is the best
+
+20:11.940 --> 20:16.420
+thing to do because you can also leverage what types I export, which type, because you
+
+20:16.420 --> 20:21.940
+can export, you can provide something and not export that type, for example, and then only
+
+20:21.940 --> 20:25.540
+export an interface that matches it or whatever.
+
+20:25.540 --> 20:31.620
+So that's a really powerful combination.
+
+20:31.620 --> 20:36.660
+So and the last thing to note is that one of the other features that I wasn't able to
+
+20:36.660 --> 20:40.700
+show you because of time constraints is FX options.
+
+20:40.700 --> 20:47.700
+So FX options is really cool because it allows you to basically take multiple of these components
+
+20:47.700 --> 20:50.380
+and bundle them under a single variable.
+
+20:50.380 --> 21:01.540
+So while global variables are big no-no's when doing this, you can still use them or
+
+21:02.020 --> 21:09.900
+you can use a variable, global variable on your package to export these constructors.
+
+21:09.900 --> 21:13.380
+And the nice thing there is you can make a sort of hierarchy.
+
+21:13.380 --> 21:17.820
+So if you have a package hierarchy that's three layers deep, you can basically reflect
+
+21:17.820 --> 21:18.820
+that.
+
+21:18.820 --> 21:24.020
+So in your main application you don't have to list 200 constructors all separately.
+
+21:24.020 --> 21:30.540
+So that also really helps with readability, seeing where what is provided and so on.
+
+21:30.740 --> 21:34.860
+Provide targeted interfaces.
+
+21:34.860 --> 21:38.460
+So go idioms still apply.
+
+21:38.460 --> 21:44.060
+The smaller your interface is, the more powerful it is, the better you can swap it out.
+
+21:44.060 --> 21:50.340
+So when I provide a very small interface or when I depend on the smallest interfaces
+
+21:50.340 --> 21:56.220
+I can, and it's really easy for me to mock out in my test, create a new FX app, only
+
+21:56.220 --> 22:00.980
+provide the direct dependencies which are interfaces which I can then mock out and
+
+22:00.980 --> 22:03.300
+it makes everything really nice.
+
+22:03.300 --> 22:09.380
+So this is general advice, not for dependency injection but like it goes hand in hand.
+
+22:09.380 --> 22:14.540
+If you have dependency injection and don't do this then it takes away a lot of the benefits
+
+22:14.540 --> 22:20.060
+you would otherwise get.
+
+22:20.060 --> 22:27.060
+So it also makes it easy to rely on external, for external components to not rely on internal
+
+22:27.060 --> 22:28.700
+implementation.
+
+22:28.700 --> 22:35.900
+So when I export something or when I provide a component I always try to provide it as
+
+22:35.900 --> 22:38.460
+an interface as well.
+
+22:38.460 --> 22:41.620
+And the last thing which is more of a trick is you can actually, if you for example have
+
+22:41.620 --> 22:47.220
+a struct, that struct can implement multiple, so instead of having one interface that implements
+
+22:47.220 --> 22:57.780
+three methods I can provide it as three separate interfaces that implement three separate methods.
+
+22:57.780 --> 23:04.100
+And that way you can, you have both on the receiving and the sending side of your dependency,
+
+23:04.100 --> 23:11.340
+you have the smallest possible interface again to help with mocking out but also so if you
+
+23:11.340 --> 23:18.260
+don't use certain methods that you don't have to like write fake methods that panic
+
+23:18.260 --> 23:22.540
+if you were to call them etc.
+
+23:22.540 --> 23:27.620
+I mentioned groups and they are really powerful but go easy on them.
+
+23:27.620 --> 23:33.540
+Groups are really only ever useful if you have multiple parties that are interested in the
+
+23:33.540 --> 23:37.260
+same list of objects.
+
+23:37.260 --> 23:43.540
+So for example we have metrics, so we have a Permetheus metrics registry which collects
+
+23:43.540 --> 23:46.340
+all of the metrics to actually use them.
+
+23:46.340 --> 23:52.020
+But we also have tooling that automatically generates documentation about these metrics
+
+23:52.020 --> 23:58.020
+and I can write a very small CLI tool that basically just with one component that depends
+
+23:58.020 --> 24:04.260
+on all hooks or all metrics that we have defined in our application and I collect all of them
+
+24:04.260 --> 24:10.580
+automatically and everyone who uses who registers a new metric it automatically appears in this
+
+24:10.580 --> 24:11.580
+metrics tool.
+
+24:11.580 --> 24:15.900
+So it's really great and the same goes for our configuration HTTP elements which will
+
+24:15.900 --> 24:22.780
+also have configuration for or sometimes CLI tools which live want to interact with the
+
+24:22.780 --> 24:26.140
+same things.
+
+24:26.140 --> 24:32.580
+The alternative to using groups is to just use like a registry pattern where you say
+
+24:33.020 --> 24:38.020
+I provide a registry, it just has a registry pattern and everyone else, so if I have 20
+
+24:38.020 --> 24:42.420
+other components I can depend on that and I can register myself during construction
+
+24:42.420 --> 24:44.540
+time.
+
+24:44.540 --> 24:51.180
+And the upside of doing that is that you can, like if you use FreeScope for example or any
+
+24:51.180 --> 24:54.620
+decent editor is that you can follow those traces back.
+
+24:54.620 --> 24:59.300
+So you can always use references to see who actually uses what.
+
+24:59.420 --> 25:02.740
+With groups it's all magic.
+
+25:02.740 --> 25:06.780
+Something everything goes into this group and it comes out but it's not clear.
+
+25:06.780 --> 25:12.780
+You can't trace that back in the code itself without having difficulties.
+
+25:16.260 --> 25:18.820
+Stay with a static graph when possible.
+
+25:18.820 --> 25:24.140
+So you can, with this FX application you can in theory like depending on configuration
+
+25:24.140 --> 25:28.940
+provide or not provide components.
+
+25:28.980 --> 25:35.980
+We have opted in Cilium to never do this because it makes it completely impossible to verify
+
+25:37.180 --> 25:42.620
+that you never have missing dependencies or other problems like circular, the references
+
+25:42.620 --> 25:46.700
+and there are certain combinations.
+
+25:46.700 --> 25:53.020
+The graphs are verified at runtime so you have to have a good CI to run everything, make
+
+25:53.020 --> 25:56.500
+sure that it works.
+
+25:56.540 --> 26:01.940
+What you can do instead is use this life cycle and so you always have the objects but then
+
+26:01.940 --> 26:06.260
+you can always choose if they do or do not subscribe to the life cycle and that way you
+
+26:06.260 --> 26:11.220
+can enable or disable certain logic if you don't want to run it at that time but always
+
+26:11.220 --> 26:13.900
+provide it.
+
+26:13.900 --> 26:14.900
+And that was it.
+
+26:14.900 --> 26:15.900
+Thank you very much.
+
+26:15.900 --> 26:16.900
+Thank you.
+
+26:16.900 --> 26:19.060
+I have time for one question.
+
+26:19.060 --> 26:23.700
+I see a hand there.
+
+26:23.900 --> 26:27.060
+I'll quickly come over and hand to the microphone.
+
+26:27.060 --> 26:32.780
+If you are exiting already do it quietly please.
+
+26:32.780 --> 26:38.980
+What can you make choose, dig and FX instead of Google OIR which is more popular for example?
+
+26:38.980 --> 26:46.100
+So like I mentioned, colleague of mine, Glyb, authored it so it was very, we were very quick
+
+26:46.100 --> 26:49.740
+to jump on that one he suggested using the library.
+
+26:49.780 --> 26:56.700
+So it's purely advertisements.
+
+26:56.700 --> 26:57.700
+Thank you.
+
+26:57.700 --> 26:57.900
+Any questions?
+

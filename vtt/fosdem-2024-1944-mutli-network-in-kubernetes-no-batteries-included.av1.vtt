@@ -1,0 +1,692 @@
+WEBVTT
+
+00:00.000 --> 00:11.800
+Check one two, check one two, all right.
+
+00:11.800 --> 00:17.280
+Thank you everybody for coming to our talk about multi-network in Kubernetes and how
+
+00:17.280 --> 00:19.800
+there are no batteries included.
+
+00:19.800 --> 00:21.120
+My name is Doug Smith.
+
+00:21.120 --> 00:28.200
+I'm a maintainer of Multis CNI, which is a multi-networking plugin and also part of a
+
+00:28.200 --> 00:31.800
+working group related to it and I'm joined by Miguel.
+
+00:31.800 --> 00:32.800
+I'm Miguel Duarte.
+
+00:32.800 --> 00:40.760
+I'm a software engineer working for Red Hat, particularly in the OpenShift Virtualization
+
+00:40.760 --> 00:42.040
+Networking Team.
+
+00:42.040 --> 00:47.000
+I'm also a member of the Network Blumbers workgroup and yeah, sometimes work with Doug
+
+00:47.000 --> 00:48.600
+on this kind of stuff.
+
+00:48.600 --> 00:49.600
+Awesome.
+
+00:49.600 --> 00:55.960
+So, we've got to rip through this pretty rapidly and it's a pretty complex problem space,
+
+00:55.960 --> 00:58.640
+but we're going to run you through it as quick as we can.
+
+00:58.640 --> 01:05.120
+So we're going to look at what exactly multi-networking is in Kubernetes and kind of show you what
+
+01:05.120 --> 01:08.160
+the problem is that we're looking at.
+
+01:08.160 --> 01:15.800
+There's also kind of like current set of solutions and then also future solutions that we're
+
+01:15.800 --> 01:17.320
+looking at as well.
+
+01:17.320 --> 01:24.400
+And even if you're not necessarily interested in the multi-networking problems in Kubernetes,
+
+01:24.400 --> 01:30.160
+we kind of hope that you're going to be interested in sort of the problems that we've identified
+
+01:30.160 --> 01:35.120
+that we think are really common to a lot of engineering problems in general and especially
+
+01:35.120 --> 01:38.200
+for open source communities.
+
+01:38.200 --> 01:44.720
+We also have a demo for you to watch at home because we have some short time.
+
+01:44.720 --> 01:51.200
+So the first question we should be asking is exactly what is multi-networking in Kubernetes.
+
+01:51.200 --> 01:58.600
+So the thing is it kind of isn't because it's not something that Kubernetes actually
+
+01:58.600 --> 02:00.040
+is interested in solving.
+
+02:00.040 --> 02:01.240
+What do I mean by this?
+
+02:01.240 --> 02:07.240
+So the Kubernetes networking model pretty much says that any pod on the cluster can reach
+
+02:07.240 --> 02:09.200
+any other pod in the system.
+
+02:09.200 --> 02:10.200
+Cool.
+
+02:10.200 --> 02:11.200
+How does it do it?
+
+02:11.200 --> 02:15.200
+Like one interface on each pod connected to the same network.
+
+02:15.200 --> 02:16.200
+One interface.
+
+02:16.200 --> 02:20.800
+If you need more, well, it's outside of Kubernetes.
+
+02:20.800 --> 02:27.360
+The community pitched in together and implemented that out of three.
+
+02:27.360 --> 02:32.840
+But well, first, why do you want multiple networks in Kubernetes?
+
+02:32.840 --> 02:40.240
+For instance, like network isolation, let's say you want to meet the compliance requirements
+
+02:40.240 --> 02:47.400
+of like you need to separate traffic not only in software but only physically in the network.
+
+02:47.400 --> 02:49.920
+This kind of thing happens every day.
+
+02:49.920 --> 02:51.520
+And for that you need multiple interfaces.
+
+02:51.520 --> 02:54.960
+Or for instance, you want to implement like a firewall or something.
+
+02:54.960 --> 02:58.000
+Well, you'll need at least two interfaces.
+
+02:58.000 --> 03:00.360
+So this is a reality.
+
+03:00.360 --> 03:05.400
+There's a need for it and Kubernetes does not do it on its own.
+
+03:05.400 --> 03:10.120
+So the problem, you don't have batteries for this.
+
+03:10.120 --> 03:11.120
+You can do it.
+
+03:11.120 --> 03:15.560
+The community has provided ways for this to happen but it's out of three.
+
+03:15.560 --> 03:17.640
+And you need to deploy a bunch of stuff for this.
+
+03:17.640 --> 03:22.960
+So you need to deploy like controllers on the nodes.
+
+03:22.960 --> 03:25.480
+You need to add more and more pieces.
+
+03:25.480 --> 03:28.960
+So it's solvable but it's not entry.
+
+03:28.960 --> 03:32.040
+It's not native to Kubernetes.
+
+03:32.040 --> 03:38.360
+Furthermore, while it works, its user experience is challenging to say the least.
+
+03:38.360 --> 03:41.080
+Like it's cumbersome to use.
+
+03:41.080 --> 03:43.520
+It feels clumsy.
+
+03:43.520 --> 03:47.280
+There are a lot of ways for you to get it wrong.
+
+03:47.280 --> 03:52.960
+Like if you just put an attribute that does not exist or put a typo on it.
+
+03:52.960 --> 03:55.480
+Well, it depends on the implementation what will happen.
+
+03:55.480 --> 04:00.160
+And at the end of the day, if you have something that is error prone, a lot of people are going
+
+04:00.160 --> 04:01.880
+to make errors in it.
+
+04:01.880 --> 04:07.000
+In one word, this is pretty much like Arcane Knowledge that needs to be used in it.
+
+04:07.000 --> 04:12.920
+So current solution for it is multi-CNI.
+
+04:12.920 --> 04:17.400
+So multi-CNI is a CNI multiplexer.
+
+04:17.400 --> 04:22.320
+So CNI is your container network interface.
+
+04:22.320 --> 04:27.760
+It's an API that allows you to specify how you are going to run plugins that talk to
+
+04:27.760 --> 04:33.760
+this API in order to plumb your networks, how you're going to connect your network interfaces
+
+04:33.760 --> 04:38.040
+into your pod to the rest of your network in Kubernetes.
+
+04:38.040 --> 04:43.600
+What MULTIS is designed to do is to multiplex CNI plugins.
+
+04:43.600 --> 04:48.760
+So you use custom resources, which are extensions of the Kubernetes API.
+
+04:48.760 --> 04:51.480
+They're not natively part of the API.
+
+04:51.480 --> 04:53.360
+They're a way that you extend it.
+
+04:53.360 --> 04:58.480
+And they give you a way to quote unquote kind of trick the platform.
+
+04:58.480 --> 05:01.920
+So you add MULTIS CNI into your network.
+
+05:01.920 --> 05:09.120
+You populate these custom resources with CNI configurations, but CNI configurations are
+
+05:09.120 --> 05:15.680
+JSON and Kubernetes resources are YAML from a user perspective.
+
+05:15.680 --> 05:21.200
+So you kind of mix both of those, and I'll give an example of that in a moment.
+
+05:21.200 --> 05:26.640
+But we also have an effort that's ongoing for a Kubernetes native multi-networking.
+
+05:26.640 --> 05:33.160
+So what this would do is take kind of this concept that we have out of tree and get these
+
+05:33.160 --> 05:38.880
+pieces natively into the Kubernetes API.
+
+05:38.880 --> 05:42.760
+So we would actually extend that.
+
+05:42.760 --> 05:47.760
+And probably as a building block, we may actually implement them as custom resources, which
+
+05:47.760 --> 05:50.440
+is a detail here.
+
+05:50.440 --> 05:57.480
+The one thing to keep in mind, though, is that this will be an extension of the API
+
+05:57.480 --> 06:01.000
+without an implementation for you natively.
+
+06:01.000 --> 06:08.640
+So it will actually still require an add on itself, which is also a bit of a challenge.
+
+06:08.640 --> 06:13.480
+But we really like the idea of extending the API.
+
+06:13.480 --> 06:18.560
+If you take a look here, you're going to see this is a Kubernetes PodSpec.
+
+06:18.560 --> 06:22.520
+You've probably seen them before, but we use an annotation.
+
+06:22.520 --> 06:24.120
+And those are freebies.
+
+06:24.120 --> 06:25.280
+Anyone can add an annotation.
+
+06:25.280 --> 06:28.920
+We have a specification for how it should look, and we see that specification.
+
+06:28.920 --> 06:32.200
+But it's got JSON in there.
+
+06:32.200 --> 06:36.040
+So if you're walking through this object in the API, you hit this.
+
+06:36.040 --> 06:37.040
+What do you have to do?
+
+06:37.040 --> 06:42.240
+You have to parse it, which is no fun, no fun in the least.
+
+06:42.240 --> 06:48.680
+Now with the Kubernetes native, you are going to just have it all YAML.
+
+06:48.680 --> 06:53.800
+So if you're writing a Kubernetes controller and you're using client go, you're just going
+
+06:53.800 --> 06:57.280
+to walk through this easy as pie.
+
+06:57.280 --> 07:02.200
+So it should be a lot easier.
+
+07:02.200 --> 07:05.200
+But we have to ask ourselves, what does the future look like?
+
+07:05.200 --> 07:08.040
+It's kind of a complicated scenario.
+
+07:08.040 --> 07:12.480
+Number one, we'll probably still have multi-CNI.
+
+07:12.480 --> 07:13.560
+It's out there.
+
+07:13.560 --> 07:14.560
+People use it.
+
+07:14.560 --> 07:16.560
+They're going to continue to use it.
+
+07:16.560 --> 07:20.520
+And then we might also have Kubernetes native multi-networking.
+
+07:20.520 --> 07:22.960
+So we've got these two things.
+
+07:22.960 --> 07:28.680
+But there's a bunch of other projects in the space that may be up and coming as well.
+
+07:28.680 --> 07:33.960
+So CNI 1.0 has been around for quite a while.
+
+07:33.960 --> 07:39.160
+And CNI plugins run on disk on the host.
+
+07:39.160 --> 07:41.200
+They're not actually containerized.
+
+07:41.200 --> 07:47.000
+CNI 2.0 would make a step forward to being able to containerize those and also would
+
+07:47.000 --> 07:52.920
+give us an opportunity to kind of update this API.
+
+07:52.920 --> 07:59.920
+We also have in the works the Kubernetes network interface, which is a proposal which would
+
+07:59.920 --> 08:04.080
+bring CNI and Kubernetes potentially closer.
+
+08:04.080 --> 08:07.840
+CNI itself is container orchestration agnostic.
+
+08:07.840 --> 08:11.480
+It doesn't actually relate specifically to Kubernetes.
+
+08:11.480 --> 08:16.000
+It was actually kind of invented in a parallel time to Kubernetes.
+
+08:16.000 --> 08:22.800
+So before Kubernetes won the container orchestration engine war, there were a bunch of different
+
+08:22.840 --> 08:24.120
+container orchestration engines.
+
+08:24.120 --> 08:26.680
+So it tried to fit the needs of all of them.
+
+08:26.680 --> 08:32.560
+But Kubernetes is the winner, and we kind of need a way to get a little bit closer.
+
+08:32.560 --> 08:37.720
+So let's figure out the lessons that we have learned.
+
+08:37.720 --> 08:40.800
+The first one is sometimes you have political problems.
+
+08:40.800 --> 08:49.800
+We want to extend the pod network and the pod object to get these items here natively
+
+08:49.800 --> 08:51.600
+in there.
+
+08:51.600 --> 08:57.840
+And maybe it's not so much a political problem as it is like a people and intentions kind
+
+08:57.840 --> 09:00.960
+of problem, like what are we trying to solve here?
+
+09:00.960 --> 09:03.560
+And not everyone sees this exactly the way.
+
+09:03.560 --> 09:06.520
+And this is a very core part of Kubernetes.
+
+09:06.520 --> 09:10.460
+If you've ever used Kubernetes, you've definitely spun up a pod, you've definitely touched a
+
+09:10.460 --> 09:16.080
+pod object before, or an abstraction of it like a deployment or whatnot.
+
+09:16.080 --> 09:23.840
+So to extend this, to add this network is hotly contested.
+
+09:23.840 --> 09:25.200
+And there's more than that.
+
+09:25.200 --> 09:33.000
+Like first, as Doug said before, things is that APIs are forever.
+
+09:33.000 --> 09:39.320
+Not in a sense that you have to maintain stuff backwards compatible, but pretty much that
+
+09:39.320 --> 09:42.360
+Maltes exists, solves the problem.
+
+09:42.360 --> 09:47.120
+And if you want to have multiple interfaces in a pod, Maltes is already doing that.
+
+09:47.120 --> 09:51.840
+Are you actually going to update all the manifests of your deployments to comply with this new
+
+09:51.840 --> 09:54.560
+API to stuff that is running in production?
+
+09:54.560 --> 09:56.280
+Well, maybe not.
+
+09:56.280 --> 09:59.920
+So there's this to kind of have in mind.
+
+09:59.920 --> 10:00.960
+Next scope creep.
+
+10:00.960 --> 10:03.840
+Like everybody wants to solve a different problem.
+
+10:03.840 --> 10:10.800
+And it's very hard to get quite focused on the, let's say, the least common denominator
+
+10:10.800 --> 10:12.240
+of the problem space.
+
+10:12.240 --> 10:17.400
+I mean, just doing that has been extremely challenging in these last six, seven, eight
+
+10:17.400 --> 10:18.400
+months, year.
+
+10:18.400 --> 10:20.520
+I don't know, like I lost track of it.
+
+10:20.520 --> 10:27.200
+And finally, handling a technological problem is a lot simpler than dealing with people
+
+10:27.200 --> 10:29.640
+and opinions.
+
+10:29.640 --> 10:32.320
+It's very, very, very easy to clash on those.
+
+10:32.320 --> 10:36.320
+Like it's hard to get to choose like a restaurant between your four friends to go out tonight.
+
+10:36.320 --> 10:42.840
+So it's even harder to get you to like agree on what the API would look like on something
+
+10:42.840 --> 10:50.680
+so critical and so, let's say, central and paramount as the pod spec, for instance.
+
+10:50.680 --> 10:56.600
+And here's like the, we would really like you to take a look at this demo.
+
+10:56.600 --> 10:58.720
+But again, like, yeah, better do that at home.
+
+10:58.720 --> 11:02.240
+Like just hit or scan this or hit the link there.
+
+11:02.240 --> 11:04.560
+And it's short, couple of minutes.
+
+11:04.560 --> 11:12.080
+And you'll see how the native current effort for native multi-networking looks like from
+
+11:12.080 --> 11:15.080
+the user's perspective.
+
+11:15.080 --> 11:16.640
+And yeah, that's pretty much it.
+
+11:16.640 --> 11:18.560
+So any questions you have?
+
+11:18.560 --> 11:30.800
+Well, fire away.
+
+11:30.800 --> 11:41.920
+Any questions?
+
+11:41.920 --> 11:48.560
+Can these additional interfaces be used to connect devices that are outside of the data
+
+11:48.560 --> 11:55.000
+center via VPN, for example, which is a problem I've been trying to deal with and couldn't
+
+11:55.000 --> 11:59.760
+find manageable solutions?
+
+11:59.760 --> 12:05.600
+Yeah, thank you.
+
+12:05.600 --> 12:06.600
+Okay.
+
+12:06.600 --> 12:15.080
+If these interfaces can be used to connect the pod, for example, to via VPN to external
+
+12:15.080 --> 12:16.080
+networks.
+
+12:16.080 --> 12:18.600
+Oh, yeah, absolutely.
+
+12:18.600 --> 12:26.360
+So this, something that you can do is to use these to connect to existing resources that
+
+12:26.360 --> 12:28.080
+are already in your network.
+
+12:28.080 --> 12:33.640
+So I guess a VPN absolutely could be an example.
+
+12:33.640 --> 12:41.040
+And so oftentimes the reason that people use these additional networks is they have existing
+
+12:41.040 --> 12:48.560
+infrastructure and they go to deploy Kubernetes to become more of a like a cloud native approach.
+
+12:49.040 --> 12:52.400
+But they have legacy systems that they need to integrate with.
+
+12:52.400 --> 12:58.600
+So if you've got existing networks, this would be a reason to do that kind of as a sidecar
+
+12:58.600 --> 13:00.560
+that you could go out to a network like that.
+
+13:00.560 --> 13:01.560
+Great question.
+
+13:01.560 --> 13:11.800
+Can you talk a bit more about KNI and how it relates to the multi-network problem?
+
+13:11.800 --> 13:15.560
+So that is an excellent question.
+
+13:15.560 --> 13:23.040
+So I would say that one thing that we're trying to solve is that the way that, for example,
+
+13:23.040 --> 13:27.080
+multis CNI works is somewhat inefficient.
+
+13:27.080 --> 13:36.280
+You have this flow to create a pod and in that flow is a call to CNI, which then is
+
+13:36.280 --> 13:41.240
+called today you would usually use multis to do that.
+
+13:41.240 --> 13:50.160
+When multis is called, it stops that creation of the pod and goes and queries the API, the
+
+13:50.160 --> 13:53.200
+Kubernetes API itself.
+
+13:53.200 --> 14:03.280
+And KNI may be one opportunity to make this flow linear in order to pass information directly
+
+14:03.280 --> 14:10.480
+to some type of multi-network solution that already has the information from the API,
+
+14:10.480 --> 14:16.960
+for example, instead of having to interrupt that flow to call the API.
+
+14:16.960 --> 14:19.080
+So that's one possibility.
+
+14:19.080 --> 14:27.300
+Another possibility is that, at least from my perspective, as Miguel said, APIs are forever.
+
+14:27.300 --> 14:30.560
+So multis, I'm a maintainer of it.
+
+14:30.560 --> 14:36.600
+Certainly it'll be around for a while, but as we may get the Kubernetes native multi-networking,
+
+14:36.600 --> 14:42.120
+it may also be a layer to do compatibility as well between kind of the new way of thinking
+
+14:42.120 --> 14:44.280
+and the old way of thinking.
+
+14:44.280 --> 14:45.280
+Is that helpful?
+
+14:45.280 --> 14:46.400
+Nice to see you, Gargay.
+
+15:06.600 --> 15:07.600
+Thank you.
+
+15:07.600 --> 15:08.600
+Thank you.
+
+15:08.600 --> 15:09.600
+Thank you.
+
+15:09.600 --> 15:10.600
+Thank you.
+
+15:10.600 --> 15:11.600
+Thank you.
+
+15:11.600 --> 15:12.600
+Thank you.
+
+15:12.600 --> 15:13.600
+Thank you.
+
+15:13.600 --> 15:14.600
+Thank you.
+
+15:14.600 --> 15:15.600
+Thank you.
+
+15:15.600 --> 15:16.600
+Thank you.
+
+15:16.600 --> 15:17.600
+Thank you.
+
+15:17.600 --> 15:18.600
+Thank you.
+
+15:18.600 --> 15:19.600
+Thank you.
+
+15:19.600 --> 15:20.600
+Thank you.
+
+15:20.600 --> 15:21.600
+Thank you.
+
+15:21.600 --> 15:22.600
+Thank you.
+
+15:22.600 --> 15:23.600
+Thank you.
+
+15:23.600 --> 15:24.600
+Thank you.
+
+15:24.600 --> 15:25.600
+Thank you.
+
+15:25.600 --> 15:26.600
+Thank you.
+
+15:26.600 --> 15:27.600
+Thank you.
+
+15:27.600 --> 15:28.600
+Thank you.
+
+15:28.600 --> 15:29.600
+Thank you.
+
+15:29.600 --> 15:30.600
+Thank you.
+
+15:30.600 --> 15:31.600
+Thank you.
+
+15:31.600 --> 15:32.600
+Thank you.
+
+15:32.600 --> 15:33.600
+Thank you.
+
+15:33.600 --> 15:34.600
+Thank you.
+
+15:34.600 --> 15:35.600
+Thank you.
+
