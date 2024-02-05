@@ -1,0 +1,350 @@
+Thank you.
+Thank you.
+Good afternoon, everyone. Thanks for coming to my talk on using
+bias bits to test
+key moves, ACPI, and SM bias implementation.
+My talk is going to be structured around these four points.
+First, we're going to discuss what's bias bits and why we're
+using bias bits to test key moves.
+And then I'll be talking about some of the implementation
+choices of my test framework.
+And then I'll describe the test framework itself.
+And then I'll give a brief overview, depending on how much
+time I have on the changes that I made in bias bits to get
+everything working together.
+So what's bias bits?
+It's actually a software written by Josh Triplett.
+He wrote this software after he left Google.
+And the software had actually a real-life usefulness in the
+sense that the bias developers and Intel, they used it to test
+their bias implementations on real physical hardware boxes.
+And what this software comprises of is that you can exercise
+ACPI and SM bias objects in the bias directly from a grub
+environment.
+And even though it's a grub environment, it also has Python
+built into it.
+So you don't have to write tests using Bashish, which is grub's
+native scripting language.
+You can write all your tests using Python.
+And all of this is executed from ring zero.
+So there is no need to actually go from ring three to ring zero
+to execute your tests, et cetera.
+All of the components, that is grub, Python, ACPI, which is
+what bias bits uses to execute ACPI components.
+All of these comes together in the form for bootable ISO,
+which is then used to boot actual physical box or virtual
+machine, in our case.
+So this is what it looks like in a most simplest form.
+You just run Kimu KVM here.
+Using the bits ISO, and it spawns a virtual machine.
+It executes a bunch of tests, and then generates the logs,
+and it pushes the log out of the virtual machine.
+I'll describe that a little bit later.
+And then it shuts down the VM.
+So why use bias bits for testing?
+Well, first of all, like I said, all the tests you can write
+are based using Python in a pre-operating system environment.
+And so that means that we don't have to go through the OS to
+execute bias components, but we can directly execute ACPI from
+the grub environment itself.
+And it has already ACPI CA built in so that we can directly
+execute ACPI methods.
+And the current test framework that we have in Kimu is basically
+what it does is it spawns a VM.
+It extracts the bias, the ACPI tables from the virtual machine's
+memory, and then compares those tables with some golden master
+blobs that is already checked into Kimu repository.
+And then it compares the golden master blobs with the actual
+table which is what Kimu is using.
+And then if there is a difference between the two, it throws an error.
+So the main idea is that any time we're making changes into Kimu
+that affects ACPI or some bias tables, we can go through,
+inspect the changes, and we can make sure that the changes are
+not breaking anything.
+But what we don't have is an ability to actually execute the
+tables from a running VM.
+And using bias bits gives us the ability to execute the tables.
+So that's the main advantage of using bias bits.
+So let's discuss some of the implementation choice of the test
+work.
+So bias bits is a software in itself.
+So it has its own repository.
+And then we have the Kimu repository.
+And these two repositories, in the Kimu repository, we have all
+the changes that basically decide the ACPI implementation.
+And bias bits repository has all the bias bits specific stuff,
+like all the build scripts, all its internal logic,
+and the two things are kind of separate.
+And adding to the complication is the fact that bias bits has,
+so George gave up developing on bias bits around circa 2017.
+And any effort that I made to reach out to him failed,
+so he didn't respond to my queries.
+So we couldn't actually directly use the bias bits upstream.
+So what we had to do is we had to fork the upstream bias bit
+software and put it in GitLab under the Kimu project,
+and then make changes to it.
+And those changes involved a lot of build fixes.
+So bias bits turns out to be something that is not buildable
+under the Neo compiler and tool chain because nobody has been
+maintaining it.
+So we had to make a lot of changes to make bias bits just build.
+And then a lot of fixes to get all the parts of the test
+framework working together, which I'll describe a little bit
+later.
+And then we have the Kimu repository that has potentially
+the changes that affect the tables.
+And so the people who are actually making changes to the ACPI
+implementation in Kimu, they care about the Kimu repository.
+They don't know or understand the bias bits repository.
+So now we have to decide how these two repositories are going
+to work together.
+So one of the questions is, so do we make bias bits repository
+as a module of the Kimu repository?
+And there has been a lot of discussions upstream on that.
+And it turns out that people really hate some modules because
+of a multitude of reasons.
+And you can actually look into this thread upstream.
+And it has a lot of interesting discussion as to why we don't
+want to have another submodule.
+So how do we keep the two repositories in sync with each
+other is an interesting question.
+And then from developer's point of view, whoever is making
+changes to, say, ACPI implementation in Kimu, do we make
+them go back and forth between the two repositories?
+Say, for example, they make a change in Kimu that affects
+the tables, and they want to write a test for it.
+So do they go to the bias bits repository, make the change,
+build bias bits into an ISO, come back to the Kimu repository,
+point the test to the new ISO, run the test.
+Oh, something doesn't work and fail.
+OK, let's go back to the bias bits repository, make changes,
+come back to the Kimu repository, and go back and forth.
+That's kind of complicated.
+And developers don't like to do that because they don't really
+care about bias bits.
+They just want to test.
+They want to add a test to exercise their changes.
+Right?
+So another also going to question is what kind of test
+framework do we use to write the bias bits
+tests?
+Do we use Q-test framework?
+Or do we use something else like the integration
+Avogadro test framework?
+Now, the existing test that I just described before that
+compares the blobs, it's called Biostable Test, and it's
+actually a Q-test framework.
+And people are familiar with that framework, right?
+Because any time people make changes to SAP implementation,
+that's the test that fails because it compares tables blobs
+and it right away fails saying that you have these new
+changes in the tables.
+You better have a look at it.
+So people actually understand how Biostables Test work.
+But do we use the Q-test framework then?
+The problem with that is that Q-test framework is really
+not written for something like spawning a VM,
+the managing all the issues of VM management,
+collecting the logs, dealing with errors,
+and then shutting down the VM, et cetera.
+So I started writing a Q-test for bias bits,
+and then I realized that it's not really suitable.
+So I started then looking into writing a new Python-based
+test framework for just doing the VM management and then
+using bias bits with it.
+And then finally, when I proposed that upstream,
+then somebody pointed me to the Avogadro framework,
+and I looked at it, and it was right away,
+Avogadro framework already had all the libraries that deal
+with VM management.
+And all I had to do was just focus on the bias bits part
+and develop that part.
+So Avogadro Test framework kind of really nicely fit into
+what we really wanted to do and what was available already
+without doing any new development.
+So finally, we went with the Avogadro Test framework.
+But then the question is, how do we make people familiar
+with how to run Avogadro tests?
+Because not all people are familiar with this test framework.
+Not all people run integration tests.
+So then we decided that, OK, how about we write
+a documentation for bias bits test?
+And that's what we did.
+So Kimu repository has documentation
+to how to run a few simple commands to execute the test
+framework.
+So I just described all this stuff.
+So let's describe what the test framework is all about.
+Now, before I'll just keep a couple of slides,
+and I'll show you the diagram here.
+So like I said, there are two repositories.
+There is one Kimu repository, and there is one bias bits
+repository.
+So in bias bits repository, we want
+to maintain everything that's related to bias bits
+and nothing related to Kimu or a testing ACPI.
+So the way we did it is that in the fork, which
+is residing right here, we have all these branches in there.
+Now, the Kimu bits branch is the one where
+we have made all the changes specific to using bias bits
+for Kimu.
+And so there we have a GitLy CI job, which is basically
+a BAS script that builds bias bits.
+And as a part of this CI job, so every time you commit any
+change to bias bits repository, this CI job gets triggered,
+and it will generate a bunch of build artifacts, which are
+nothing but like pre-built binaries for things like
+rub, Python, ACPI, CAC, et cetera.
+And then all these build artifacts are pushed in a
+well-defined location.
+And there is a URL for it, and you can just go and
+download those artifacts.
+And so in the Kimu repository, what we do is we, in the
+Kimu repository, we maintain the actual tests that
+exercises ACPI and some bias tables.
+So the actual tests are here in this location that are run
+from within the bias bits environment.
+And then there is a main driver to put all these things
+together.
+And this is the one, this is the main Avogadro test, ACPI
+bits.py.
+So when you are running the bias bits ACPI,
+S&B bias test, you need to run this guy.
+And what this guy does is that it pulls in these
+changes, these test scripts, where you have potentially
+added new changes for your stuff that has gone into
+Kimu for ACPI.
+And then it pulls in these build artifacts.
+And together it generates an ISO here.
+And then with this ISO, it spawns a Kimu VM and it
+runs the tests.
+Once the test is running, it collects the logs.
+The logs are pushed out into outside the virtual machine
+into a well-defined location.
+This test script then analyzes the logs.
+And then it says whether it failed or passed, depending on
+how many tests it ran, whether it looks for certain
+patterns and says, OK, this test failed or what have you.
+So basically, this mechanism does two things.
+First of all, you don't need to go back and forth between
+the two repositories.
+Everything that is bias-bit-specific resides here.
+And if you're not concerned with bias-bits or if you don't
+care about how it is built or what changes are in there,
+you don't need to touch this repository.
+All you need to do is just remain here.
+So every time you make changes to ACPI implementation,
+you add corresponding test code in here.
+And then you run this guy.
+This guy will pull in your changes, use the existing
+artifacts, and you run your test.
+Now, after it runs your test, this has some verbose mode
+where it puts out more information in case there is
+a failure.
+So you can analyze the failure, make changes to these test
+scripts, and again, rerun this guy.
+So the advantage is that you are actually not,
+you're already within the chemo repository in your workspace.
+You're not going back and forth between the two.
+And then, because a pre-built artifacts are being used,
+generation of this ISO is a lot easier because these things
+need not be built.
+They're already built for you by the CI job.
+All you need to do is put these test scripts together with
+this guy and generate the ISO.
+So this is what I just described all these points here.
+And then, so let's look at the advantages which I briefly
+described.
+So, so no need to use some modules.
+There are pre-built artifacts that makes it a lot easier.
+And then if you need to make changes to the bias table,
+as to bias bits, you make the changes, build new artifacts,
+and you point the main test to the new artifacts.
+And the other advantage is that when you release chemo in
+turbos, that turbos does not have any bias bit specific
+binaries.
+They're completely mentored outside of the chemo repository.
+So they're completely separate, and you don't need to release
+chemo with any bias bits artifacts.
+The disadvantage is that because we're using pre-built binaries,
+therefore we are very architecture specific.
+So right now we only support 64-bit X86, and it does not
+support any other platforms.
+And supporting other platforms is kind of non-trivial,
+because you need to make sure bias bits can actually build
+for those platforms, right?
+And that is, and bias bits was never tested on platforms
+other than X86.
+So it's a non-trivial work anyway, right?
+And then there is tool dependencies to build the ISO,
+and the environment where you're running the test should have
+those tools available.
+So let's look at the overview of the changes that are in the
+bias bits fork.
+So like I said, bias bits was ever maintained after 2017,
+so I had to make numerous changes to make bias bits build
+with the latest toolchain and compiler, and changes were
+across all these guys.
+And I had to also upgrade a CPI-CA, because a CPI-CA is the
+main driver that knows about various tables.
+And if you don't upgrade a CPI-CA, you cannot write tests
+that uses the newer tables.
+So I had to upgrade a CPI-CA.
+I had to find a mechanism to push the logs out so that the
+test framework can analyze the logs.
+I had to make sure that the console logs are available.
+And one other thing is that the Python that runs from within
+the bias bits VM is still Python 27 and not 3,
+because upgrading Python is a non-trivial work.
+And since it is a very closed environment, very controlled
+environment, I didn't see the value of upgrading Python in that
+environment.
+So it is still running Python 2, whereas everything else in
+Kimu is Python 3.
+These are some of the useful resources, and you can have a
+look at those resources.
+This includes things like the Josh's presentation slides and
+his talk on bias bits itself, which is a lot more details than
+what I described about bias bits in this talk, and then the
+details about the test framework itself, the fork that we
+maintain here, et cetera.
+So the last but not the least is, before I talk about demo,
+is that I would really like to thank these guys.
+Igor is originally proposed the idea of using bias bits for
+exercising Kimu with the CPI tables, and so I'm grateful for
+that.
+And then all these other guys, they gave various useful
+feedback throughout the process while I was submitting patches
+upstream, and I'm grateful to all the reviewers of my
+batch sets and the entire upstream Kimu community for help.
+Lastly, if you really want to see a demo, there is no time for
+this in this presentation, but you can click on this link, and
+there is a video that describes a lot more details on actually
+how to run the test and all the scripts within the repository.
+So thank you so much, and now I can take questions if you have.
+Yes.
+I have a question.
+Yes.
+What do you mean by Python?
+I mean, what is that Python?
+It's just a copy based on the built in Python?
+No, no, it's Python.
+The interpreter is built from source.
+Wooden Biospits, it's actually, the Python is built from source.
+So Python 2.7 is the one that Biospits uses, and it builds
+everything because it has to build extensions so that it can
+integrate with Grub.
+So from Grub, you can actually run, you can say Pi, and then
+you can run a Python script.
+So all that happened because it was built from source with
+integration with Grub.
+The only problem is that it's a Python 2.7, and I didn't see the
+value upgrading it to 3, but you can actually run the whole
+Python script, and that's how all the tests work, because they're
+all running from Grub, but they're full-fledged Python 2.7
+scripts.
+So it's a full-fledged one, not only certain API that you can use?
+No, no, it's a full Python.
+Any other questions?
+Thanks.
+Thank you.

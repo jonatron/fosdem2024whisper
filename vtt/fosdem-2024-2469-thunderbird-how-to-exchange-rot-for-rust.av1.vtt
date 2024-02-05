@@ -1,0 +1,830 @@
+WEBVTT
+
+00:00.000 --> 00:10.000
+So, if I could have your attention.
+
+00:10.000 --> 00:15.720
+When we got this talk, I didn't know Rust and Thunderbird had a connection, so this
+
+00:15.720 --> 00:19.840
+is pretty exciting and pretty cool.
+
+00:19.840 --> 00:28.840
+So we have Sean and Brendan are going to talk about how to exchange ROT for Rust.
+
+00:28.840 --> 00:30.840
+Thank you very much.
+
+00:30.840 --> 00:32.840
+Hi.
+
+00:32.840 --> 00:38.680
+I'm Sean Burke.
+
+00:38.680 --> 00:44.600
+I am a senior software engineer at MZLA, which is the company that maintains Thunderbird.
+
+00:44.600 --> 00:52.040
+And this is my colleague, Brendan Abolivier, who is a software engineer at MZLA as well.
+
+00:52.040 --> 00:59.320
+So we're here to talk about how to exchange ROT for Rust.
+
+00:59.320 --> 01:03.800
+So our colleague, Ike Dordi, couldn't join us.
+
+01:03.800 --> 01:09.320
+But I feel I need to shout him out because we would not be giving this presentation without
+
+01:09.320 --> 01:10.320
+him.
+
+01:10.320 --> 01:15.120
+And I also have to applaud his pun in the title because the project that forms the basis
+
+01:15.120 --> 01:20.000
+for this talk is Microsoft Exchange Support in Thunderbird.
+
+01:20.000 --> 01:24.800
+So we're working on adding support for the Exchange Web Services Protocol.
+
+01:24.800 --> 01:32.000
+This is the first Rust component written specifically for Thunderbird.
+
+01:32.000 --> 01:39.160
+We, our code is based on Firefox and so there's Rust there.
+
+01:39.160 --> 01:43.320
+But nothing specific for Thunderbird.
+
+01:43.320 --> 01:51.200
+And it's also the first mail protocol to be added to Thunderbird in Thunderbird's lifetime,
+
+01:51.200 --> 01:56.440
+which is a slightly strange statement.
+
+01:56.440 --> 02:01.320
+But I will explain that a little bit here.
+
+02:01.320 --> 02:10.000
+When we started this project, nobody actually knew how to add a new protocol to Thunderbird.
+
+02:10.000 --> 02:15.600
+And that gets into the ROT part of the title a little bit.
+
+02:15.600 --> 02:20.600
+So first off, a little bit of history of Thunderbird.
+
+02:20.600 --> 02:25.760
+Thunderbird grew out of Netscape Communicator originally, as did Firefox.
+
+02:25.760 --> 02:31.880
+So a lot of the code in Thunderbird predates Thunderbird itself.
+
+02:31.880 --> 02:35.480
+And the 0.1 release was July 2003.
+
+02:35.480 --> 02:40.920
+So this is a fairly old code base already.
+
+02:40.920 --> 02:49.720
+In starting around 2012, Mozilla started to hand over Thunderbird to the community because
+
+02:49.720 --> 02:55.600
+it felt that Thunderbird wasn't self-sustaining under the Mozilla umbrella.
+
+02:55.600 --> 03:06.920
+That situation persisted until around 2017 when Thunderbird rejoined the Mozilla Foundation.
+
+03:06.920 --> 03:12.080
+And so what does that actually mean for Thunderbird?
+
+03:12.080 --> 03:22.280
+We had a pretty big gap in paid maintainership, which results in, you know, a community can
+
+03:22.280 --> 03:24.120
+only do so much.
+
+03:24.120 --> 03:26.360
+Thunderbird is a very large project.
+
+03:26.360 --> 03:28.920
+There's a lot of work to do.
+
+03:28.920 --> 03:35.320
+Just keeping up with building, making sure that it's following Firefox's changes since
+
+03:35.320 --> 03:37.320
+we're based on Firefox.
+
+03:37.320 --> 03:45.800
+And that gap meant there was a lot of time where you can't expect a community to have
+
+03:45.800 --> 03:52.680
+a holistic view of the architecture of a huge project like Thunderbird.
+
+03:52.680 --> 03:54.840
+You can only ask so much time from them.
+
+03:54.840 --> 04:03.360
+And so changes were made without a view to how this would affect the architecture, how
+
+04:03.360 --> 04:06.080
+the architecture played into things.
+
+04:06.080 --> 04:10.000
+There was also a loss of institutional knowledge because the people who'd been employed to
+
+04:10.000 --> 04:16.240
+work on Thunderbird were no longer, and there was nobody there to take over for them.
+
+04:16.240 --> 04:21.760
+In a lot of places in Thunderbird, there hasn't really been any kind of architectural maintenance
+
+04:21.760 --> 04:25.720
+in over 20 years.
+
+04:25.720 --> 04:33.080
+And that also means that, you know, large portions of the code base are written in C++.
+
+04:33.080 --> 04:39.960
+C++ has changed quite a bit over the years, and Thunderbird has not kept up.
+
+04:40.960 --> 04:47.280
+So this is a pretty significant challenge, but also presents us with a pretty significant
+
+04:47.280 --> 04:48.640
+opportunity.
+
+04:48.640 --> 04:54.120
+That opportunity is Rust.
+
+04:54.120 --> 05:00.480
+So we'll talk a little bit about why we decided to use Rust.
+
+05:00.480 --> 05:02.480
+This is a room full of people interested in Rust.
+
+05:02.480 --> 05:07.800
+I'm sure most of you are pretty aware of the major benefits.
+
+05:07.800 --> 05:15.440
+We're a large application maintained by a small team, and we take input from anybody
+
+05:15.440 --> 05:19.800
+who sends somebody an email, and so memory safety is pretty critical.
+
+05:19.800 --> 05:27.720
+We do not want security bugs letting anybody have access to somebody's computer.
+
+05:27.720 --> 05:28.960
+Performance is also pretty big.
+
+05:28.960 --> 05:36.680
+We use a lot of JavaScript in our code, but for low-level stuff, JavaScript is going to
+
+05:36.680 --> 05:38.960
+have some performance issues.
+
+05:38.960 --> 05:45.360
+And then, you know, the modularity of Rust, having that built-in gives us access to a
+
+05:45.360 --> 05:47.800
+pretty large ecosystem.
+
+05:47.800 --> 05:54.320
+There are a lot of people doing mail-related stuff in Rust, and we can benefit from that.
+
+05:54.320 --> 06:01.720
+The other, the next reason is that, I mean, we are based on Firefox code, and Firefox
+
+06:01.720 --> 06:04.560
+already has Rust in it.
+
+06:04.560 --> 06:10.720
+So the build system is set up to integrate with cargo.
+
+06:10.720 --> 06:16.520
+We share CI infrastructure, and so that already has provision for Rust.
+
+06:16.520 --> 06:24.720
+And then, also, Firefox has something called XPcom, which is kind of a framework for communicating
+
+06:24.720 --> 06:33.840
+between the different languages that Firefox uses, and there's Rust support in that already.
+
+06:34.640 --> 06:43.000
+And then, Rust also kind of introducing a new language gives us permission to rethink
+
+06:43.000 --> 06:48.520
+some of the aging ideas in Thunderbird.
+
+06:48.520 --> 06:57.280
+It allows us to kind of ignore some of the more delicate code paths that have been around
+
+06:57.280 --> 07:06.560
+and changed ad hoc special case throughout the code where changing things is a little
+
+07:06.560 --> 07:08.640
+bit scary.
+
+07:08.640 --> 07:11.800
+You don't know what you're going to break.
+
+07:11.800 --> 07:16.000
+And also, I mentioned the loss of institutional knowledge.
+
+07:16.000 --> 07:22.760
+We need to rebuild that, which means a lot of documentation, and personally, I love the
+
+07:22.760 --> 07:25.920
+documentation tooling that Rust provides us.
+
+07:26.360 --> 07:31.240
+And I think that helps a lot in moving forward.
+
+07:31.240 --> 07:38.000
+But as with any project like this, it's not just, okay, we're going to use Rust.
+
+07:38.000 --> 07:39.280
+Cool, we're done.
+
+07:39.280 --> 07:41.200
+We're good to go.
+
+07:41.200 --> 07:44.400
+We had some problems getting started.
+
+07:44.400 --> 07:52.280
+Part of that is just we have a large existing code base, which means we have existing patterns.
+
+07:53.280 --> 08:02.720
+A lot of idiosyncratic async stuff going on that doesn't integrate nicely with idiomatic
+
+08:02.720 --> 08:05.200
+Rust.
+
+08:05.200 --> 08:11.320
+Lots of features and capabilities already in the Firefox and Thunderbird code base, which
+
+08:11.320 --> 08:21.360
+don't have any sort of Rust binding, or sometimes some kind of painful Rust bindings.
+
+08:21.440 --> 08:28.120
+I mentioned XP-COM as a benefit, but it also became a little bit of a drawback, particularly
+
+08:28.120 --> 08:31.800
+in terms of developer experience.
+
+08:31.800 --> 08:41.840
+Over the years, Firefox has excised a lot of the XP-COM interfaces just because it can
+
+08:41.840 --> 08:49.040
+be a little bulky, a little bit painful to use them sometimes, even in C++ and JavaScript.
+
+08:49.240 --> 08:53.560
+That work never happened in Thunderbird.
+
+08:53.560 --> 09:01.800
+We have a lot more uses and huge uses of XP-COM than Firefox.
+
+09:01.800 --> 09:10.120
+And so what works well for them in terms of developer experience doesn't work for us.
+
+09:10.120 --> 09:16.120
+It's really painful for us to use XP-COM at this point.
+
+09:16.400 --> 09:23.000
+I also mentioned the build system as a positive, but in a big way that became a drawback for
+
+09:23.000 --> 09:31.120
+us because in order to deal with the fact that Firefox has a C++ entry point, no single
+
+09:31.120 --> 09:40.400
+point of entry for Rust, there's a hack put in place to build a single workspace and shove
+
+09:40.400 --> 09:43.520
+that into the Firefox code.
+
+09:44.400 --> 09:50.640
+That hack, we're built as a subtree of Firefox rather than having Firefox as a subtree of
+
+09:50.640 --> 09:54.880
+our code, which is a little bit unusual.
+
+09:54.880 --> 09:59.400
+Cargo doesn't like it when you try to have a workspace inside of a workspace.
+
+09:59.400 --> 10:06.360
+We're not in the same repository as Firefox, and so we can't change their cargo lock, we
+
+10:06.360 --> 10:10.640
+can't change their dependencies.
+
+10:10.760 --> 10:19.800
+We kind of solved this by basically stealing all of their dependency tree and merging it
+
+10:19.800 --> 10:29.240
+with our own, building from within our code and using a script to keep that up to date
+
+10:29.240 --> 10:35.680
+and hope things don't break so far, so good.
+
+10:36.640 --> 10:44.280
+With that, I'm going to pass it off to Brendan because...
+
+10:56.000 --> 11:03.800
+Now we can use Rust in Thunderbird, we can build Rust in Thunderbird, we can run some
+
+11:03.920 --> 11:12.400
+Rust code in Thunderbird thanks to that work to integrate it into the build system.
+
+11:14.400 --> 11:16.520
+What do we do with it now?
+
+11:16.520 --> 11:24.480
+It is good to answer that question, it's good to think back to where we're coming from,
+
+11:24.480 --> 11:30.280
+what we're trying to achieve with that, and our end goal with this work is to be able
+
+11:30.360 --> 11:35.960
+to support Microsoft Exchange in Thunderbirds.
+
+11:35.960 --> 11:41.200
+We want to support more specifically something called EWS, which stands for Exchange Web Services,
+
+11:41.200 --> 11:50.240
+that's Microsoft's proprietary protocol for interacting with Exchange.
+
+11:50.240 --> 11:59.600
+That protocol is based on XML or HTTP, so it's up to be more precise.
+
+11:59.600 --> 12:11.680
+That means that we're missing a few key code infrastructure in order to make this a possibility.
+
+12:11.680 --> 12:18.280
+First, we want to be able to send HTTP traffic and preferably we want to send it through
+
+12:18.280 --> 12:27.400
+something called NECO, NECO is the networking component of Thunderbirds and we already have
+
+12:27.480 --> 12:33.000
+a well-functioning networking stack, it would be a bit sad to completely bypass it.
+
+12:33.000 --> 12:40.480
+We want to be able to communicate, to interact with NECO and to do it in a way that is familiar
+
+12:40.480 --> 12:46.720
+and easy to use for Rust developers.
+
+12:46.720 --> 12:54.520
+Once we have the capability to send those requests, we also want to be able to fill them
+
+12:54.640 --> 12:59.200
+with the contents that we need in this case XML.
+
+12:59.200 --> 13:07.200
+We need to figure out how to serialize and dis-realize XML in a way that scales to a lot
+
+13:07.200 --> 13:11.840
+of data structures to give an example of scale.
+
+13:11.840 --> 13:21.840
+EWS specifies about 100 different operations and about 1700 different data structures.
+
+13:21.840 --> 13:28.840
+We're not at the bottom of the stack which is sending HTTP requests.
+
+13:28.840 --> 13:36.840
+Because we want to interact with a specific component within Thunderbirds, we want to
+
+13:36.840 --> 13:46.840
+use XP-com, which I mentioned, the acronym stands for the cross-platform component object
+
+13:47.840 --> 13:58.840
+and its job is basically to allow inter-component interaction by defining some platform neutral interfaces
+
+13:58.840 --> 14:04.840
+and that way we can cross the language boundary, which is good for us because we want to write
+
+14:04.840 --> 14:08.840
+Rust code to interact with NECO, which is in C++.
+
+14:08.840 --> 14:19.840
+Let's use that except sending, except using XP-com with Rust directly doesn't look very
+
+14:19.840 --> 14:21.840
+Rust-like.
+
+14:21.840 --> 14:32.840
+It's mostly designed around C++ APIs and so it doesn't have a lot of the features that
+
+14:32.840 --> 14:37.840
+we can find in Rust and it means that there's a lot of boilerplates.
+
+14:37.840 --> 14:43.840
+This is the code to just send a single GET request and print the results in the standard
+
+14:43.840 --> 14:46.840
+outputs.
+
+14:46.840 --> 14:51.840
+We need to define a bunch of callbacks, we need to define a bunch of different objects
+
+14:51.840 --> 14:55.840
+and because we're crossing a language boundary, we at the very bottom, we need to wrap all
+
+14:55.840 --> 15:00.840
+that into the actual call into an unsafe block.
+
+15:00.840 --> 15:09.840
+None of that is very ideal and we obviously don't want anyone who wants to use NECO in
+
+15:09.840 --> 15:16.840
+Rust to have to do that every single time they want to interact with the network.
+
+15:16.840 --> 15:23.840
+Let's split this issue into two sub-issues that we're going to solve.
+
+15:23.840 --> 15:34.840
+The first one is we want to do native, to support native async await, Rust async await
+
+15:34.840 --> 15:38.840
+syntax.
+
+15:38.840 --> 15:48.840
+The way we do this is we added a new interlcrate to Thunderbird, which is actually the first
+
+15:48.840 --> 15:55.840
+Rust code to be added to the Thunderbird code base.
+
+15:55.840 --> 16:09.840
+The role of that create is to translate asynchronous operations in xp.com into Rust's native async.
+
+16:09.840 --> 16:15.840
+The way it does that is it defines custom stream listeners, which is that big struct that we
+
+16:15.840 --> 16:19.840
+saw earlier with a bunch of callbacks.
+
+16:19.840 --> 16:26.840
+What that stream listener is going to do is it's going to buffer any incoming data, call
+
+16:26.840 --> 16:34.840
+wake on a wakeer when the request finishes and then we can wrap that around another struct
+
+16:34.840 --> 16:44.840
+which is in charge of triggering the asynchronous operation in xp.com.
+
+16:44.840 --> 16:52.840
+Then it implements the future traits to be able to query the state of the buffer every
+
+16:52.840 --> 16:56.840
+once in a while and to return the result when it finishes.
+
+16:56.840 --> 17:03.840
+In the future, we're probably going to also implement the stream future traits in order
+
+17:03.840 --> 17:07.840
+to be able to interactively process incoming data.
+
+17:07.840 --> 17:13.840
+We don't need it immediately, so we just went with future for now.
+
+17:13.840 --> 17:25.840
+Now that we have this native async await support, we want to build on top of that to have some
+
+17:25.840 --> 17:32.840
+way to write some idiomatic Rust code to send HTTP traffic.
+
+17:32.840 --> 17:44.840
+We do that with yet another internal crate which provides more idiomatic and requests
+
+17:44.840 --> 17:45.840
+like HTTP clients.
+
+17:45.840 --> 17:51.840
+It's not a one-on-one, one-to-one replicate of requests, but it request-wise uses the
+
+17:51.840 --> 17:55.840
+main inspiration for this work.
+
+17:55.840 --> 18:00.840
+Under the hood, that crate is in charge of creating and configuring all the necessary
+
+18:00.840 --> 18:15.840
+xp.com objects, wrap that into our future and also provides more rust idiomatic error
+
+18:15.840 --> 18:22.840
+handling as well because standard xp.com does its error handling with just error status
+
+18:23.840 --> 18:32.840
+codes which isn't the best we can do with Rust basically.
+
+18:32.840 --> 18:33.840
+So that's all nice.
+
+18:33.840 --> 18:34.840
+What does it look like?
+
+18:34.840 --> 18:35.840
+So let's do a demo.
+
+18:35.840 --> 18:41.840
+We're going to do a live demo because we don't like to leave safely.
+
+18:41.840 --> 18:52.840
+So here is some code that lives in on my local checkout of Thunderbirds.
+
+18:52.840 --> 18:58.840
+It's got a bunch of code infrastructure to plug it into xp.com for the next step of the
+
+18:58.840 --> 19:06.840
+demo, but the important bit is what we can see here which is that with all clients that
+
+19:06.840 --> 19:18.840
+are from my HTTP here, we can create, we can actually create a PUS request, set it a custom
+
+19:18.840 --> 19:26.840
+header, set it some custom body, send it and natively await on it, and then we can process
+
+19:26.840 --> 19:32.840
+the response or the error depending.
+
+19:32.840 --> 19:45.840
+We're going to run this code into a local Thunderbird which apparently crashed while
+
+19:45.840 --> 19:50.840
+I was preparing the demo.
+
+19:50.840 --> 19:56.840
+Let me just do...
+
+19:56.840 --> 20:02.840
+So this is the Thunderbird DevTools.
+
+20:02.840 --> 20:08.840
+You might already look familiar because it's also the same DevTools that Firefox uses.
+
+20:08.840 --> 20:18.840
+We use it to work on the front end of Thunderbirds and access some internals of Thunderbird when
+
+20:18.840 --> 20:22.840
+we need to.
+
+20:22.840 --> 20:32.840
+So we're going to instantiate that xp.com plumbing that I was mentioning.
+
+20:32.840 --> 20:40.840
+It's basically just a dummy interface that just has a thing to do the thing which in
+
+20:40.840 --> 20:43.840
+our case is sending an HTTP request.
+
+20:43.840 --> 20:47.840
+We can see that we successfully sent a request through NECO.
+
+20:47.840 --> 20:56.840
+It's not because it appeared in the network tab which means that it went through the
+
+20:56.840 --> 20:58.840
+Thunderbird networking stack.
+
+20:58.840 --> 21:05.840
+If we inspect the request, we can see that it did include our custom header, it did
+
+21:05.840 --> 21:13.840
+correctly attach to the right content type, and it also correctly sets the right body
+
+21:13.840 --> 21:14.840
+to the request.
+
+21:14.840 --> 21:21.840
+And to confirm that once more, the server...
+
+21:21.840 --> 21:26.840
+That's just a simple stupid server that I quickly wrote in Python that...
+
+21:26.840 --> 21:30.840
+Sorry for using Python.
+
+21:30.840 --> 21:38.840
+Which just takes that custom body and that custom header and just prints something.
+
+21:38.840 --> 21:39.840
+Right.
+
+21:39.840 --> 21:42.840
+So that works.
+
+21:42.840 --> 21:45.840
+Now what do we want to do from here?
+
+21:45.840 --> 21:55.840
+We have requests that we can send and we can process the response to that request.
+
+21:55.840 --> 22:02.840
+But what do we actually put in that request?
+
+22:02.840 --> 22:08.840
+As I mentioned, we want to put some XML into that to be able to communicate with exchange
+
+22:08.840 --> 22:10.840
+servers.
+
+22:10.840 --> 22:17.840
+So we started with a kind of exploration, kind of a lay of the land of what the status
+
+22:17.840 --> 22:23.840
+is with regards to desilizing and serializing XML in Rust.
+
+22:23.840 --> 22:32.840
+And we quickly identified that most crates that we could find had some existing issues.
+
+22:33.840 --> 22:41.840
+Either they don't provide a good way for handling attributes and namespaces in XML
+
+22:41.840 --> 22:46.840
+or N slash all, they're very boilerplatey.
+
+22:46.840 --> 22:52.840
+It's fine for desilization because we don't necessarily need to process every single attribute
+
+22:52.840 --> 22:54.840
+from the response we...
+
+22:54.840 --> 22:58.840
+Or N slash all namespace, namesoces.
+
+22:58.840 --> 23:06.840
+For serialization, it's not really something we can do because obviously if you omit a
+
+23:06.840 --> 23:13.840
+required attribute or something like that, the XML server is not going to be able to
+
+23:13.840 --> 23:15.840
+understand the request.
+
+23:15.840 --> 23:25.840
+And also we not only want but need to have a low amount of boilerplate in all code because
+
+23:25.840 --> 23:30.840
+N EWS defines a lot of data structures, a lot of operations.
+
+23:30.840 --> 23:36.840
+So, yeah, dozens of operations, more than 1,000 data structures.
+
+23:36.840 --> 23:41.840
+So we don't have any small amount of boilerplate that we have.
+
+23:41.840 --> 23:50.840
+It's just going to make the codes 10 times more difficult to maintain.
+
+23:51.840 --> 23:55.840
+So we decided to create a new crate.
+
+23:55.840 --> 24:02.840
+This time it's not tied to any Thunderbird internal, so it just lives on GitHub.
+
+24:02.840 --> 24:05.840
+And so we use this...
+
+24:05.840 --> 24:15.840
+And so in this crate, we basically leverage the procedural macros in Rust to dynamically
+
+24:15.840 --> 24:21.840
+generate implementations for a trade that we also define at compile time.
+
+24:21.840 --> 24:26.840
+Almost everyone in this room will just be like, yeah, this is just a derived macro.
+
+24:26.840 --> 24:35.840
+I'm fairly new to Rust, and so when I saw that, I thought this is pretty cool, so I want to mention it.
+
+24:35.840 --> 24:41.840
+We don't want to reinvent the wheel.
+
+24:41.840 --> 24:55.840
+So we built it on top of QuickXML, which provides some pretty nice tools for writing and formatting XML.
+
+24:55.840 --> 25:00.840
+And we try to design it with a fairly low boilerplate...
+
+25:00.840 --> 25:05.840
+That low boilerplate approach that we need.
+
+25:05.840 --> 25:10.840
+So what does this one look like?
+
+25:10.840 --> 25:19.840
+This is a kind of dummy data structure that I defined, and as you can see, I was thoroughly uninspired for the naming.
+
+25:19.840 --> 25:27.840
+But this showcases some of the features that we can use in this crate.
+
+25:27.840 --> 25:32.840
+So we can set namespaces, either default or custom ones.
+
+25:32.840 --> 25:34.840
+We can set namesets prefixes.
+
+25:34.840 --> 25:38.840
+We can instruct a field to be an attribute.
+
+25:38.840 --> 25:49.840
+We can flatten some structures, and then all we need to do is actually populate our data structure, serialize it,
+
+25:49.840 --> 25:52.840
+and in our case, we just want to print it to see what it looks like.
+
+25:52.840 --> 26:03.840
+And if I run this, it generates valid XML that matches the data structure we defined here.
+
+26:03.840 --> 26:12.840
+So that's a lot of useful code infrastructure that we have now for our Microsoft extension implementation.
+
+26:12.840 --> 26:15.840
+Where do we go from there?
+
+26:15.840 --> 26:20.840
+Obviously, the next step is we want to implement the damn thing.
+
+26:20.840 --> 26:31.840
+So implement protocol support for AWS in Rust, and hook that into the Thunderbird UI to expose it to our users.
+
+26:31.840 --> 26:39.840
+We also want, if there's enough interest, to generalize the XML struct crate, the one in this slide,
+
+26:39.840 --> 26:49.840
+because at the moment, it's fairly designed around the use case of EWS in terms of configuration and defaults and things like that.
+
+26:49.840 --> 26:56.840
+So it might be something that, if there's enough interest, it might be something that we will look into in the future.
+
+26:56.840 --> 27:09.840
+And another point, another point that's another next step is we might also start working with people from the XPCOM team
+
+27:09.840 --> 27:24.840
+in the Firefox developers to try to improve the situation around bindings for XPCOM in Rust
+
+27:24.840 --> 27:32.840
+and make them just more, well, nicer to use for Rust developers.
+
+27:32.840 --> 27:38.840
+So that's where we are. That's where we're going. And thank you for listening.
+
+27:39.840 --> 27:42.840
+Thank you.
+
+27:49.840 --> 27:54.840
+So we, I think we have quite some time for questions if you have them.
+
+27:54.840 --> 27:59.840
+Yeah.
+
+27:59.840 --> 28:04.840
+Well, as I make my way over there, one question I had.
+
+28:04.840 --> 28:14.840
+If the protocol support is in Rust, do you think it's possible that it could be more shareable with other email clients?
+
+28:14.840 --> 28:20.840
+Yeah, this is one of the things that we're trying to keep in mind.
+
+28:20.840 --> 28:28.840
+One good example is we're currently, you might have heard that a few years ago,
+
+28:28.840 --> 28:37.840
+we welcomed the K9 email clients on Android into the Thunderbird family.
+
+28:37.840 --> 28:44.840
+And if we're building a new protocol support for the desktop application,
+
+28:44.840 --> 28:54.840
+we would like in the future to potentially include that support into K9 slash Thunderbird for Android.
+
+28:54.840 --> 29:03.840
+So this is definitely something that's one of the, one kind of extra reason that we decided to go with Rust
+
+29:03.840 --> 29:12.840
+is because of the ease of implementing, of reusing Rust codes across multiple platforms.
+
+29:12.840 --> 29:14.840
+And yeah.
+
+29:14.840 --> 29:19.840
+And we are going to make the EWS create public as well.
+
+29:19.840 --> 29:23.840
+Yeah, I'm going to repeat because I have a mic.
+
+29:23.840 --> 29:26.840
+We're going to make the EWS create public.
+
+29:26.840 --> 29:28.840
+And yeah.
+
+29:28.840 --> 29:35.840
+And also, you see to build it in a way that is fairly agnostic to the actual desktop application.
+

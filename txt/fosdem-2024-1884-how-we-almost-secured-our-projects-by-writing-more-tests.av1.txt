@@ -1,0 +1,189 @@
+The careful eye might have noticed something in my schedule.
+I put a lot of similar subjects together and because Philip was actually replaced by the
+speaker, this would have been three hours filled with only tests.
+Glad we saw where I say it from that.
+But let's continue into this test thingy because tests are important and many people
+love them and many people hate them.
+So Alessio has got to take us away with security by testing.
+All right, applause.
+Hello, everybody.
+Welcome to my talk.
+I give you a little introduction about myself.
+So who am I?
+My name is Alessio Griggi.
+I'm a software engineer at Armo Security, the company behind QtScape.
+My full-time job actually is to be a cat food opener for my furry friend.
+But jokes apart, I'm passionate about reading and taking long walks.
+You can find me on GitHub and Twitter with this account and the following avatar.
+But let's start the talk.
+So I will give you some introduction, some easy concept that can help you to understand
+better the world talk.
+So first question is what is the code coverage?
+So code coverage is a metric that we can use.
+It's a percentage actually, as a metric, that we can use to understand how many of our source
+code is covered by tests.
+Really or better, mostly, it is used to write when we write a unit test, but not only for
+this kind of test.
+Let's go a bit more in depth.
+So code coverage related to Golang.
+So first time it was introduced in Go version 1.2.
+It was more or less 10 years ago.
+I guess it was April 2013, if I remember well.
+With support for the unit test in this specific article.
+But the story continued after more or less 10 years.
+So one year ago the community introduced in Go version 1.20 a new kind of support for
+tests.
+This time it was support for the integration test.
+So what happened since last year that we basically sensitively increased the percentage of the
+coverage in our project.
+Of course if we were already doing integration tests.
+And yeah, basically in these 10 years a lot of things changed.
+They also implemented some nice tool in order to check the coverage rendering the profiles
+with an HTML page that you can check on your browser.
+It's really nice also to use, really helpful.
+But let's see another concept that is important for this talk.
+What is a second profile?
+So first of all, second is a kernel feature.
+And it helps you to block certain syscalls during the execution of certain program.
+You can define second profile as a kind of rule.
+So you can list all the syscalls that you want to execute or you want to block during
+the execution of your program.
+And what else?
+It is extensively used in the Kubernetes ecosystem.
+Also in Docker you can attach this security profile when you run a specific pod or container.
+And the container will use this second profile in order to check if all the syscalls are
+enabled to run.
+And another important thing is that in Kubernetes if you enable the second default profile feature
+flag you can basically use by default the default profile that is a list of deprecated,
+really dangerous, let's say, syscalls that you should not use during your execution.
+So by default you can use this profile and be quite safe more or less.
+But it may be better if you create your own second profile for the project that you are
+implementing.
+So the main idea that I had was to generate a security profile during the test pipeline
+since it is probably the best environment when we, of course, if we write a lot of tests
+that can help you to run all the syscalls that are included in your project.
+So the test environment is probably the best candidate to use in order to extract all the
+syscalls that are going to be executed in your project.
+So the idea was to generate the second profile and in case you have your project that is
+based on Kubernetes, you are developing something related to Kubernetes, the way was to create
+an init container that can inject the second profile into the node and use the security
+context with the second profile localhost in order to attach this security profile that
+you just injected into the node.
+And that's one example.
+So you have the init container that's downloaded the second profile.
+In this case it was just a test but you can think to provide it as an artifact on GitHub
+or whatever you want.
+And the application container can use the second profile type localhost by referring
+to the second profile.
+Okay.
+This was the first part of the talk.
+But now let's see how I try to achieve this goal.
+I mean, how I try to extract the syscalls from the test.
+So in this case we are talking about integration test and unit test.
+In this case you can see a kind of execution path of your project.
+So if you run the project you are going to have this kind of tree.
+So with the code coverage you can understand which part of this tree it has been executed.
+So you can refer as a metric about your second profile in order to understand which part
+is missing and how much it could be readable since it's a metric that gives you a percentage.
+So first thing, extracting the syscalls from the integration test.
+So let's say it was the easiest part.
+So with the integration test you can build a binary, provide some script that basically
+checks for expected results.
+And when you run the binary that you built you can use one of the tracing tool, for example
+strace or perfer or whatever you prefer, in order to extract the syscalls during the
+execution of the binary during the test.
+So this was the first part but let's see the other one about extracting this information
+from the unit test.
+So first of all it was a bit more complicated and I'm going to explain why.
+So the reason is that GoTester actually compile and run the test all at once.
+So you cannot do strace GoTester because otherwise you are going to catch all the syscalls that
+are not related to the function that you want to trace because think that we are speaking
+about unit test.
+So we are testing only specific unit, only specific functions and you want to extract
+the syscalls that are executed during this function.
+So you cannot do strace GoTester first of all and even if we build the binary, the test
+binary for the test we cannot neither do strace dot slash test binary because the test binary
+could include some noise that could be related to for example let's suppose that you have
+some data file that you want to run against your function and you open this file and you
+take this data and you put this data inside your function.
+So when you do this open file you are going to catch with strace also this open.
+So it's not really suitable.
+So my personal solution, let's see another step, so more or less the solution could be
+split all the steps.
+First of all we can compile the binary without running it with the GoTester.
+So you can do gotest dash c followed by the package that you want to build and consequently
+you can from this binary extract the function name just by using obj dump followed by dash
+dash since so you can extract the entire symbol of the function that you want to trace.
+So at this point let's see my personal solution.
+I don't know if it's the better one but it's a solution.
+So this project is called ARPUN.
+You can find this project on my github and it makes use of an eBPF.
+I want to clarify that I'm not an eBPF expert but understanding the technology I try to
+use this technology to solve this issue.
+So the main idea was to define a trace point with eBPF that started its execution so it's
+tracing about the function.
+When a U-probe that was previously attached to the function basically emits an event.
+So the U-probe informs you that the function started the execution and another probe, the
+U-ret probe emits another event when the function finished the execution.
+Another important thing to know is that this project actually is a POC, it's not a production
+in a great project.
+It's based on Go.BPF that is a part of the Iovizer BCC project.
+So that's the main, how does it work actually.
+So you can put U-probe and the U-ret probe inside your health binary at the point of
+the function symbol.
+So in this case we have main dot do something that is our example function.
+And the U-probe and the U-ret probe will inform you when the function starts the execution
+and when it finished the execution.
+So in the meantime the trace point knows when to trace the function.
+And the trace point is going to trace the function with the C-center event.
+So it's going to trace all the C-scales that are executed during this time.
+So that's an example.
+In the right side there's a function that's some easy things.
+And in the left side you have the result.
+So you have the right, the open-et and the other C-scales and in the end you can see
+also the read.
+Okay so all these things are really nice.
+I was really happy to have achieved this result.
+But at some point I also realized that these things were not really working.
+I mean not every time.
+And I discovered after a while why this was not working.
+But first let's understand how the U-ret probe works.
+So because we have a problem with the U-ret probe in this case.
+So a U-ret probe basically overrides the return address of the probed function with
+an address to a trampoline.
+The trampoline basically jumps into another kind of function that in this case is our
+EBPF program.
+But since the GoStack dynamically changes during the time due to the GetBatch collector,
+when the trampoline function tries to return on the stack it is not able to do this.
+At least not all the time.
+Because the stack changed and the previous address is not more useful.
+So possible solution, likely for us the U-ret probes can be attached to a specific offset
+in the health binary.
+So we can basically simulate a U-ret probe that informs us when the function is finished
+by adding a list of U-probes on the ret instruction of the function.
+So if the function returns three times we should place a U-probe on these three ret instructions.
+So we can basically simulate the U-ret probe instead of using the U-ret probe.
+So future improvements, so when I realized that this solution could work I tried to check
+on the IOWI's or Go BPF library but it was impossible to attach the U-probes at certain
+offset.
+So it was my fault actually because this library is deprecated.
+So future improvements are to move to another library before.
+So we can use for example a BPF from Cilium or the one from Aqua Security and so on.
+So in this case we will be able to put the U-probes to specific offset and so put them
+into the ret instruction of the function.
+So here are some references that I found on internet that helped me to understand better
+what was the problem, how to solve this issue.
+Also some special thanks to some people that really helped me during this experiment.
+So thank you for your attention.
+Well I have your attention or sleeping depending.
+I have two announcements.
+One is read the wide board, not repeating this again, lightning talks, we still have available
+slots.
+And the second one is this room is not possible without volunteers.
+This is a 110% volunteer conference.
+I get no money, I even have to pay for my own dinner tonight.
+Oh no that's sponsored now, thank you.
+But I want to make a special shout out to my dear co-organizer Eva, a proud of her
+past.
+Eva is a student in computer science, more specifically in application development.
+If you have internship positions at your company, you can hire her for free.

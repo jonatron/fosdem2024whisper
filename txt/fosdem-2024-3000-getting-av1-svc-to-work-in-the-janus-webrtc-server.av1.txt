@@ -1,0 +1,560 @@
+Well, welcome everybody.
+Lorenzo here needs no introduction.
+He brought the crazy contraption to give his presentation with.
+It's almost a dangerous demo in and of itself.
+Yeah, yeah, easy.
+And he'll be telling us all about AV1 as we see.
+Let's go for it.
+Yeah, you can hear me, right?
+Yes, sir.
+So thanks so for the introduction.
+Yeah, so I'll be talking about specifically AV1 as we see.
+I'll go, it's in some technical details.
+So it may be boring here and there,
+but I really think it's important in order to get a better understanding of how it all works.
+And this is just a quick introduction over me.
+So I'm one of the co-founders of a small company based in the south of Italy called Miteco.
+I'm the main author of Janus, which is an open source for Bouticy server.
+And there are some links if you want to get in touch with me or learn more.
+And basically what we'll be talking about today is AV1.
+And if you're not familiar with what AV1 is, it's a new,
+relatively new video codec that was designed within the context of the Alliance for Open Media.
+That has a lot of companies behind it.
+There's Apple, Cisco, Google, really a ton of them.
+And what they really wanted to do was to create an open and royalty free video codec.
+And of course emphasis on open and royalty free because we don't want another H264 or H265,
+which was specifically designed for real time applications pretty much like Opus was also designed as a codec for the internet.
+So that was quite important innovation with support for higher resolution, so for KM Beyond.
+And most importantly, it was also conceived to have support for SVC baked in the codec specification itself.
+And that's quite important because some other codec support SVC as well,
+but many times they come as, let's say, later additions.
+So basically codecs are extended to have SVC supported.
+In this case, AV1 was conceived with native support for SVC.
+So all AV1 implementations are supposed to at least be able to decode an SVC stream, for instance,
+which is important when you start working in hardware decoders and stuff like this.
+And of course this got me and should get you all very interested because these are all very interesting features
+to have for different reasons in WebRTC.
+And SVC is important for a few different reasons.
+So we all know what CIML Cast is.
+You use a single M line to basically carry multiple quality streams,
+like you have a high, medium and low quality stream, both sent at the same time,
+so that different qualities can be distributed to different participants as needed.
+But with CIML Cast, each stream is encoded as a separate stream,
+which means that each stream is also decoded independently of others.
+But this does mean that you have to encode the same stream more than once.
+And the fact that they are decoded independently can also cause some challenges sometimes.
+With SVC instead, you still use the same media source, the same M line and so on,
+but the different qualities, so high, medium, low, whatever it is,
+are all layers of the same thing.
+So you have a single video stream that has like an onion, different layers,
+that basically make each layer provides more detail if you want to look at it that way.
+And so the key difference between CIML Cast and SVC is that with CIML Cast,
+since you have different streams, you also have different SSRCs.
+Each quality is a separate RTP stream.
+With SVC, all layers are the same SSRCs.
+So as far as the recipient is concerned, it's just a single stream,
+which means that it does require less bandwidth because you can pack some things up
+and it's more a layer kind of approach.
+It is sometimes more CPU intensive in terms of encoding because that's a bit more tricky,
+but it does have some advantages over CIML Cast as a consequence of that.
+And an interesting aspect is that CIML Cast, as we know it in WebRTC today,
+actually did already make use of SVC somehow,
+because when we say, for instance, BPA to CIML Cast, and then we mention temporal layers,
+temporal layers are not a feature of CIML Cast.
+Temporal layers are a feature of SVC.
+So we are basically using a feature of VPA that allows us to use a partial SVC functionality
+where we can have different frame rates within over the same RTP stream that we are handling.
+And this is just summarizing it from a visual perspective.
+So you have CIML Cast sending three different streams and then we can choose which,
+an SFU in the middle can choose which stream to send to other participants.
+With SVC, we have one big thing that has many layers.
+One participant may want to receive them all, another participant may only want to receive the medium layer,
+and then another participant may want to receive the lowest layer as possible.
+This is just to give you an idea from a visual perspective instead.
+And so I was very interested in implementing it in Janus,
+and here are a few links if you want to learn more about Janus itself.
+And so I started to figure out what we needed to do in terms of what do I need to do in order to get that working.
+And so first of all, of course, we need a way to negotiate AV1 and the SDP, and that's of course a given.
+It may be helpful also to be able to detect keyframes in the stream,
+and that may be helpful for different reasons.
+For instance, when you are doing Siemulcast as a server, it helps when you know whether a packet is a keyframe or not,
+especially if you want to switch on a keyframe or stuff like this.
+It's also important to be able to somehow interpret how the AV frames are spread across RTP packets,
+and for us it's especially important for our recordings,
+because when we record stuff in Janus, we just record all the RTP packets that we received,
+so that we can go through them later on.
+And so basically getting a recording in a playable format just means reorder all these RTP packets I received,
+get the AV1 frames out of those RTP packets, and then put them into an mp4 file to make an example.
+And this means that we need to know how AV1 fits within RTP, and we show how that works later.
+For SVC specifically, there is another important thing that is called the dependency descriptor that I'll talk about in a minute.
+And so that means that we also need to somehow support that in the server as well,
+which first of all means negotiating it, or extensions must be negotiated in order to be used.
+We need to know how to parse an extension of that sort,
+and then we need to figure out how to use the information that we receive in that extension.
+And as we'll see, 0.5 is the one that got me the most in trouble, and then I'll explain later why.
+But starting from negotiation is very easy,
+so you just negotiate the codec name and the relatively clock rate there, so that's easy.
+Detecting keyframes and support m basically being able to extract frames from packets is a bit more complicated,
+but that's because we need to start delving a bit deeper,
+and so figure out how AV1 is packetized over RTP.
+And that's actually something that's true for all codecs.
+So for all codecs, you need packetization rules,
+and that's especially true for video, because for video, typically you have larger frames,
+and RTP packets cannot be that large.
+They are usually limited by the MTU size and so on.
+And so you need to have some rules that tell you if you have a frame that is this large,
+this is how you split it across multiple RTP packets for this codec, this codec, and this other codec.
+And usually there are some similarities, but usually each codec has its own rules,
+mostly because of the nature of the bit stream, let's see.
+And this is an activity that typically the ITF carries on in the AVT core working group,
+because basically all packetization rules as RTP and WebRTC are all standards.
+Unfortunately for AV1, it did not happen in the ITF, so they came up with their own specification,
+which is provided here.
+So in this specification, they provide information both on the AV1 aggregation header,
+that is those packetization rules that I mentioned.
+So how do I split an AV frame over multiple RTP packets,
+and how do I get that same frame back when I have access to the RTP packets on the other side?
+And it also talks in great detail about this dependency, the scripture, which is a beast of its own, as you can see.
+And this is basically how it looks like from a visual perspective.
+So with RTP, you typically have an RTP header with all the usual stuff that you all know.
+You can have some RTP extensions in there, and this is where the new RTP extension would appear.
+And then you have the RTP payload.
+And the RTP payload is where this aggregation header plays a role,
+because as we mentioned, we cannot just dump an AV frame in there because it may not fit.
+And so we need to have some sort of information that tells us how an AV frame is actually split,
+or if there are more than one AV frame in the same packet, we need to know that as well.
+And the AV aggregation header, the AV1 aggregation header is fairly simple,
+because it's just a single byte with a few bits that you can set.
+Like, I will not go too much into the detail, not to bore you, but just information about whether these OBO,
+and the OBO is basically the equivalent of an AL for AV1.
+So if you know what an AL is for RAS264, an OBO is the same thing for AV1, more or less.
+So it's basically a unit of a frame.
+And then basically these attributes tells you whether or not an RTP packet that you just receive
+is a continuation from a previous frame, so that you know that whatever you're receiving now,
+you have to append to whatever buffer you had before, whether or not this frame is complete or not,
+whether you have to actually wait for something else before passing it to the decoder.
+You may have some information about how many OBOs are in place, which is actually optional,
+and we'll see why in a second.
+And then this bit tells you whether this is the packet that you receive is the beginning of an AV frame,
+which is, again, all of these pieces are very important when you have to reconstruct the AV frame when you receive it,
+so that AV1 frame when you receive it, so that you know that this is the first thing that you have to put in there,
+then you pass this year, this year, this year, eventually you again end up with the complete AV frame.
+And basically it looks a bit like this, so in this case, for instance,
+we are actually aggregating multiple OBOs in the same RTP packets,
+and in this case we are not specifying that there are that many elements,
+which means that for each OBO in there, after the aggregation header,
+we have a variable size element that tells us how long each OBO is,
+so in this case we're just going sequentially, aggregation header, we know there are some packets,
+we check the size, then we read exactly this amount of bytes,
+and this is the first element, second element we read the size of that,
+and we go on and go on and go on.
+And the W attribute over here allows us to save a tiny bit of space when you use it,
+because if you say that, for instance, there are just two OBOs in this element,
+then this means that you do need to provide the size of all the elements except the last,
+because then you can read them sequentially by checking the variable size length
+until you get to a certain point.
+When you get to the last element, you know that all the bytes that are left
+are actually associated to that frame, so you don't need that additional variable element in there,
+so you save a bit of data, maybe not that much, but in some cases it may be helpful.
+And to use the aggregation header, I mean I mentioned that it can be helpful
+in a few different cases.
+In my specific use case, I basically interpreted that, for instance,
+not a continuation and a first packet, I can more or less treat as a key frame.
+It's, of course, not really always like that, but it at least gives me the beginning of something,
+which is something that is very quick and simple to use when you're actually just routing stuff.
+You just read a single byte and make some decisions based on that.
+For instance, when you need to do some symbol-cast-related switches, for instance.
+For recordings, I needed to do something more complex, because as I mentioned,
+we need to traversal the RTP packets, reconstruct an obu frame, and an ap1 frame
+before we can put it into an mp4 packet, which means that I had to actually implement
+all that de-packetization rules accordingly.
+And also I had to implement the parsing of a specific obu in order to get some additional information,
+like the video resolution, because if I'm creating an mp4 frame,
+I don't need to decode the frames, but at least I do need to know how large it is
+so that I can put it into the mp4 header, for instance, or maybe use the RTP headers
+to figure out roughly the frame rate, these sort of things.
+And all that I've mentioned so far is really all that you need if you want to use everyone normally,
+just as a regular codec, so we forecast all streams are independent of each other.
+So if I want to go from high to low, I can just move to the SSRC with the low quality stream,
+and I don't need to do anything else. The low quality stream is encoded separately from that other one.
+I don't need to know anything about that other stream, they're completely independent.
+With SSRC, that's not always true, because you may have some dependencies in place.
+So if I want to go from, for instance, the highest quality layer, since we are talking about an onion,
+will very much likely depend on one or more packets from the medium layer and the low layer,
+which means that I may have to forward those two, otherwise the high quality layer will not work,
+because that alone is not enough to decode something.
+And these are all things that you need to figure out at runtime, because you have a stream that is coming in
+and you have to make a decision right away, otherwise you cause delays and stuff like this.
+And most importantly, most of the times you may not even be able to parse the payload,
+because, for instance, if insertable streams are used and the stream is end-to-end encrypted,
+you cannot have a look at the payload to see what is what.
+And this is what the dependency descriptor is for.
+The idea that you have an external component, so an RTP extension,
+that contains all the information related to the packet that you just received.
+And this one would not be encrypted as the payload itself,
+and so it's something that an intermediary like an SFU can use to do something.
+And this is just one example that comes from the RTP specification over there.
+There are really a ton of examples.
+In this case, this is an example of how L2 T3 dependencies work.
+L2 T3 means two different spatial layers that depend on each other and three temporal layers.
+So two video resolutions and maybe 30, 20, 10 frames per second.
+And this gives you an idea of how the dependencies work as a frame goes by.
+So this is the first frame, second, third, fourth, and so on and so forth.
+And so you'll see that in this specific kind of approach,
+the first packet you'll receive will be related to spatial layer zero, temporal layer zero.
+And pretty much everything depends on this packet over here.
+And then if I want spatial layer one and temporal layer zero,
+I definitely need to relay this packet to otherwise this one will not be able to be decoded.
+If I'm interested and basically you follow the arrows and you have an idea of the kind of dependencies that you can do
+so that you can choose which packets you can actually drop or not.
+And as you can guess, the problem is, as an SFU, how do I know these?
+So how do I know that this is what is happening and these are the dependencies that are in place?
+And this is basically what the dependency the scripture provides and I'll explain how in a second.
+And so continuing from the requirements that I described before,
+it means that if I wanted to have SAP or for this component in Janus,
+but this is true for each web artist is around there, again, I need a way to negotiate the extension.
+I need to somehow parse it so I don't, I need to know how it is encoded so that I can figure out what is in there.
+And then I need to find a way to use it.
+So for instance, to recover those dependencies there.
+And I thought that negotiation was supposed to be the easy part,
+but it's actually not that easy because of course you just need to negotiate that extension with that name as an additional X map.
+That's how it works for all extensions in the SDP.
+But it turned out that I also needed to support the so-called two byte header extensions using X map allow mixed.
+And this is because RTP extensions by default are supposed to be quite small.
+And so you usually have the so-called one byte header RTP extension where in one byte you provide some information,
+which means though that the length of the extension is limited as well.
+So since you are using one byte to convey a lot of information, the size of the extension itself cannot be more than,
+if I'm correct, more than 16 bytes or something like this.
+I don't remember now exactly.
+And the dependency, the script though can be much larger than that.
+And so you do need to support two bytes extensions with at the time I didn't.
+So I needed to implement that first in order to get it to work because when I started testing it,
+nothing worked and it turned out that this was the issue.
+And then we need, once we have negotiated it and we start receiving the dependency, the script,
+as part of our TP packets, we need to figure out a way to parse it.
+And this was really a nightmare for me.
+This is like therapy for me right now because I'm sharing all this with you.
+And I actually run to the about this in a couple of blog posts where you can see the nitty-gritty details.
+But just to give you an idea, basically it's, let's say a mess.
+I will not say that word because I don't want to be bit.
+But basically you can see that this is a specification that was written by somebody who writes codex,
+not a network specification because all fields are variable length and often at the bit level,
+which makes it really a nightmare to parse sometimes.
+And from what we regard the specification itself, it's indeed quite flexible because there are a few
+mandatory fields like if this is a start of a frame and end of a frame, the frame number,
+and the template ID for those dependencies that we've seen before.
+But also everything else is optional, which means that you can either have a dependency
+in the scriptural element that describes everything, so the whole context of the SVC
+or just something that tells you the scope of the current frame.
+And when we look at how a dependency in the scriptural really looks like,
+this is a simple parser that I created to basically debug things offline.
+And when we receive a keyframe, typically we have a 95 bytes extension,
+which if you know RTP, that's a lot.
+That's basically almost 10% of the payloads that you have.
+So it's really big, but that's because it contains a lot of information.
+So if you start parsing it and serializing everything that you receive,
+you have information about the different layers that you have, spatial temporal and so on and so forth.
+TDI, I don't remember exactly what it was, but this is just the output of that tool.
+That's a lot of stuff.
+So blah, blah, blah, blah, some more chains, some more stuff, the code layer targets.
+I have some stuff about resolutions.
+And finally, we're done.
+Basically, all the parts that we've seen before were basically the media center telling us,
+these are all the information that I used for this specific SVC context.
+So in this case, this was an L3T3, so three temporal layers and three spatial layers.
+And all those, that huge stuff that you've seen before is all the information related to chain dependencies,
+all that kind of very low level stuff.
+And so if you want to use it, it's there.
+And then at the end, it also tells you the resolution streams of the three different spatial layers.
+In this case, it was low because I captured really at the beginning, I think.
+And finally, it tells you that for this specific RTP packet, this is a spatial layer zero, temporal layer zero,
+and it uses template index number one, which is indeed spatial zero, temporal layer zero.
+And this is the information that we need because then having a look at all the stuff that we've seen before,
+we know that the resolution for spatial layer zero is, in this case, this multi-mover here.
+In practice, it would be something like 320 by something else.
+And this is it.
+And of course, likely not all dependency descriptors are so long,
+only for the meaningful key frame packets, it's usually like that.
+And then other dependency descriptors will be much smaller, like only seven bytes,
+because they will only tell you, for instance, the temporal index of this specific packet.
+In this case, it is a spatial layer zero at temporal layer zero.
+But I only know this because I received this before.
+So I received somewhere in time this huge chunk of information before,
+because if I only receive this and I get temporal index six, what is six?
+Six relative to what?
+So what does it mean?
+I don't even know how many layers there are.
+So you do need to have that information first if you want to make sense of all these smaller packets
+that you receive later after that, which means that when you start to implement stuff in a server,
+it does mean that you start need to keep a state, which is not really true for single cast or other things.
+I don't mean it's partly true, but only in a very limited way.
+In this case, it does mean that anytime that you receive that huge packet and you parse it,
+you need to keep it somewhere so that when you receive packets after that,
+you can reference them and use them for something.
+And the idea was that once I have a knowledge of those templates and I receive information
+and I know that this packet that I just received, this spatial layer X and temporal layer Y,
+then as a server, I can decide whether or not I want to relay it or drop it.
+And you can do it the relatively easy way or you can do it the hard way.
+The hard way is figuring out all of those dependencies that we've seen before.
+I went for the easier way, especially right now.
+If it is temporal layer 2, then relay everything related to spatial layer 1 and 0 as well,
+as long as it's the same or let's say the temporal layer is smaller or equal to the one that I'm receiving.
+So I may be relaying more than I should, but at least I know that everything is there.
+What's important is that once you use that information so that once you've parsed it,
+you cannot drop it. You need to relay it anyway because it's not only helpful to you,
+it's also helpful to the subscriber that is receiving that video stream
+because they also need to know what is what.
+So you need to forward that information as well.
+And very important, you also need to update the RTP headers accordingly, including the marker bit,
+which is what really drove me nuts the first time
+because I actually implemented all this for a long time and it didn't work.
+And eventually I figured out that the problem was that I was not updating marker bits as well.
+And this is the reason, basically.
+So if we have a sequence of RTP packets related to different spatial layers and temporal layers,
+this is basically what it looks like from an RTP perspective, including marker bits.
+If I am dropping spatial layer 2 because I don't need it,
+then what it means is that I'm dropping some packets over here.
+So of course, all the packets that I'm dropping, I need to update the sequence number
+so that it keeps on growing monotonically because otherwise the recipient will think
+that they are missing, losing some packets, but they are not missing them.
+They are just dropping them because they don't need them.
+So I need to update the sequence number so that this is one, this is two, this is three,
+this is four, five, six, seven, etc.
+So I need to make sure that they know that they are not really missing anything.
+But I also need to update where I'm setting the M equals one marker bit as well
+because this is needed for b-decoating, especially from Chrome.
+So in particular, you need to set M equals one on the last packet with the same timestamp.
+So since the timestamp now is changing on the second packet,
+because that's the last packet with that timestamp over there,
+I need to set M equals one on that second packet before I forward it
+or otherwise nothing works basically.
+Sorry, wrong direction.
+And basically, if you want to test all these and with Janus or with anything else,
+of course you need to have a browser that supports all this stuff.
+And the kind of bad news is that at the moment I think only Chrome supports it.
+I don't know if other Chrome-based browsers support it too,
+but definitely Chrome supports AV1 as a codec.
+And you can check that by using the RTP sender get capabilities thing to see.
+If you see AV1 in that list, you do support AV1 as a codec.
+But you also need to support SBC functionality and most importantly the dependency, the scripture.
+And the dependency, the scripture is not offered by default.
+So you do still need, I think, to first fill the trial like this.
+I don't remember right now if you can just manage the SDP to artificially put the extension in your SDP
+in order to make it work anyway, but that I should check, I should double check.
+But you may need to launch, for instance, Chrome with that thing over here
+so that the extension appears in the supported extensions by the browser.
+When you do that, then your browser is capable of encoding AV1 SBC functionality
+with dependency and scripture, which is quite important.
+And if you want to test this, I also made it very simple because
+if you go on the online demos for Janus and you check the eco test demo
+you can provide a couple of attributes to, first of all, for AV1 as a codec
+and then for a specific flavor of SBC, in this case, for instance, L3T3
+to send three temporal layers and three spatial layers.
+And when you do some small buttons appear over there
+and they allow you to check one thing or the other,
+which means that you will send the big AV1 SBC stream to Janus
+and Janus will send you back only what you asked for.
+So in this case, for instance, spatial layer one and temporal layer two
+which is why my resolution is smaller and the bitrate is smaller as well.
+So by playing a bit with those things you should see resolution changing,
+bitrate changing, if it does, it works.
+And the same functionality is also supported in the video room, of course,
+which is the SFU to do video conferencing.
+So at least in theory you can have a complete video conference
+that is based on AV1 SBC as well, even though we haven't tested that much
+but it should definitely work.
+And I think this is it.
+I'm not sure if we have time for questions, but before that,
+I also wanted to announce that, I'm sorry, I'm bothering you all,
+but JanusCon is back.
+So JanusCon is our own Janus conference.
+So it's a conference devoted to Janus and WebRTC in general,
+which will happen at the end of April in Naples in the south of Italy.
+We have a few sponsors already which I'm very grateful for.
+And the call for paper ends in about a week.
+So if you have anything interesting doing with Janus and WebRTC,
+you can feel free to submit a talk there.
+Well, tickets are also available for sale as well.
+And of course, if your company is interested in sponsoring,
+that would be great too.
+And that is all.
+I don't know if we have time for questions
+because I didn't really check how fast I was going, maybe too fast or...
+Okay, so are there any questions for anyone at the C part?
+I see a couple.
+I think slow me with...
+Generally, would you say that the SBC is like the generation of simulcast
+or if we continue, whether we look at the future of people
+on the platform that will replace it or they will need to get the sale by sale?
+I mean, in general, if you look at, for instance, if you look at that...
+Oh, sorry, sorry.
+Slow me was asking, is basically SBC or evolution of simulcast
+or does it make sense to have them both at the same time?
+Which one will take...
+Which one will be more important in the future?
+Which one is the technology to invest in in the future, maybe, as well?
+And functionally, I mean, they serve the same purpose, if you want,
+because I have the same demo for simulcasts
+and if you look at the demo for simulcasts, it looks visually the same.
+So you have the same buttons to say, I want high quality, low quality and so on.
+The difference are really in just how the thing is implemented.
+And the main problem, I mean, in general, SBC is supposed to be more advanced,
+of course, than simulcast and more resilient as well, probably.
+But the main obstacle right now is that it's related to what I was saying before.
+So right now, if you want to use AV1 SBC, you have to do a custom flag,
+which means that right at the outset, it's really not something
+that you can ask your customer to do, for instance.
+So for the moment, it's not really something that is production ready.
+You can use the SBC flavor of VP9, which provides a similar feature,
+which is now available out there.
+But still, simulcast is overwhelmingly favored in general for production environments
+because it's been battle tested, it's been there since day one.
+Everybody supports simulcast, it's easier to work with and so on and so forth.
+So for the moment, it doesn't make sense to just use force SBC
+in your production environment right away, if not for experimental purposes
+and for testing how it works, for dipping your toes in the technology.
+But for the future, I definitely think you should pay attention to that
+because AV1 will be the code that everybody will adopt,
+hopefully because it's better quality, it's royalty free, it's open source,
+and it has SBC baked in.
+Sooner or later, hopefully Safari will have AV1 as we see,
+Firefox will have it, Edge and other browsers will have it as well.
+And you definitely want to be ready when that happens
+because otherwise you'll be the one stuck with the old codec
+and everybody else is taking advantage of the new team.
+I think learns that you can munch the SDP to make it work.
+For the extension, yeah.
+Because we have it working new team.
+Tuzlomi, there is one thing that in some environments might be relevant
+which is as many hardware decoders don't cope with SBC,
+but they do with Samocast because they look like a normal strain.
+So if you're in a resource constrained thing,
+maybe receiving SBC is no bueno,
+but receiving a normal Samocast will be better.
+But in theory, these will not be true for AV1
+because AV1 was conceived with SBC in mind.
+So in theory, all hardware decoders, too, even smaller ones,
+will know how to interpret that.
+And since it's a single stream, they will be able to decode it.
+Of course, it's just theory and...
+Ideally they would.
+For VP9, for example, Chrome still does not use hardware decoders
+when you use SBC.
+And I'm not sure because AV1 hardware support is hit and miss yet still.
+And there was another question here, yeah?
+Yeah, I was wondering what the forward error correction strategy here
+is, like, is this patient, if there are...
+I'm sorry, if forward error correction is used,
+how do you use it with do is I mean...
+Yeah, if all the use forward error correction is SBC,
+then you are like, helping out some tactics and then it doesn't work.
+Yeah, that's a good question.
+And it's actually related to one of the doubts that I have related to FBC,
+mostly because I mean something like AV1, SBC and CMUCAS as well
+only makes sense when you have a server in the middle.
+It doesn't really make sense if you are sending something from point A to point B
+and point B is the one that is meant to receive it
+because in this case you are sending everything anyway.
+So unless you are using SBC as some sort of a...
+of your redundancy mechanism because you say,
+if I lose some packets related to two, I can still display one.
+That's one thing, but that's not really what it's meant for.
+And so the moment you have a server in the middle,
+it also means that you can offload the forward error correction stuff to the server as well.
+So which does make sense also because, for instance, when you use FlexFec,
+which is the thing that was described in the first presentation from Chrome,
+Chrome by default will not put any redundancy information,
+so it will not put any FEC packets until the peer tells them that they are losing some packets.
+And this is to optimize stuff, so you don't add redundancy unless it's needed
+because there's loss reported, which becomes a problem if you're doing something like a video conference
+because your uplink find may be perfect,
+and then you have subscriber X over here that is experiencing loss
+and you don't have any redundancy packets to send them instead.
+So the idea and probably the solution to that,
+this is something that I'm still brainstorming myself because FEC interests me,
+but I have some doubts there, is that probably the forward error correction stuff
+is something that the server itself will need to add on each subscriber leg.
+So from the server to you, I will have a dedicated FEC channel
+where I add some forward error correction stuff from the stream that I'm sending you,
+and for the stream that I'm sending you, the layer 2 may not be there,
+but I have a consistent stream because packets are in sequence,
+and so the forward error correction stuff that I'll be sending you
+will be different from the one that I'll be sending to somebody else
+who is receiving additional layers,
+and that's probably the only way to do this if you don't want to forward FEC
+and to end without treating it, which anyway wouldn't be useful at all,
+especially if the sender is not providing that information themselves.
+Yeah, in my experience, and this may be an implementation choice, of course,
+I did have to forward it because otherwise it would not be decoded properly, basically.
+And I don't know if this is actually really needed,
+like for instance, even the marker bit 1, that's not really needed from a specification perspective
+because as a receiver, you do see that the timestamp is changing,
+so you do know that it is a new frame and you can decode the previous one.
+But it's simply that Chrome expects that marker bit set to 1,
+otherwise it will not decode a frame, basically.
+So in my experience, you need to forward that information too.
+And I guess it makes sense because the recipients themselves
+also need to decode possibly differently the video stream
+depending on what they are receiving because they need to know
+if the resolution must be this size or this size or this size or something like this.
+It may all be part of the 81 bit stream, so it may be redundant information
+as far as they are concerned, but at least when I made these tests a few months ago,
+it was needed, so just relaying it makes sense.
+Yeah.
+In regard to switching this layer, like saw your previous talk somewhere
+was on bandwidth estimation, maybe you can comment on how they do go together
+or is there something specific to 81?
+Yeah, no, I mean the bandwidth estimation stuff is important for a few different reasons.
+And in this case, I'm talking about the bandwidth estimation on the subscriber side.
+So from server to recipients, because on the publisher side,
+there is transport-wide control CC and basically the browser
+themselves are capable of using the feedback to figure out if they need to send less or more.
+And so dynamically, you may see that some special layers are not appearing
+because the browser doesn't have enough bandwidth for that.
+On the subscriber perspective, it's really useful because it allows us to
+it helps with the decision. So for instance, right now I just mentioned
+just generically whether I want to relay or drop a packet, but this
+actually depends on why I should relay it because a user may want to receive
+the highest quality possible, a user may want to receive the lowest quality possible,
+but this may be because they only want a lower quality because the video is going to appear
+in a thumbnail and so they don't need the whole thing and that's an application logic decision.
+And now the decision may come from the user doesn't have enough bandwidth for
+all of that stuff, so they don't have enough bandwidth for special layer 2 and 1.
+Let's just send them special layer 0. And this is where bandwidth estimation helps
+because if I'm sending stuff to the subscriber and I'm starting to get information
+that congestion is happening, then internally the server can update
+which special layer or temporal layer I should send to this specific publisher
+dynamically. And so this will impact my decisions to relay or
+drop stuff and so it allows me to dynamically
+dynamically impact the quality of the subscriber depending on how much
+bandwidth they have. And in my experiments right now I've only done this with Siebel
+because I haven't hooked it up to SBC yet, but the key principles are really the same.
+One minute?
+Yeah, just related to that is there a way
+or Wipen Web to signal the final cast
+of the publisher and the subscribed site?
+Yeah, I mean for the final cast or SBC.
+Of course, yeah, in Wipen Web do you
+with Wipen Web is there any need to signal Siebel cast or SBC as well
+and does it make sense? And in general, I mean it's definitely important
+that you signal it on Wip because you want to
+make sure that the stream that you are ingesting is recognized by the server
+as a Siebel cast or an SBC stream so that the server can also
+parcel of those dependency descriptors in case it's a one
+SBC for instance or in case it's Siebel cast it knows that it needs to
+take care of, let's say, three different qualities. On the subscriber's side
+for Siebel cast it's really not important because you're
+just always, as a subscriber, you're just always going to receive one
+video stream and as far as you're concerned it's a consistent
+video stream. You don't even know that there is a switch behind the curtains that is happening
+from high to low to medium or whatever. You just see a single video stream
+so you don't need to be aware of the fact that it's Siebel cast. For everyone
+as a SBC it may be important to negotiate the dependency, the scripture
+extension as I mentioned because if it's needed for decoding purposes
+and you want the browser to be able to
+decode things properly then you may want to negotiate that extension as well
+on the subscriber's side. But as I was saying before it may or may not be needed
+so that's something that we'll have to check. And I think I'm
+really out of time now so.
+Thank you.
+Thank you.

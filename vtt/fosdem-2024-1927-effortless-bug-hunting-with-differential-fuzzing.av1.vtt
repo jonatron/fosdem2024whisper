@@ -1,0 +1,1064 @@
+WEBVTT
+
+00:00.000 --> 00:12.080
+Our next speaker is Maché and he's going to talk about us, about hunting bugs and how
+
+00:12.080 --> 00:13.080
+do we hunt bugs?
+
+00:13.080 --> 00:18.160
+We do that by sending a bunch of random input into our programs or more scientifically called
+
+00:18.160 --> 00:19.160
+fuzzing.
+
+00:19.160 --> 00:20.160
+Round of applause.
+
+00:20.160 --> 00:28.320
+All right, welcome.
+
+00:28.320 --> 00:31.760
+So in the spirit of testing, let's talk about fuzzing.
+
+00:31.760 --> 00:36.760
+So I'm Maché, I'm an offensive security engineer, I've introduced the platform engineer and
+
+00:36.760 --> 00:42.400
+software engineer, I sail, climb and play board games.
+
+00:42.400 --> 00:46.800
+So what we'll talk about, we'll talk about fuzzing, we'll talk about differential fuzzing,
+
+00:46.800 --> 00:51.360
+how it differs from fuzzing and we'll talk about bugs that are in the sun in the library
+
+00:51.360 --> 00:55.600
+and how you can actually find those bugs and fix them using fuzzing.
+
+00:55.600 --> 01:01.480
+And then at the end we'll talk about fuzzing in continuous integration pipelines.
+
+01:01.480 --> 01:05.760
+So what we'll not talk about is how fuzzing works under the hood.
+
+01:05.760 --> 01:10.040
+There are excellent resources out there that we'll talk about like fuzzing engines and
+
+01:10.040 --> 01:11.800
+like other stuff.
+
+01:11.800 --> 01:16.640
+I'll link to them in the end, but this talk is not about this.
+
+01:16.640 --> 01:17.800
+Why should it occur?
+
+01:17.800 --> 01:22.880
+So there's an OSS Fuzz project, who's familiar with this?
+
+01:22.880 --> 01:23.880
+Cool.
+
+01:23.880 --> 01:28.480
+So this is a kind of a platform that gives open source projects computer resources to
+
+01:28.480 --> 01:31.840
+run Fuzz tests continuously.
+
+01:31.840 --> 01:38.480
+And there's about 1,000 projects in there and within a six or seven years it has found
+
+01:38.480 --> 01:42.640
+10,000 vulnerabilities and 36,000 bugs.
+
+01:42.640 --> 01:47.800
+And if you do a simple math, that's 10 vulnerabilities per project and 36 bugs per project.
+
+01:47.800 --> 01:53.640
+So this seems like an F word that's worth investing in.
+
+01:53.640 --> 01:59.080
+So let's assume we have a simple function, it accepts the string, mutates it and it gives
+
+01:59.080 --> 02:07.200
+you a transform string back and it transforms letters or characters in the alphabet to a
+
+02:07.200 --> 02:10.080
+character that is fricking positions later.
+
+02:10.080 --> 02:14.760
+So you get n for a, o for b and b for c and so on and so forth.
+
+02:14.760 --> 02:20.080
+So in your regular testing, you'll come up with some inputs, you put those inputs into
+
+02:20.080 --> 02:25.400
+the function and then you make assertions based if the output is correct.
+
+02:25.400 --> 02:30.840
+You're all familiar with this probably, you can run this using your standard Go CLI.
+
+02:30.840 --> 02:33.880
+With fuzzing, the situation changes a little bit.
+
+02:33.880 --> 02:38.280
+Instead of your device input, your things you came up with, you have a random input,
+
+02:38.280 --> 02:42.080
+you put it into the function and make some assertions.
+
+02:42.080 --> 02:47.680
+It looks very similar and is supported in Go from like Go 1.18 and you can also run
+
+02:47.680 --> 02:49.320
+this using the CLI.
+
+02:49.320 --> 02:54.280
+You see some boilerplate around the test but you know, in the middle you basically have
+
+02:54.280 --> 02:56.680
+your unit test that you had before.
+
+02:56.680 --> 03:01.520
+I intentionally left the assertion blank because how the assertion stuff, if you don't know
+
+03:01.520 --> 03:04.160
+the input, right?
+
+03:04.160 --> 03:09.960
+If you run the fast test, you'll see that it tries hundreds of thousands of inputs per
+
+03:09.960 --> 03:13.400
+second in this instance and it runs indefinitely.
+
+03:13.400 --> 03:18.040
+So you can run it as long as you want.
+
+03:18.040 --> 03:22.120
+As you've seen, it's easy to create fast tests if you have unit tests in place.
+
+03:22.120 --> 03:26.160
+So there is no reason not to do it really.
+
+03:26.160 --> 03:29.680
+One thing that we haven't talked about is that it's not our magic.
+
+03:29.680 --> 03:35.000
+You still have to kind of instruct the fuzzing engine to be able to come up with inputs that
+
+03:35.000 --> 03:36.720
+make sense for your test.
+
+03:36.720 --> 03:42.320
+So you can actually reuse the inputs you use for unit tests and add them to what's called
+
+03:42.320 --> 03:48.880
+the corpus and that tells the fuzzing engine to come up with something that's similar but
+
+03:48.880 --> 03:50.760
+quite random as well.
+
+03:50.760 --> 03:53.680
+Add the inputs from your unit test.
+
+03:53.680 --> 03:56.840
+That helps a lot.
+
+03:56.840 --> 04:02.120
+I've talked about those assertions that might be pretty tricky to come up with them if you
+
+04:02.120 --> 04:03.960
+don't really know what the input is.
+
+04:03.960 --> 04:08.720
+So what you commonly see in fast tests is that they don't make any assertions.
+
+04:08.720 --> 04:14.720
+They just, the engine just checks if the function crashed, which is still very efficient because
+
+04:14.720 --> 04:20.640
+it tells you that there are some out of ground size axes, for instance.
+
+04:20.640 --> 04:27.760
+But you should and can assert an invariance of things that don't change and in our instance,
+
+04:27.760 --> 04:33.160
+for instance, there is a property to the ROT13 function that you can actually call it twice
+
+04:33.160 --> 04:35.080
+and you get the input back.
+
+04:35.080 --> 04:38.960
+And this holds true for anything that has an inverse symbol.
+
+04:38.960 --> 04:45.840
+So if you have an inverse function, you can make a simple search like this, which is called
+
+04:45.840 --> 04:48.720
+ROT13 and ROT13 and then you expect the input back.
+
+04:48.720 --> 04:53.840
+If it doesn't agree, it's, you know, the test fails.
+
+04:53.840 --> 05:00.480
+Some examples that are commonly used are encoders, decoders, marshallers and marshallers.
+
+05:00.480 --> 05:05.000
+You can just call the things, you know, decode the encoded thing and you should get the input
+
+05:05.000 --> 05:06.000
+back.
+
+05:06.000 --> 05:11.800
+There's other stuff, like if you do a SHA sum, for instance, you always expect it to
+
+05:11.800 --> 05:14.600
+return 32 bytes.
+
+05:14.600 --> 05:16.240
+But there is other technique.
+
+05:16.240 --> 05:20.480
+And what if you had two implementations of ROT13, right?
+
+05:20.480 --> 05:23.960
+Something that you wrote and then, you know, something else.
+
+05:23.960 --> 05:25.600
+And that's called differential fuzzing.
+
+05:25.600 --> 05:30.680
+So basically, you get a random input, you put it through two implementations and you
+
+05:30.680 --> 05:33.360
+see if they disagree.
+
+05:33.360 --> 05:38.560
+So, you know, think about for a moment and, like, where can we get those second implementations
+
+05:38.560 --> 05:43.040
+from?
+
+05:43.040 --> 05:44.480
+The first thing is refactoring.
+
+05:44.480 --> 05:49.880
+Let's say you have your function but, you know, it's unreadable, maybe it's not performance
+
+05:49.880 --> 05:54.640
+enough, so you're refactoring the code for whatever reason.
+
+05:54.640 --> 06:01.520
+You can save your old implementation to the site and use it to basically reference it
+
+06:01.520 --> 06:04.840
+when you refactor the codes.
+
+06:04.840 --> 06:07.440
+The second example is performance.
+
+06:07.440 --> 06:10.240
+You might have, you might maintain two implementations in the first place.
+
+06:10.240 --> 06:15.680
+For instance, you are following a specification closely and, you know, the first implementation
+
+06:15.680 --> 06:19.560
+is written very closely spec, but it might be inefficient.
+
+06:19.560 --> 06:22.440
+But the second one is heavily optimized, but it might be not quite readable.
+
+06:22.440 --> 06:27.640
+You know, you might have some straight buffers or, you know, whatever.
+
+06:27.640 --> 06:32.200
+The third option, which is really interesting, is that there is a C library that does a similar
+
+06:32.200 --> 06:33.760
+thing.
+
+06:33.760 --> 06:35.480
+And you can use C go to college.
+
+06:35.480 --> 06:38.960
+And that's what we'll explore further.
+
+06:38.960 --> 06:45.560
+So back in January last year, I saw an interesting bug report and I can go with a newsletter
+
+06:45.560 --> 06:53.760
+where there was an issue with the HTML tokenizer, basically the piece of the, or part of the
+
+06:53.760 --> 06:56.840
+experimental library that does HTML tokenization.
+
+06:56.840 --> 07:02.320
+And the thing was that it was incorrectly interpreting comments and this led to an excess
+
+07:02.320 --> 07:04.640
+attack.
+
+07:04.640 --> 07:06.840
+So what does an HTML tokenizer do?
+
+07:06.840 --> 07:12.920
+It basically takes a HTML input and it gives you the HTML token.
+
+07:12.920 --> 07:17.720
+So for this example, for instance, you have a paragraph and a text inside and an anchor
+
+07:17.720 --> 07:18.720
+afterwards.
+
+07:18.720 --> 07:24.400
+You'll get start attack of P, text, and then the text inside and tag of P and then start
+
+07:24.400 --> 07:31.360
+attack of A. This is a very well-defined process and there is an HTML specification for it.
+
+07:31.360 --> 07:32.360
+It's very high in detail.
+
+07:32.360 --> 07:33.920
+It's easy to follow.
+
+07:33.920 --> 07:37.920
+And it's a state machine which will become important later.
+
+07:37.920 --> 07:42.640
+If you look at the go implementation, though, it's not a state machine.
+
+07:42.640 --> 07:45.160
+And it's not quite easy to follow, at least for me.
+
+07:45.160 --> 07:53.160
+So I thought, you know, if there wasn't a report for it, there might be other bugs lurking
+
+07:53.160 --> 07:55.960
+around.
+
+07:55.960 --> 08:02.640
+So let's, you know, let's use that function a bit and make another one that gives you
+
+08:02.640 --> 08:07.800
+a list of tokens because the API works in a stringing way.
+
+08:07.800 --> 08:12.160
+So we'll just call the tokenizer, collect all tokens, and then return the tokens it
+
+08:12.160 --> 08:14.600
+generates.
+
+08:14.600 --> 08:20.280
+So you know, when we, let's say, start with the fuzzing, we will supply some HTML input
+
+08:20.280 --> 08:27.720
+to the corpus and then call the tokenize function without making any assertions.
+
+08:27.720 --> 08:29.160
+And there are no results.
+
+08:29.160 --> 08:30.160
+It doesn't crash.
+
+08:30.160 --> 08:33.320
+Something will be expected from, you know, from some library or from the experimental
+
+08:33.320 --> 08:35.560
+part of it.
+
+08:35.560 --> 08:38.400
+So let's try differential fuzzing, right?
+
+08:38.400 --> 08:43.680
+We'll have the, our tokenizer function that we wrote and some alternative implementation
+
+08:43.680 --> 08:44.680
+for it.
+
+08:44.680 --> 08:48.640
+And if they don't agree, we'll fail.
+
+08:48.640 --> 08:52.560
+And as you can imagine, because the, you know, C ecosystem is very mature, there probably
+
+08:52.560 --> 08:54.600
+is a library that does the same thing.
+
+08:54.600 --> 09:01.480
+So in this case, I found Legsport, which is a web browser engine that, you know, is a
+
+09:01.480 --> 09:02.480
+software library.
+
+09:02.480 --> 09:03.480
+It has no extra dependencies.
+
+09:03.480 --> 09:05.360
+It has a Poshy to Prenel license.
+
+09:05.360 --> 09:09.640
+It sounds about perfect for what we want to achieve.
+
+09:09.640 --> 09:11.400
+So don't look at this slide really.
+
+09:11.400 --> 09:16.400
+It's, you know, it's basically implementing the tokenize function that we implemented
+
+09:16.400 --> 09:19.800
+using the Nets HTML tokenizer, but using the Legsport.
+
+09:19.800 --> 09:25.760
+It's actually a lot more complicated than that, but we'll be good for our tests.
+
+09:25.760 --> 09:31.600
+So we call the tokenize and Legsport tokenize and do some equality checks and if they fail,
+
+09:31.600 --> 09:33.320
+we fail the test.
+
+09:33.320 --> 09:35.160
+And it found something.
+
+09:35.160 --> 09:42.920
+So there is some weird looking HTML codes, looks, month forms, and Legsport says that,
+
+09:42.920 --> 09:48.840
+you know, it's an ATAC, but Nets HTML library is like, oh, there's nothing in there.
+
+09:48.840 --> 09:55.760
+So let's transform this a bit and let's see what the browser thinks.
+
+09:55.760 --> 09:58.520
+So we have these agreements.
+
+09:58.520 --> 10:01.360
+Could this be a security issue?
+
+10:01.360 --> 10:05.440
+So what if we made trust decisions based on the tokenizer?
+
+10:05.440 --> 10:10.160
+And so imagine you have like some, you know, user input on your website, you accept the
+
+10:10.160 --> 10:16.440
+HTML inputs and, you know, you decide whether the staff people input is safe to display
+
+10:16.440 --> 10:18.520
+or not.
+
+10:18.520 --> 10:24.120
+And you should, by the way, you really shouldn't do this, but we'll have a S-save function
+
+10:24.120 --> 10:27.960
+that will return the Boolean, whether it's safe or not, and we'll just look for the tokens
+
+10:27.960 --> 10:36.440
+we get and only allow strong tags and nothing else, strong attacks and text tokens.
+
+10:36.440 --> 10:42.480
+So the S-save method thinks that, you know, the thing that we got from the fuzzing is
+
+10:42.480 --> 10:46.360
+safe because it thinks there's nothing in it.
+
+10:46.360 --> 10:48.720
+But the browser says otherwise.
+
+10:48.720 --> 10:52.040
+When you look at the documentation, though, there will be a security consideration section
+
+10:52.040 --> 10:56.840
+in the HTML tokenizer and it says, you know, care should be taken, especially with regard
+
+10:56.840 --> 10:58.720
+to unstressed inputs.
+
+10:58.720 --> 11:03.560
+If your use case requires a well-formed HTML, the parser should be used rather than the
+
+11:03.560 --> 11:04.700
+tokenizer.
+
+11:04.700 --> 11:07.240
+So let's implement this using the parser, right?
+
+11:07.240 --> 11:11.280
+I want to go into detail, but we use the parser here.
+
+11:11.280 --> 11:15.120
+That's also in the same library.
+
+11:15.120 --> 11:19.880
+The thing is the parser also thinks this is safe, and the reason is it uses the tokenizer
+
+11:19.880 --> 11:28.880
+underneath, so it doesn't really, you know, differentiate between the two.
+
+11:28.880 --> 11:31.320
+So we still get the XSS.
+
+11:31.320 --> 11:32.320
+So we have two things.
+
+11:32.320 --> 11:36.040
+You know, the first thing is that the documentation could be improved because it's unclear.
+
+11:36.040 --> 11:41.960
+It's tier C in the wrong direction, and second, that there is a bug in the tokenizer.
+
+11:41.960 --> 11:47.720
+So I thought, right, if there was a vulnerability report in the VRP program for the common thing,
+
+11:47.720 --> 11:48.880
+I'll do the same thing.
+
+11:48.880 --> 11:51.240
+So I submitted a VRP report.
+
+11:51.240 --> 11:52.240
+There was some back and forth.
+
+11:52.240 --> 11:53.240
+They closed my ticket.
+
+11:53.240 --> 11:54.400
+I told them to reopen it.
+
+11:54.400 --> 11:56.400
+They reopened it.
+
+11:56.400 --> 12:05.000
+And the result of that was that there was a documentation update, which is cool.
+
+12:05.000 --> 12:10.400
+And they say that in security context, if trust decisions are being made, the input must
+
+12:10.400 --> 12:13.600
+be recerealized, for instance, using render or token string.
+
+12:13.600 --> 12:17.040
+So what they are saying is that instead of doing, you know, a safe function that returns
+
+12:17.040 --> 12:22.440
+a boolean, you should actually transform the input and construct it in a way that, you
+
+12:22.440 --> 12:26.800
+know, basically sanitize this, transform the string.
+
+12:26.800 --> 12:28.360
+And there are two ways to do this.
+
+12:28.360 --> 12:34.320
+One is to use the token.stream function, which, you know, when you loop over the tokens,
+
+12:34.320 --> 12:38.480
+you can reconstruct the input or render when you use the parser.
+
+12:39.440 --> 12:46.480
+A few months pass, and there is a comment to the library.
+
+12:46.480 --> 12:47.840
+And they fix the actual bug.
+
+12:47.840 --> 12:57.440
+So, you know, handle equal signs before attributes, and they quote the spec and fix the debug
+
+12:57.440 --> 12:58.440
+that was there.
+
+12:58.440 --> 13:01.560
+So now if you call the is safe function, it returns false.
+
+13:01.560 --> 13:02.560
+That's pretty cool.
+
+13:02.560 --> 13:06.720
+But let's run the fuzzer again.
+
+13:06.720 --> 13:12.760
+I mean, you know, you get something that is very similar, and it acts the same way.
+
+13:12.760 --> 13:15.880
+So I thought, all right, I have this fuzzer.
+
+13:15.880 --> 13:16.880
+It's not pretty.
+
+13:16.880 --> 13:20.960
+You know, it has no way to reach the standard test suite.
+
+13:20.960 --> 13:24.480
+But we can, you know, learn the code base and iterate over it.
+
+13:24.480 --> 13:29.720
+So run the, you know, fix the problem, run the fastest again, and then, you know.
+
+13:29.720 --> 13:36.240
+So I prepared the patch, and you've seen I get it screened today already.
+
+13:36.240 --> 13:40.640
+It has the code review, but as Jonathan mentioned, you need a lot of patience.
+
+13:40.640 --> 13:43.520
+It's been stuck in, like, ready to submit for like three months, I think.
+
+13:43.520 --> 13:49.560
+So it still hasn't reached master, but it's close, I think.
+
+13:49.560 --> 13:53.120
+But when you run the fastest again, there are no more findings.
+
+13:53.120 --> 13:58.520
+So the takeaway from this is that fuzzing is very effective, and differential fuzzing
+
+13:58.520 --> 14:02.560
+helps write correct for code.
+
+14:02.560 --> 14:05.600
+So let's talk about what are good testing candidates.
+
+14:05.600 --> 14:10.440
+We've used it on parsers, which are pretty complex codes.
+
+14:10.440 --> 14:14.720
+You can use them to get the coders and coders, you know, marshallers, and any complex code
+
+14:14.720 --> 14:19.120
+that, you know, can be unit tested, basically.
+
+14:19.120 --> 14:25.040
+But running those tests in CI is kind of traumatic, at least in my experience, because it's not
+
+14:25.040 --> 14:27.320
+really mature enough yet, I think.
+
+14:27.320 --> 14:32.280
+And when you run the go-pest fuzzing vocation, it can only run a single fuzz test.
+
+14:32.280 --> 14:36.760
+So people have been doing a lot of hacks, like, grabbing this fuzz code, trying to find
+
+14:36.760 --> 14:42.960
+those fuzz targets, you know, sleeping, like, some pretty hacky buskers, for instance.
+
+14:42.960 --> 14:45.640
+There is also a very cool project called Cluster Fuzz Lite.
+
+14:45.640 --> 14:50.880
+It's actually a subset of OSS Fuzz that you can run in your CI.
+
+14:50.880 --> 14:53.480
+But we found some problems with it.
+
+14:53.480 --> 14:56.600
+First, it has problems with extracting and failing inputs.
+
+14:56.600 --> 15:01.080
+Like, if you have a byte array, for instance, it doesn't really translate one-to-one to
+
+15:01.080 --> 15:06.240
+what the actual input is, because you have to apply some of your own transformations
+
+15:06.240 --> 15:10.600
+over it, and it's being convenient to run locally.
+
+15:10.600 --> 15:12.400
+So we built Go-CIFuzz.
+
+15:12.400 --> 15:17.360
+And it's kind of a lightweight wrapper around go-test fuzz.
+
+15:17.360 --> 15:24.480
+And it separates multiple test targets, and it allows you to extract inputs.
+
+15:24.480 --> 15:28.200
+So if you want to give it a try, there is a link here.
+
+15:28.200 --> 15:30.160
+And, yeah, good to go.
+
+15:30.160 --> 15:32.320
+And it's basically plug-and-play, drag-and-drop.
+
+15:32.320 --> 15:39.920
+You can use it to run fastest as part of your pull request workflow, or you run it on schedule,
+
+15:39.920 --> 15:47.520
+so, like, you know, during the night, or whatever, whenever you want to run this.
+
+15:47.520 --> 15:49.400
+All right.
+
+15:49.400 --> 15:51.360
+So we've placed for it.
+
+15:51.360 --> 15:57.280
+But, yeah, if you want to, you know, say hello, there is my email address and my handle.
+
+15:57.280 --> 16:03.520
+And also, I wrote a blog post about this, but it goes more in detail about this actual
+
+16:03.520 --> 16:05.040
+finding.
+
+16:05.040 --> 16:07.480
+And there are some references.
+
+16:07.480 --> 16:12.880
+You have the, if you want to start fuzzing, there is a very excellent introduction to
+
+16:12.880 --> 16:15.160
+it in the Go documentation.
+
+16:15.160 --> 16:20.720
+There's also Goode's article on Wikipedia on how it works under the hood.
+
+16:20.720 --> 16:25.720
+And there's a link to clusterfuzzlight, the Go-CIFuzz, the blog post, and also a pretty
+
+16:25.720 --> 16:29.560
+interesting entry in this list is the second one.
+
+16:29.560 --> 16:34.240
+So there was a recent paper from Google where they use AI to actually generate the fastest.
+
+16:34.240 --> 16:38.840
+So maybe you don't really need to write them, and AI will be able to do it for you.
+
+16:38.840 --> 16:40.440
+All right.
+
+16:40.440 --> 16:44.400
+So if there are any questions, happy to answer.
+
+16:44.400 --> 16:47.240
+All right.
+
+16:47.240 --> 16:56.800
+Any questions?
+
+16:56.800 --> 16:58.640
+We still have some time.
+
+16:58.640 --> 16:59.640
+And the front.
+
+16:59.640 --> 17:00.640
+That's nice.
+
+17:00.640 --> 17:01.640
+Okay.
+
+17:01.640 --> 17:08.760
+How many minutes do you run the fuzzer in the CI because this is important, right?
+
+17:08.760 --> 17:10.640
+Because it costs money.
+
+17:10.640 --> 17:11.640
+That's true.
+
+17:11.640 --> 17:12.640
+Yeah.
+
+17:12.640 --> 17:13.640
+So, you know, it depends on the workflow.
+
+17:13.640 --> 17:18.520
+So for instance, when it's a pull request, you really don't want people waiting.
+
+17:18.520 --> 17:21.080
+We run this for like five to six minutes.
+
+17:21.080 --> 17:27.720
+It's enough time in our experience to catch like those bugs that are, you know, the edge
+
+17:27.720 --> 17:30.880
+cases that are quite common.
+
+17:30.880 --> 17:34.920
+But you can run this indefinitely during the night, and it depends on how much money
+
+17:34.920 --> 17:38.760
+you want to spend for your CI runs.
+
+17:38.760 --> 17:39.760
+Yeah.
+
+17:39.760 --> 17:40.760
+All right.
+
+17:40.760 --> 17:41.760
+Any other questions?
+
+17:41.760 --> 17:42.760
+Questions.
+
+17:42.760 --> 17:56.200
+Can you keep your hands up and I can go to the right row if you could pass us along.
+
+17:56.200 --> 18:02.560
+Have you tried to fuzz only inserting random strings or like also a combination of valid
+
+18:02.560 --> 18:04.880
+tokens in different order?
+
+18:04.880 --> 18:07.360
+Could you please bring?
+
+18:07.360 --> 18:11.720
+From what I got from the slide, if I'm not wrong, you were like inputting the data.
+
+18:11.720 --> 18:14.080
+You were like putting random strings, right?
+
+18:14.080 --> 18:15.080
+Okay.
+
+18:15.080 --> 18:19.360
+So how it works really is that you provided a starting corpus.
+
+18:19.360 --> 18:24.920
+So like your, think about your unit test inputs and then the fuzzing engine underneath takes
+
+18:24.920 --> 18:28.240
+those inputs and puts transformations on them.
+
+18:28.240 --> 18:31.520
+So every time you'll get a slightly different input.
+
+18:31.520 --> 18:34.200
+It won't be completely different, but it will be a bit more formed.
+
+18:34.200 --> 18:41.440
+So like if you saw these, the findings for instance here, right?
+
+18:41.440 --> 18:45.200
+It outputs all, well it outputs a valid HTML or almost valid HTML.
+
+18:45.200 --> 18:49.840
+So it kind of reached this conclusion based on some coverage data it found.
+
+18:49.840 --> 18:52.880
+So like it also looks at test covers.
+
+18:52.880 --> 18:57.400
+So when it runs the fastest, it kind of captures which branches of code have been covered and
+
+18:57.400 --> 19:00.320
+tries to reach the other that have been not covered.
+
+19:00.320 --> 19:06.360
+So it's kind of an interactive process where it applies transformations to the inputs.
+
+19:06.360 --> 19:08.360
+Right.
+
+19:08.360 --> 19:22.240
+There's another one.
+
+19:22.240 --> 19:27.560
+How does the engine know which part of the corpus it might change and which not so it
+
+19:27.560 --> 19:33.880
+doesn't only input like random strings as I could obtain from the random package?
+
+19:33.880 --> 19:37.320
+Could you repeat the beginning or the question?
+
+19:37.320 --> 19:38.320
+Yeah, sure.
+
+19:38.320 --> 19:42.440
+The fuzzing engine, you give it a set of example strings.
+
+19:42.440 --> 19:47.680
+How does it know which part of that it may change and so that it doesn't just put in
+
+19:47.680 --> 19:48.680
+random things?
+
+19:48.680 --> 19:49.680
+Okay.
+
+19:49.680 --> 19:56.160
+So I don't know the exact details, but I think it works that it makes a change and it looks
+
+19:56.160 --> 19:57.520
+at the coverage data.
+
+19:57.520 --> 20:03.360
+So it looks at the branches, it kind of discovers when it made the change and it will note some
+
+20:03.360 --> 20:06.280
+interesting inputs and then try those inputs.
+
+20:06.280 --> 20:14.520
+So like if the coverage increases, it will try to make more transformations similar to
+
+20:14.520 --> 20:17.480
+the one that it makes.
+
+20:17.480 --> 20:20.680
+Yeah, one more.
+
+20:20.680 --> 20:24.360
+What kind of coverage metric is it?
+
+20:24.360 --> 20:26.640
+The question is what kind of coverage metric it is.
+
+20:26.640 --> 20:31.840
+I think it's, I'm not so sure, but I think it's branch coverage based.
+
+20:31.840 --> 20:36.800
+If you run the fastest with some variable flags, you will see that there are coverage
+
+20:36.800 --> 20:43.760
+bits and I think it tells you how much coverage there is for a particular input.
+
+20:43.760 --> 20:45.880
+All right.
+
+20:45.880 --> 20:48.400
+There's one more.
+
+20:48.400 --> 20:49.400
+One second.
+
+20:49.400 --> 20:53.320
+I can probably just speak up.
+
+20:53.320 --> 21:21.120
+So the question is, there is a go cache or when you run fastest, there is a cache folder
+
+21:21.120 --> 21:27.080
+that will capture the inputs already run and the question is whether the tool will or can
+
+21:27.080 --> 21:28.640
+support this.
+
+21:28.640 --> 21:32.400
+And the question is, the answer is it doesn't right now, but it's planned.
+
+21:32.400 --> 21:41.320
+So for those that are unaware, when you run a run fast test, there is a directory that
+
+21:41.320 --> 21:46.480
+will capture all the input it has tried or the interesting ones.
+
+21:46.480 --> 21:53.640
+And when you run this again, it will start from the point, which is really handy because
+
+21:53.640 --> 21:57.720
+you will not do the same work every time or a similar work.
+
+21:57.720 --> 22:00.760
+You can start from where you left.
+
+22:00.760 --> 22:01.760
+Yeah.
+
+22:01.760 --> 22:02.760
+Thank you.
+
+22:02.760 --> 22:09.600
+Yeah, there is one more.
+
+22:09.600 --> 22:14.080
+The question is slightly tangential to this directly, but you said we provide a starting
+
+22:14.080 --> 22:20.040
+corpus and then there's transformations on that, which is run against whatever we're
+
+22:20.040 --> 22:21.040
+testing.
+
+22:21.040 --> 22:26.320
+So is there a way to optimize the starting corpus to increase the kind of test cases
+
+22:26.320 --> 22:28.640
+that are actually generated by the FuzzError?
+
+22:28.640 --> 22:32.960
+Is there a way where the starting corpus can be designed to cover as many edge cases as
+
+22:32.960 --> 22:33.960
+possible?
+
+22:33.960 --> 22:34.960
+Okay.
+
+22:34.960 --> 22:39.520
+So there are similar perspectives to this.
+
+22:39.520 --> 22:45.280
+There are corpus that you can find online in GitHub, for instance, that you can employ
+
+22:45.280 --> 22:47.760
+in your FuzzTests.
+
+22:47.760 --> 22:53.720
+Also when there's a finding, for instance, when you run the FuzzTest and you find a string,
+
+22:53.720 --> 22:58.640
+it will add it to the corpus that you have in your repo.
+
+22:58.640 --> 23:04.960
+So when you run this, there will be a directory created in your repository that's called test
+
+23:04.960 --> 23:06.240
+data.
+
+23:06.240 --> 23:10.000
+And inside that test data folder, this will be captured.
+
+23:10.000 --> 23:16.600
+And you should actually commit that folder to your repo so that every next time you run
+
+23:16.600 --> 23:19.560
+the FuzzTest, it will actually check for regressions.
+
+23:19.560 --> 23:25.360
+So yeah, I hope this answers your question.
+
+23:25.360 --> 23:28.360
+Any more?
+
+23:28.360 --> 23:32.040
+Thank you.
+
+23:32.040 --> 23:39.320
+Are there ways to customize the kind of transformations that are applied by the FuzzError?
+
+23:39.320 --> 23:45.160
+Not in the Go Native FuzzTests.
+
+23:45.160 --> 23:52.000
+So there are other tools that have been used before, and Go introduced native fuzzing.
+
+23:52.000 --> 23:57.080
+There is libfuzzer, for instance, that's very commonly used by the OSS Fuzz.
+
+23:57.080 --> 24:00.920
+And I believe if you use that, you can customize it.
+
+24:00.920 --> 24:06.560
+But the way native Go tests work is that they actually use libfuzzer, but it's not very
+
+24:06.560 --> 24:08.200
+configurable.
+
+24:08.200 --> 24:15.080
+So it's supposed to be good developer experience-wise and cover most of the needs that you need,
+
+24:15.080 --> 24:21.520
+but I don't think you can drive the transformations from it.
+
+24:21.520 --> 24:23.240
+I'm going to end the questions here.
+

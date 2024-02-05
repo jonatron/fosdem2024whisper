@@ -1,0 +1,893 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Hello, everybody. Can you guys hear me?
+
+00:08.400 --> 00:11.400
+Hello.
+
+00:11.400 --> 00:14.840
+Cool. My name is Valde Kozachuk.
+
+00:14.840 --> 00:19.080
+I'm one of the few OSV committers and I'm here to tell you
+
+00:19.080 --> 00:22.800
+about the latest enhancements made to OSV
+
+00:22.800 --> 00:25.680
+since my last presentation at Fosada a year ago.
+
+00:26.640 --> 00:30.640
+So, first off, I want to apologize for this very long title.
+
+00:30.640 --> 00:35.640
+Actually, most of my talk is really going to be focused on the first part,
+
+00:35.640 --> 00:39.640
+but I'll also try to mention a little bit about the other things.
+
+00:39.640 --> 00:45.640
+So, in today's presentation, I will talk about the enhancements
+
+00:45.640 --> 00:50.640
+to support statically linked executables and dynamically linked executables
+
+00:50.640 --> 00:53.640
+launched by a Linux dynamic linker.
+
+00:54.600 --> 00:58.600
+I will also briefly describe the implementation of the inner driver
+
+00:58.600 --> 01:00.600
+to support AWS Nitro.
+
+01:00.600 --> 01:04.600
+In addition, I will preview the new Xconfig-based mechanism
+
+01:04.600 --> 01:08.600
+to allow further customization of OSV.
+
+01:08.600 --> 01:13.600
+Finally, I will talk about upcoming one, zero release and beyond.
+
+01:16.600 --> 01:21.600
+Most applications do not make system calls into Linux currently, as we know.
+
+01:22.560 --> 01:26.560
+Instead, they do it indirectly by way of calling Lipsy functions
+
+01:26.560 --> 01:30.560
+that delegate to Cisco or SDC instruction on ARM.
+
+01:30.560 --> 01:33.560
+On Linux, for example, the dynamically linked executables
+
+01:33.560 --> 01:36.560
+are launched by Program Interpreter LD,
+
+01:36.560 --> 01:40.560
+which memory maps the executable else along with other else files.
+
+01:40.560 --> 01:45.560
+It depends on, like, Lipsy SO, Lipthread SO, and so on.
+
+01:45.560 --> 01:50.560
+Then, resolves undefined symbols like puts or pthread create
+
+01:50.560 --> 01:53.560
+and finally involves the main function.
+
+01:53.560 --> 01:57.560
+On OSV, the built-in to kernel dynamic linker
+
+01:57.560 --> 02:02.560
+plays the role of the Program Interpreter that performs similar steps as on Linux.
+
+02:02.560 --> 02:06.560
+But instead of loading the aforementioned libraries,
+
+02:06.560 --> 02:12.560
+it resolves the undefined symbols by pointing them to OSV implementations of those.
+
+02:12.560 --> 02:16.560
+The OSV linker supports both shared libraries
+
+02:16.560 --> 02:22.560
+and dynamically linked executables that are either position-dependent
+
+02:22.560 --> 02:24.560
+or non-position-dependent.
+
+02:24.560 --> 02:32.560
+The benefit is that programs interact with the OSV kernel
+
+02:32.560 --> 02:37.560
+using the fast local function calls without the overhead of Cisco instruction.
+
+02:37.560 --> 02:42.560
+On the negative side, the Linux compatibility is a moving target
+
+02:42.560 --> 02:46.560
+because Lipsy keeps adding new functions
+
+02:46.560 --> 02:52.560
+and on the OSV side, we have to keep implementing them.
+
+02:52.560 --> 02:57.560
+This slide here illustrates how dynamically linked programs
+
+02:57.560 --> 03:00.560
+would traditionally interact with OSV kernel.
+
+03:00.560 --> 03:06.560
+The drawing shows an executable procedure linkage table, PLT, on the left side.
+
+03:07.560 --> 03:12.560
+The dynamic linker and Lipsy implementation
+
+03:12.560 --> 03:16.560
+that are part of OSV kernel on the right side.
+
+03:19.560 --> 03:28.560
+In this example, after the dynamic linker memory maps the program into the memory,
+
+03:28.560 --> 03:32.560
+actually, more specifically, the self-segment,
+
+03:32.560 --> 03:38.560
+it then sets up the PLT to later resolve and replace the put function call
+
+03:38.560 --> 03:42.560
+placeholder with the address of its implementation in OSV kernel,
+
+03:42.560 --> 03:46.560
+which typically happens upon the very first call.
+
+03:48.560 --> 03:51.560
+Now, the statically linked executables interact with Linux kernel
+
+03:51.560 --> 03:55.560
+by directly making system calls and reading from pseudo file systems
+
+03:55.560 --> 03:57.560
+like ProgFS and SysFS.
+
+03:57.560 --> 04:02.560
+Initially, OSV implemented a fairly small number of system calls
+
+04:02.560 --> 04:07.560
+around 70 to support running going programs that were interesting
+
+04:07.560 --> 04:12.560
+because they would call Lipsy functions to create threads, for example,
+
+04:12.560 --> 04:17.560
+and execute system calls to do other things like, for example, Socket API.
+
+04:17.560 --> 04:21.560
+But this was not enough to support statically linked executables.
+
+04:21.560 --> 04:26.560
+To make this possible, we had to implement some key new system calls
+
+04:26.560 --> 04:31.560
+like BRK and clone and add substantial number of other ones
+
+04:31.560 --> 04:34.560
+to bring the total to 137 at this point.
+
+04:34.560 --> 04:39.560
+However, the most tricky part was adding support for the application
+
+04:39.560 --> 04:41.560
+fed local storage so-called TLS.
+
+04:41.560 --> 04:45.560
+The dynamic-linked programs that run on OSV, in a traditional way,
+
+04:45.560 --> 04:50.560
+would share the thread local storage with kernel
+
+04:50.560 --> 04:55.560
+and allow OSV to fully control setup of TLS.
+
+04:55.560 --> 04:58.560
+The statically linked executables, on other hand,
+
+04:58.560 --> 05:04.560
+want to allocate their own TLS and set the FS register on X64
+
+05:04.560 --> 05:12.560
+or TPIDREO0 on ARM and to the thread control address for each thread.
+
+05:12.560 --> 05:19.560
+On X64, the solution was basically to utilize the GS register
+
+05:19.560 --> 05:25.560
+to point to the Persepio structure with a copy of that application,
+
+05:25.560 --> 05:29.560
+TCP, and basically update it on every context switch.
+
+05:29.560 --> 05:33.560
+On AHR64, we did similar thing.
+
+05:33.560 --> 05:39.560
+Now, the point of this enhancement is that we basically improved
+
+05:39.560 --> 05:45.560
+the Linux compatibility because now we don't have to worry about these cases,
+
+05:45.560 --> 05:50.560
+where, for example, application tries to call functions in Lipsy
+
+05:50.560 --> 05:52.560
+that OSV doesn't implement.
+
+05:52.560 --> 05:58.560
+But the drawback, obviously, of the system calls interface
+
+05:58.560 --> 06:02.560
+is that, obviously, we pay overhead of Cisco instruction every time,
+
+06:02.560 --> 06:11.560
+which on average I measured this around 110 nanoseconds on X64.
+
+06:11.560 --> 06:15.560
+This picture actually illustrates what happens behind the scenes.
+
+06:15.560 --> 06:21.560
+So on the right side, actually, OSV dynamic linker still plays some small role.
+
+06:21.560 --> 06:25.560
+It still memory maps the segments of the elf.
+
+06:25.560 --> 06:27.560
+It reads the headers, obviously.
+
+06:27.560 --> 06:32.560
+But then, really, it just jumps to the start of the elf.
+
+06:32.560 --> 06:36.560
+And from this point on, the interactions basically between the program
+
+06:36.560 --> 06:43.560
+and the OSV happens simply through Cisco instruction.
+
+06:43.560 --> 06:48.560
+The exciting side effect, actually, of enhancing OSV to support
+
+06:48.560 --> 06:52.560
+Staticly Link executable is basically capability to run
+
+06:52.560 --> 06:57.560
+dynamically linked executables via Linux dynamic linker
+
+06:57.560 --> 07:00.560
+instead of basically the OSV built-in one.
+
+07:00.560 --> 07:04.560
+The Linux dynamic linker, LD, is Staticly Linux,
+
+07:04.560 --> 07:07.560
+a tightly linked position independent shared object
+
+07:07.560 --> 07:11.560
+that is loaded and processed by OSV kernel in an exact same way
+
+07:11.560 --> 07:14.560
+as Static executable is.
+
+07:14.560 --> 07:19.560
+In Linux, the dynamic linker would be launched implicitly, right?
+
+07:19.560 --> 07:24.560
+And by simply introspecting the inter-program header.
+
+07:24.560 --> 07:30.560
+In OSV, we have to launch the LD, the Linux LD executable explicitly
+
+07:30.560 --> 07:37.560
+and pass its path along with the arguments as you can actually see in RO.
+
+07:43.560 --> 07:47.560
+And actually, as you can see in this script, runpy example.
+
+07:47.560 --> 07:54.560
+So we're passing actually the absolute path to the Linux dynamic linker
+
+07:54.560 --> 07:59.560
+and then we're actually adding all the path of executable and any arguments.
+
+08:00.560 --> 08:05.560
+So obviously, just like with Staticly Link executables,
+
+08:05.560 --> 08:11.560
+there is the same benefit that we are now much more compatible with Linux
+
+08:11.560 --> 08:17.560
+because one can take any application that works on Linux with G-Lipsy
+
+08:17.560 --> 08:22.560
+and it should work on OSV just because when we build the image,
+
+08:22.560 --> 08:26.560
+OSV is going to run, it's going to actually load the G-Lipsy,
+
+08:26.560 --> 08:32.560
+and we can't use it as any other library that given application needs.
+
+08:32.560 --> 08:39.560
+The drawback is the same because we are again paying 110 nanoseconds
+
+08:39.560 --> 08:43.560
+for every Cisco instruction.
+
+08:43.560 --> 08:47.560
+And this slide again tries to illustrate the interactions
+
+08:47.560 --> 08:51.560
+between the OSV and the application.
+
+08:51.560 --> 08:53.940
+It's, as you can see on the right,
+
+08:53.940 --> 08:55.020
+you have the OSV kernel.
+
+08:55.020 --> 08:56.260
+On the left, the application,
+
+08:56.260 --> 08:59.060
+the news dynamic linker,
+
+08:59.060 --> 09:03.660
+that is executed just like with static executables.
+
+09:04.820 --> 09:07.300
+And then it loads the application
+
+09:07.300 --> 09:11.900
+LLF into memory by using M-MAP system call.
+
+09:11.900 --> 09:15.900
+And then also executes the application itself,
+
+09:15.900 --> 09:16.900
+loads any libraries.
+
+09:16.900 --> 09:18.180
+And from this point on,
+
+09:18.180 --> 09:21.900
+all the interactions happen with Cisco instructions.
+
+09:28.040 --> 09:30.500
+Now to help analyze and troubleshoot
+
+09:30.500 --> 09:32.220
+static link executables,
+
+09:33.380 --> 09:37.200
+or dynamic link launch basically in this new way,
+
+09:37.200 --> 09:39.220
+we have added a new diagnostic tool
+
+09:40.420 --> 09:42.020
+that called S-Trace,
+
+09:42.020 --> 09:46.260
+which is obviously similar to what one can do on Linux.
+
+09:46.260 --> 09:49.620
+In essence, one can specify all interesting trace points
+
+09:49.620 --> 09:51.900
+using a regular expressions.
+
+09:51.900 --> 09:55.380
+In this example, to monitor system calls,
+
+09:55.380 --> 09:57.620
+you just add a Cisco star,
+
+09:57.620 --> 10:00.660
+and you enable S-Trace system thread
+
+10:00.660 --> 10:04.420
+that basically would print all the trace point calls
+
+10:04.420 --> 10:05.780
+to the standard output.
+
+10:05.780 --> 10:07.940
+And as the application basically gets hit,
+
+10:07.940 --> 10:09.100
+while program runs.
+
+10:10.300 --> 10:12.380
+How many minutes do I have left?
+
+10:12.380 --> 10:13.500
+Seven minutes.
+
+10:13.500 --> 10:15.900
+So to recap what I have talked about
+
+10:15.900 --> 10:17.660
+in previous six slides,
+
+10:17.660 --> 10:19.980
+in the first two I described the traditional way
+
+10:19.980 --> 10:23.140
+of running dynamic link programs on SV,
+
+10:23.140 --> 10:26.300
+which benefit from fast local function calls,
+
+10:27.180 --> 10:29.980
+but may suffer from compatibility issues.
+
+10:29.980 --> 10:31.100
+In the next two slides,
+
+10:31.100 --> 10:32.660
+I explained the new enhancements
+
+10:32.660 --> 10:35.180
+to allow running static link executables.
+
+10:35.180 --> 10:37.420
+And finally in the last two slides,
+
+10:37.420 --> 10:39.860
+I covered a new alternative way
+
+10:39.860 --> 10:41.740
+of running dynamic link programs
+
+10:41.740 --> 10:44.900
+launched by Linux dynamic linker on SV,
+
+10:44.900 --> 10:48.340
+which again may suffer from a tiny overhead
+
+10:48.340 --> 10:49.660
+of handling system calls,
+
+10:49.660 --> 10:54.260
+but benefit from much better compatibility with Linux.
+
+10:54.260 --> 10:56.740
+In essence, these new enhancements
+
+10:56.740 --> 10:58.540
+greatly improve the OSV application
+
+10:58.540 --> 11:01.880
+and should make possible to run more programs on it.
+
+11:04.900 --> 11:06.980
+In addition to what I have talked so far,
+
+11:06.980 --> 11:08.860
+we have also implemented a better version
+
+11:08.860 --> 11:11.700
+of the AWS elastic network adapter.
+
+11:11.700 --> 11:15.180
+In essence, we basically took the 3DSD implementation
+
+11:15.180 --> 11:18.220
+by AWS and made it work on OSV,
+
+11:18.220 --> 11:19.940
+and we tried to minimize all that.
+
+11:19.940 --> 11:23.140
+So basically, minimize the changes
+
+11:23.140 --> 11:25.940
+so that we can backport any possible future,
+
+11:25.940 --> 11:27.460
+for example, fixes.
+
+11:27.460 --> 11:29.140
+And disable a lot of stuff
+
+11:29.140 --> 11:32.020
+that simply does not apply to OSV.
+
+11:32.020 --> 11:35.820
+The resulting driver costs us around 7,000 lines of,
+
+11:35.820 --> 11:39.180
+sorry, yeah, 7,000 lines of mostly C code,
+
+11:39.180 --> 11:42.940
+and 56 kilobytes of larger kernel size.
+
+11:42.940 --> 11:44.740
+The challenge obviously was testing that
+
+11:44.740 --> 11:46.860
+because it can only be done
+
+11:46.860 --> 11:50.180
+on the running Nitro instance in AWS.
+
+11:51.340 --> 11:54.180
+And so far, the driver seems to be pretty stable.
+
+11:54.180 --> 11:57.620
+I've tested using, and seems to yield decent performance.
+
+11:57.620 --> 12:00.540
+I've tested that using IPerf3, NetPerf,
+
+12:00.540 --> 12:03.780
+and some simple HTTP server app application.
+
+12:05.020 --> 12:06.700
+As you may have guessed, actually,
+
+12:06.700 --> 12:11.380
+the ENA driver implementation is enough to run OSV
+
+12:11.380 --> 12:15.420
+on with RAMFS on Nitro EC2 instance.
+
+12:15.420 --> 12:17.780
+And so there's actually a script that I wrote
+
+12:17.780 --> 12:22.660
+to simplify the upload of the OSV image,
+
+12:22.660 --> 12:26.060
+creating a snapshot and basically creating AMI.
+
+12:26.060 --> 12:30.380
+And one thing, obviously, to run OSV on a Nitro instance
+
+12:30.380 --> 12:33.740
+with non-volatile file system like ZFS,
+
+12:33.740 --> 12:36.260
+or hopefully EXT in the future,
+
+12:36.260 --> 12:39.140
+we need to have NVME driver implementation,
+
+12:39.140 --> 12:41.860
+which is actually two pull requests
+
+12:41.860 --> 12:43.180
+from community at this point,
+
+12:43.180 --> 12:45.500
+but they haven't been merged yet.
+
+12:45.500 --> 12:46.540
+They need some love.
+
+12:47.980 --> 12:50.060
+In my previous presentation at FOSDM,
+
+12:50.060 --> 12:53.300
+I talked about kernel modularization and driver profiles.
+
+12:53.300 --> 12:57.380
+This year on it briefly describe a new feature
+
+12:57.380 --> 13:00.780
+that takes modularization to the next level,
+
+13:00.780 --> 13:04.300
+and which has been greatly inspired by Unicraft.
+
+13:05.300 --> 13:07.740
+In essence, the goal is to use the Linux
+
+13:07.740 --> 13:10.620
+kernel build configuration tool, Xconfig,
+
+13:10.620 --> 13:12.700
+to let the user select OSV components
+
+13:12.700 --> 13:15.060
+to be included or excluded,
+
+13:15.060 --> 13:17.460
+and various parameters to configure it.
+
+13:17.460 --> 13:19.180
+The make file would then simply act
+
+13:19.180 --> 13:20.780
+on a generated config file,
+
+13:20.780 --> 13:22.340
+exclude relevant object files,
+
+13:22.340 --> 13:26.860
+and pass any configuration parameters to the source files.
+
+13:26.860 --> 13:31.260
+And this is obviously very much work in progress.
+
+13:31.660 --> 13:35.980
+And obviously, unlike Unicraft,
+
+13:35.980 --> 13:39.980
+where all the elements are effectively Lego blocks,
+
+13:39.980 --> 13:42.860
+with OSV we pretty much have to do the opposite.
+
+13:42.860 --> 13:46.220
+We have to put sprinkle basically the source code
+
+13:46.220 --> 13:49.420
+with all these if-deaths.
+
+13:49.420 --> 13:54.100
+And this is just example of what kind of modules
+
+13:54.100 --> 13:57.180
+or parameters can be modified.
+
+13:58.180 --> 14:01.300
+And basically as an example of what can be accomplished
+
+14:01.300 --> 14:05.180
+with that new feature is that by hiding basically
+
+14:05.180 --> 14:08.140
+all the symbols, but those used by application,
+
+14:08.140 --> 14:10.500
+excluding all necessary components,
+
+14:10.500 --> 14:13.700
+and changing values of various configurable parameters
+
+14:13.700 --> 14:15.900
+as listed on the slide,
+
+14:15.900 --> 14:20.900
+one can build a kernel image of 788 kilobytes in size,
+
+14:21.100 --> 14:24.620
+and running a low-world app using 1.2 megabytes of memory.
+
+14:25.060 --> 14:28.940
+So it is, when I started optimizing
+
+14:28.940 --> 14:30.980
+OSV kernel like five years ago,
+
+14:30.980 --> 14:34.300
+it was like, the kernel itself was like 10 megabytes at least,
+
+14:34.300 --> 14:37.340
+and it required a minimum of 30 megabytes of memory.
+
+14:37.340 --> 14:41.780
+So it is almost 10-fold improvement.
+
+14:41.780 --> 14:44.340
+Well, I'm sure not as close as Unicraft,
+
+14:44.340 --> 14:48.940
+but we are, maybe we can squeeze to be at half megabyte.
+
+14:49.580 --> 14:54.580
+So we are, as I am moving toward the end of my presentation,
+
+14:56.100 --> 14:58.420
+I just wanted to mention that we are also planning
+
+14:58.420 --> 15:01.500
+to cut a new release of OSV10,
+
+15:01.500 --> 15:02.780
+which should include all the features
+
+15:02.780 --> 15:04.100
+that I've talked about.
+
+15:04.100 --> 15:06.660
+And I hope that we're gonna be able to implement
+
+15:06.660 --> 15:11.420
+the EXT file system, merge the IPv6 implementation branch,
+
+15:11.420 --> 15:14.340
+and potentially implement NVMe driver.
+
+15:14.340 --> 15:17.500
+I'm especially excited about the EXT file system support
+
+15:17.500 --> 15:19.980
+because I think it will make it easier
+
+15:19.980 --> 15:21.780
+to build damages on Linux,
+
+15:21.780 --> 15:24.940
+and then introspect, for example,
+
+15:24.940 --> 15:27.460
+if something happens afterwards.
+
+15:27.460 --> 15:29.620
+So beyond the upcoming release,
+
+15:29.620 --> 15:31.340
+we're planning to revamp Capstan.
+
+15:31.340 --> 15:33.860
+Capstan is like effectively like a craft kit.
+
+15:33.860 --> 15:37.860
+It just, but it hasn't been really enhanced in any way,
+
+15:37.860 --> 15:41.860
+or even to take advantage of any recent features of OSV.
+
+15:41.860 --> 15:44.780
+So we're planning to basically revamp it,
+
+15:44.780 --> 15:46.460
+and make it really easy to use,
+
+15:46.460 --> 15:51.460
+basically to help application developers to use OSV.
+
+15:51.940 --> 15:52.900
+And then in addition,
+
+15:52.900 --> 15:55.660
+we're planning to work on some of the security,
+
+15:55.660 --> 15:57.340
+so like ASLR,
+
+15:57.340 --> 15:59.780
+and that requires making kernel relocatable,
+
+15:59.780 --> 16:01.940
+and some optimizations.
+
+16:01.940 --> 16:03.440
+Eventually, and also finally,
+
+16:03.440 --> 16:07.180
+we are planning to make OSV to run on AWS Graviton,
+
+16:07.180 --> 16:11.620
+but that requires UEFI and some other things.
+
+16:12.620 --> 16:15.660
+And with that, I would like to thank the organizers
+
+16:15.660 --> 16:18.140
+for inviting me to this conference,
+
+16:18.140 --> 16:19.900
+and tell you about OSV.
+
+16:19.900 --> 16:22.740
+I would also like to thank SyllaDB
+
+16:22.740 --> 16:25.020
+for sponsoring my OSV work,
+
+16:25.020 --> 16:27.980
+and Dorbola Orr for words of encouragement,
+
+16:27.980 --> 16:30.340
+and Nadav Haral for being my mentor,
+
+16:30.340 --> 16:32.580
+and reviewing hundreds of patches,
+
+16:32.580 --> 16:35.540
+and implementing other enhancements.
+
+16:35.540 --> 16:38.540
+And finally, I would like to also thank
+
+16:38.540 --> 16:41.140
+all the community contributors to the project.
+
+16:43.020 --> 16:47.060
+And this slide, you can find some links about OSV,
+
+16:47.060 --> 16:49.660
+and thank you for your attention.
+
+16:49.660 --> 16:51.780
+And I'm not sure if you have any questions.
+
+16:51.780 --> 16:53.100
+Time for questions.
+
+16:53.100 --> 16:58.100
+We have time for one burning question, if there is.
+
+17:03.420 --> 17:04.260
+You wanted?
+
+17:08.540 --> 17:09.380
+Yeah, go ahead.
+
+17:11.500 --> 17:13.380
+This is your work on Linux compatibility.
+
+17:13.380 --> 17:15.180
+How are you handling new APIs,
+
+17:15.180 --> 17:18.020
+such as the IO U-ring and similar applications?
+
+17:18.020 --> 17:19.260
+Are you using?
+
+17:20.380 --> 17:23.420
+Your question was how do you add new applications to?
+
+17:23.420 --> 17:26.340
+No, no, so with the Linux API,
+
+17:26.340 --> 17:28.980
+that you are right for, I believe, for,
+
+17:28.980 --> 17:32.540
+how are you handling IO U-ring and similar APIs?
+
+17:33.580 --> 17:37.940
+So how am I consuming new APIs, Linux APIs?
+
+17:37.940 --> 17:39.700
+I don't know how are you handling applications,
+
+17:39.700 --> 17:41.700
+which do make use of those?
+
+17:41.700 --> 17:45.740
+So basically, this happens as the way I describe,
+
+17:45.740 --> 17:48.460
+typically, if the application is launched
+
+17:48.460 --> 17:52.300
+in the traditional way, OSV simply,
+
+17:53.940 --> 17:56.180
+resolves all the application symbols,
+
+17:56.180 --> 17:59.780
+like Lipsy symbols, and simply redirects them
+
+17:59.780 --> 18:02.740
+to OSV implementation of Lipsy functions.
+
+18:06.180 --> 18:07.380
+If I have an answer to your question,
+
+18:07.380 --> 18:11.540
+then we can meet afterwards and I can address better.
+
+18:11.540 --> 18:13.820
+Thanks again for the talk.
+
+18:13.820 --> 18:14.660
+Thank you.
+

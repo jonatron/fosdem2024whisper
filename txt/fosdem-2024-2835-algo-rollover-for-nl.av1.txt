@@ -1,0 +1,207 @@
+Hello everybody, welcome to the TNS Dev Room, if you just came in.
+Our next speaker is Stefan, who will be telling us about the NSSEC PSK algorithm roll over
+for .NL, which normally isn't a very exciting thing, but I trust Stefan, but I've made
+it a boring situation. That's still fun to talk about.
+Yeah, thank you Peter. Welcome, my name is Stefan Udink, I work for SIDN, the .NL registry,
+and I'm talking about the KSK algorithm roll over we did in July last year for .NL.
+So why did we do this? What did we do for preparations for this change? What was the
+planning like? How did we execute it? And what did we measure on the internet on our
+change? So why would we want to change the algorithm?
+Yeah, the algorithm we used before was algorithm eight, and that's an RSA algorithm, and we
+wanted to use a SAVER algorithm to keep up with the new standards, because since June
+2019, the new recommendation from the RFCs is to use an ECDSA algorithm for the NSSEC
+situations, and there's currently enough support in Resolvers to do this. As you can
+see in the drafts, both RSA and ECDSA are supported equally for most Resolvers.
+And a plus side is also that the NSSEC answers we are giving are smaller than the RSA answers,
+which gives us less impact when we are hit by reflections attacks. So it's better for
+the internet. So in way two, the algorithm roll over, we already replaced our HSMs.
+We used for the signing of the zone with new HSMs from Talis, which could do 20,000 signatures
+per second, which was a big increase from our previous HSMs. And we started with doing
+a test run on our test environment without any changes to see how does this work, how
+much time does it take, because there are a lot of things you can change which would
+change the time used for some steps in the roll over process. And a normal run took about
+three weeks without any changes. To be able to do it efficiently, we also made a test
+lab policy for OpenDNSSEC, which rolled very fast to be able to see what changes were done
+and to be able to create some scripts to follow everything that is done in the environment.
+And we also used the local DNS viz installation to see if a Resolver for our setup, it was
+inbound, could indeed resolve the new situation. And for that, we also created a fake root.
+So we could play root operator to change everything and we could validate everything to see if
+everything worked without any issue. That went quite well. And then we went to our acceptance
+environment in which we used a daily copy of the public NL zone and that has 6.4 million
+records or at least two main names in it, much more records. And then we had a memory
+issue. We used our old 128 gigabytes of memory, no swap usage, but still the system holded
+on something. And after we added swap to the system, it ran again, so it continued. It
+was not broken. Everything went where it left off. It was strange, but it helped us.
+So we could prevent this issue in production. Another thing was that normally we generate
+a full zone every half an hour and in a normal run, it took about 24 minutes to generate
+the zone, sign it and publish it, including validation. After adding the ECDSA keys, we
+did a run and then it took 45 minutes. That's not what we wanted because if you want to
+publish every half an hour, you cannot take 45 minutes to publish something. So we had
+to find a way to make it less than 30 minutes to do both RSA and ECDSA. And we saw that
+mainly the validation part costed a lot more time because ECDSA is harder on the validation
+part than on the generation part. And we made some things in parallel. So we compiled the
+zone with bind to raw format. We validated with valid NS and all those things we did
+in parallel and we added parallelization to valid NS. At least it was already available,
+but we used the switch to do that as well. So we are using all cores on our systems to
+do the validation and then we got to about 27 minutes of generation. So that's under
+30 minutes. Very good job for us. And so we were able to continue with the new zone generation.
+So how do we plan this thing? We were in June and we know that it took some time. We saw
+that we might have a ZSCA roll over. We didn't want to do a June ZSCA roll over because
+Dan Dezon would increase even more because of extra signatures. So we had to plan it
+and we had also some data that we could use to do the validation. So we had to do a lot
+of things. And people in the organization that had to approve at IANA that we are going
+to change the yes in the route. So we expected that the IANA change would take three days
+and so we came up with this plan. And with all holidays for people, et cetera, we were
+able to do this plan. And as you can see, we have some asterisks next to some dates.
+And that's because these are dependent on the IANA change. And if the IANA would take
+more time than we expected, then those dates would change. And this is something we couldn't
+predict. But even though we thought three days should be normal and should be okay.
+And luckily for us, we did a blog post about this change and we were telling the people
+we are going to do this change. So if something breaks, you know we are doing this and you
+have these dates to see if everything is going according to plan and we will update this
+if there's some issue or the dates will change. But it was all good and we planned it very
+good because all those dates mentioned here were the dates that were used. So we did it
+according to plan. So on executing a plan, it's good to have written commands just to
+copy and paste them when you need them. You only have to check, yes, I'm doing this on
+the correct system. Yes, it's all written correctly, but you don't have to think about
+it anymore. So during the execution, we did continuous checking with the script we wrote
+and we did some DNS viz runs on the public DNS viz site to show the people that we are
+changing and we have some records that we can show. I will show the DNS viz pictures
+lighter. As I mentioned before, there would be an increase in file size for the zone and
+before it was 4.5 gig in size during 4.6 and afterwards with smaller signatures, we only
+had 2.3.7 gigs and that's very nice. Of course, we have a go no go moment because if we would
+have double signatures, we can still go back without any disruptions, et cetera, and if
+we would go forward, then we wouldn't be able to go back as easily. So we have to do a
+bit of a check and that went well. So some pictures of the algorithm 8 situation. During
+the policy change where you see an addition of the EC, we added the algorithm 13 to the
+root and removed the algorithm 8 from the root and afterwards we stopped using algorithm
+8 and then this is a new situation with only ECDSA. During all this time, we also did some
+measurements and a colleague of mine, Moritz Müller, did most of the measurements. He
+wrote a Rolo from Moon Mon quite a few years back and did it again. We messaged some items
+mentioned on the slide. I want to mention that we only messaged two root servers because
+all root servers should say the same answers but we didn't want to measure it all 13.
+What might be interesting is that you see a lot of numbers in this graph and that was
+a bug in the Rolo from Moon software. You also might notice that there are multiple lines
+at the top and at the bottom and that's something like this. It's a measurement issue that was
+caused by using of a small buffer size and still trying to get key IDs from the answer.
+That's why you see a lot of changes and we saw what we were seeing. This is not correct.
+What's happening? Because if I do manual checking, everything is fine. What's happening
+here? Finally, we were able to find the issue and we were able to fix it. Another interesting
+thing is that during the change, we looked at the response sizes we sent and in this table
+it's only ns1.dns.nl and other systems have similar, not the same answers because the
+sizes might differ based on the implementation of the nameserver that's used because of the
+protocol compacting. Another interesting thing here is that the nx domain and dns keys are
+increasing during the rover and the ns set is not increasing. It's less and that's because
+the R6 and the set are in the additional section and during the rollover the section gets increased
+a lot more so only the R set for ns1.dns.nl is in the answer and the R6 but not for all
+the nameservers that are in our zone. If we look at traffic, normally we have about
+one percent of TCP traffic and during the rollover we have about five percent TCP traffic
+and after the rollover it's back to normal again. Here you see a graph with a logarithmic
+y-axis and you see that TCP is increasing a lot. It's about eight times more TCP traffic
+and especially there is no different state in the internet. It might change and so here
+you see that the KSK is back in the logistic direction and it's not going to change. So
+we have a level again. So in global we have no measured impact at all as far as we know.
+I don't know of any trust issues people had or something and you can see on the left picture
+that the adding of the ECDSA key and afterwards the removal of the RSA key and the right picture
+is the trust chain that is constant for the resolvers and that's my talk already. Are
+there any questions? I've got two questions. The first one on slide 17. You mentioned that
+during the rollover the NS size becomes smaller. Yes. I will ask you a question, complete question.
+So you said the NS set is getting smaller, yes and the question is? The question is there
+is no difference between the two. So I think that's a good question. I think that's a good
+question. I think that's a good question. I think that's a good question. I think that's
+a good one. So you said the NS set is getting smaller, yes and the question is? The question
+is there is an RFC out there that says glue is mandatory. If the size of the response
+is getting smaller because you're not including glue you have to set the TC there. Did you
+measure for that? So I'll repeat the question. There is an RFC that glue is not made, that
+blue is mandatory and did we measure some things about this?
+What I know about this situation is we looked at the dns-vis information that we got and
+for the measurement for ns1.dns.nl the glue is available but only for that name.
+So not the glue for the other nameset records.
+And I don't know if we looked at if the TC flag has been set and if there has been acted on.
+So and the second question?
+Yeah, my second question is I noticed you switched to talus.
+With regards to support from the talus company, did you test that if you got proper support,
+if you needed it?
+I will repeat the question.
+He said we switched to talus and did we test the support we had with talus before doing this transition?
+No, we did not test the support beforehand and technically we did not switch to talus as in we used to have lunas which was taken over by talus.
+So we continued with the same lunas, hsm products as we before.
+We had contact with talus before we switched the hsm's but we did not before the rollover try again to contact them to see how support would handle questions from us.
+Which might be a very good idea as well.
+Thank you for that.
+I'm asking for a friend.
+Yes.
+Relate question to that.
+The tank tank we had in the beginning, did you have any rollback plans in case something went bad?
+The question is do we have any rollback plans?
+I mentioned we had a go no go to see if everything is okay, we go forward.
+If everything is starting to fall we go backwards.
+After going forward we had some thoughts about how to continue but that might have impact.
+So the decision what to do when, depended on the situation at that moment.
+And we didn't write out everything, every possible scenario because that would be too much especially based on our testing and our acceptance and test environment that we had confidence that it would all go correctly.
+And we would have to look at the situation at the moment to see what the next step would be if something went wrong.
+Does that answer your question?
+Yes.
+If you had choice to redo your procedure, do you think it's worth it to have met HSM at all regarding the other complexity and risk of losing your key in case of backups are not here?
+Father Van Aving, a hidden signer that is aggabbed by your words for example.
+If I understand your question correctly is about, did you have anything about backups or?
+Are you happy with having an HSM reserve having an aggabbed linux that have the casket on the disk and do the signer and just the DNS update that's going on in the world?
+I don't know. I hope I understand the question, but if I want to answer your question, I'm thinking about we do not have an aggabbed system.
+We do have regularly backups of all the HSM keys.
+So in that way we do have an HSM that is aggabbed because the backup unit is an HSM and that we can use to restore keys if necessary.
+Do you think it's worth it?
+Worth it.
+I think it's worth it to have an aggabbed HSM to, it depends on your risk assessment if you want to have an aggabbed system and if you are going to do this thing for instance in public cloud, you might want to have a situation where you have an offline KSK for instance.
+So that might be in a setup.
+Did you conduct a penetration test on the HSM beforehand and what are your operations in case the security issue gets known in these HSMs?
+Did we do a PAN test on the HSMs and the next question was?
+What would you do if a vulnerability gets known?
+No, we did not do a PAN test and what we would do if a known vulnerability would be known would require our systems to investigate what happens and how can we react on that?
+Which information has leaked and how can we recover from that?
+Those are not known scenarios at least to me at the moment.
+Why not PAN test?
+Why not PAN test?
+I have no idea.
+Yes?
+I noticed that an extermination goes up to 14 or two bites.
+Did you, I'm curious what was your transportation settings for maximum?
+So your question is what is our transportation settings for the UDP size?
+We have 1232 as the size of the UDP packets as recommended by an RSE.
+Other parties that also provide anycast for .nl have slightly different settings for that.
+So that's why we focused here on NS1.DNS.nl because that's something we operate ourselves.
+The second question.
+The second question was you added the algorithm 13DS keys to the rule zone.
+So you've run a dual DS.
+What's that to allow removing the algorithm 13DS keys if you had to in a hurry or just as an additional acceptance step before you remove the algorithm 8DS records?
+Because during the fairly recent transition of carbon net and the EU cells, they basically just didn't swap.
+The question was why did you not remove the algorithm 8DS when you were adding the algorithm 13DS?
+Correct?
+Yes.
+We did that because we wanted to have a solid path and have a possibility to go back without any issue.
+So rather than take one big step in that regard, we took two small steps to ensure more stability at least from our point of view and good night's rest for us.
+Any other questions?
+Maybe not so much a question but a statement if that's allowed.
+Yeah.
+One.
+I think it's incredibly brave for a national top level domain to take a risk, right?
+And I think it's very good as a compliment.
+But because changing an algorithm is different than changing a key, changing an algorithm is fundamentally hard.
+And for SIDN to do this as one of the early adopters, not the first one but one of the early adopters to do this, I think it's very commendable.
+And I think you set an example for the rest of the industry for all the other top level domains including ICANN and we're looking at you.
+The same I would like to.
+And we're looking at you to see what you're doing well and of course we hope nothing goes wrong but we also need to have that information.
+And one of your colleagues is working with ICANN to make sure that if we ever do something in the room, that that goes well as well.
+So he's part of that group as well.
+So yeah, we're looking at this.
+We're hoping all the top level domains follow the same example.
+And yeah, all my credit goes to you guys.
+Welcome.
+Thank you.
+I want to repeat for the online audience.
+Because if you get a compliment like that, the person, Roy Arons from ICANN said that he said, very brave for our .NL or Azure at the end to do this algorithm change in the forefront of the people who are doing the change and are
+should be followed by registries to do this change as well.
+And we have shown that it's possible and without any incident.
+So any other till these please follow us.
+Good summary.
+Thank you.
+Thank you.

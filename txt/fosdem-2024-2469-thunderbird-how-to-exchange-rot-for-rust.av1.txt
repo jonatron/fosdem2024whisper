@@ -1,0 +1,276 @@
+So, if I could have your attention.
+When we got this talk, I didn't know Rust and Thunderbird had a connection, so this
+is pretty exciting and pretty cool.
+So we have Sean and Brendan are going to talk about how to exchange ROT for Rust.
+Thank you very much.
+Hi.
+I'm Sean Burke.
+I am a senior software engineer at MZLA, which is the company that maintains Thunderbird.
+And this is my colleague, Brendan Abolivier, who is a software engineer at MZLA as well.
+So we're here to talk about how to exchange ROT for Rust.
+So our colleague, Ike Dordi, couldn't join us.
+But I feel I need to shout him out because we would not be giving this presentation without
+him.
+And I also have to applaud his pun in the title because the project that forms the basis
+for this talk is Microsoft Exchange Support in Thunderbird.
+So we're working on adding support for the Exchange Web Services Protocol.
+This is the first Rust component written specifically for Thunderbird.
+We, our code is based on Firefox and so there's Rust there.
+But nothing specific for Thunderbird.
+And it's also the first mail protocol to be added to Thunderbird in Thunderbird's lifetime,
+which is a slightly strange statement.
+But I will explain that a little bit here.
+When we started this project, nobody actually knew how to add a new protocol to Thunderbird.
+And that gets into the ROT part of the title a little bit.
+So first off, a little bit of history of Thunderbird.
+Thunderbird grew out of Netscape Communicator originally, as did Firefox.
+So a lot of the code in Thunderbird predates Thunderbird itself.
+And the 0.1 release was July 2003.
+So this is a fairly old code base already.
+In starting around 2012, Mozilla started to hand over Thunderbird to the community because
+it felt that Thunderbird wasn't self-sustaining under the Mozilla umbrella.
+That situation persisted until around 2017 when Thunderbird rejoined the Mozilla Foundation.
+And so what does that actually mean for Thunderbird?
+We had a pretty big gap in paid maintainership, which results in, you know, a community can
+only do so much.
+Thunderbird is a very large project.
+There's a lot of work to do.
+Just keeping up with building, making sure that it's following Firefox's changes since
+we're based on Firefox.
+And that gap meant there was a lot of time where you can't expect a community to have
+a holistic view of the architecture of a huge project like Thunderbird.
+You can only ask so much time from them.
+And so changes were made without a view to how this would affect the architecture, how
+the architecture played into things.
+There was also a loss of institutional knowledge because the people who'd been employed to
+work on Thunderbird were no longer, and there was nobody there to take over for them.
+In a lot of places in Thunderbird, there hasn't really been any kind of architectural maintenance
+in over 20 years.
+And that also means that, you know, large portions of the code base are written in C++.
+C++ has changed quite a bit over the years, and Thunderbird has not kept up.
+So this is a pretty significant challenge, but also presents us with a pretty significant
+opportunity.
+That opportunity is Rust.
+So we'll talk a little bit about why we decided to use Rust.
+This is a room full of people interested in Rust.
+I'm sure most of you are pretty aware of the major benefits.
+We're a large application maintained by a small team, and we take input from anybody
+who sends somebody an email, and so memory safety is pretty critical.
+We do not want security bugs letting anybody have access to somebody's computer.
+Performance is also pretty big.
+We use a lot of JavaScript in our code, but for low-level stuff, JavaScript is going to
+have some performance issues.
+And then, you know, the modularity of Rust, having that built-in gives us access to a
+pretty large ecosystem.
+There are a lot of people doing mail-related stuff in Rust, and we can benefit from that.
+The other, the next reason is that, I mean, we are based on Firefox code, and Firefox
+already has Rust in it.
+So the build system is set up to integrate with cargo.
+We share CI infrastructure, and so that already has provision for Rust.
+And then, also, Firefox has something called XPcom, which is kind of a framework for communicating
+between the different languages that Firefox uses, and there's Rust support in that already.
+And then, Rust also kind of introducing a new language gives us permission to rethink
+some of the aging ideas in Thunderbird.
+It allows us to kind of ignore some of the more delicate code paths that have been around
+and changed ad hoc special case throughout the code where changing things is a little
+bit scary.
+You don't know what you're going to break.
+And also, I mentioned the loss of institutional knowledge.
+We need to rebuild that, which means a lot of documentation, and personally, I love the
+documentation tooling that Rust provides us.
+And I think that helps a lot in moving forward.
+But as with any project like this, it's not just, okay, we're going to use Rust.
+Cool, we're done.
+We're good to go.
+We had some problems getting started.
+Part of that is just we have a large existing code base, which means we have existing patterns.
+A lot of idiosyncratic async stuff going on that doesn't integrate nicely with idiomatic
+Rust.
+Lots of features and capabilities already in the Firefox and Thunderbird code base, which
+don't have any sort of Rust binding, or sometimes some kind of painful Rust bindings.
+I mentioned XP-COM as a benefit, but it also became a little bit of a drawback, particularly
+in terms of developer experience.
+Over the years, Firefox has excised a lot of the XP-COM interfaces just because it can
+be a little bulky, a little bit painful to use them sometimes, even in C++ and JavaScript.
+That work never happened in Thunderbird.
+We have a lot more uses and huge uses of XP-COM than Firefox.
+And so what works well for them in terms of developer experience doesn't work for us.
+It's really painful for us to use XP-COM at this point.
+I also mentioned the build system as a positive, but in a big way that became a drawback for
+us because in order to deal with the fact that Firefox has a C++ entry point, no single
+point of entry for Rust, there's a hack put in place to build a single workspace and shove
+that into the Firefox code.
+That hack, we're built as a subtree of Firefox rather than having Firefox as a subtree of
+our code, which is a little bit unusual.
+Cargo doesn't like it when you try to have a workspace inside of a workspace.
+We're not in the same repository as Firefox, and so we can't change their cargo lock, we
+can't change their dependencies.
+We kind of solved this by basically stealing all of their dependency tree and merging it
+with our own, building from within our code and using a script to keep that up to date
+and hope things don't break so far, so good.
+With that, I'm going to pass it off to Brendan because...
+Now we can use Rust in Thunderbird, we can build Rust in Thunderbird, we can run some
+Rust code in Thunderbird thanks to that work to integrate it into the build system.
+What do we do with it now?
+It is good to answer that question, it's good to think back to where we're coming from,
+what we're trying to achieve with that, and our end goal with this work is to be able
+to support Microsoft Exchange in Thunderbirds.
+We want to support more specifically something called EWS, which stands for Exchange Web Services,
+that's Microsoft's proprietary protocol for interacting with Exchange.
+That protocol is based on XML or HTTP, so it's up to be more precise.
+That means that we're missing a few key code infrastructure in order to make this a possibility.
+First, we want to be able to send HTTP traffic and preferably we want to send it through
+something called NECO, NECO is the networking component of Thunderbirds and we already have
+a well-functioning networking stack, it would be a bit sad to completely bypass it.
+We want to be able to communicate, to interact with NECO and to do it in a way that is familiar
+and easy to use for Rust developers.
+Once we have the capability to send those requests, we also want to be able to fill them
+with the contents that we need in this case XML.
+We need to figure out how to serialize and dis-realize XML in a way that scales to a lot
+of data structures to give an example of scale.
+EWS specifies about 100 different operations and about 1700 different data structures.
+We're not at the bottom of the stack which is sending HTTP requests.
+Because we want to interact with a specific component within Thunderbirds, we want to
+use XP-com, which I mentioned, the acronym stands for the cross-platform component object
+and its job is basically to allow inter-component interaction by defining some platform neutral interfaces
+and that way we can cross the language boundary, which is good for us because we want to write
+Rust code to interact with NECO, which is in C++.
+Let's use that except sending, except using XP-com with Rust directly doesn't look very
+Rust-like.
+It's mostly designed around C++ APIs and so it doesn't have a lot of the features that
+we can find in Rust and it means that there's a lot of boilerplates.
+This is the code to just send a single GET request and print the results in the standard
+outputs.
+We need to define a bunch of callbacks, we need to define a bunch of different objects
+and because we're crossing a language boundary, we at the very bottom, we need to wrap all
+that into the actual call into an unsafe block.
+None of that is very ideal and we obviously don't want anyone who wants to use NECO in
+Rust to have to do that every single time they want to interact with the network.
+Let's split this issue into two sub-issues that we're going to solve.
+The first one is we want to do native, to support native async await, Rust async await
+syntax.
+The way we do this is we added a new interlcrate to Thunderbird, which is actually the first
+Rust code to be added to the Thunderbird code base.
+The role of that create is to translate asynchronous operations in xp.com into Rust's native async.
+The way it does that is it defines custom stream listeners, which is that big struct that we
+saw earlier with a bunch of callbacks.
+What that stream listener is going to do is it's going to buffer any incoming data, call
+wake on a wakeer when the request finishes and then we can wrap that around another struct
+which is in charge of triggering the asynchronous operation in xp.com.
+Then it implements the future traits to be able to query the state of the buffer every
+once in a while and to return the result when it finishes.
+In the future, we're probably going to also implement the stream future traits in order
+to be able to interactively process incoming data.
+We don't need it immediately, so we just went with future for now.
+Now that we have this native async await support, we want to build on top of that to have some
+way to write some idiomatic Rust code to send HTTP traffic.
+We do that with yet another internal crate which provides more idiomatic and requests
+like HTTP clients.
+It's not a one-on-one, one-to-one replicate of requests, but it request-wise uses the
+main inspiration for this work.
+Under the hood, that crate is in charge of creating and configuring all the necessary
+xp.com objects, wrap that into our future and also provides more rust idiomatic error
+handling as well because standard xp.com does its error handling with just error status
+codes which isn't the best we can do with Rust basically.
+So that's all nice.
+What does it look like?
+So let's do a demo.
+We're going to do a live demo because we don't like to leave safely.
+So here is some code that lives in on my local checkout of Thunderbirds.
+It's got a bunch of code infrastructure to plug it into xp.com for the next step of the
+demo, but the important bit is what we can see here which is that with all clients that
+are from my HTTP here, we can create, we can actually create a PUS request, set it a custom
+header, set it some custom body, send it and natively await on it, and then we can process
+the response or the error depending.
+We're going to run this code into a local Thunderbird which apparently crashed while
+I was preparing the demo.
+Let me just do...
+So this is the Thunderbird DevTools.
+You might already look familiar because it's also the same DevTools that Firefox uses.
+We use it to work on the front end of Thunderbirds and access some internals of Thunderbird when
+we need to.
+So we're going to instantiate that xp.com plumbing that I was mentioning.
+It's basically just a dummy interface that just has a thing to do the thing which in
+our case is sending an HTTP request.
+We can see that we successfully sent a request through NECO.
+It's not because it appeared in the network tab which means that it went through the
+Thunderbird networking stack.
+If we inspect the request, we can see that it did include our custom header, it did
+correctly attach to the right content type, and it also correctly sets the right body
+to the request.
+And to confirm that once more, the server...
+That's just a simple stupid server that I quickly wrote in Python that...
+Sorry for using Python.
+Which just takes that custom body and that custom header and just prints something.
+Right.
+So that works.
+Now what do we want to do from here?
+We have requests that we can send and we can process the response to that request.
+But what do we actually put in that request?
+As I mentioned, we want to put some XML into that to be able to communicate with exchange
+servers.
+So we started with a kind of exploration, kind of a lay of the land of what the status
+is with regards to desilizing and serializing XML in Rust.
+And we quickly identified that most crates that we could find had some existing issues.
+Either they don't provide a good way for handling attributes and namespaces in XML
+or N slash all, they're very boilerplatey.
+It's fine for desilization because we don't necessarily need to process every single attribute
+from the response we...
+Or N slash all namespace, namesoces.
+For serialization, it's not really something we can do because obviously if you omit a
+required attribute or something like that, the XML server is not going to be able to
+understand the request.
+And also we not only want but need to have a low amount of boilerplate in all code because
+N EWS defines a lot of data structures, a lot of operations.
+So, yeah, dozens of operations, more than 1,000 data structures.
+So we don't have any small amount of boilerplate that we have.
+It's just going to make the codes 10 times more difficult to maintain.
+So we decided to create a new crate.
+This time it's not tied to any Thunderbird internal, so it just lives on GitHub.
+And so we use this...
+And so in this crate, we basically leverage the procedural macros in Rust to dynamically
+generate implementations for a trade that we also define at compile time.
+Almost everyone in this room will just be like, yeah, this is just a derived macro.
+I'm fairly new to Rust, and so when I saw that, I thought this is pretty cool, so I want to mention it.
+We don't want to reinvent the wheel.
+So we built it on top of QuickXML, which provides some pretty nice tools for writing and formatting XML.
+And we try to design it with a fairly low boilerplate...
+That low boilerplate approach that we need.
+So what does this one look like?
+This is a kind of dummy data structure that I defined, and as you can see, I was thoroughly uninspired for the naming.
+But this showcases some of the features that we can use in this crate.
+So we can set namespaces, either default or custom ones.
+We can set namesets prefixes.
+We can instruct a field to be an attribute.
+We can flatten some structures, and then all we need to do is actually populate our data structure, serialize it,
+and in our case, we just want to print it to see what it looks like.
+And if I run this, it generates valid XML that matches the data structure we defined here.
+So that's a lot of useful code infrastructure that we have now for our Microsoft extension implementation.
+Where do we go from there?
+Obviously, the next step is we want to implement the damn thing.
+So implement protocol support for AWS in Rust, and hook that into the Thunderbird UI to expose it to our users.
+We also want, if there's enough interest, to generalize the XML struct crate, the one in this slide,
+because at the moment, it's fairly designed around the use case of EWS in terms of configuration and defaults and things like that.
+So it might be something that, if there's enough interest, it might be something that we will look into in the future.
+And another point, another point that's another next step is we might also start working with people from the XPCOM team
+in the Firefox developers to try to improve the situation around bindings for XPCOM in Rust
+and make them just more, well, nicer to use for Rust developers.
+So that's where we are. That's where we're going. And thank you for listening.
+Thank you.
+So we, I think we have quite some time for questions if you have them.
+Yeah.
+Well, as I make my way over there, one question I had.
+If the protocol support is in Rust, do you think it's possible that it could be more shareable with other email clients?
+Yeah, this is one of the things that we're trying to keep in mind.
+One good example is we're currently, you might have heard that a few years ago,
+we welcomed the K9 email clients on Android into the Thunderbird family.
+And if we're building a new protocol support for the desktop application,
+we would like in the future to potentially include that support into K9 slash Thunderbird for Android.
+So this is definitely something that's one of the, one kind of extra reason that we decided to go with Rust
+is because of the ease of implementing, of reusing Rust codes across multiple platforms.
+And yeah.
+And we are going to make the EWS create public as well.
+Yeah, I'm going to repeat because I have a mic.
+We're going to make the EWS create public.
+And yeah.
+And also, you see to build it in a way that is fairly agnostic to the actual desktop application.

@@ -1,0 +1,297 @@
+Hello, everybody. Can you guys hear me?
+Hello.
+Cool. My name is Valde Kozachuk.
+I'm one of the few OSV committers and I'm here to tell you
+about the latest enhancements made to OSV
+since my last presentation at Fosada a year ago.
+So, first off, I want to apologize for this very long title.
+Actually, most of my talk is really going to be focused on the first part,
+but I'll also try to mention a little bit about the other things.
+So, in today's presentation, I will talk about the enhancements
+to support statically linked executables and dynamically linked executables
+launched by a Linux dynamic linker.
+I will also briefly describe the implementation of the inner driver
+to support AWS Nitro.
+In addition, I will preview the new Xconfig-based mechanism
+to allow further customization of OSV.
+Finally, I will talk about upcoming one, zero release and beyond.
+Most applications do not make system calls into Linux currently, as we know.
+Instead, they do it indirectly by way of calling Lipsy functions
+that delegate to Cisco or SDC instruction on ARM.
+On Linux, for example, the dynamically linked executables
+are launched by Program Interpreter LD,
+which memory maps the executable else along with other else files.
+It depends on, like, Lipsy SO, Lipthread SO, and so on.
+Then, resolves undefined symbols like puts or pthread create
+and finally involves the main function.
+On OSV, the built-in to kernel dynamic linker
+plays the role of the Program Interpreter that performs similar steps as on Linux.
+But instead of loading the aforementioned libraries,
+it resolves the undefined symbols by pointing them to OSV implementations of those.
+The OSV linker supports both shared libraries
+and dynamically linked executables that are either position-dependent
+or non-position-dependent.
+The benefit is that programs interact with the OSV kernel
+using the fast local function calls without the overhead of Cisco instruction.
+On the negative side, the Linux compatibility is a moving target
+because Lipsy keeps adding new functions
+and on the OSV side, we have to keep implementing them.
+This slide here illustrates how dynamically linked programs
+would traditionally interact with OSV kernel.
+The drawing shows an executable procedure linkage table, PLT, on the left side.
+The dynamic linker and Lipsy implementation
+that are part of OSV kernel on the right side.
+In this example, after the dynamic linker memory maps the program into the memory,
+actually, more specifically, the self-segment,
+it then sets up the PLT to later resolve and replace the put function call
+placeholder with the address of its implementation in OSV kernel,
+which typically happens upon the very first call.
+Now, the statically linked executables interact with Linux kernel
+by directly making system calls and reading from pseudo file systems
+like ProgFS and SysFS.
+Initially, OSV implemented a fairly small number of system calls
+around 70 to support running going programs that were interesting
+because they would call Lipsy functions to create threads, for example,
+and execute system calls to do other things like, for example, Socket API.
+But this was not enough to support statically linked executables.
+To make this possible, we had to implement some key new system calls
+like BRK and clone and add substantial number of other ones
+to bring the total to 137 at this point.
+However, the most tricky part was adding support for the application
+fed local storage so-called TLS.
+The dynamic-linked programs that run on OSV, in a traditional way,
+would share the thread local storage with kernel
+and allow OSV to fully control setup of TLS.
+The statically linked executables, on other hand,
+want to allocate their own TLS and set the FS register on X64
+or TPIDREO0 on ARM and to the thread control address for each thread.
+On X64, the solution was basically to utilize the GS register
+to point to the Persepio structure with a copy of that application,
+TCP, and basically update it on every context switch.
+On AHR64, we did similar thing.
+Now, the point of this enhancement is that we basically improved
+the Linux compatibility because now we don't have to worry about these cases,
+where, for example, application tries to call functions in Lipsy
+that OSV doesn't implement.
+But the drawback, obviously, of the system calls interface
+is that, obviously, we pay overhead of Cisco instruction every time,
+which on average I measured this around 110 nanoseconds on X64.
+This picture actually illustrates what happens behind the scenes.
+So on the right side, actually, OSV dynamic linker still plays some small role.
+It still memory maps the segments of the elf.
+It reads the headers, obviously.
+But then, really, it just jumps to the start of the elf.
+And from this point on, the interactions basically between the program
+and the OSV happens simply through Cisco instruction.
+The exciting side effect, actually, of enhancing OSV to support
+Staticly Link executable is basically capability to run
+dynamically linked executables via Linux dynamic linker
+instead of basically the OSV built-in one.
+The Linux dynamic linker, LD, is Staticly Linux,
+a tightly linked position independent shared object
+that is loaded and processed by OSV kernel in an exact same way
+as Static executable is.
+In Linux, the dynamic linker would be launched implicitly, right?
+And by simply introspecting the inter-program header.
+In OSV, we have to launch the LD, the Linux LD executable explicitly
+and pass its path along with the arguments as you can actually see in RO.
+And actually, as you can see in this script, runpy example.
+So we're passing actually the absolute path to the Linux dynamic linker
+and then we're actually adding all the path of executable and any arguments.
+So obviously, just like with Staticly Link executables,
+there is the same benefit that we are now much more compatible with Linux
+because one can take any application that works on Linux with G-Lipsy
+and it should work on OSV just because when we build the image,
+OSV is going to run, it's going to actually load the G-Lipsy,
+and we can't use it as any other library that given application needs.
+The drawback is the same because we are again paying 110 nanoseconds
+for every Cisco instruction.
+And this slide again tries to illustrate the interactions
+between the OSV and the application.
+It's, as you can see on the right,
+you have the OSV kernel.
+On the left, the application,
+the news dynamic linker,
+that is executed just like with static executables.
+And then it loads the application
+LLF into memory by using M-MAP system call.
+And then also executes the application itself,
+loads any libraries.
+And from this point on,
+all the interactions happen with Cisco instructions.
+Now to help analyze and troubleshoot
+static link executables,
+or dynamic link launch basically in this new way,
+we have added a new diagnostic tool
+that called S-Trace,
+which is obviously similar to what one can do on Linux.
+In essence, one can specify all interesting trace points
+using a regular expressions.
+In this example, to monitor system calls,
+you just add a Cisco star,
+and you enable S-Trace system thread
+that basically would print all the trace point calls
+to the standard output.
+And as the application basically gets hit,
+while program runs.
+How many minutes do I have left?
+Seven minutes.
+So to recap what I have talked about
+in previous six slides,
+in the first two I described the traditional way
+of running dynamic link programs on SV,
+which benefit from fast local function calls,
+but may suffer from compatibility issues.
+In the next two slides,
+I explained the new enhancements
+to allow running static link executables.
+And finally in the last two slides,
+I covered a new alternative way
+of running dynamic link programs
+launched by Linux dynamic linker on SV,
+which again may suffer from a tiny overhead
+of handling system calls,
+but benefit from much better compatibility with Linux.
+In essence, these new enhancements
+greatly improve the OSV application
+and should make possible to run more programs on it.
+In addition to what I have talked so far,
+we have also implemented a better version
+of the AWS elastic network adapter.
+In essence, we basically took the 3DSD implementation
+by AWS and made it work on OSV,
+and we tried to minimize all that.
+So basically, minimize the changes
+so that we can backport any possible future,
+for example, fixes.
+And disable a lot of stuff
+that simply does not apply to OSV.
+The resulting driver costs us around 7,000 lines of,
+sorry, yeah, 7,000 lines of mostly C code,
+and 56 kilobytes of larger kernel size.
+The challenge obviously was testing that
+because it can only be done
+on the running Nitro instance in AWS.
+And so far, the driver seems to be pretty stable.
+I've tested using, and seems to yield decent performance.
+I've tested that using IPerf3, NetPerf,
+and some simple HTTP server app application.
+As you may have guessed, actually,
+the ENA driver implementation is enough to run OSV
+on with RAMFS on Nitro EC2 instance.
+And so there's actually a script that I wrote
+to simplify the upload of the OSV image,
+creating a snapshot and basically creating AMI.
+And one thing, obviously, to run OSV on a Nitro instance
+with non-volatile file system like ZFS,
+or hopefully EXT in the future,
+we need to have NVME driver implementation,
+which is actually two pull requests
+from community at this point,
+but they haven't been merged yet.
+They need some love.
+In my previous presentation at FOSDM,
+I talked about kernel modularization and driver profiles.
+This year on it briefly describe a new feature
+that takes modularization to the next level,
+and which has been greatly inspired by Unicraft.
+In essence, the goal is to use the Linux
+kernel build configuration tool, Xconfig,
+to let the user select OSV components
+to be included or excluded,
+and various parameters to configure it.
+The make file would then simply act
+on a generated config file,
+exclude relevant object files,
+and pass any configuration parameters to the source files.
+And this is obviously very much work in progress.
+And obviously, unlike Unicraft,
+where all the elements are effectively Lego blocks,
+with OSV we pretty much have to do the opposite.
+We have to put sprinkle basically the source code
+with all these if-deaths.
+And this is just example of what kind of modules
+or parameters can be modified.
+And basically as an example of what can be accomplished
+with that new feature is that by hiding basically
+all the symbols, but those used by application,
+excluding all necessary components,
+and changing values of various configurable parameters
+as listed on the slide,
+one can build a kernel image of 788 kilobytes in size,
+and running a low-world app using 1.2 megabytes of memory.
+So it is, when I started optimizing
+OSV kernel like five years ago,
+it was like, the kernel itself was like 10 megabytes at least,
+and it required a minimum of 30 megabytes of memory.
+So it is almost 10-fold improvement.
+Well, I'm sure not as close as Unicraft,
+but we are, maybe we can squeeze to be at half megabyte.
+So we are, as I am moving toward the end of my presentation,
+I just wanted to mention that we are also planning
+to cut a new release of OSV10,
+which should include all the features
+that I've talked about.
+And I hope that we're gonna be able to implement
+the EXT file system, merge the IPv6 implementation branch,
+and potentially implement NVMe driver.
+I'm especially excited about the EXT file system support
+because I think it will make it easier
+to build damages on Linux,
+and then introspect, for example,
+if something happens afterwards.
+So beyond the upcoming release,
+we're planning to revamp Capstan.
+Capstan is like effectively like a craft kit.
+It just, but it hasn't been really enhanced in any way,
+or even to take advantage of any recent features of OSV.
+So we're planning to basically revamp it,
+and make it really easy to use,
+basically to help application developers to use OSV.
+And then in addition,
+we're planning to work on some of the security,
+so like ASLR,
+and that requires making kernel relocatable,
+and some optimizations.
+Eventually, and also finally,
+we are planning to make OSV to run on AWS Graviton,
+but that requires UEFI and some other things.
+And with that, I would like to thank the organizers
+for inviting me to this conference,
+and tell you about OSV.
+I would also like to thank SyllaDB
+for sponsoring my OSV work,
+and Dorbola Orr for words of encouragement,
+and Nadav Haral for being my mentor,
+and reviewing hundreds of patches,
+and implementing other enhancements.
+And finally, I would like to also thank
+all the community contributors to the project.
+And this slide, you can find some links about OSV,
+and thank you for your attention.
+And I'm not sure if you have any questions.
+Time for questions.
+We have time for one burning question, if there is.
+You wanted?
+Yeah, go ahead.
+This is your work on Linux compatibility.
+How are you handling new APIs,
+such as the IO U-ring and similar applications?
+Are you using?
+Your question was how do you add new applications to?
+No, no, so with the Linux API,
+that you are right for, I believe, for,
+how are you handling IO U-ring and similar APIs?
+So how am I consuming new APIs, Linux APIs?
+I don't know how are you handling applications,
+which do make use of those?
+So basically, this happens as the way I describe,
+typically, if the application is launched
+in the traditional way, OSV simply,
+resolves all the application symbols,
+like Lipsy symbols, and simply redirects them
+to OSV implementation of Lipsy functions.
+If I have an answer to your question,
+then we can meet afterwards and I can address better.
+Thanks again for the talk.
+Thank you.

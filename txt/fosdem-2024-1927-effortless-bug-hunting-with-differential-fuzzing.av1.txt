@@ -1,0 +1,354 @@
+Our next speaker is Maché and he's going to talk about us, about hunting bugs and how
+do we hunt bugs?
+We do that by sending a bunch of random input into our programs or more scientifically called
+fuzzing.
+Round of applause.
+All right, welcome.
+So in the spirit of testing, let's talk about fuzzing.
+So I'm Maché, I'm an offensive security engineer, I've introduced the platform engineer and
+software engineer, I sail, climb and play board games.
+So what we'll talk about, we'll talk about fuzzing, we'll talk about differential fuzzing,
+how it differs from fuzzing and we'll talk about bugs that are in the sun in the library
+and how you can actually find those bugs and fix them using fuzzing.
+And then at the end we'll talk about fuzzing in continuous integration pipelines.
+So what we'll not talk about is how fuzzing works under the hood.
+There are excellent resources out there that we'll talk about like fuzzing engines and
+like other stuff.
+I'll link to them in the end, but this talk is not about this.
+Why should it occur?
+So there's an OSS Fuzz project, who's familiar with this?
+Cool.
+So this is a kind of a platform that gives open source projects computer resources to
+run Fuzz tests continuously.
+And there's about 1,000 projects in there and within a six or seven years it has found
+10,000 vulnerabilities and 36,000 bugs.
+And if you do a simple math, that's 10 vulnerabilities per project and 36 bugs per project.
+So this seems like an F word that's worth investing in.
+So let's assume we have a simple function, it accepts the string, mutates it and it gives
+you a transform string back and it transforms letters or characters in the alphabet to a
+character that is fricking positions later.
+So you get n for a, o for b and b for c and so on and so forth.
+So in your regular testing, you'll come up with some inputs, you put those inputs into
+the function and then you make assertions based if the output is correct.
+You're all familiar with this probably, you can run this using your standard Go CLI.
+With fuzzing, the situation changes a little bit.
+Instead of your device input, your things you came up with, you have a random input,
+you put it into the function and make some assertions.
+It looks very similar and is supported in Go from like Go 1.18 and you can also run
+this using the CLI.
+You see some boilerplate around the test but you know, in the middle you basically have
+your unit test that you had before.
+I intentionally left the assertion blank because how the assertion stuff, if you don't know
+the input, right?
+If you run the fast test, you'll see that it tries hundreds of thousands of inputs per
+second in this instance and it runs indefinitely.
+So you can run it as long as you want.
+As you've seen, it's easy to create fast tests if you have unit tests in place.
+So there is no reason not to do it really.
+One thing that we haven't talked about is that it's not our magic.
+You still have to kind of instruct the fuzzing engine to be able to come up with inputs that
+make sense for your test.
+So you can actually reuse the inputs you use for unit tests and add them to what's called
+the corpus and that tells the fuzzing engine to come up with something that's similar but
+quite random as well.
+Add the inputs from your unit test.
+That helps a lot.
+I've talked about those assertions that might be pretty tricky to come up with them if you
+don't really know what the input is.
+So what you commonly see in fast tests is that they don't make any assertions.
+They just, the engine just checks if the function crashed, which is still very efficient because
+it tells you that there are some out of ground size axes, for instance.
+But you should and can assert an invariance of things that don't change and in our instance,
+for instance, there is a property to the ROT13 function that you can actually call it twice
+and you get the input back.
+And this holds true for anything that has an inverse symbol.
+So if you have an inverse function, you can make a simple search like this, which is called
+ROT13 and ROT13 and then you expect the input back.
+If it doesn't agree, it's, you know, the test fails.
+Some examples that are commonly used are encoders, decoders, marshallers and marshallers.
+You can just call the things, you know, decode the encoded thing and you should get the input
+back.
+There's other stuff, like if you do a SHA sum, for instance, you always expect it to
+return 32 bytes.
+But there is other technique.
+And what if you had two implementations of ROT13, right?
+Something that you wrote and then, you know, something else.
+And that's called differential fuzzing.
+So basically, you get a random input, you put it through two implementations and you
+see if they disagree.
+So, you know, think about for a moment and, like, where can we get those second implementations
+from?
+The first thing is refactoring.
+Let's say you have your function but, you know, it's unreadable, maybe it's not performance
+enough, so you're refactoring the code for whatever reason.
+You can save your old implementation to the site and use it to basically reference it
+when you refactor the codes.
+The second example is performance.
+You might have, you might maintain two implementations in the first place.
+For instance, you are following a specification closely and, you know, the first implementation
+is written very closely spec, but it might be inefficient.
+But the second one is heavily optimized, but it might be not quite readable.
+You know, you might have some straight buffers or, you know, whatever.
+The third option, which is really interesting, is that there is a C library that does a similar
+thing.
+And you can use C go to college.
+And that's what we'll explore further.
+So back in January last year, I saw an interesting bug report and I can go with a newsletter
+where there was an issue with the HTML tokenizer, basically the piece of the, or part of the
+experimental library that does HTML tokenization.
+And the thing was that it was incorrectly interpreting comments and this led to an excess
+attack.
+So what does an HTML tokenizer do?
+It basically takes a HTML input and it gives you the HTML token.
+So for this example, for instance, you have a paragraph and a text inside and an anchor
+afterwards.
+You'll get start attack of P, text, and then the text inside and tag of P and then start
+attack of A. This is a very well-defined process and there is an HTML specification for it.
+It's very high in detail.
+It's easy to follow.
+And it's a state machine which will become important later.
+If you look at the go implementation, though, it's not a state machine.
+And it's not quite easy to follow, at least for me.
+So I thought, you know, if there wasn't a report for it, there might be other bugs lurking
+around.
+So let's, you know, let's use that function a bit and make another one that gives you
+a list of tokens because the API works in a stringing way.
+So we'll just call the tokenizer, collect all tokens, and then return the tokens it
+generates.
+So you know, when we, let's say, start with the fuzzing, we will supply some HTML input
+to the corpus and then call the tokenize function without making any assertions.
+And there are no results.
+It doesn't crash.
+Something will be expected from, you know, from some library or from the experimental
+part of it.
+So let's try differential fuzzing, right?
+We'll have the, our tokenizer function that we wrote and some alternative implementation
+for it.
+And if they don't agree, we'll fail.
+And as you can imagine, because the, you know, C ecosystem is very mature, there probably
+is a library that does the same thing.
+So in this case, I found Legsport, which is a web browser engine that, you know, is a
+software library.
+It has no extra dependencies.
+It has a Poshy to Prenel license.
+It sounds about perfect for what we want to achieve.
+So don't look at this slide really.
+It's, you know, it's basically implementing the tokenize function that we implemented
+using the Nets HTML tokenizer, but using the Legsport.
+It's actually a lot more complicated than that, but we'll be good for our tests.
+So we call the tokenize and Legsport tokenize and do some equality checks and if they fail,
+we fail the test.
+And it found something.
+So there is some weird looking HTML codes, looks, month forms, and Legsport says that,
+you know, it's an ATAC, but Nets HTML library is like, oh, there's nothing in there.
+So let's transform this a bit and let's see what the browser thinks.
+So we have these agreements.
+Could this be a security issue?
+So what if we made trust decisions based on the tokenizer?
+And so imagine you have like some, you know, user input on your website, you accept the
+HTML inputs and, you know, you decide whether the staff people input is safe to display
+or not.
+And you should, by the way, you really shouldn't do this, but we'll have a S-save function
+that will return the Boolean, whether it's safe or not, and we'll just look for the tokens
+we get and only allow strong tags and nothing else, strong attacks and text tokens.
+So the S-save method thinks that, you know, the thing that we got from the fuzzing is
+safe because it thinks there's nothing in it.
+But the browser says otherwise.
+When you look at the documentation, though, there will be a security consideration section
+in the HTML tokenizer and it says, you know, care should be taken, especially with regard
+to unstressed inputs.
+If your use case requires a well-formed HTML, the parser should be used rather than the
+tokenizer.
+So let's implement this using the parser, right?
+I want to go into detail, but we use the parser here.
+That's also in the same library.
+The thing is the parser also thinks this is safe, and the reason is it uses the tokenizer
+underneath, so it doesn't really, you know, differentiate between the two.
+So we still get the XSS.
+So we have two things.
+You know, the first thing is that the documentation could be improved because it's unclear.
+It's tier C in the wrong direction, and second, that there is a bug in the tokenizer.
+So I thought, right, if there was a vulnerability report in the VRP program for the common thing,
+I'll do the same thing.
+So I submitted a VRP report.
+There was some back and forth.
+They closed my ticket.
+I told them to reopen it.
+They reopened it.
+And the result of that was that there was a documentation update, which is cool.
+And they say that in security context, if trust decisions are being made, the input must
+be recerealized, for instance, using render or token string.
+So what they are saying is that instead of doing, you know, a safe function that returns
+a boolean, you should actually transform the input and construct it in a way that, you
+know, basically sanitize this, transform the string.
+And there are two ways to do this.
+One is to use the token.stream function, which, you know, when you loop over the tokens,
+you can reconstruct the input or render when you use the parser.
+A few months pass, and there is a comment to the library.
+And they fix the actual bug.
+So, you know, handle equal signs before attributes, and they quote the spec and fix the debug
+that was there.
+So now if you call the is safe function, it returns false.
+That's pretty cool.
+But let's run the fuzzer again.
+I mean, you know, you get something that is very similar, and it acts the same way.
+So I thought, all right, I have this fuzzer.
+It's not pretty.
+You know, it has no way to reach the standard test suite.
+But we can, you know, learn the code base and iterate over it.
+So run the, you know, fix the problem, run the fastest again, and then, you know.
+So I prepared the patch, and you've seen I get it screened today already.
+It has the code review, but as Jonathan mentioned, you need a lot of patience.
+It's been stuck in, like, ready to submit for like three months, I think.
+So it still hasn't reached master, but it's close, I think.
+But when you run the fastest again, there are no more findings.
+So the takeaway from this is that fuzzing is very effective, and differential fuzzing
+helps write correct for code.
+So let's talk about what are good testing candidates.
+We've used it on parsers, which are pretty complex codes.
+You can use them to get the coders and coders, you know, marshallers, and any complex code
+that, you know, can be unit tested, basically.
+But running those tests in CI is kind of traumatic, at least in my experience, because it's not
+really mature enough yet, I think.
+And when you run the go-pest fuzzing vocation, it can only run a single fuzz test.
+So people have been doing a lot of hacks, like, grabbing this fuzz code, trying to find
+those fuzz targets, you know, sleeping, like, some pretty hacky buskers, for instance.
+There is also a very cool project called Cluster Fuzz Lite.
+It's actually a subset of OSS Fuzz that you can run in your CI.
+But we found some problems with it.
+First, it has problems with extracting and failing inputs.
+Like, if you have a byte array, for instance, it doesn't really translate one-to-one to
+what the actual input is, because you have to apply some of your own transformations
+over it, and it's being convenient to run locally.
+So we built Go-CIFuzz.
+And it's kind of a lightweight wrapper around go-test fuzz.
+And it separates multiple test targets, and it allows you to extract inputs.
+So if you want to give it a try, there is a link here.
+And, yeah, good to go.
+And it's basically plug-and-play, drag-and-drop.
+You can use it to run fastest as part of your pull request workflow, or you run it on schedule,
+so, like, you know, during the night, or whatever, whenever you want to run this.
+All right.
+So we've placed for it.
+But, yeah, if you want to, you know, say hello, there is my email address and my handle.
+And also, I wrote a blog post about this, but it goes more in detail about this actual
+finding.
+And there are some references.
+You have the, if you want to start fuzzing, there is a very excellent introduction to
+it in the Go documentation.
+There's also Goode's article on Wikipedia on how it works under the hood.
+And there's a link to clusterfuzzlight, the Go-CIFuzz, the blog post, and also a pretty
+interesting entry in this list is the second one.
+So there was a recent paper from Google where they use AI to actually generate the fastest.
+So maybe you don't really need to write them, and AI will be able to do it for you.
+All right.
+So if there are any questions, happy to answer.
+All right.
+Any questions?
+We still have some time.
+And the front.
+That's nice.
+Okay.
+How many minutes do you run the fuzzer in the CI because this is important, right?
+Because it costs money.
+That's true.
+Yeah.
+So, you know, it depends on the workflow.
+So for instance, when it's a pull request, you really don't want people waiting.
+We run this for like five to six minutes.
+It's enough time in our experience to catch like those bugs that are, you know, the edge
+cases that are quite common.
+But you can run this indefinitely during the night, and it depends on how much money
+you want to spend for your CI runs.
+Yeah.
+All right.
+Any other questions?
+Questions.
+Can you keep your hands up and I can go to the right row if you could pass us along.
+Have you tried to fuzz only inserting random strings or like also a combination of valid
+tokens in different order?
+Could you please bring?
+From what I got from the slide, if I'm not wrong, you were like inputting the data.
+You were like putting random strings, right?
+Okay.
+So how it works really is that you provided a starting corpus.
+So like your, think about your unit test inputs and then the fuzzing engine underneath takes
+those inputs and puts transformations on them.
+So every time you'll get a slightly different input.
+It won't be completely different, but it will be a bit more formed.
+So like if you saw these, the findings for instance here, right?
+It outputs all, well it outputs a valid HTML or almost valid HTML.
+So it kind of reached this conclusion based on some coverage data it found.
+So like it also looks at test covers.
+So when it runs the fastest, it kind of captures which branches of code have been covered and
+tries to reach the other that have been not covered.
+So it's kind of an interactive process where it applies transformations to the inputs.
+Right.
+There's another one.
+How does the engine know which part of the corpus it might change and which not so it
+doesn't only input like random strings as I could obtain from the random package?
+Could you repeat the beginning or the question?
+Yeah, sure.
+The fuzzing engine, you give it a set of example strings.
+How does it know which part of that it may change and so that it doesn't just put in
+random things?
+Okay.
+So I don't know the exact details, but I think it works that it makes a change and it looks
+at the coverage data.
+So it looks at the branches, it kind of discovers when it made the change and it will note some
+interesting inputs and then try those inputs.
+So like if the coverage increases, it will try to make more transformations similar to
+the one that it makes.
+Yeah, one more.
+What kind of coverage metric is it?
+The question is what kind of coverage metric it is.
+I think it's, I'm not so sure, but I think it's branch coverage based.
+If you run the fastest with some variable flags, you will see that there are coverage
+bits and I think it tells you how much coverage there is for a particular input.
+All right.
+There's one more.
+One second.
+I can probably just speak up.
+So the question is, there is a go cache or when you run fastest, there is a cache folder
+that will capture the inputs already run and the question is whether the tool will or can
+support this.
+And the question is, the answer is it doesn't right now, but it's planned.
+So for those that are unaware, when you run a run fast test, there is a directory that
+will capture all the input it has tried or the interesting ones.
+And when you run this again, it will start from the point, which is really handy because
+you will not do the same work every time or a similar work.
+You can start from where you left.
+Yeah.
+Thank you.
+Yeah, there is one more.
+The question is slightly tangential to this directly, but you said we provide a starting
+corpus and then there's transformations on that, which is run against whatever we're
+testing.
+So is there a way to optimize the starting corpus to increase the kind of test cases
+that are actually generated by the FuzzError?
+Is there a way where the starting corpus can be designed to cover as many edge cases as
+possible?
+Okay.
+So there are similar perspectives to this.
+There are corpus that you can find online in GitHub, for instance, that you can employ
+in your FuzzTests.
+Also when there's a finding, for instance, when you run the FuzzTest and you find a string,
+it will add it to the corpus that you have in your repo.
+So when you run this, there will be a directory created in your repository that's called test
+data.
+And inside that test data folder, this will be captured.
+And you should actually commit that folder to your repo so that every next time you run
+the FuzzTest, it will actually check for regressions.
+So yeah, I hope this answers your question.
+Any more?
+Thank you.
+Are there ways to customize the kind of transformations that are applied by the FuzzError?
+Not in the Go Native FuzzTests.
+So there are other tools that have been used before, and Go introduced native fuzzing.
+There is libfuzzer, for instance, that's very commonly used by the OSS Fuzz.
+And I believe if you use that, you can customize it.
+But the way native Go tests work is that they actually use libfuzzer, but it's not very
+configurable.
+So it's supposed to be good developer experience-wise and cover most of the needs that you need,
+but I don't think you can drive the transformations from it.
+I'm going to end the questions here.

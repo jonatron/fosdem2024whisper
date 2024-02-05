@@ -1,0 +1,181 @@
+Okay. Hello, everyone. My name is Emmanuel Giuseppe Sposto. I'm a software engineer at
+Red Hat. And today I'm talking about the UKI at Donson Extension, how to safely extend
+UKI, scan and comma line in E3D. So why this talk? First of all, because this is extremely
+new stuff, like it's very new, hopefully also exciting. Because there's not a lot of documentation,
+of course, because this stuff was just merged. And hopefully this talk will also help you
+understand a little bit more about what they are, how to use these addons and so on. And
+because they may be very useful because UKI, as also Vitaly explained in this talk one
+hour ago, is pretty static on the point of comma line in E3D. And with these addons,
+we can extend it, these two things without sacrificing the security. And also, yeah,
+this attempt to advertise a little bit to UKI, so what they are to the more public to
+be more recognized. So let's look first at Vitaly's slides. These are from last year,
+I think. So I will just briefly go through this. So Confidential VM provides data protection
+from the host he runs on. So we are protecting the VM from the hypervisor because it could
+be malicious and it's privileged, so we can access the VM and we don't want that. The
+host is still able to disrupt the execution of the VM. And there are specific hardware,
+SV, SMP and TDX responsible for encrypting memory and CPU. And storage encryption is
+necessary for security and must be done by the guest OS. This was already explained by
+Vitaly. And usually the situation that we have is that we usually encrypt, we have the
+encrypted part and while the kernel is signed by the vendor, in NITRA MFS and the common
+line are locally produced, are not signed and also it's difficult to measure them, of
+course. Whereas with the UKI unified kernel images, basically a single binary produced
+and signed by the vendor, in this case Red Hat. And it basically contains the important
+parts, the RP sections together with the signature, there is the kernel, the NITRA MFS and there
+is also the common line as a separate section that is then feed to the kernel. Before going
+to the next details, I wanted also to explain like the use case, like yeah, the use case
+in this case for this talk, that we have the UFI, the firmware that is in terms called
+shim the boot loader, which in terms called system distap which is very key piece for
+the add-ons and on both the kernel and common line the NITRA MFS which in turn unpacks the
+UKI and gets the kernel and runs the OS. The issue that also Vitaly mentioned is that the
+kernel line is immutable and is something that we don't like because there are limitations
+and you cannot have a static common line for every use case that you have, there is a crash
+kernel options, debugging options and we cannot ship different UKI for every basically use
+case. So what we are aiming for the UKI kernel common line is it cannot be static as I said
+because there are different use case, it has to be secure so whoever modifies the common
+line has to be authenticated otherwise the whole point of confidential computing is lost
+and by default nobody because the common line is inserted inside the UKI and then is signed
+so you cannot modify it anymore and has to be extensible of course because we don't want to
+ship a new UKI every single time. There are already ways for the one that are no UKIs to
+extend to add kernel common line to a new UKI but it's a little bit when we talk about
+confidential virtual machine it's a little bit tricky because as again I'll show you the option
+and you need to trust a lot of parts. So as I said there is the common line section it's embedded
+in UKI, it's generated with UKI, it's secure, it's shipped with UKI altogether but it's static,
+you cannot be modified. Then there is FI shell which is looked by system distable if the common
+line section inside the UKI is missing many distro for example they ship always something in the
+common line section inside the UKI so it's ignored. It's useful usually for type 1 entries but
+again it's unsafe because an attacker can easily inject its own parameter through the FI shell
+that's why it was disabled for CVMs so you cannot extend the kernel common line with the FI shell.
+There is SM BIOS system management BIOS, embedded metal this is good, it's trusted because it's
+coming from firmware and BIOS but it doesn't apply on CVMs again the hypervisor can easily inject
+kernel common line. So yeah as I said it's not good so it was also this was disabled
+and then there is QM firmware configuration by the name you can already figure that this is
+only from QM it's again coming from hypervisor so also disabled. Then what do we do? Our proposal
+initially upstream was an allow list basically an allow list is another P section where you
+use regex globbing and whatever just something like this to parse the common line that you want to
+get and the easy case will be if there is something that we don't accept in the regex we just discard
+the whole common line but the common line would come from FI shell SM BIOS all these sources but
+we try to filter and system desktop does the parsing. The advantage is of course that we can reject
+what we don't want but the problem is just moved to another place because then you can do
+attacks on the regex and globbing because they need to be very careful formulated so what's also
+this was disabled so was rejected actually and eventually we have the solution the system D solution
+nuclei addons. Nuclei addons is basically another separate binary which is contains a
+very few P section one of these is the common line and it's signed by yeah can be signed but
+should be signed for the CVMs and we take advantage of shim validate function offered by shim
+to validate the P signature so basically this means that system desktop will ask shim to validate if
+the binary has been signed by some key that we trust in the secure boot database. There is a very
+useful tool UQFI in system D upstream it's you can create UQIs very easily very better than
+drag up and object copy and you can also create addons and yeah basically the common line is very
+easy you can also provide the keys when you want to sign your own addon so it's this is the solution.
+So how UQI works the workflow is UQFI first you create the addons so you ask UQFI to create an
+addon with the common line that you want then the addons it needs to be put in the specific
+location in the ESP I will show you later where exactly is this system this tab looks for this
+location and finds automatically the addons asks shim calling shim verify on the addon to verify the
+if the addon is trusted so it's signed by somebody that we trust and then if a leadation is successful
+we read the addon the system read the addon and appends the common line inside the addon
+to the UQI common line section to extend it and then it's provided to VM linux to
+start links with the new common line there are two kinds of addons there is global and local
+addons so global addons can be applied to all installed UQIs and this is the location and UQFI
+UQI specific addons so if you want to apply all these to one specific UQI you have installed
+has to be provided in the UQI name has to be in an extra d folder in the same location where your
+UQI is and then has to be put in there just naming convention because last time I checked the system
+this tab was checking for also the extension name and this kind of stuff so you need to get them
+right UQIs are always located in the this part AFI linux UQIs always ends with the AFI and addons
+is dot addon dot AFI and specific addons here as I said you need to be located in the extra d
+folder okay so next next step is what is but white self so suppose that we as a vendor we
+shipped a new key I common line addon and we signed it and everybody's using it and then we figured
+the common line as an issue then what do we do because we signed it as a vendor so what it's
+trusted first solution just change the certificate so but this is basically impractical yeah good luck
+with that yeah we messes up all the measurements you invalidate all the addons so second solution
+try to create a blacklist on the cloud provider this is impractical third solution at the station
+check if the hash is matching your addon that you don't like anymore and the last solution
+these are these s but rules so what is s but is basically another p section inside the UQI
+the yeah the addons for example and contains component generation and also other information
+but the key part is the component generation table because there is the same table there should be
+the same table inside your shim that and then the we are at component level so for example every
+Linux PS action has should be should have the its own component generation version for the Linux one
+for the addon and so on and if the component generation match with the what shim has we accept
+it but if the generation for this component of the addon that is incoming is lower then we have
+a mismatch and even if the addon is signed by red dot or whatever it will be rejected
+and this part is done by shim when they verifies they are done in checks the s but components
+and generation just an example to clarify this in this case we have the shim has s but one myadon
+version two and then the addon contains the same version for s but and myadon so it's good it will
+be accepted of course has to be signed by somebody we trust in this case the my the addon as the
+s but version is correct but my addon component is lower which means that we don't accept it even
+if it's signed by whoever we trust in the secure boot database it won't be accepted
+one open problem it's combining addons so if you have two separate addons that contain
+common line that is safe but together can create a security issue because they enable something
+that we don't like how do we do it how do we solve this issue to be honest as of now I couldn't
+come up with a concrete example for this and yeah one solution will be to use that station to see if
+they are both there talking about the system dc6 in iterative addons so system dc6 already exist
+they are already famous so used and what is new is that you can also use them for uki so for what
+if you don't know is a system system extends an image extend the base system with an overlay
+containing additional files so you can extend base system and you can use this system this
+tab provides also the possibility to use this to extend the initer d inside the uki
+um more or less is same concept as the common line addons so you just use different tools
+because they are different things they are no p binary with p files sections so there are system
+extension images and micozi is used instead the uki fi and but the part for example where to put it
+is the same the workflow is more or less again the same create a system c6 extension you put it
+inside the extra d folder it must be a raw file and then this is the only difference system this
+tab will take the initer d the addon and will put it inside the initer d extra c6 folder where the
+c6 extension will then load it and apply it to the initer d
+yeah who uses this can use these addons the use case are various there are three groups of users
+that can use this the vendors for example read that they want to ship we want to debug kernel and uki
+and we ship our addon and there are there could be the vstod the virt host admins that can use
+host side tools like virt firmware or whatever to modify these these kind of variables more or
+less the same use case and the guest admins can add you can use guest side tools like mock to insert
+the key insecure boot even though this is a little bit tricky for in the cloud because on
+asia it's basically impossible to add a key in mock because when it reboots you cannot connect via
+when you connect with the shell you skip the mock reboot section when they ask you to confirm your
+key available tools there is a system d has a lot of tools uki fie is the main one in different
+version is supported gradually first how to build and then how to inspect them and then there is also
+i sent a pr to extend boot ctl to find addons and display already as a preview what will be the
+kernel command the full command line so if there is a system d maintainers right
+then and there is mico c to create a system d sex the image and then we have a uki director for fedora
+there is kernel boot config you can add update and remove uki's and then we and also added kernel
+addon which does the same thing for uki addons and the future work what are we planning to do next
+maybe an rpm so the vendor ships an rpm with the collection of addons generic addons that we want to
+ship signed by the vendor but of course we don't want to pollute the esp with the addons that
+the user doesn't need so there was a agreement also upstream to find these two locations user
+lib linux extra d for global and the other one for uki specific addons where the rpm should
+install these addons and then when the user needs them can simply use kernel addon or just copy the
+addon that for example we as a developer ask to for debugging the uki to copy it in the esp
+reboot and they will be there yeah on the cloud cloud if they want to allow the user to upload
+their own uki addons they need to be a way to inject to inject the owner certificate
+otherwise yeah you cannot do it this also there is a little bit an issue with the measurement
+because the when you add the user certificate has to be measured in pscr7 especially and the solution
+we found is to simply add the dummy addon before performing attestation so the certificate is part
+of the in the key ring so it will be attest is measured
+on prem more or less the same things who for us is libvirt we want to offer the same possibility
+to upload the certificate for secure boot and yeah and there is already a way to add the dummy addon
+so that's that's it from my e-talk if you have any question here outside thank you
+yes please
+uh
+so
+second comment is on all of the add-ons
+Right? Because you can trust the UiViceQ boot mechanism.
+Whereas in a confidential computer environment you cannot today use.
+I'm not aware of any stack right now that gives you a trustworthy UiViceQ boot environment.
+That means you need another mechanism to do that measurement for a confidential computer environment.
+The most natural path for that is to use the launch digest.
+Because you have the launch measurements, you need to know ahead of time.
+When you boot the VM in a way, in a way, in a way at boot time,
+all of the data that you need to launch at the end, which means you need to have the UiViceQ ready to be available including all the add-ons.
+At which point we go in full circle, I think we are much better off just building a separate UiViceQ for that one set of configuration you're doing.
+So you can attest that I'm actually running a set of configuration.
+You don't want your debug add-on in your production fleet.
+That is, you want to pre-aggressively.
+So I think the mechanism that is the most natural one here is to go and build a separate one-off UiViceQ even if they're made of add-ons if you want to.
+Okay.
+Okay, thank you.
+Okay.
+Thank you.
+We cannot do a vocation only with a firmware.
+The firmware cannot support a vocation mechanism outside of the DDX.
+And DDX has both space and around that.
+If you have a lot of space, if you ditch the microsoft solution, don't use the microsoft solution.
+Thank you.
+Bye.
+We know how it ends.
+Guys, you are more than welcome to present next year if you want.
+You are more than welcome to present next year.
+You are more than welcome.
