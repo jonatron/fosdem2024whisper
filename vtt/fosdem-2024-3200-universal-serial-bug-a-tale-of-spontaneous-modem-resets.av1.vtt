@@ -1,0 +1,908 @@
+WEBVTT
+
+00:00.000 --> 00:13.600
+Okay, thank you all for coming. The next talk is anniversary serial bug, a tale of spontaneous
+
+00:13.600 --> 00:22.880
+modem research from Sebastian. Give a big round of applause please.
+
+00:22.880 --> 00:29.280
+So hi, I'm Sebastian Krzyszkowiak, I'm also known as DOS, and I have many hobbies, I make
+
+00:29.280 --> 00:36.400
+games for example, maybe you have played any match for, but other hobbies there is also mobile
+
+00:36.400 --> 00:46.560
+GNU Linux, which started many years ago when I got an open Mokoni of Rane, and eventually I had been
+
+00:46.560 --> 00:57.440
+contracted by Poison to work on the Libre M5 phone, which is this chunky boy here, and within this
+
+00:57.440 --> 01:09.280
+device there is a USB connected cellular modem on an M2 card, the worldmobile BM818, and this is the
+
+01:09.280 --> 01:17.360
+main character of our talk today, because we had a problem with it, and the problem manifested itself
+
+01:17.360 --> 01:24.400
+in this way that sometimes, occasionally, seemingly at random, the modem would just disappear from
+
+01:24.400 --> 01:33.200
+the bus, it would be just as if it was unplugged from the socket, and it would come back right away,
+
+01:35.040 --> 01:40.640
+even though it did come back, it was still pretty disruptive, because the network interface would
+
+01:40.640 --> 01:49.520
+go down, the audio routing would be turned down if you were doing the call, so this wasn't really
+
+01:49.520 --> 01:57.760
+great, the modem wasn't crashing, it wasn't rebooting, because it maintained its state, at least some of
+
+01:57.760 --> 02:08.160
+its state, but it was just as if you would pull the plug and plug it back in very quickly, without
+
+02:09.040 --> 02:21.040
+with some external power connected to the modem, and there were also other instances where the modem
+
+02:21.040 --> 02:26.720
+wouldn't come back, or when the whole USB bus would actually die together with it, however we
+
+02:26.720 --> 02:35.040
+won't be talking about those turned out, even though they were like wars, they turned out to be
+
+02:36.000 --> 02:43.200
+connected, but separate issues that weren't as technically interesting as those resets turned out to be.
+
+02:46.080 --> 02:55.360
+So this talk will be some kind of debugging case study, and I would just like to talk about how we
+
+02:56.400 --> 03:03.600
+identified the issue, how we debugged it, and worked around in the end, and at the start I would like
+
+03:03.600 --> 03:10.320
+to note that this is not some groundbreaking research, this is not a new discovery, because
+
+03:11.440 --> 03:21.840
+it turns out that this was known for ages already, but I think it's not a common knowledge still,
+
+03:22.800 --> 03:27.760
+and it turns out that it can still bite, so I thought that this would be an interesting thing to
+
+03:27.840 --> 03:34.800
+talk about and to share. So in order to understand what's going on, I'll quickly go through the
+
+03:36.080 --> 03:43.840
+topology of the devices on the LibreM5, so we have two M2 slots inside, one of them is the cellular
+
+03:43.840 --> 03:48.960
+modem, and the second one is the Wi-Fi and Bluetooth card, and there are two USB controllers, one of
+
+03:49.040 --> 03:57.680
+them goes to the USB C port, and it all swaps, and the other one is connected to the internal USB
+
+03:57.680 --> 04:07.600
+hub, and therefore it works as host only, and the internal hub is USB 2642, which has three
+
+04:08.320 --> 04:14.480
+downstream ports, one of them is internal, as this hub has a microSD reader built-in,
+
+04:15.200 --> 04:24.320
+and the other one, the one that we will be interested in today, is the modem's port that goes to its
+
+04:24.320 --> 04:31.200
+M2 slot, and there's also the third port that goes to the Wi-Fi M2 slot, however none of the cards
+
+04:31.200 --> 04:39.600
+that we use on this phone actually use USB, they use different interfaces, so this third
+
+04:40.240 --> 04:49.200
+port effectively remains unused. So universal serial bus, I'm just going to assume that
+
+04:49.840 --> 04:59.440
+everyone here knows what USB is, we all used it, so I won't read Wikipedia definitions, I will however
+
+05:02.080 --> 05:08.960
+go through some of the properties of USB, either to remind you or to make you aware of how this
+
+05:09.040 --> 05:17.120
+works on the wire, so the first thing, that the devices can be suspended, this is a power
+
+05:17.120 --> 05:23.600
+management thing, you can put a USB device to sleep, theoretically all of them can be put to sleep,
+
+05:23.600 --> 05:28.400
+not all of them react well to that, the specification says that they should, but
+
+05:29.280 --> 05:36.080
+yeah, reality is different, and there are two ways in which you can suspend a device, you can either
+
+05:36.080 --> 05:44.480
+selectively suspend a single port or put the whole bus into so-called global suspend, and
+
+05:44.480 --> 05:51.040
+another thing is that no device on the bus speaks unsolicited, every communication is actually
+
+05:52.080 --> 05:59.280
+handled by the host, it's the host that keeps pulling each of the devices for whether it has
+
+05:59.360 --> 06:07.760
+something to say or not, and then the device only responds to what the host is asking it for.
+
+06:07.760 --> 06:16.240
+There is one exception, when a device is suspended, it can actually signal that it wants to be
+
+06:16.240 --> 06:25.040
+woken up, but that's the only thing that it can signal on its own. One interesting thing is that,
+
+06:25.040 --> 06:31.040
+I think not everyone is aware of that, that all USB hubs are technically smart, they are on their
+
+06:31.040 --> 06:37.840
+own, a proper USB device that you can talk to, that you can send comments, and that can respond and
+
+06:37.840 --> 06:52.000
+send some status. The features that you can control this way vary, so not every hub will, for instance,
+
+06:52.000 --> 06:58.800
+provide power switching control, however, this is exactly how suspend is implemented, you send a
+
+06:59.760 --> 07:06.800
+message to the hub and the hub inter-president does it. Internally, when it's on the wire,
+
+07:07.440 --> 07:16.400
+USB works with two wires that form a differential pair, and you can have, on two wires you can have
+
+07:16.400 --> 07:23.920
+four states, however, one of them is illegal in the specification, the USB doesn't use it, so we are
+
+07:23.920 --> 07:31.280
+down to three states, they are called J, K, those two are when one of the wires is high and the other
+
+07:31.280 --> 07:40.480
+is low, and there is SE0, which is when both of the wires are low. There are some differences between
+
+07:40.560 --> 07:46.800
+various speed modes between USB 1 and USB 2, we won't be going into newer versions as they are
+
+07:46.800 --> 07:56.880
+different, and the modern here uses USB 2. However, the differences between USB 1 and 2 are
+
+07:57.840 --> 08:06.720
+small, the old states are similar, they use different voltages, but logically it's basically the same thing.
+
+08:06.960 --> 08:11.440
+So, let's go back to the bug.
+
+08:15.680 --> 08:21.280
+At some point we have noticed that those modern resets are somewhat dependent on movement or
+
+08:21.280 --> 08:28.320
+signal strength, the easy way to trigger them was, for instance, to ride a train, you could
+
+08:29.280 --> 08:38.080
+often see the cellular connection icon just disappearing for a moment, or when you don't
+
+08:38.080 --> 08:45.920
+notice some file, it maybe could drop out, and that was pretty annoying.
+
+08:47.920 --> 08:57.200
+And also, sometimes in some places it basically never happened, like at my desk when I worked on it,
+
+08:58.320 --> 09:11.040
+and it quite often happened in my bedroom, for example, where overnight I would wake up to a
+
+09:11.040 --> 09:24.400
+bunch of resets happening overnight. So, in order to look at those issues, we have to check some
+
+09:24.480 --> 09:33.040
+logs, I have showed them earlier, but that's not enough, and Linux has this pretty useful feature
+
+09:33.040 --> 09:43.280
+called dynamic debug, and pretty much all the channels called drivers are sprinkled with
+
+09:43.280 --> 09:48.880
+debug print messages, however, they are by default compiled out for performance reasons,
+
+09:48.880 --> 09:55.120
+however, you don't need to recompile the kernel to put them back in. They can be dynamically
+
+09:55.760 --> 10:02.800
+patched in, and this is how you can do it. Using this interface, this invocation tells the kernel
+
+10:02.800 --> 10:10.720
+to re-enable all the print statements from C files, from drivers, USB core, directory in the
+
+10:11.040 --> 10:20.640
+kernel registry. So, we did that, and this told us a bit more. It turns out that this is an example
+
+10:20.640 --> 10:28.000
+of such a reset happening, and it turns out it happens when the device wants to wake itself up
+
+10:28.000 --> 10:44.080
+from USB suspend, and here we can see the status given by the hub to its ports. The port one is
+
+10:44.080 --> 10:50.800
+the microSD reader, and we can see that there is 0507, which means that five that is connected and
+
+10:50.800 --> 11:00.000
+enumerated properly, seven is that it's suspended, and change zero means that nothing changes,
+
+11:00.800 --> 11:07.760
+and port two is the modem, and here we can see that it's different. Zero one means that it is
+
+11:07.760 --> 11:16.240
+connected, however, it didn't actually went through the whole process of connecting, so something
+
+11:16.240 --> 11:22.480
+happened there. Zero one means that it's not suspended, and change five tells us that it both
+
+11:23.280 --> 11:30.320
+changed its suspend status and connection status, so it's just like it would be
+
+11:32.160 --> 11:40.800
+from the plug, and put quickly back in at this point. To compare it, this is an example of
+
+11:41.360 --> 11:50.320
+when things go right. After the port has been resumed, we can see that status is 0503,
+
+11:51.440 --> 11:56.000
+which is different from the port one, because port one is still suspended, and port two is already
+
+11:56.000 --> 12:03.120
+working up, so there's three at the end, and change four tells us that only the suspend status has
+
+12:03.120 --> 12:11.680
+changed, so this is how it looks when it works fine. That told us something but not much. There is
+
+12:12.240 --> 12:18.800
+another feature called USB MON, which can be used to sniff on the traffic on the USB bus,
+
+12:19.680 --> 12:25.760
+and can be used with such common tools like Wireshark, however, it still didn't tell us anything new,
+
+12:26.160 --> 12:33.760
+and it's just like if the device was disconnected and put back in, so not very useful at this
+
+12:34.800 --> 12:45.120
+level. We have to take a few steps back, and the first LIME 5 fonts shipped to the first customers
+
+12:45.120 --> 12:54.080
+in December 2019, and the issue about those resets was filled actually by myself in August 2020, so
+
+12:54.800 --> 12:59.360
+there was plenty of time to notice this issue, and it hasn't been noticed earlier, so
+
+13:00.400 --> 13:10.800
+it's safe to assume that it wasn't there initially, and just came up later.
+
+13:12.960 --> 13:20.880
+So looking at what was the state that those first fonts have shipped in, the USB power management
+
+13:20.880 --> 13:29.360
+was already enabled with the software that was running on them, however, it turned out that the
+
+13:29.360 --> 13:36.320
+SD card reader, the driver for it, kept the USB hub active all the time. It was basically pulling it
+
+13:36.320 --> 13:48.080
+for media change status, and that's why it never suspended, so the whole USB hub was kept active,
+
+13:48.080 --> 13:54.720
+and it was fixed in August 2020, and there is a somewhat lengthy
+
+13:56.160 --> 13:59.920
+thread on the Linux kernel mailing list that you can follow if you're interested in that,
+
+14:00.560 --> 14:08.000
+and there was also another thing, at some point I have noticed that modern manager pulls the modern
+
+14:08.000 --> 14:14.640
+for signal strength every 30 seconds, and I wanted to change that because that's not very nice on the
+
+14:14.640 --> 14:22.000
+battery, and to make it start listening to the messages coming from the modern whenever
+
+14:22.000 --> 14:29.040
+signal strength changes instead, and I got it working the first time in the context of LiveM5
+
+14:29.040 --> 14:37.280
+in August 2020, and later I noticed that with this change the resets popped up more often,
+
+14:37.280 --> 14:48.160
+without this change they were still there once the hub started suspending, but not as often as with
+
+14:48.160 --> 14:58.000
+this patch. So now we know that this is related to power management, and it turns out that disabling
+
+14:58.960 --> 15:06.960
+the suspend may be the issue going away, so yay! However, doing so it's almost half a watt, so not
+
+15:06.960 --> 15:21.280
+so yay, and basically this was the main reason behind a poor reputation of battery life on those
+
+15:21.360 --> 15:28.880
+devices when they first shipped, so power management is essential and it must be kept on,
+
+15:28.880 --> 15:38.880
+we just have to find a way to solve it without disabling suspend, and there was one vital observation,
+
+15:40.240 --> 15:49.520
+I think Elia said that she observed it first that the issue only ever happens if the hub has just
+
+15:49.520 --> 15:55.840
+been suspended, never if the hub sleeps for some time already, and then the modem wants to wake up,
+
+15:55.840 --> 16:02.880
+it's always the hub goes into suspend and right away the modem wants to wake itself up,
+
+16:03.520 --> 16:07.920
+and things go wrong, so this starts to smell like some kind of race condition,
+
+16:10.080 --> 16:16.400
+so what we do with race conditions, we start playing with some timeouts, if not in hopes to
+
+16:16.400 --> 16:22.000
+fix it then maybe to make it happen all the time, just to learn something about what's going on,
+
+16:23.920 --> 16:32.640
+Martin Keplinger was earlier working on that other issue that made the modem not come back,
+
+16:33.840 --> 16:39.440
+he had some progress on that, but however he didn't really make progress on this one,
+
+16:39.440 --> 16:46.960
+when I took it over I started, I based on his work and to figure out what's going on with the
+
+16:46.960 --> 16:54.640
+kernel code in USB and started changing some timeouts, eventually I figured out that this
+
+16:55.280 --> 17:02.000
+isn't going to help because at this point where was the earliest possible point where we could
+
+17:02.000 --> 17:09.040
+query the hub for its status, it was already telling us that something wrong happened, so
+
+17:10.400 --> 17:17.520
+this didn't really help, and I think that really helped was finding out that you could
+
+17:17.520 --> 17:23.920
+reproduce it by pinging the phone, if you pinged it over the network interface, cellular network
+
+17:23.920 --> 17:30.080
+interface and set the packet interval, just right, I think it was about, a second above two seconds,
+
+17:30.880 --> 17:37.840
+you could actually make the modem reset this way, so this helped to investigate it,
+
+17:38.800 --> 17:47.120
+and at some point I also started playing with an USB M2 adapter to pull the modem from the phone
+
+17:47.120 --> 17:55.200
+and put it into other kinds of USB sockets in other devices, the idea was to identify whether it
+
+17:55.200 --> 18:04.400
+was the hub or the SOC or the modem itself that caused troubles, and I found out that with that
+
+18:04.480 --> 18:11.680
+listed kernel modules for the modem and sleep timeouts all set to zero, I could make it into
+
+18:11.680 --> 18:19.120
+some kind of reset loop, it would basically reset every second or two and keep resetting, and
+
+18:21.920 --> 18:28.960
+at some point I noticed that when it was plugged to some USB hubs, I got it pretty much all the
+
+18:28.960 --> 18:37.440
+hubs I had in my house, some pretty ancient ones as well, and with some of them it never reset it,
+
+18:37.440 --> 18:44.480
+I couldn't make it reset with some of the hubs with others, it was pretty easy, and whenever it was
+
+18:44.480 --> 18:51.120
+connected to the house directly with no hub in between, it always worked, it never reset it,
+
+18:51.680 --> 18:59.600
+it even applied to this port on the Libre 5 itself, when it was plugged to the USB C port,
+
+19:00.640 --> 19:11.920
+the resets were never there, so there was time to start to read some specs to find out
+
+19:12.960 --> 19:19.040
+what's going on or should be going on, and it turns out that the USB device enters
+
+19:19.040 --> 19:26.800
+the suspense state after three milliseconds of no activity seen on the bus, and this can happen in
+
+19:26.800 --> 19:34.800
+two ways, you can send a message to the hub to enable port suspense feature, and this is how the
+
+19:34.800 --> 19:43.680
+hub stops sending frames to that port anymore so it doesn't see activity, and it suspends itself,
+
+19:43.680 --> 19:50.160
+or you can stop any communication on the bus, we just call it global suspense, and then all the
+
+19:50.160 --> 20:02.320
+devices on that bus see no activity and go into suspense, and when the device detects that the
+
+20:02.320 --> 20:10.640
+data lines have been in the idle state for at least three milliseconds, and high speed idle state
+
+20:10.640 --> 20:23.760
+is SE0, it must revert to the full speed configuration, which is J, so D plus high if I remember
+
+20:23.760 --> 20:35.120
+correctly, and then it must sample the state of the line, so it checks what hub has or host has
+
+20:35.120 --> 20:41.840
+asserted, and if it's full speed J, then it continues with the suspense process, it is required
+
+20:41.840 --> 20:53.040
+because SE0 is also a reset signal, if at this point it would stay in SE0, it means that this is
+
+20:53.040 --> 21:00.720
+the default state that the bus is put in and the device must reset, but if it's J then it means that
+
+21:01.440 --> 21:08.080
+this is a suspense has been requested, so the device then asserts J itself and stays in J,
+
+21:09.680 --> 21:17.920
+and we now know how a suspense works and how about the resume, the host can resume the port at any
+
+21:17.920 --> 21:25.520
+time, it must send the resume signaling, which is K, for at least 20 milliseconds, and after resuming the
+
+21:25.520 --> 21:31.760
+bus the host must resume communication within three milliseconds, because otherwise the device would
+
+21:31.760 --> 21:39.120
+go into suspense again, and what if it's the device that wants to wake itself up,
+
+21:40.720 --> 21:47.600
+it cannot wake itself up after being put into suspense for at least five milliseconds,
+
+21:47.600 --> 21:54.640
+and then it can, and it must hold the resume signaling, which is still K, for at least one
+
+21:54.640 --> 22:02.640
+millisecond, but for no more than 15 milliseconds, and the controlling hub, which is the hub that
+
+22:02.640 --> 22:10.720
+actually handles the resumes, suspended as there might be more on the industry, must
+
+22:10.720 --> 22:19.200
+re-broadcast that to upstream within one millisecond and ensures that it is signaled for at least
+
+22:19.200 --> 22:27.520
+20 milliseconds, so it kind of takes over that signaling. So now it was time to get dirty,
+
+22:28.400 --> 22:35.360
+fortunately I didn't have to do that myself, Eric Kazmenko, who is the hardware guy at
+
+22:35.360 --> 22:46.640
+Poism did it for me, and soldered some wires and put a differential probe to it in order to
+
+22:46.640 --> 22:54.400
+sniff what's going on electrically on the wires, so this could be then seen on an oscilloscope
+
+22:54.400 --> 23:01.840
+and recorded, and this is an example of what's going on. We can see here at the beginning some kind
+
+23:01.840 --> 23:09.040
+of high-speed communication, as it's a lower voltage than full speed, at this point we can see that
+
+23:09.040 --> 23:16.400
+the modem went into suspense, this is the J state, for some time, and then here we can see
+
+23:16.400 --> 23:25.760
+the K state, which means that it was either resumed by host or it wanted to wake itself up, and it
+
+23:25.760 --> 23:35.200
+happened, cycled this way for some time, and eventually something went wrong here, so to zoom it up,
+
+23:37.280 --> 23:44.560
+what happened here is that there was some kind of high-speed communication, it stopped for three
+
+23:44.560 --> 23:51.920
+milliseconds, at which point the modem went into suspense, and there was a J signal for another
+
+23:51.920 --> 24:02.640
+three milliseconds, then it went into K state, we can assume that the modem wanted to wake itself up,
+
+24:03.280 --> 24:12.960
+and it lasted about 20 milliseconds, but then the bus went into SE0 and communication did not
+
+24:12.960 --> 24:19.120
+resume, it stayed at zero, at which point after another three milliseconds the modem just suspended
+
+24:19.120 --> 24:33.280
+itself again, so this is somewhat informative but still not enough. My hypothesis at this point was
+
+24:33.280 --> 24:38.800
+that the specification requires a great period of five milliseconds before sending a remote wake-up
+
+24:38.800 --> 24:47.680
+request, but I wasn't quite sure whether the wording isn't ambiguous, because it says that
+
+24:49.680 --> 24:55.120
+it needs to stay continuously in the idle state for five milliseconds, but if we check here,
+
+24:55.120 --> 24:59.520
+we have two idle states, there is high-speed idle state for three milliseconds, and full-speed
+
+24:59.520 --> 25:05.680
+idle state for another three milliseconds, so when is this point where it starts?
+
+25:06.320 --> 25:15.360
+However, there is also a side of English description, there is also a bit more formal
+
+25:15.360 --> 25:21.360
+state machine description in the specification, and after deciphering that it turns out that
+
+25:22.880 --> 25:30.000
+both of these idle states actually counted as one continuous idle state, so this probably wasn't it.
+
+25:30.640 --> 25:39.680
+So we go back to getting dirty, and this time instead of just sniffing what's going on between
+
+25:39.680 --> 25:47.920
+the modem and the app, we also sniffed what's going on between the app and the fonts processor,
+
+25:48.720 --> 25:54.160
+at the same time, which required quite interesting contraptions to be made,
+
+25:54.880 --> 26:04.160
+but it worked, and we got some data, and this is an example of things going wrong,
+
+26:04.720 --> 26:13.680
+and we can see some USB micro-fames here, so host polling the devices, and then some communication
+
+26:13.680 --> 26:23.040
+actual, and then nothing for three milliseconds on the modem port, on the bottom we can see the
+
+26:23.840 --> 26:31.760
+part between the app and the SOC, and there the micro-fames continue, and the modem goes into
+
+26:31.760 --> 26:40.560
+suspend, and after I think here it was too many seconds, it wants to wake itself up, so with
+
+26:40.560 --> 26:51.200
+assets K, and the app takes over, then 20 milliseconds later it stops, but what happens here at the
+
+26:51.200 --> 26:58.880
+bottom, and the micro-fames continue when the modem is suspended, and when it wakes it's up,
+
+26:58.960 --> 27:05.040
+starts to wake itself up, the communication still happens, until this point, then it stops,
+
+27:05.040 --> 27:11.200
+this is the point where the app has been suspended by the host, and then after three milliseconds
+
+27:11.200 --> 27:17.120
+the app went into suspend process by itself, and what happens here is that at this point,
+
+27:19.120 --> 27:26.800
+at this exact point the app started to wake itself up, however at this point also it should start
+
+27:27.760 --> 27:37.440
+sending frames to the modem, start forwarding frames from the host to the modem, but the app
+
+27:37.440 --> 27:44.800
+itself was waking up, so there was no data to transmit, so it all fell apart at this point,
+
+27:46.640 --> 27:55.440
+and I started looking closely into the specification, and following the state machine,
+
+27:55.440 --> 28:01.920
+and I couldn't really figure out what the app was exactly supposed to do in this case,
+
+28:02.880 --> 28:09.600
+when the upstream-facing port went into a suspending state while a downstream-facing port
+
+28:10.240 --> 28:19.200
+was already in the resuming state, and I wasn't sure whether it was my misunderstanding or whatever,
+
+28:20.480 --> 28:24.960
+what was, at this point in time the host has no way to know that the downstream-facing port is
+
+28:24.960 --> 28:32.800
+already attempting to wake itself up, if here we would query the status of the port, it would say
+
+28:32.800 --> 28:38.000
+that it's still suspended, there was no indication, and that's actually how it works in the spec,
+
+28:38.880 --> 28:47.040
+so that information only becomes available when the port already finishes resuming, so
+
+28:48.000 --> 28:59.840
+now I knew what was going on, and I had the knowledge what to put into the search browser,
+
+28:59.840 --> 29:04.880
+and I found this email from many years ago from Alan Sten, who is a guru of
+
+29:04.880 --> 29:11.680
+USB and power management subsystems in Linux, and he stated that the USB to spec does not
+
+29:11.680 --> 29:23.360
+take into account that possibility, so Alan basically validated my suspicion, yes, before
+
+29:24.160 --> 29:30.880
+I made that suspicion, so at this point I could safely assume that my suspicion was true,
+
+29:33.840 --> 29:39.040
+and what's worse, that mail ended with, I don't know what we should do, suggestions, anybody,
+
+29:41.920 --> 29:49.440
+there were some replies but it didn't really went anywhere, and however that mail pointed to an
+
+29:49.440 --> 29:58.480
+IRATA, and IRATA said that there is a very unlikely possibility of a race condition, and this issue
+
+29:58.480 --> 30:04.640
+can be avoided if system software suspense are downstream-facing hub ports before suspending a
+
+30:04.640 --> 30:11.200
+hub, I completely forgot to check IRATAs, at this point this was the first time I seen it, and
+
+30:12.160 --> 30:19.600
+I was so happy that this was the first time I seen it, because what the hell, this recommendation
+
+30:19.600 --> 30:28.480
+suspending the port before suspending a hub is exactly what makes this issue happen, and Alan
+
+30:28.480 --> 30:38.400
+Sten said, so himself in his mail that this IRATA is completely bonkers, so I'm so glad I didn't
+
+30:38.400 --> 30:46.720
+see it because I would be so confused, so there were around what I did to actually
+
+30:48.560 --> 30:55.840
+stop, prevent it from happening, so I have added a port query in the USB
+
+30:57.360 --> 31:05.680
+subsystem in the kernel, which when it was enabled the port was never actually suspended
+
+31:05.760 --> 31:13.280
+selectively, Linux only pretended to suspend it, but didn't actually send the command to the hub,
+
+31:15.040 --> 31:21.680
+since this would cause troubles as if we just pretend that the device is suspended, we stopped
+
+31:21.680 --> 31:27.920
+pulling it for more information, but the device isn't actually suspended, so it can't wake itself up,
+
+31:27.920 --> 31:35.520
+so to prevent that from happening, we keep such quick port active whenever
+
+31:35.520 --> 31:47.280
+any sibling port is active as well, and when the hub gets resumed, all ports marked with this quick
+
+31:47.280 --> 31:53.680
+are also resumed as well, and this lets us rely on global suspense when we just
+
+31:54.640 --> 32:00.960
+stop sending any communication, and all the devices suspend at the same time,
+
+32:00.960 --> 32:05.760
+preventing this race condition from happening, and this works well with the topology on the
+
+32:05.760 --> 32:12.400
+LibreM5, but wakes apart on different topologies, if we added another device, for example on this
+
+32:13.040 --> 32:20.080
+third port that also wanted to use remote wake up, it wouldn't work, there's the code,
+
+32:20.080 --> 32:31.760
+so what can we do now? This hack isn't really a sweet table for mainlining, it's really a bad hack,
+
+32:33.840 --> 32:42.320
+so for now it stays in our downstream tree, however I believe there is a way to do it
+
+32:42.880 --> 32:51.200
+in a way that could be potentially upstreamed, it wouldn't be the default, I'm pretty sure,
+
+32:51.200 --> 32:57.840
+because this it would be quite inefficient, but I think it should be possible to have this as an
+
+32:57.840 --> 33:06.400
+option if you have such devices that are resettled in this way, that you could actually have them
+
+33:06.400 --> 33:14.160
+work reliably and wouldn't have to disable power management completely, and to do so we would
+
+33:14.160 --> 33:20.400
+have to ensure that no downstream wake up capable port is suspended while the hub goes into suspend,
+
+33:20.400 --> 33:29.440
+and there's also another thing that made me implement it as this hack instead of a proper
+
+33:29.440 --> 33:35.840
+solution first, is that while the proper solution is less efficient, this hack actually gives us
+
+33:35.840 --> 33:42.400
+some efficiency because we can skip suspending each device one by one, we just suspend them all
+
+33:42.400 --> 33:50.960
+at once and it takes less time, so this lets us make the modem go to sleep more often saving more
+
+33:50.960 --> 34:00.480
+battery, and so that's basically it, I'm available for consulting so I can turn your money into code
+
+34:00.480 --> 34:07.680
+if you're interested to have something done in mobile gaming space, and if you have some
+
+34:07.680 --> 34:12.320
+questions like my reviewer had here you can ask them now, thank you.
+
+34:15.680 --> 34:15.920
+Great.
+
+34:21.280 --> 34:22.560
+You already have a question here?
+
+34:23.200 --> 34:30.400
+Oh, you mentioned the influence of the modem manager on this effect, can this be explained
+
+34:31.280 --> 34:39.920
+with your findings? Yes, this is because when the modem manager is polling every 30 seconds,
+
+34:39.920 --> 34:46.240
+it's the host that initiates the communication, but if we switch to unsolicited messages from the
+
+34:46.240 --> 34:52.320
+modem, then it's the modem that actually initiated, so it wakes itself up more as opposed
+
+34:52.400 --> 34:55.520
+to the host waking itself up when this issue never happens.
+
+35:06.000 --> 35:11.360
+Hello, thanks for your presentation, how many man hours went into this bug fix?
+
+35:12.000 --> 35:20.880
+Oh, I don't really know, it took many false starts let's say and red herrings,
+
+35:21.600 --> 35:27.680
+so this is obviously just a chunk of it because I had to feed it into the presentation, but
+
+35:27.680 --> 35:32.400
+yeah there were many approaches that when we were really in the dark at the beginning, I didn't know
+
+35:32.400 --> 35:37.920
+anything about how USB works, initially I had landed from scratch, so it took some time.
+
+35:38.560 --> 35:43.200
+Hi, quick question for you, actually two questions. The first one is,
+
+35:44.080 --> 35:48.080
+is the USB the ideal way to connect the modem or is there a better protocol that we could
+
+35:48.080 --> 35:55.040
+be using in the future in another design? It depends what you have available, perhaps
+
+35:55.840 --> 36:02.080
+on the LibreM5 we could theoretically use PCI Express, however PCI Express would be
+
+36:02.560 --> 36:10.560
+at least on this SOC would be much more power-hungry than USB and USB makes it easy to find
+
+36:10.560 --> 36:16.000
+such devices that you can actually have on a replaceable card that you can put into the phone
+
+36:18.000 --> 36:22.960
+pretty much off the shelf, so the options are quite limited in this place.
+
+36:23.520 --> 36:26.720
+And second question actually on that, when it comes to adding a different modem,
+
+36:27.440 --> 36:30.880
+this isn't a modem issue, obviously it didn't come down to which modem you were using, but
+
+36:31.360 --> 36:34.720
+are you guys looking at releasing a gemalto modem because that would be pretty cool?
+
+36:37.600 --> 36:45.040
+I'm not really a person that has anything like any power in this regard, so I can really say
+
+36:45.040 --> 36:51.840
+much about it. We have a question from the Metrix channel. When will it be fixed upstream,
+
+36:51.840 --> 36:59.680
+hopefully? Hopefully soon. Making this presentation, submitting it here, was actually a way to force
+
+36:59.680 --> 37:08.400
+myself into going through this again because after getting this hack done, I just wanted to
+
+37:08.400 --> 37:16.320
+take a break from all this USB stuff, so maybe soon, maybe not, we'll see. I think it should be
+
+37:16.320 --> 37:22.960
+pretty simple, in fact. We'll see what the maintainers will say, whether they will be
+
+37:23.200 --> 37:33.200
+happy to take such a quick approach or maybe they'll have another idea. We'll see.
+
+37:34.480 --> 37:39.760
+Are there any proper solutions to this problem, like in the USB specification, for example,
+
+37:39.760 --> 37:47.520
+are there any hubs that don't have that issue? So the specification of USB 2 never fixes it.
+
+37:47.600 --> 37:50.960
+USB 3 works in a completely different way and there are also
+
+37:54.080 --> 37:59.120
+supplemental low power modes in USB 2 that could be used and that also don't have this
+
+37:59.120 --> 38:04.400
+feature, but you have to have a device that supports those modes and we don't.
+
+38:06.640 --> 38:13.120
+So we can say that it's fixed because it's all completely different in USB 3 and higher.
+
+38:13.600 --> 38:19.360
+And for USB 2 devices, it's all up to the hub and how it's implemented. If it's implemented
+
+38:20.320 --> 38:27.280
+to the word of the spec, there's a high probability that it will have this issue,
+
+38:27.280 --> 38:34.560
+but some hubs are like, specs gives you some time to do things. You can do it
+
+38:35.200 --> 38:41.920
+like the minimum and maximum time and some hubs are faster and then you may not
+
+38:43.680 --> 38:49.280
+see this issue happening with them. So yeah, at this point with USB 2 devices, it's probably up to
+
+38:50.080 --> 38:54.480
+your luck with what components you are using.
+
+38:57.040 --> 39:03.280
+I'm working on open source USB debugging tools, sniffers, software, so I'll be interested in
+
+39:03.280 --> 39:08.000
+talking to you about capturing this as a test case to make sure that we're able to spot this
+
+39:08.000 --> 39:20.640
+happening on the wire in future. Okay. Very nice. Yeah, first another from the chat apparently,
+
+39:20.640 --> 39:27.920
+then a further to you. Is there known other mobile devices that suffer this issue? I relate
+
+39:27.920 --> 39:35.760
+some aspects of the bug on Pinebook Pro Wi-Fi. Honestly, I have no idea. This was the first time I
+
+39:38.720 --> 39:46.480
+experienced this issue and had to basically go through what I told you today. So I don't know.
+
+39:48.400 --> 39:56.560
+This was known for years. The email was 12 years ago and Alan Stem has said that this came up in
+
+39:56.560 --> 40:03.280
+testing. So obviously this came up somewhere, but where it was and which devices were affected,
+
+40:03.360 --> 40:11.200
+I have no idea. So you mentioned the other USB bug you were facing where the whole bus died.
+
+40:11.760 --> 40:15.200
+Did you fix that as well? And can you say like two sentences about that?
+
+40:15.200 --> 40:21.120
+Is there once again? The other bug you mentioned in the beginning where the whole USB stack died
+
+40:21.120 --> 40:25.040
+and the modem didn't come back. Did you fix that as well? And can you say maybe two sentences about
+
+40:25.520 --> 40:30.880
+what's the possible? Basically that one was pretty boring. It ended up to be a missing
+
+40:31.440 --> 40:36.560
+queer queen, the host driver that was already implemented, but wasn't enabled in the device
+
+40:36.560 --> 40:45.920
+tree. And at some point, actually, NXP has enabled that for all IMX8 and board. So this is fixed now
+
+40:45.920 --> 40:56.880
+May 9. So please give another round of applause. Thank you.
+

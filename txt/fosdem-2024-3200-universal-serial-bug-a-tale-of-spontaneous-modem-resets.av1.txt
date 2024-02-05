@@ -1,0 +1,302 @@
+Okay, thank you all for coming. The next talk is anniversary serial bug, a tale of spontaneous
+modem research from Sebastian. Give a big round of applause please.
+So hi, I'm Sebastian Krzyszkowiak, I'm also known as DOS, and I have many hobbies, I make
+games for example, maybe you have played any match for, but other hobbies there is also mobile
+GNU Linux, which started many years ago when I got an open Mokoni of Rane, and eventually I had been
+contracted by Poison to work on the Libre M5 phone, which is this chunky boy here, and within this
+device there is a USB connected cellular modem on an M2 card, the worldmobile BM818, and this is the
+main character of our talk today, because we had a problem with it, and the problem manifested itself
+in this way that sometimes, occasionally, seemingly at random, the modem would just disappear from
+the bus, it would be just as if it was unplugged from the socket, and it would come back right away,
+even though it did come back, it was still pretty disruptive, because the network interface would
+go down, the audio routing would be turned down if you were doing the call, so this wasn't really
+great, the modem wasn't crashing, it wasn't rebooting, because it maintained its state, at least some of
+its state, but it was just as if you would pull the plug and plug it back in very quickly, without
+with some external power connected to the modem, and there were also other instances where the modem
+wouldn't come back, or when the whole USB bus would actually die together with it, however we
+won't be talking about those turned out, even though they were like wars, they turned out to be
+connected, but separate issues that weren't as technically interesting as those resets turned out to be.
+So this talk will be some kind of debugging case study, and I would just like to talk about how we
+identified the issue, how we debugged it, and worked around in the end, and at the start I would like
+to note that this is not some groundbreaking research, this is not a new discovery, because
+it turns out that this was known for ages already, but I think it's not a common knowledge still,
+and it turns out that it can still bite, so I thought that this would be an interesting thing to
+talk about and to share. So in order to understand what's going on, I'll quickly go through the
+topology of the devices on the LibreM5, so we have two M2 slots inside, one of them is the cellular
+modem, and the second one is the Wi-Fi and Bluetooth card, and there are two USB controllers, one of
+them goes to the USB C port, and it all swaps, and the other one is connected to the internal USB
+hub, and therefore it works as host only, and the internal hub is USB 2642, which has three
+downstream ports, one of them is internal, as this hub has a microSD reader built-in,
+and the other one, the one that we will be interested in today, is the modem's port that goes to its
+M2 slot, and there's also the third port that goes to the Wi-Fi M2 slot, however none of the cards
+that we use on this phone actually use USB, they use different interfaces, so this third
+port effectively remains unused. So universal serial bus, I'm just going to assume that
+everyone here knows what USB is, we all used it, so I won't read Wikipedia definitions, I will however
+go through some of the properties of USB, either to remind you or to make you aware of how this
+works on the wire, so the first thing, that the devices can be suspended, this is a power
+management thing, you can put a USB device to sleep, theoretically all of them can be put to sleep,
+not all of them react well to that, the specification says that they should, but
+yeah, reality is different, and there are two ways in which you can suspend a device, you can either
+selectively suspend a single port or put the whole bus into so-called global suspend, and
+another thing is that no device on the bus speaks unsolicited, every communication is actually
+handled by the host, it's the host that keeps pulling each of the devices for whether it has
+something to say or not, and then the device only responds to what the host is asking it for.
+There is one exception, when a device is suspended, it can actually signal that it wants to be
+woken up, but that's the only thing that it can signal on its own. One interesting thing is that,
+I think not everyone is aware of that, that all USB hubs are technically smart, they are on their
+own, a proper USB device that you can talk to, that you can send comments, and that can respond and
+send some status. The features that you can control this way vary, so not every hub will, for instance,
+provide power switching control, however, this is exactly how suspend is implemented, you send a
+message to the hub and the hub inter-president does it. Internally, when it's on the wire,
+USB works with two wires that form a differential pair, and you can have, on two wires you can have
+four states, however, one of them is illegal in the specification, the USB doesn't use it, so we are
+down to three states, they are called J, K, those two are when one of the wires is high and the other
+is low, and there is SE0, which is when both of the wires are low. There are some differences between
+various speed modes between USB 1 and USB 2, we won't be going into newer versions as they are
+different, and the modern here uses USB 2. However, the differences between USB 1 and 2 are
+small, the old states are similar, they use different voltages, but logically it's basically the same thing.
+So, let's go back to the bug.
+At some point we have noticed that those modern resets are somewhat dependent on movement or
+signal strength, the easy way to trigger them was, for instance, to ride a train, you could
+often see the cellular connection icon just disappearing for a moment, or when you don't
+notice some file, it maybe could drop out, and that was pretty annoying.
+And also, sometimes in some places it basically never happened, like at my desk when I worked on it,
+and it quite often happened in my bedroom, for example, where overnight I would wake up to a
+bunch of resets happening overnight. So, in order to look at those issues, we have to check some
+logs, I have showed them earlier, but that's not enough, and Linux has this pretty useful feature
+called dynamic debug, and pretty much all the channels called drivers are sprinkled with
+debug print messages, however, they are by default compiled out for performance reasons,
+however, you don't need to recompile the kernel to put them back in. They can be dynamically
+patched in, and this is how you can do it. Using this interface, this invocation tells the kernel
+to re-enable all the print statements from C files, from drivers, USB core, directory in the
+kernel registry. So, we did that, and this told us a bit more. It turns out that this is an example
+of such a reset happening, and it turns out it happens when the device wants to wake itself up
+from USB suspend, and here we can see the status given by the hub to its ports. The port one is
+the microSD reader, and we can see that there is 0507, which means that five that is connected and
+enumerated properly, seven is that it's suspended, and change zero means that nothing changes,
+and port two is the modem, and here we can see that it's different. Zero one means that it is
+connected, however, it didn't actually went through the whole process of connecting, so something
+happened there. Zero one means that it's not suspended, and change five tells us that it both
+changed its suspend status and connection status, so it's just like it would be
+from the plug, and put quickly back in at this point. To compare it, this is an example of
+when things go right. After the port has been resumed, we can see that status is 0503,
+which is different from the port one, because port one is still suspended, and port two is already
+working up, so there's three at the end, and change four tells us that only the suspend status has
+changed, so this is how it looks when it works fine. That told us something but not much. There is
+another feature called USB MON, which can be used to sniff on the traffic on the USB bus,
+and can be used with such common tools like Wireshark, however, it still didn't tell us anything new,
+and it's just like if the device was disconnected and put back in, so not very useful at this
+level. We have to take a few steps back, and the first LIME 5 fonts shipped to the first customers
+in December 2019, and the issue about those resets was filled actually by myself in August 2020, so
+there was plenty of time to notice this issue, and it hasn't been noticed earlier, so
+it's safe to assume that it wasn't there initially, and just came up later.
+So looking at what was the state that those first fonts have shipped in, the USB power management
+was already enabled with the software that was running on them, however, it turned out that the
+SD card reader, the driver for it, kept the USB hub active all the time. It was basically pulling it
+for media change status, and that's why it never suspended, so the whole USB hub was kept active,
+and it was fixed in August 2020, and there is a somewhat lengthy
+thread on the Linux kernel mailing list that you can follow if you're interested in that,
+and there was also another thing, at some point I have noticed that modern manager pulls the modern
+for signal strength every 30 seconds, and I wanted to change that because that's not very nice on the
+battery, and to make it start listening to the messages coming from the modern whenever
+signal strength changes instead, and I got it working the first time in the context of LiveM5
+in August 2020, and later I noticed that with this change the resets popped up more often,
+without this change they were still there once the hub started suspending, but not as often as with
+this patch. So now we know that this is related to power management, and it turns out that disabling
+the suspend may be the issue going away, so yay! However, doing so it's almost half a watt, so not
+so yay, and basically this was the main reason behind a poor reputation of battery life on those
+devices when they first shipped, so power management is essential and it must be kept on,
+we just have to find a way to solve it without disabling suspend, and there was one vital observation,
+I think Elia said that she observed it first that the issue only ever happens if the hub has just
+been suspended, never if the hub sleeps for some time already, and then the modem wants to wake up,
+it's always the hub goes into suspend and right away the modem wants to wake itself up,
+and things go wrong, so this starts to smell like some kind of race condition,
+so what we do with race conditions, we start playing with some timeouts, if not in hopes to
+fix it then maybe to make it happen all the time, just to learn something about what's going on,
+Martin Keplinger was earlier working on that other issue that made the modem not come back,
+he had some progress on that, but however he didn't really make progress on this one,
+when I took it over I started, I based on his work and to figure out what's going on with the
+kernel code in USB and started changing some timeouts, eventually I figured out that this
+isn't going to help because at this point where was the earliest possible point where we could
+query the hub for its status, it was already telling us that something wrong happened, so
+this didn't really help, and I think that really helped was finding out that you could
+reproduce it by pinging the phone, if you pinged it over the network interface, cellular network
+interface and set the packet interval, just right, I think it was about, a second above two seconds,
+you could actually make the modem reset this way, so this helped to investigate it,
+and at some point I also started playing with an USB M2 adapter to pull the modem from the phone
+and put it into other kinds of USB sockets in other devices, the idea was to identify whether it
+was the hub or the SOC or the modem itself that caused troubles, and I found out that with that
+listed kernel modules for the modem and sleep timeouts all set to zero, I could make it into
+some kind of reset loop, it would basically reset every second or two and keep resetting, and
+at some point I noticed that when it was plugged to some USB hubs, I got it pretty much all the
+hubs I had in my house, some pretty ancient ones as well, and with some of them it never reset it,
+I couldn't make it reset with some of the hubs with others, it was pretty easy, and whenever it was
+connected to the house directly with no hub in between, it always worked, it never reset it,
+it even applied to this port on the Libre 5 itself, when it was plugged to the USB C port,
+the resets were never there, so there was time to start to read some specs to find out
+what's going on or should be going on, and it turns out that the USB device enters
+the suspense state after three milliseconds of no activity seen on the bus, and this can happen in
+two ways, you can send a message to the hub to enable port suspense feature, and this is how the
+hub stops sending frames to that port anymore so it doesn't see activity, and it suspends itself,
+or you can stop any communication on the bus, we just call it global suspense, and then all the
+devices on that bus see no activity and go into suspense, and when the device detects that the
+data lines have been in the idle state for at least three milliseconds, and high speed idle state
+is SE0, it must revert to the full speed configuration, which is J, so D plus high if I remember
+correctly, and then it must sample the state of the line, so it checks what hub has or host has
+asserted, and if it's full speed J, then it continues with the suspense process, it is required
+because SE0 is also a reset signal, if at this point it would stay in SE0, it means that this is
+the default state that the bus is put in and the device must reset, but if it's J then it means that
+this is a suspense has been requested, so the device then asserts J itself and stays in J,
+and we now know how a suspense works and how about the resume, the host can resume the port at any
+time, it must send the resume signaling, which is K, for at least 20 milliseconds, and after resuming the
+bus the host must resume communication within three milliseconds, because otherwise the device would
+go into suspense again, and what if it's the device that wants to wake itself up,
+it cannot wake itself up after being put into suspense for at least five milliseconds,
+and then it can, and it must hold the resume signaling, which is still K, for at least one
+millisecond, but for no more than 15 milliseconds, and the controlling hub, which is the hub that
+actually handles the resumes, suspended as there might be more on the industry, must
+re-broadcast that to upstream within one millisecond and ensures that it is signaled for at least
+20 milliseconds, so it kind of takes over that signaling. So now it was time to get dirty,
+fortunately I didn't have to do that myself, Eric Kazmenko, who is the hardware guy at
+Poism did it for me, and soldered some wires and put a differential probe to it in order to
+sniff what's going on electrically on the wires, so this could be then seen on an oscilloscope
+and recorded, and this is an example of what's going on. We can see here at the beginning some kind
+of high-speed communication, as it's a lower voltage than full speed, at this point we can see that
+the modem went into suspense, this is the J state, for some time, and then here we can see
+the K state, which means that it was either resumed by host or it wanted to wake itself up, and it
+happened, cycled this way for some time, and eventually something went wrong here, so to zoom it up,
+what happened here is that there was some kind of high-speed communication, it stopped for three
+milliseconds, at which point the modem went into suspense, and there was a J signal for another
+three milliseconds, then it went into K state, we can assume that the modem wanted to wake itself up,
+and it lasted about 20 milliseconds, but then the bus went into SE0 and communication did not
+resume, it stayed at zero, at which point after another three milliseconds the modem just suspended
+itself again, so this is somewhat informative but still not enough. My hypothesis at this point was
+that the specification requires a great period of five milliseconds before sending a remote wake-up
+request, but I wasn't quite sure whether the wording isn't ambiguous, because it says that
+it needs to stay continuously in the idle state for five milliseconds, but if we check here,
+we have two idle states, there is high-speed idle state for three milliseconds, and full-speed
+idle state for another three milliseconds, so when is this point where it starts?
+However, there is also a side of English description, there is also a bit more formal
+state machine description in the specification, and after deciphering that it turns out that
+both of these idle states actually counted as one continuous idle state, so this probably wasn't it.
+So we go back to getting dirty, and this time instead of just sniffing what's going on between
+the modem and the app, we also sniffed what's going on between the app and the fonts processor,
+at the same time, which required quite interesting contraptions to be made,
+but it worked, and we got some data, and this is an example of things going wrong,
+and we can see some USB micro-fames here, so host polling the devices, and then some communication
+actual, and then nothing for three milliseconds on the modem port, on the bottom we can see the
+part between the app and the SOC, and there the micro-fames continue, and the modem goes into
+suspend, and after I think here it was too many seconds, it wants to wake itself up, so with
+assets K, and the app takes over, then 20 milliseconds later it stops, but what happens here at the
+bottom, and the micro-fames continue when the modem is suspended, and when it wakes it's up,
+starts to wake itself up, the communication still happens, until this point, then it stops,
+this is the point where the app has been suspended by the host, and then after three milliseconds
+the app went into suspend process by itself, and what happens here is that at this point,
+at this exact point the app started to wake itself up, however at this point also it should start
+sending frames to the modem, start forwarding frames from the host to the modem, but the app
+itself was waking up, so there was no data to transmit, so it all fell apart at this point,
+and I started looking closely into the specification, and following the state machine,
+and I couldn't really figure out what the app was exactly supposed to do in this case,
+when the upstream-facing port went into a suspending state while a downstream-facing port
+was already in the resuming state, and I wasn't sure whether it was my misunderstanding or whatever,
+what was, at this point in time the host has no way to know that the downstream-facing port is
+already attempting to wake itself up, if here we would query the status of the port, it would say
+that it's still suspended, there was no indication, and that's actually how it works in the spec,
+so that information only becomes available when the port already finishes resuming, so
+now I knew what was going on, and I had the knowledge what to put into the search browser,
+and I found this email from many years ago from Alan Sten, who is a guru of
+USB and power management subsystems in Linux, and he stated that the USB to spec does not
+take into account that possibility, so Alan basically validated my suspicion, yes, before
+I made that suspicion, so at this point I could safely assume that my suspicion was true,
+and what's worse, that mail ended with, I don't know what we should do, suggestions, anybody,
+there were some replies but it didn't really went anywhere, and however that mail pointed to an
+IRATA, and IRATA said that there is a very unlikely possibility of a race condition, and this issue
+can be avoided if system software suspense are downstream-facing hub ports before suspending a
+hub, I completely forgot to check IRATAs, at this point this was the first time I seen it, and
+I was so happy that this was the first time I seen it, because what the hell, this recommendation
+suspending the port before suspending a hub is exactly what makes this issue happen, and Alan
+Sten said, so himself in his mail that this IRATA is completely bonkers, so I'm so glad I didn't
+see it because I would be so confused, so there were around what I did to actually
+stop, prevent it from happening, so I have added a port query in the USB
+subsystem in the kernel, which when it was enabled the port was never actually suspended
+selectively, Linux only pretended to suspend it, but didn't actually send the command to the hub,
+since this would cause troubles as if we just pretend that the device is suspended, we stopped
+pulling it for more information, but the device isn't actually suspended, so it can't wake itself up,
+so to prevent that from happening, we keep such quick port active whenever
+any sibling port is active as well, and when the hub gets resumed, all ports marked with this quick
+are also resumed as well, and this lets us rely on global suspense when we just
+stop sending any communication, and all the devices suspend at the same time,
+preventing this race condition from happening, and this works well with the topology on the
+LibreM5, but wakes apart on different topologies, if we added another device, for example on this
+third port that also wanted to use remote wake up, it wouldn't work, there's the code,
+so what can we do now? This hack isn't really a sweet table for mainlining, it's really a bad hack,
+so for now it stays in our downstream tree, however I believe there is a way to do it
+in a way that could be potentially upstreamed, it wouldn't be the default, I'm pretty sure,
+because this it would be quite inefficient, but I think it should be possible to have this as an
+option if you have such devices that are resettled in this way, that you could actually have them
+work reliably and wouldn't have to disable power management completely, and to do so we would
+have to ensure that no downstream wake up capable port is suspended while the hub goes into suspend,
+and there's also another thing that made me implement it as this hack instead of a proper
+solution first, is that while the proper solution is less efficient, this hack actually gives us
+some efficiency because we can skip suspending each device one by one, we just suspend them all
+at once and it takes less time, so this lets us make the modem go to sleep more often saving more
+battery, and so that's basically it, I'm available for consulting so I can turn your money into code
+if you're interested to have something done in mobile gaming space, and if you have some
+questions like my reviewer had here you can ask them now, thank you.
+Great.
+You already have a question here?
+Oh, you mentioned the influence of the modem manager on this effect, can this be explained
+with your findings? Yes, this is because when the modem manager is polling every 30 seconds,
+it's the host that initiates the communication, but if we switch to unsolicited messages from the
+modem, then it's the modem that actually initiated, so it wakes itself up more as opposed
+to the host waking itself up when this issue never happens.
+Hello, thanks for your presentation, how many man hours went into this bug fix?
+Oh, I don't really know, it took many false starts let's say and red herrings,
+so this is obviously just a chunk of it because I had to feed it into the presentation, but
+yeah there were many approaches that when we were really in the dark at the beginning, I didn't know
+anything about how USB works, initially I had landed from scratch, so it took some time.
+Hi, quick question for you, actually two questions. The first one is,
+is the USB the ideal way to connect the modem or is there a better protocol that we could
+be using in the future in another design? It depends what you have available, perhaps
+on the LibreM5 we could theoretically use PCI Express, however PCI Express would be
+at least on this SOC would be much more power-hungry than USB and USB makes it easy to find
+such devices that you can actually have on a replaceable card that you can put into the phone
+pretty much off the shelf, so the options are quite limited in this place.
+And second question actually on that, when it comes to adding a different modem,
+this isn't a modem issue, obviously it didn't come down to which modem you were using, but
+are you guys looking at releasing a gemalto modem because that would be pretty cool?
+I'm not really a person that has anything like any power in this regard, so I can really say
+much about it. We have a question from the Metrix channel. When will it be fixed upstream,
+hopefully? Hopefully soon. Making this presentation, submitting it here, was actually a way to force
+myself into going through this again because after getting this hack done, I just wanted to
+take a break from all this USB stuff, so maybe soon, maybe not, we'll see. I think it should be
+pretty simple, in fact. We'll see what the maintainers will say, whether they will be
+happy to take such a quick approach or maybe they'll have another idea. We'll see.
+Are there any proper solutions to this problem, like in the USB specification, for example,
+are there any hubs that don't have that issue? So the specification of USB 2 never fixes it.
+USB 3 works in a completely different way and there are also
+supplemental low power modes in USB 2 that could be used and that also don't have this
+feature, but you have to have a device that supports those modes and we don't.
+So we can say that it's fixed because it's all completely different in USB 3 and higher.
+And for USB 2 devices, it's all up to the hub and how it's implemented. If it's implemented
+to the word of the spec, there's a high probability that it will have this issue,
+but some hubs are like, specs gives you some time to do things. You can do it
+like the minimum and maximum time and some hubs are faster and then you may not
+see this issue happening with them. So yeah, at this point with USB 2 devices, it's probably up to
+your luck with what components you are using.
+I'm working on open source USB debugging tools, sniffers, software, so I'll be interested in
+talking to you about capturing this as a test case to make sure that we're able to spot this
+happening on the wire in future. Okay. Very nice. Yeah, first another from the chat apparently,
+then a further to you. Is there known other mobile devices that suffer this issue? I relate
+some aspects of the bug on Pinebook Pro Wi-Fi. Honestly, I have no idea. This was the first time I
+experienced this issue and had to basically go through what I told you today. So I don't know.
+This was known for years. The email was 12 years ago and Alan Stem has said that this came up in
+testing. So obviously this came up somewhere, but where it was and which devices were affected,
+I have no idea. So you mentioned the other USB bug you were facing where the whole bus died.
+Did you fix that as well? And can you say like two sentences about that?
+Is there once again? The other bug you mentioned in the beginning where the whole USB stack died
+and the modem didn't come back. Did you fix that as well? And can you say maybe two sentences about
+what's the possible? Basically that one was pretty boring. It ended up to be a missing
+queer queen, the host driver that was already implemented, but wasn't enabled in the device
+tree. And at some point, actually, NXP has enabled that for all IMX8 and board. So this is fixed now
+May 9. So please give another round of applause. Thank you.

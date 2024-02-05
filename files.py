@@ -67,6 +67,14 @@ files = \
     "title": "From OpenLLM-France to OpenLLM-Europe: Paving the way to sovereign and open source AI\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2623-linto-studio-as-your-ultimate-open-source-ai-driven-media-management-solution.av1.webm",
+    "title": "LinTO Studio as Your Ultimate Open Source AI-driven Media Management Solution\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2384-langchain-from-0-to-1-unveiling-the-power-of-llm-programming.av1.webm",
+    "title": "LangChain From 0 To 1: Unveiling the Power of LLM Programming\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2531-introduction-to-openapi.av1.webm",
     "title": "Introduction to OpenAPI\n"
   },
@@ -179,6 +187,14 @@ files = \
     "title": "Guess Less with Erlang Doctor\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-3378-volte-for-foss.av1.webm",
+    "title": "VoLTE for FOSS\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-3200-universal-serial-bug-a-tale-of-spontaneous-modem-resets.av1.webm",
+    "title": "Universal Serial Bug - a tale of spontaneous modem resets\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-3303-the-linux-phone-app-ecosystem.av1.webm",
     "title": "The Linux Phone App Ecosystem\n"
   },
@@ -247,12 +263,20 @@ files = \
     "title": "Kubernetes and HPC: Bare-metal bros\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2341-spicedb-mature-open-source-rebac.av1.webm",
+    "title": "SpiceDB: mature, open source ReBAC\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2170-improving-infrastructure-security-through-access-auditing.av1.webm",
     "title": "Improving Infrastructure Security Through Access Auditing\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2540-codebase-conquest-how-nx-turbocharged-our-react-workflow.av1.webm",
     "title": "Codebase Conquest: How Nx Turbocharged Our React Workflow\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3401-the-new-swiss-open-source-law-public-money-public-code-by-default.av1.webm",
+    "title": "The new Swiss Open Source Law: \"Public Money Public Code\" by default\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3375-news-from-the-hermit-crab-from-soundness-foundations-to-gpu-virtualization.av1.webm",
@@ -313,6 +337,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3000-getting-av1-svc-to-work-in-the-janus-webrtc-server.av1.webm",
     "title": "Getting AV1/SVC to work in the Janus WebRTC Server\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3646-using-gstreamer-to-build-real-time-applications-with-golang.av1.webm",
+    "title": "Using GStreamer to build real-time applications with Golang\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3123-build-your-enum-lcr-server-using-cgrates.av1.webm",
