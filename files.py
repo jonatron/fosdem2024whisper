@@ -23,6 +23,10 @@ files = \
     "title": "Outreachy: 1000 interns\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-1808-how-to-chart-your-own-career-path-in-open-source-panel-discussion.av1.webm",
+    "title": "How to Chart your own Career Path in Open Source - Panel Discussion\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3683-the-regulators-are-coming-one-year-on.av1.webm",
     "title": "The Regulators Are Coming: One Year On\n"
   },
@@ -57,6 +61,14 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3661-timestamping-with-opentimestamps.av1.webm",
     "title": "Timestamping with opentimestamps\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2629-from-openllm-france-to-openllm-europe-paving-the-way-to-sovereign-and-open-source-ai.av1.webm",
+    "title": "From OpenLLM-France to OpenLLM-Europe: Paving the way to sovereign and open source AI\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2531-introduction-to-openapi.av1.webm",
+    "title": "Introduction to OpenAPI\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-1710-deploy-fast-without-breaking-things-level-up-apiops-with-opentelemetry.av1.webm",
@@ -99,6 +111,10 @@ files = \
     "title": "Soft Reboot: keep your containers running while your image-based Linux host gets updated\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3060-what-s-new-in-containerd-2-0-.av1.webm",
+    "title": "What's new in Containerd 2.0!\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3187-vscode-container-wasm-an-extension-of-vscode-on-browser-for-running-containers-within-your-browser.av1.webm",
     "title": "vscode-container-wasm: An Extension of VSCode on Browser for Running Containers Within Your Browser\n"
   },
@@ -133,6 +149,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3194-from-an-artificial-nose-weekend-hack-to-a-future-proof-iot-device.av1.webm",
     "title": "From an artificial nose weekend hack to a future-proof IoT device\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-2132-google-home-but-better-building-our-own-smart-home-display-with-flutter.av1.webm",
+    "title": "Google Home, But Better: Building our own Smart Home Display with Flutter\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2214/fosdem-2024-2509-using-flexmeasures-to-build-a-climate-tech-startup-in-15-minutes.av1.webm",
@@ -179,6 +199,10 @@ files = \
     "title": "Exploring Quarkus Native: Choices and Implementation\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-1969-ruby-on-the-modern-jvm-fibers-ffi-and-more.av1.webm",
+    "title": "Ruby on the Modern JVM: Fibers, FFI, and More\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2110-the-challenges-of-running-the-fuzion-language-natively-on-the-openjdk.av1.webm",
     "title": "The Challenges of Running the Fuzion Language Natively on the OpenJDK\n"
   },
@@ -205,6 +229,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1884-how-we-almost-secured-our-projects-by-writing-more-tests.av1.webm",
     "title": "How we almost secured our projects by writing more tests\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2568-rest-in-peace-using-generics-to-remove-rest-boilerplate.av1.webm",
+    "title": "REST in Peace: using generics to remove REST boilerplate\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1970-automating-spark-and-pipeline-upgrades-while-testing-in-production.av1.webm",
@@ -245,6 +273,14 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1659-declarative-networking-in-declarative-world.av1.webm",
     "title": "Declarative Networking in Declarative World\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3190-from-the-lab-to-jupyter-a-brief-history-of-computational-notebooks-from-a-sts-perspective.av1.webm",
+    "title": "From the lab to Jupyter : a brief history of computational notebooks from a STS perspective\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3452-unlocking-research-data-management-with-inveniordm.av1.webm",
+    "title": "Unlocking Research Data Management with InvenioRDM\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3010-making-openrefine-more-reproducible.av1.webm",
@@ -297,6 +333,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-3743-open-food-facts-learning-and-using-perl-in-2024-to-transform-the-food-system-.av1.webm",
     "title": "Open Food Facts: Learning and using Perl in 2024 to transform the food system !\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2346-synergy-a-chat-bot-framework.av1.webm",
+    "title": "Synergy: a chat bot framework\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2390-corinna-perl-s-new-object-oriented-system.av1.webm",

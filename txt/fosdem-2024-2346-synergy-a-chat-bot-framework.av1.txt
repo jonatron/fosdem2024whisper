@@ -1,0 +1,644 @@
+Thank you.
+Welcome to Ricardo from Boxville.
+Thank you very much.
+Hey, okay.
+I did a timing run of this, but I had like zero sleep in 48 hours.
+So either it's going to run shorter or longer, maybe right on time we'll see, but we'll get
+the tape in.
+Second.
+There we go.
+All right.
+So, imagine it.
+It's the future.
+The year 2018.
+And at Fastmail, all of our critical systems run through our chat bot.
+Right?
+Like you want to deploy, you go to the chat bot.
+You want to set up a task for somebody else to do.
+You want to remind her, you go to the chat bot.
+And the chat bot is written in IR, for an IRC service because we're cutting edge company.
+And it's in charge of everything.
+Right?
+And then I got this email from Slack and it said, hey, just so you know, in like three
+weeks we're turning off the IRC gateway.
+And I talked to the shareholders who said they didn't want to close the company.
+So it turned out that we had to take this thing.
+This is Synergy, our bot, and go through a raging quick process to upgrade her.
+To talk to Slack.
+So this talk is about that project.
+But it's also about the fact that when we did that, we totally rewrote not every line
+of code, but all the lines of the interesting code to make it not horrible to deal with.
+Because it was, this is the three of us who did this.
+Matt Horsfall, who's at the top middle there, is a frequent person at Pearl Things.
+He happened to be in town.
+He mostly works remote.
+And we said, great, let's drop everything else we're doing.
+I've been sitting in a room for five days and rewired our chat bot.
+And it was great.
+It was written originally for Pearl 516, which at the time was cutting edge.
+And it was written using Poe, which was not cutting edge.
+Who here has ever used Poe?
+Yes.
+Yeah?
+Okay.
+Sorry.
+This is me looking excited back when I was younger.
+Like, yeah, Poe.
+No.
+This is Poe code.
+It's, look, you don't need to know everything about this code, but there it is.
+The thing you should notice is that it's pretty weird.
+Like, dollar underscore square bracket arg zero.
+What the hell even is that?
+Like dollar underscore heap.
+I use Pearl so I don't think about a heap, right?
+Like that's what I'm doing.
+It's, it's a mess.
+So what you need to know about Poe to understand this talk is like nothing.
+Don't worry about it.
+But in, even in 2005, right, when I first, very first started writing the first line of this code,
+it felt weird to use.
+And it's not really Poe's fault.
+The problem is that for a long time, any kind of concurrency felt weird.
+At least for me and at least in Pearl, right?
+Anything you're going to do, you're like, why is my code now coming from outer space?
+And Poe is just more weirdness that I didn't want to deal with.
+So my strategy for building the software is really simple, right?
+Do as much as possible without Poe.
+Don't write the Poe code.
+That's where everything gets messed up.
+So only use it when you absolutely need to, like all this asynchronous talking to the network server.
+And you can simplify that.
+You can make that statement generic by saying concurrency is weird.
+So weirdness is hard to cope with in your program.
+So minimize the weirdness by writing less concurrency in your code, right?
+Minimize how much your code has to do concurrency.
+So you imagine the program looks like this.
+You've got like that magic IRC thing.
+That's where all the Poe lives.
+That's where it's weird.
+And then like a thing that gets messages and dispatches them to something that does something.
+And we tell ourselves that it works like this, right?
+The concurrency lives over here and then there's the good code that we wrote.
+And the magic IRC thing does its magic and it calls the dispatcher and the dispatcher calls the handler and sends them the IRC thing and you're good, right?
+That's it.
+And the problem is that's not how it works, okay?
+Like some abstractions let you believe lies and they're good and some let you believe lies and they hurt you.
+So you imagine it, like subroutines form a stack, right?
+Subroutine calls a subroutine calls a subroutine and it returns and it returns and returns.
+And you can violate that but like don't tell me about it.
+The handler down here has to return.
+So either the dispatcher is getting the return value from the handler and passing it back to IRC to send a reply.
+Or the handler is doing some weird thing to send a reply before it returns, right?
+So what's actually happening?
+Let's say it's the first one.
+We're going to like engage in a little Socratic method.
+A little go through the logical process.
+Message comes in to IRC, a network message.
+And it turns it into something that can go to the dispatcher.
+Dispatcher sends it to the handler.
+Handler sends it to the IRC thing.
+The circle of life, right?
+Great.
+No.
+What actually happens is it comes in from the network and it goes to the dispatcher and it goes to the handler.
+The handler is like, I got this but it's going to take a minute.
+I need to look up 70 million rows in the database.
+And meanwhile, everybody at IRC is still sending these other messages.
+And you're not talking to the network anymore.
+You're like asynchronous thing is sitting there like,
+I would be so busy being asynchronous if you would just yield to me.
+And you don't because you're voting, putting concurrency everywhere you can.
+And pretty soon the whole thing falls apart.
+And like you lose all your messages and everybody's like,
+why aren't my deploys working?
+Because of IRC.
+So the other option has to be true, right?
+The handler is doing a thing.
+So a message comes into IRC.
+It goes to the dispatcher.
+It goes to the handler.
+The handler has to do something.
+So, because this thing's happening.
+So it sends it back to IRC but now it's blue.
+Right now it's a different message.
+It's not the, you've got a message.
+I want to send a message and everything's good.
+This is no longer just IRC.
+It's all your async.
+Your stuff comes in, it goes over there, it keeps going, you're good.
+Now you need something to handle both kinds of messages.
+One for, you know, you've got a message, you're going to do something.
+One you're going to send a reply.
+These boxes should be labeled differently.
+You're fine.
+Every kind of message that comes in, you've written your own simple, pretty much blocking, but okay handler.
+You don't even need to dispatch anymore.
+You just tie it into the message.
+Here's where I go and you call me.
+Great.
+Your code got simpler.
+The problem is making a ticket involves like talking to the database which in non-blocking
+terms means starting to talk to the database, doing the talk to the database, finishing
+talking to the database, dealing with an error.
+So you have to write all of these little pieces of code wonderfully.
+They're not concurrent, right?
+They just block if they need to or they just get called once.
+They're not doing anything weird.
+And then your program looks like this.
+Ah!
+There's, they call this, this is roughly like the dumb ass version of the actor model.
+So like Zoolander code.
+But it's not, it can be good.
+I just came from the Erlang room.
+The Erlang room is cool.
+Actors are cool, but you don't write pearl code that way which means your pearl code feels
+weird and we actually want to write pearl code that feels like pearl code.
+So here's what we do.
+We make a message and the message is going to contain its own reply handler, right?
+You're like, I'm going to send you a message and don't worry, you don't need to go write
+all these million things.
+When I send you the message, I put like a self-addressed stamped envelope.
+If this happens, send this envelope and that's your little reply handler.
+And now your code still looks like pearl code.
+You're good.
+And you do this all over the place.
+Like when you're setting up the listener, you're like, yeah, okay, I'm going to bind to the
+socket and if there's an error, here's what you do.
+And if you do connect, here's what you do.
+And by the way, after you've connected, once you start receiving packets, here's what you do.
+Right?
+And you're nesting all these envelopes and it's great.
+Like you've all got a pile of top level envelopes and you're like, yeah.
+So I'm going to listen and then maybe bind and then maybe connect and then maybe accept.
+And over here, like I'm going to do an L stat, the block in the file.
+So now it's easy.
+I'm going to create a file over here and then do some stuff with it.
+I'm going to k-pole and like we've got all these nested things and everything piles up
+and everything is like an envelope, an envelope, an envelope and it doesn't look like
+pro-code anymore.
+There's a name for this pattern by the way.
+They call it callback hell because this is what it feels like.
+Thank you.
+Like all of your code is just all callbacks.
+There's no named subroutines anymore.
+So you wanted to write this code.
+Okay, this is all you wanted.
+You just wanted to make a ticket.
+You got a message from the network.
+Put the whole thing up here.
+I was going to go through it line by line but whatever.
+You get a message and you parse it and it's like here's the ticket you should make.
+That's the plan.
+And then you say if they're allowed to make the ticket, good.
+But if they're not, you reply no and you return, right?
+You're done.
+Crash early.
+And then you make the ticket and then you reply, I made the ticket.
+That's the code you want to work.
+This is the perfect platonic expression of a chat bot.
+I got a message and I did a thing.
+And the problem is these three things block.
+And this is where your whole program just starts falling apart because you've got
+like 75 kinds of event handlers that all look like this and they all block.
+So it's okay.
+You can fix this problem by using sequencing, by leveraging promises or futures.
+And all you have to do is make your code look like this.
+This is just another kind of callback hell, right?
+You're just saying here's all this stuff to line up all up and like you will end up being
+like I'm living in the future.
+It's amazing.
+I can like write all my non-blocking code, but you're so sad inside because it's all
+these anonymous subroutines that you can't debug and like they're real bad.
+So remember when I said this earlier, right?
+Concurrency is weird.
+So minimize it by minimizing the concurrent code.
+That was bullshit.
+Don't do that.
+You need to lean into it, right?
+You need to, the problem is this.
+When you minimize the concurrent code, you write crappy programs because you write programs
+where you're like all the weird shit's over here and everything else is coping with it.
+Right?
+All of your code is just, I'm here to cope.
+Don't do that.
+What you want to do is get the language to hide that complexity for you.
+The language is like, don't worry.
+You write the code you want to write and I'm going to make it work.
+And then you make the code concurrent at the slightest provocation.
+You're like, oh, this might be able to block concurrent.
+That's what you do.
+And you can do that now because of asynch await.
+And that's what I'm going to talk about for a little while.
+I promise I'm going to talk about the chatbot.
+So you take this ugly ass code, right?
+Where you're like, do this and then call this other code, but then call this other code.
+And if it fails, you don't need to read this.
+I've read it once.
+That's enough for all of us.
+You write this.
+It's just like that beautiful perfect platonic code except I stuck some green stuff on here.
+Right?
+This sub is now asynchronous.
+It can yield.
+Then this line of code, I will yield here if I need to.
+That's all you're saying.
+I identify this code might be blocking.
+I don't know.
+Let's something else figure it out.
+And how does this actually work?
+Well, when you do this, something, it's called future asynch await, something takes this and it like pulls apart the whole subroutine into different units.
+And it's like, I'll put these together the right way.
+Don't sweat it.
+I'm going to make it work.
+And kind of what it puts it into together into is this.
+Kind of.
+The reality is what it's really doing is really gross and scary and it involves like mangling optries and putting them together.
+But that's what all pearl code is anyway.
+All this time that you write pearl, it's just building some crazy ass optry and like maybe there's one person in this room who thinks about optries every day.
+Hi, Paul.
+Most of us.
+Most of us don't have to do that and you still don't have to.
+So the conclusion of this long digression about asynch await is you should embrace this weirdness, right?
+Make your code concurrent easily all the time.
+Embrace the stuff so hard that like all the weirdness becomes part of you and you don't think about it.
+But the weirdness is there making you powerful and making your code better and just use future asynch await.
+Okay.
+It's not.
+I'll talk more about it later if somebody asks.
+I like talking about it's very good.
+So let's talk about synergy.
+If there's an unopened bottle of water in this room, I would definitely drink it.
+Okay.
+So you can find synergy here.
+The link will show up again later.
+You can ask me for it.
+You can install it.
+It's super cool.
+If you install it and it doesn't work, I'm sorry.
+And that's all you're getting out of me.
+I might answer a question.
+We don't support this.
+This is software written in the open and not a public project.
+We want everybody to use an adopt.
+If you come and find bugs, we might fix them and we might say, that's a cool bug you found.
+Here's how it works.
+There's basically three abstractions in synergy that you need to know about.
+Channels where messages come and go.
+And when I say messages, because in, you know, concurrent object oriented networking code,
+messages can mean a lot of things.
+Messages means chat messages, right?
+Like, hello, how are you?
+Those messages.
+And a reactor, which decides, should I react to this message?
+So that is the synergy software diagram.
+There you go.
+That's it.
+You understand synergy now.
+And I'm almost not joking.
+Like, it's really about the simple, which is why it's nice to use.
+But let's look at the code.
+And answer the question.
+Most of the time, when you work with synergy, you connect synergies, channels to your chat system,
+and then everything is about the reactors.
+What does the bot actually do?
+So that's what we should look at first.
+This is a reactor.
+It's a reactor that I use a lot when I don't understand why synergy did something.
+I ask for the uptime and synergy says, I've been up for four seconds and I say, aha, well, you just crashed.
+Here's how it works.
+It's a package.
+It's a class.
+Everything in synergy is written with moose.
+And this one does a role called synergy role reactor command post.
+So the role reactor means it's a reactor.
+And command post is so that later at the bottom, we can say, here's a command.
+You can write reactors in lots of different ways.
+I've been spending lots of my free time converting all of the old style reactors, which was called easy listening,
+into new style, which is command post.
+You do whatever you want.
+I don't care, but use command post.
+It just lets you write a bot really easily.
+And then the meat is a single way.
+The command takes a sub and that's what runs.
+So when someone says, hey, synergy, what's your uptime?
+This sub routine runs and it says, well, figure out how long I've been up the duration since the process started and reply.
+So we got a message in this event and we call reply on it.
+So you are the best.
+I am guilty.
+I have here actually stuck into the message, the ability to reply directly to it.
+There is some small amount of callback hell.
+That's maybe the last instance of it you'll see.
+So this is a reactor.
+You don't really need to know almost anything about asynchronous code other than make sure you write async and await in the right place and everything will work.
+So you could at this point install synergy, connect to something and be happy.
+But we're going to keep talking.
+The one last thing I should talk about on this slide is dollar event.
+Dollar event is the object that represents the message.
+I'm really sorry that I've called it both message and event taking, you know, two useful names that mean the same thing and using them to mean the same thing when I could have made them mean different things.
+I guess that's better.
+Here's what the event looks like.
+And then has text.
+That's whatever the user typed and has a channel it came from, right?
+So we said channels are how you connect to your chat network.
+That's the channel.
+It has a from address.
+If you are an IRC, that's like the channel again.
+Sorry.
+It has the user it came from if it came from a known user.
+And was it said in a public channel or in DMs?
+Was it said at me?
+Right.
+So like did someone say synergy?
+What time is it?
+Or did someone just say what time is it?
+Because you don't want the box to respond to everything and send a reply and send a reply.
+But this time it was an error.
+That's it.
+So this is basically the stuff a normal reactor does.
+So now you know, right?
+Channels, reactors, and you've seen a specific reactor.
+Great.
+Now you know how to handle events.
+You get an event object and you call reply on it and you do whatever you want in that sub.
+Where they come from, they come from channels.
+I'm going to talk about how channels work and how you can make one.
+But the short answer is don't.
+There's a Slack channel.
+You might remember from the top of this talk that we needed a Slack channel and that's why we wrote this whole stupid thing.
+Synergy's not stupid.
+Synergy's great.
+There's a Discord channel because I don't do my personal chatting on Slack.
+There's an IRC channel, although it doesn't work.
+I'm probably going to try and bug Paul to get some help on it.
+It works for a while and it falls over.
+There's a Twilio channel so you can SMS with your bot.
+There's a console channel we'll talk about.
+And there's a test channel because of course you can write automated tests for the thing.
+Channels are kind of a pain to write.
+This is the place where you can minimize all the complexity for those things that you thought that you could make not concurrent.
+You have to make those concurrent but it's easy.
+But at some point connecting to a remote web service over web sockets and handling different kind of frames and dispatching and all that and reconnecting.
+That's complicated.
+So there's an irreducible complexity here.
+The good news is you won't need to write one but I'm going to show you very roughly what it would look like.
+You'd have something like this.
+So this is a stupid subroutine that's like every five seconds sends an event.
+What does it do?
+It makes an event object saying the user said boop and it tells the hub to handle that event.
+The hub is that box and the diagram with Synergy's face on it.
+It drops it in there and everything good happens goes to all the reactors.
+But to see how the channel really works we're going to look at the console channel.
+The console channel is for working at the terminal.
+I'm sorry if you can't read this stuff.
+I did what I did.
+So here I'm going to run Pizzazz.
+Pizzazz is my local testing instance of Synergy.
+It just fires up Synergy with a bunch of reactors sitting in the console so I can test with it.
+I run it to get my little, you know, I've started up and I say uptime.
+That's the reactor we've all seen how it works.
+And Synergy replies and says I've been online for one second.
+So that's it, right?
+This is how I use Synergy when I'm developing.
+I stick the reactors into the console and I test there.
+Because if you've ever tried connecting a chat bot to Slack,
+you'd think that for a company that makes a chat product they'd want to make it easy.
+But they do not.
+It is a real pain in the butt and about every 18 months they change the way you connect a bot.
+Discord's much easier and it's documented in the repository how to do it.
+Slack I haven't bothered.
+But if you look at the top of the screenshot,
+you see console online, console channel online, console channel online.
+Why are there multiple console channels?
+That's a great question.
+I'm glad you asked.
+Here's another reactor.
+This is the announced reactor.
+Back when we are on IRC, we didn't have our chat for work on our phones, right?
+That before Slack at all.
+We just didn't have it on our phones.
+But you might be at lunch and lunch is running long and you want to say,
+I'm really getting back.
+And there was a Twilio channel, right?
+So you text the bot and you say,
+announce I'm still eating.
+And then Synergy would receive this message on the Twilio channel.
+It would go to this reactor and this reactor says,
+okay, I got in the vent and it's not from the channel I want to send to.
+The two channel name.
+We'll come back to that.
+And if it is, I say, like, what are you doing?
+You're telling me to announce something but you're already in the announcement room.
+And otherwise, she'll look up the channel, the two channel, and send a message there.
+Send a message there saying this.
+So when I would text the bot saying I'm still at lunch,
+the bot will post a message in IRC saying, Rick says he's still at lunch.
+And this all works because you can have multiple channels in your Synergy.
+This is one of the really keen things about writing asynchronous code.
+You can have lots and lots and lots of things in your process and they all work.
+You can have lots of consoles that talk to each other.
+So here, in my testing environment, I've spun up several console channels.
+Now only one of them is getting my input because I can only type to one terminal at a time
+unless I want to do something really weird.
+And I've set up the announce plugin.
+And I can say announce, yeah, I was going to do a live demo of this,
+but I didn't because I've got enough going on.
+And what you see is on the input-output terminal Synergy says, great, I announced it.
+Thank you.
+And on the announcement thing, you see the message come in there.
+So this testing environment is simulating multiple channels.
+I still have a purple channel which you won't see in this deck representing Twilio.
+So you can say like this should page somebody's phone with an emergency
+and you'll get the page showing up here like, yeah, I would have sent a text message, you're good.
+So it's all nice and simple.
+The one thing you might be wondering is what's up with two channel name?
+So in the world where that's like IRC, two channel name here might be private IRC server, just a string.
+And it says that's how you're going to go find the channel off the hub.
+Which channel am I sending to this one?
+But where did it come from?
+Like how is this set up?
+How is it configured?
+Well remember all the channels and all the reactors and everything else, they're moose objects.
+So there's an attribute on the object called two channel name and it's a string.
+Now if that's all we did we'd be a little screwed up because at some point someone would try announcing
+and we'd realize we had a typo in there and it would crash at run time.
+So also when the reactor starts up, when the wind synergy is really booting up and connecting,
+she'll say, do I actually have a channel called that?
+And if not, crash early, crash early everybody.
+But that's it.
+Everything, all the reactors work this way, they're all configured with attributes on the objects which is what you want.
+That's just one more turtle, right?
+But where did it come from?
+This is the bottom turtle.
+It comes from a config file.
+So you've got a config file where you list all the plugins that you want, all the reactors, all the channels, and all their properties.
+And somewhere in here at the top you'll see the announced channel, the announced reactor, and it says here's the address that I send to,
+and here's the channel on which I will send to that address.
+And then you'll see all these other reactors that are configured just the same way, the clocks reactor.
+Which time zones do I care about?
+Melbourne and New York.
+There's a DC reactor that you can use to run DC calculator programs.
+I didn't write that.
+Okay.
+So now we've written channel, we know how channels work, and we know that all the stuff comes from configuration.
+That's great.
+Now we're going to talk about linear.
+Linear is not part of Synergy.
+If any of you don't know about it, linear is a bug tracker.
+It's like a work tracking system we use for running our scrums and stuff.
+It's really, really good.
+I like it a lot, and I'll tell you all about it when you want.
+But what you do need to know is that linear, like a lot of web services, does webhooks.
+So you can say something happened to one of my issues, and a post gets sent to wherever you want,
+saying a thing happened to one of your issues, and you can respond.
+This is great for like, I track a calendar, right?
+And if somebody moves an event on the calendar, I get a post telling me this thing's been rescheduled.
+Consider whether your whole day has just been upended.
+Webhooks are great.
+And linear uses them, and we want to react to them.
+One of the things we use them for is escalation.
+Escalation inside a fast mail basically means a customer made a ticket, the support team who are great.
+They don't really know what's supposed to happen next.
+They escalate by taking the ticket and saying escalate it.
+They put a flag on it, and it goes to the developers.
+And when we do that, we want to do something like this, right?
+Make a message that just says, this issue got escalated by so and so, and here's the link.
+And we send it to the escalation address, right?
+Which is pound escalation and fast mail slack.
+And this is straightforward.
+I think if you've followed things so far, you follow this, except you might be wondering, where do you put this code?
+Right? Like, it's got to go someplace, so that's a good question.
+But you're not going to put it in a command, like uptime, because there's no command to say like, hey, check it, you got a webhook.
+That's not what a webhook's about.
+And it's not in a channel.
+Remember when I had to, like, tediously explain that channels are about chat messages, not just generic messages?
+So it's not in a channel.
+Where is this post going to go?
+The answer, the answer is it goes in a reactor.
+It doesn't need to be in a reactor.
+It's where we happen to have put it, but it's not because it's a reactor.
+It's because it's got this role called HTTP endpoint.
+And you say, in addition to reacting to chat messages, this thing is a web handler.
+And you say, I wanted to take the path linear notification.
+So when you connect this thing up, slash linear dash notification will now be a path that you handle.
+And how do you handle it?
+Well, you've got some async sub that is a plaque handler, because if you're writing web stuff in Perl, you probably want to do it with plaque.
+And that's kind of, I mean, look, there's a whole bunch of code here that's figuring out, like, getting the thing, authenticating it, figure out who's who.
+But this is basically it.
+You say this hunk of plug-in, and anybody can write a plug-in, requests a path for web service and mounts a plaque application on there.
+You know, and then at the end it says, like, yeah, and then return 200.
+So now this is HTTP endpoint.
+How does that work?
+Synergy runs a web server.
+And you say, I want web service to be provided on this port, and all of the channels, all the reactors, all the every other thing that has a HTTP endpoint, mounts onto those paths, conflicts are detected at start time and it crashes.
+And then when a request comes in, Synergy dispatches to the right place, and because they're all asynchronous, they can all interact.
+And that's a really important point, right?
+All of this whole diagram, this, all of the, every reactor, every channel, every HTTP endpoint, they're all in one process.
+It's just like one program that's running with everything loaded in it.
+And to share data, they share memory.
+There's no IPC, and this is a big win.
+Like, I don't want to say that IPC is bad, and IPC is the enemy, and I certainly don't want to say everybody should share memory.
+To share information, like these are big, broad claims.
+But we do have to talk about IPC sometimes.
+IPC solves problems, right?
+What does IPC mean by the way?
+It's inter-process communication that lets you have two processes talk to each other.
+But that's not the solution to a specific problem, right?
+That's not valuable per se.
+It's valuable because you have a problem that you could solve by having two processes talk to each other.
+And the question is, when does that problem arise, and when is IPC the right solution?
+Well, a good one is, right, if you have different parts of your system that scale differently, need different kinds of resources, need different access to things,
+maybe different processes are useful.
+You can scale up more workers, thank you.
+You can scale up more workers, you can scale down workers, that might be really useful.
+Maybe you have security constraints.
+This process needs access to certain constrained resources, needs to have these namespaces, needs to talk to the kernel, whatever.
+And this part of the program, the part of the system doesn't.
+That's a good reason to have two processes.
+And maybe you have to do work where multiple things need to be happening at once,
+and you have multiple processes to eliminate blocking, causing your code to be sequential when it's not going to be sequential.
+This is, you know, where we often would have multiple programs running or things forking.
+And it's fine.
+But remember that any time that we add a solution to a new problem to our program, we're almost always adding more code.
+And when we're adding more code, we're deforming the program from that ideal platonic version that we're like,
+well, if I could just write it, it would look like these eight lines.
+And then we go add all the code that solves all the problems we don't want to think about.
+And what we always want to be doing as programmers is picking the changes that deform our platonic program the least as possible.
+And program is always compromised between these things.
+Once upon a time, it was pretty clear, especially in languages like Perl, but kind of in a lot of programming,
+that if you had to eliminate blocking, the easiest, most effective thing to do was to go to have multiple processes, right?
+Fork is a great example. I need to be able to handle a lot of requests. I'm going to fork.
+Yeah, that makes sense. Forking's easy. It solves a lot of problems.
+And then later you have to introduce IPC because that's how life goes.
+But, you know, that's what you're going to do.
+I don't think it's this clear cut anymore.
+I think that at this point, we all need to be reevaluating when we want to eliminate blocking and have more communication between multiple kind of concurrent operations.
+Whether forking IPC is the answer to jump to in Perl anymore, I don't think it always is.
+I think it often is not the right answer anymore. And that's because of Asynchowate.
+Asynchowate's really, really powerful and it really moves the lever on where you should be picking which solutions.
+It's not just a Perl thing, by the way. Hopefully everybody here writes in other languages.
+Also, it's important to put your eggs in multiple baskets.
+You'll find this abstraction in a bunch of places. It's very good.
+Okay, one more thing. I've got a little time left.
+So, take a breath. Got quite a bit of time left, which is good.
+So, we've got channels and we've got reactors and we understand those.
+And we've got these HDP endpoints. And there's some other stuff we've gotten here.
+Maybe we'll even talk about more.
+But at some point, I thought, you know, it would be really cool to stick inside of Synergy a telnet server.
+So, we built a thing. It's not really telnet.
+Telnet's actually a protocol and has all kinds of weird stuff in it, like control characters.
+And don't learn. It's a netcat server.
+So, there's a netcat server built, they call these TCP streams.
+There's a netcat server built into Synergy, which is called the diagnostic uplink.
+So, here I am back at my terminal. I run my local development server with a diagnostic uplink available on local host 4321.
+Because I like those numbers. And when you tell it in, you get greeted with this.
+Welcome to Synergy. All right, you have connected to the diagnostic uplink. Would you like help?
+Of course I would. I don't know how to do anything. So, I say slash help. It's like, here you go.
+You've got some diagnostic commands. You've got notifier commands. Stuff for inspecting or running Synergy.
+Because when Synergy is acting, when your critical chat bot is sitting there and acting weird and you don't know why it's doing that,
+and you don't know what's happening, you know, you can reboot it. And that's fine. Thank you.
+You can, you hope that's going to be okay. You can, like, look at the logs.
+And I make a lot of logs. That might help, but most people don't write logs, and that's not going to help.
+But another great answer is, like, yeah, just connect to the thing and ask it questions. So, you can say, like, tell me about your configuration.
+I'm running a web service here. Here's this file. You can say, I don't show here, show me all the endpoints that your web service listens to,
+so I can see all those. You can say, show me all of the notifiers currently connected to the event loop.
+And it's going to show you, like, all these things are going on here. They get names as they're generated, so you can see things like,
+yeah, there's 47 open web requests all talking to GitLab. Well, that's probably a problem. Really useful.
+You can also get this guy. This is so good. Eval. So, you can say, I'm going to connect to the diagnostic uplink and instruct my
+Perl program to evaluate a string of Perl code in the context of the running bot. So, here I am saying, hey, bot, tell me your name.
+I'm Synergy. Great. What's your reference address and memory? Here you go. These are stupid examples.
+You never need to know the ref address of the bot. But you can do things like connect to the bot and instruct it to change its configuration as it runs.
+You can connect to the bot and add and remove reactors. You can do anything that you can do with Eval as long as you're happy typing it into one line
+because I have not implemented multi-line input. It wouldn't be that hard. I'm super lazy. Okay. That's everything I plan to talk about.
+We have a couple of minutes left. I'm happy to take questions. Yes.
+This might sound confrontational, but it is not. So, actually, it does. I'm going to make Elixir developer. The code you showed looks very much like how you would actually write an
+Erlang language. Yeah. So, why actually use her for use cases like this? No, it's a great question. The question is that it?
+Can I just say, well, I would say maybe the async stuff, like the tasks could be per, but actually the...
+The framework, yeah. No, it's a great question. The question is why do this in Perl when Erlang has a much better language for it or Elixir?
+I'm not to make you put any tone into that at all. That's the question. I think it's a good question. The answer is a boring answer.
+Well, the original version was written in Perl and all the little handlers were written in Perl. What was easy to do? Switch this to Perl.
+I also really like Erlang and I really like Elixir and I think that they're really well suited for this. In fact, in a lot of ways that we didn't talk about,
+like any one of those reactors crashing has to be handled by the hub saying like, oh, an exception happened. Don't worry, I'm going to catch it and recover.
+And like if a channel crashed, you have to figure out reinserting the new instance of the channel into the hub and what about its pending messages?
+That stuff's all solved, right, on B-machine languages. But we wrote it in Perl because we write Perl. And I think that if I had said,
+guess what everybody, we're rewriting the bot in one week and we're doing it with OTP. We would not have written that bot and nobody would have bought me a beer that night.
+Yes, in the back.
+It's hard that async await is much better than callback hell and also said that some of the loop is kind of callback hell put with upgrades.
+So can you expand a bit on how async await is better than callback hell?
+Yeah.
+And you mentioned that there may be some duplicates, a definite difference in debugging, but anything other than that?
+Yes, sure. So the question is how is it the case that using async await is practically better than callback hell?
+Larry Wall says that you can never eliminate the complexity in your program. You can only move it around, right? You can move around the lump under the carpet, but the dust is all still there.
+And my view is often that what you want to do is take the things that are complicated and obnoxious and pack them into an infinitely dense ball that lives at the center of your program.
+And everything else is beautiful and living on the outside. I got one minute, so this is maybe my final concluding remark.
+You want to put all the complexity deep, deep down in the middle and have everything else be simpler and built on that.
+Callback hell makes the programmer writing the application think about the complexity.
+And async await makes Paul think about the complexity. It makes one person cope with that.
+And I think that is why it's practically superior.
+Just curious how many in this room have endured future async await?
+Yeah, who else has used async await? Six, seven people? Yeah.
+It's very good. It's very good. It's got problems, but mostly they don't come up.
+And I use it every day because mostly they don't come up.
+Okay, if you want to run synergy, that's the URL. It's really good. Don't expect to get technical support.
+I'm going to change stuff whenever I feel like it. That's it. Thank you very much.
+Thank you.

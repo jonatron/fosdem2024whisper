@@ -1,0 +1,438 @@
+Our next speaker is the esteemed and very famous Charlie Nutter, so let's give him a
+round of applause.
+Alright, microphone working.
+Can you hear me okay back there?
+Alright, great.
+I got a lot to cover.
+This is going to be a retrospective of all the problems that we've had trying to get
+Ruby onto the JVM.
+And then a little status report along the way about how we're doing on making the JVM
+catch up with those needs.
+Charles Nutter, that's me.
+There's my contact information.
+Been working at Red Hat now for I think 12 years.
+Before that worked for Ingeniard.
+It was a Ruby software as a service company.
+And then I was at Sun for the last three years as well.
+So I probably won't have time for interactive QA, but if you contact me online or post something
+in the Matrix channel, I will definitely get to it.
+I want to answer all the questions.
+Okay, so a little brief review of JRuby here.
+Ruby for the JVM, not too surprising there.
+It runs on Java 8 currently, but because of all the cool stuff and because we've ridden
+the Java 8 horse into the ground, we are going to be 17 or 21 minimum next release, which
+should be this year.
+In development for a long time, running Rails since 2006 and probably 2008, we started having
+production users.
+And we're the only alternative Ruby that's really had production users during that time.
+There's been a few other experiments, but nothing's ever really taken as well as JRuby.
+Maybe the most successful off-platform language brought to the JVM, Jython and Rhino Nazhorn
+might give us a run for our money, but given the maintenance state of those libraries,
+I think we're probably currently the most successful and most widely used JVM language
+that never was envisioned for this platform.
+So we've been chasing Rails all the time.
+That's kind of the gold standard for whether we can say we're a Ruby implementation or
+not.
+And after about two years of good work, we managed to get Rails working back then.
+Running Rails tests, running CRuby's tests, running all of the different libraries, suites,
+as much as possible.
+Compliance testing for Ruby has improved over the years, but we pretty much just run everything
+to try and make sure that we really are compatible.
+And very quickly, we ran into some serious challenges trying to bring a language like
+Ruby to the JVM and make it also usable and perform well.
+This is the quick summary.
+These are all areas I'm going to cover during this talk, so we will just blow right through
+here.
+These challenges help us grow both as a platform and as a community.
+They open up new worlds to Java developers, to JVM developers.
+They open up the potential of bringing new and unusual languages to the platform.
+It opens up the entire world of native libraries, native features that are out there that we
+don't necessarily have on the JVM.
+So we really need to focus on what are these challenges bringing a language like Ruby to
+the JVM and how can we make the JVM better to support languages like this in the future?
+So we'll start with strings and regular expressions.
+Excuse me for a moment.
+Okay.
+So one of the first things we ran into, JRuby's strings were just based on Java strings and
+we used Java's regular expressions.
+And at the time, regular expressions were being used in very unusual ways in the Ruby
+world.
+We ran into a case in an early version of Rails where they were using regular expression
+matching to parse HTTP requests that came in and look for, say, a mime header for an
+image and pull the image out.
+So you'd end up with a regular expression operating against a very large piece of data.
+And the built-in Java regular expression engine is implemented in such a way that for certain
+types of expressions like an alternation like this, it actually will recurse and recurse
+and recurse.
+And then very easily you can blow the stack out by feeding it too much data, just giving
+it too much data.
+To process, we'll blow it up.
+So we had to find other options.
+JRegix was an early one that worked against Java strings and we ran with that for quite
+a while.
+But eventually it came to be that the Java string itself was insufficient for us to represent
+Ruby's string behavior.
+Here's what that exception looks like.
+Very simple match here.
+It's just 10,000 of the A character followed by a B character with that same regular expression.
+It'll blow up on every version of JVM that's out there or anything based on OpenJDK classes.
+And I believe this is still an issue.
+So as we went forward and had to have a more robust, more robust regular expression engine
+that would work with a more custom type string on JRuby that matched CRuby's behavior, we
+ported over, or a contributor to JRuby, ported over Ruby's regular expression engine.
+So Oniguruma is the C library that Ruby uses for regular expression matching and ours is
+Joanie.
+It's a byte code based register machine, so there's no stack issues.
+It doesn't deepen the stack at all.
+It matches against byte arrays.
+And that'll be clear in a moment here why we need that.
+It also can do byte array matching with pluggable encodings, so regardless of what encoding
+those characters are in, and potentially if you want to use a different grammar for regular
+expression.
+This library was ported to characters and used by Nazhorn to do JavaScript regular expressions.
+They had the same sort of problems, and so they used our library but made it specific
+to JavaScript.
+So you see that I'm matching against byte arrays here and I said that strings were insufficient.
+Well the problem is that Ruby's string is not just one encoding, it's not just a blob
+of characters, it is represented as a byte array with an encoding.
+So within the system you can have many strings that all have different encodings and it all
+needs to be negotiated together when you combine them or use them against each other.
+So we had to follow suit essentially.
+We had to make a new string class for JRuby that used bytes, used a byte array, represented
+all the encodings, port all of the encoding logic over and the transcoding logic, which
+was a major piece of work.
+And essentially we have our own string now and we've had this for over a decade because
+Java strings just could not emulate all of the behaviors we needed for Ruby.
+This does complicate interop with Java but there are improvements coming there.
+So J-codings is the encoding library that we use.
+This provides the full set of encodings similar to what's in CRuby and the transcoding from
+any encoding to another encoding, which is used internally when we have two different
+strings come together and need to negotiate that.
+So where do we stand on the JVM today?
+Well rather than just having a character array inside strings, we do actually have a similar
+model now where there's a byte array but only two encodings are allowed inside that
+byte array.
+ISO 88591, which is essentially just the 128 bits of ASCII, or UTF-16, the old standard
+character.
+So this does lower our cost going to and from Ruby and Java when we are just using an ASCII
+range of characters, but UTF-8 would be nice to have there because most Ruby strings are
+going to be UTF-8 probably with at least one multi-byte character in there.
+So that has to all be copied over a lot more, a lot less efficiently.
+And Java Util Rejects does still blow the stack.
+I would love to see it get replaced at some point, but I don't know if there's any work
+being done to do that.
+Okay, so the next area that we ran into was that we have a nice runtime, but the performance
+wasn't there.
+We needed to be able to generate JVM bytecode from Ruby code and have it optimize like regular
+Java.
+So the interpreter was good.
+It was similar to Ruby 1.8 before they moved to their own bytecode runtime.
+It was very difficult for the JVM to optimize.
+We could walk through this stuff quickly and it was very easy to write as an interpreter,
+but you had a lot of polymorphic calls within that AST.
+It never really could see the optimization path through there.
+So we had to write a JIT.
+The reason that we did not just immediately start compiling all Ruby code into bytecode
+is because, for example, the Rails library will load into memory thousands of classes,
+tens of, or tens of thousands of methods, or tens of thousands of methods.
+That's a massive load for us to put onto the JVM when only a few hundred or a few thousand
+of those are ever going to be called.
+It also was slower for us to go straight to bytecode because the bytecode would end up
+being interpreted by the JVM's interpreter, which actually turned out to be slower than
+our interpreter after it JITs.
+So it made more sense for us to leave it in our interpreter until we saw it really needed
+JVM bytecode, and there we ended up with basically the first mixed-mode JIT runtime on top of
+the JVM.
+Later on, we did move to a more modern compiler design.
+We had a compiler engineer, Sabu Sastri, come in and help, and he basically helped us move
+a lot of the little P-Pole optimizations I was doing in my JIT up to a more modern compiler
+architecture.
+So this simplified the JIT, simplified what I had to write as far as emitting bytecode,
+which then let me explore performance a lot more in other ways.
+And then of course, as we move forward, we got invokeDynamic in Java 7.
+It's been steadily improving since then.
+It's used incredibly heavily in JRuby.
+If you take the bytecode of our JIT output from Ruby code, it's pretty much just stack
+moves and invokeDynamics for almost everything that we do.
+We will access local variables normally, but everything else has to have some little
+dynamic aspect as part of Ruby.
+So we use it very heavily and probably more heavily than almost any other project on the
+JVM.
+This is invokeDynamic performance over time from Java 8 up to 17.
+Really happy to see the performance improvements every release.
+It gets a little bit better.
+Looking at what we're doing with a more numeric algorithm, we get a bigger boost out of it.
+With something that's just walking a lot of objects, we're already kind of close to where
+Java would be on just walking an object graph, but still seeing that we do get some improvements
+from running invokeDynamic, making that more direct.
+Really cool is when we plug in a different JIT compiler here.
+So this is now using invokeDynamic on the Grawl JIT.
+And for a numeric algorithm where we're creating tons of numeric objects, we really see the
+impact of partial escape analysis helping us.
+And this is now really starting to get to the point of Java level performance for a numeric
+algorithm.
+This is the cases where it really helps.
+But over time, we have not seen that Grawl is generally faster and we don't generally
+recommend it unless you have something numeric or something that's doing a massive amount
+of allocation of temporary objects.
+So where are we today?
+One of the problems that we have generating individual methods or compiling at the runtime
+is ideally we want that compiled method to go away if the class goes away, or if it's
+a one-off generated method that eventually doesn't get used.
+So it's a class per method, and the only way to make those garbage collectible is a class
+loader per class per method.
+So every method that we JIT into the system has both a class surrounding it and an entire
+class loader just to work within the confines of the garbage collector.
+There's no other way to make garbage collectible classes right now on the JVM.
+There is anonymous class loader, but it's a hidden class, and we don't try to access
+that right now.
+Indie is clearly working very well.
+We're going to be doing more advanced call sites where we will have special case code
+along one fast path and then a slower dynamic path if it turns out it's not the logic we
+expected.
+It is a tricky API to use, but we have a lot of tooling that we've built around it.
+I've got some links to older talks of mine that go into detail on that.
+Okay, I think we're doing pretty good on time here.
+I know I talk fast.
+Come back to the video and do it at like half speed, and then maybe you'll catch everything
+that I'm trying to say here.
+So the next big area that we ran into was native interop.
+The sea ruby world really lives in a POSIX native sea environment.
+It's almost a DSL for writing POSIX code, really.
+And originally that's kind of what Mott's the creator wanted.
+He wanted something where he could write C, but essentially with a nice API, a nice language
+on top of it.
+So they are very heavily using JNI-like extensions to the runtime for most of their native access.
+This is clearly way too invasive for JRuby.
+It calls into internals of their object structures.
+It has direct access to the heap, direct access to garbage collector endpoints.
+Nothing that we can emulate efficiently in JNI, and we have tried.
+So we ended up pushing people more towards using programmatic access, like Project Panama,
+like libffi, rather than writing C extensions for C ruby to wrap a library.
+Let's just wrap the library by writing a little bit of ruby code.
+And so started out with the Java native runtime.
+It's basically our API for calling from Java down into native code and native memory.
+And then on top of that, porting the ruby ffi layer over with some invoke dynamic magic,
+try and make that all as clean and fast as possible.
+Java native runtime is actually a set of projects.
+Up at the top, jffi is the wrapper around libffi.
+That's where we ship about 20 different binaries in the jar for all the base platforms that
+we support.
+Libffi is in there, and we're just using standard libffi with some extra wrapper logic around
+it.
+JNR-fffi is kind of the baseline user API.
+If you're familiar with JNA, this is that level, where you say, I need a struct that's
+laid out like this.
+I need a function that takes these arguments, make these calls, allocate this memory.
+Then above that, we realize there were a lot of functions and a lot of behaviors that people
+were going to be rebinding over and over if we didn't provide them.
+So we have JNR-possicks, which is a slowly growing corpus of standard posix functions
+bound on top of JNR-fffi.
+So you can go in there and you can call things like posixpon or open a file or do native
+IO.
+You can even call fork, and it's a lot of fun to see what happens when you do that.
+JNR-enxio, extended native cross-platform IO, builds on JNR-possicks and provides an
+NIO channel that is all native down calls.
+So where we can't get selectable standard IO on the JVM, we can't get selectable sub-process
+channels, we can use JNR-enxio to have actual interactive control over standard input.
+Standard IO and sub-processes.
+You can actually use JRuby to spin up a VIM instance and it will have full console control
+and work properly.
+Basically impossible to do with the standard process builder stuff on Java.
+Unix socket, not too surprising, just wraps this other stuff with the Unix socket calls.
+And then JNR-process, like I mentioned, we have our own selectable channels for processes.
+You can use this as a Maven library, you pull it in and you'll have the same API as process
+builder but you'll get channels, selectable channels out of it instead of streams.
+So it's available right now for that.
+This is a little bit of what Ruby FFI looks like.
+Pretty straightforward, we're setting up a structure with particular widths of fields,
+attaching a function, get time of day, and then we can call it directly.
+Under the covers, this all uses JNR and ideally inlines as much as possible up to the native
+down call.
+So today, native interop on the JVM.
+Of course, we have Panama coming along, so the talk before me, Mauricio's talk, that's
+where all the information is about where things are going and we're really excited about that.
+I actually wrote the original JEP for Panama, which has now been walked away from many times,
+but we've been needing this for over a decade now and had to make our own but don't want
+to maintain it anymore.
+JNR is pretty much the fastest way outside of Panama to do these native down calls.
+In some cases, actually beating JNI because there's extensions to generate a little JNI
+function in memory using assembly that can cut out some of that overhead rather than
+just doing pure programmatic calling through lib.ffi.
+Jextract from Panama is coming along.
+We're also hoping that we can use that at runtime as a library to and access those data structures
+internally to generate Ruby.ffi code.
+This would be kind of the last mile for getting Rubyists to switch from writing C extensions
+to using FFI.
+If we could generate the Ruby.ffi code the same way we do the Panama code, there'd be
+nothing to stop them at that point.
+There is back-end work happening right now on JNR to integrate it with Panama.
+Michelle at Oracle is working on that and I'm hoping that we'll see something in the
+next couple of weeks.
+A little more review of some of these ideas.
+If we have Jextract that can generate Java code, we should be able to use Jextract to
+also generate Ruby.ffi code.
+That'll be the next big fun toy to play with is of Java 22.
+We also use the existing SQLite JDBC driver.
+Rubyists like to use SQLite for local development.
+But it's going through a JNI back-end.
+You have to make sure it's available for the platform that you're on.
+They are also playing with Panama behind the scenes.
+Early numbers look like two-ish times faster than the JNI wrapper around SQLite that they
+have.
+So this is coming along.
+We also are integrating a new Ruby parser called Prism, which is a simple C library
+that we all the implementations can share so that we are using the same Ruby parser.
+That we will integrate through Panama as well.
+And use Panama to make it much faster for us to downcall into this library, get our
+AST back out, and then proceed.
+Interestingly, we're also exploring using Prism as a Wasm-compiled library running on
+the chicory Wasm implementation on top of the JVM so that we can parse Ruby code using
+a native library even if we're not on a platform it's compiled for.
+And that's amazing that it works.
+All right.
+Moving along here.
+So lightweight threading is the next big one.
+Around Ruby 1.9, they introduced fibers, a coroutine-like concept, a micro thread
+concept.
+You would still have your native threads there, but they can bounce around to different fibers
+at any given time.
+And you get little structured concurrency, structured use of fibers, allows you to do
+multiple tasks in the same thread.
+There's also been a push toward structured concurrency in the Ruby world now, where fibers
+can wait on I.O. or make a blocking call on I.O.
+The runtime will see that and schedule another fiber to run in its place while it's waiting
+for that.
+So you can easily handle tens of thousands, hundreds of thousands of concurrent connections,
+for example, without blocking that many threads or having to write your own select loop and
+what not.
+So fibers on JRuby, without a coroutine API at the JVM level, of course, we've had to
+use native threads.
+And that clearly only scales up to a certain number of threads.
+With the structured concurrency example, we could have potentially thousands of fibers
+in the system, and it's almost impossible for us to support that with full, heavy native
+threads all along the way.
+Ruby also primarily uses internal iteration.
+Collections just have to implement an each method of basically a for each.
+And all collections in the system then expect you to pass a block of code into it.
+Well, how do you turn internal iteration into external iteration?
+You have to use a coroutine that can yield values back out while staying inside that
+loop.
+So now we've got that potential for all sorts of fibers, hundreds of thousands of fibers
+all over the system, just because we're iterating collections with an external iterator.
+I'm going to kind of blow through this because the next talk will cover fibers a bit more.
+The example here of handling requests on a thread.
+We've got a thread, a request comes in.
+Now it's waiting for more information, the thread's not being used.
+Finally we get more data, we can proceed with the rest of our request handling.
+With fibers, of course, we can use multiple different fibers handling different connections
+on the same native thread.
+So the request comes in, this fiber's waiting on IO.
+Well let's spin up another fiber that can handle the next request that comes in.
+And they can multiplex use of that same thread.
+This is what we're starting to see more and more in Ruby, and this is where it will be
+critical for us to have lightweight fibers, lightweight coroutines on J Ruby.
+Okay, so here is a little benchmark, a little example of trying to test how long it takes
+to spin up 100,000 fibers and run them all to completion.
+So they are 100,000 live fibers in the system at any given time on this benchmark.
+And of course as you would expect this doesn't work.
+We can't spin up 100,000 native threads, and it just crashes in horrific ways.
+I'd love to see this crash in less horrific ways, but ideally we just move away from this
+problem altogether.
+And that's where we get project loom.
+So JVM Today, as of 21, we now have an official API for lightweight coroutines for essentially
+fibers that maps almost perfectly to what we need in the Ruby world.
+And we've already got this integrated.
+We integrated it a year ago actually, and have only made minor changes along the way.
+I'd like to show this just to demonstrate how much work we had to do to switch from our
+built in native fiber, native thread fibers to the virtual thread fibers.
+I was shocked that this was all it took, and suddenly this benchmark actually could run.
+It could actually spin up all of those fibers and run them to completion.
+So amazing work on the loom side, and very happy with the results.
+Once wise, so here I drop it down to 10,000 so that I can actually try and get the threaded
+version to work.
+Clearly we're getting significant gains on passing, context switching between different
+fibers, because loom is just better at that, and there's a much lighter weight process
+for going from one fiber to another on the same thread.
+Not quite as fast as C Ruby.
+I suspect this is probably due to us relying on a very general purpose scheduler for the
+virtual threads behind the scenes, where we really just want to say, this fiber's done,
+now run this one, rather than unblock that fiber and wait for the scheduler to pick it
+up.
+I think we can make up most of this overhead.
+Similarly on M1, I don't know if this is general to arm or not, but this is the performance
+results we have.
+Could not get 10,000 to go on M1.
+I got to drop it down to like 2,000 or 3,000.
+The impact is a bit more here, but again I'm hoping that as loom evolves, as we use it
+better, we'll see improvements.
+Five minutes for the last section here.
+The classic problem with J Ruby is still startup time.
+If we did not have startup time, we probably would have won the Ruby war a long time ago.
+It's the number one, two, and three complaint about J Ruby is how much longer it takes to
+start up.
+The JBM is just not designed to start up quickly.
+Most of the core JD code starts in the interpreter.
+It takes a long time for that to optimize, and then your application can start getting
+fast.
+We make it worse because we interpret Ruby code, and then every once in a while we'll
+just throw more byte code at the JVM, like okay, now this call site's actually bound
+to a byte code method, not an interpreter, and we're just confusing the hell out of it
+all the time.
+This is one of the reasons we actually do lazy compilation to byte code, because we
+want to reduce the amount of overhead we force onto the JIT at the JVM level.
+Walk through J Ruby's architecture here quick.
+We have our Ruby parser, gives us our Ruby AST, we compile into our intermediate representation,
+interpret that for a while, and here's where it becomes mixed mode.
+Then eventually we will generate byte code for those methods, and then hopefully the
+rest of it all works and optimizes to native code.
+One of the early ways that we've tried to improve startup time is basically to turn
+most of that off, rather than turning anything into byte code, rather than even running the
+C2, the fast JIT in hotspot.
+We turn only to C1, we use the simple JIT in the JVM, and we only use our interpreter.
+This improves our startup time by about 2x.
+By far the best thing we've had so far.
+Now, another way that could be potentially a way to fix this would be ahead of time
+compilation.
+Of course, GrawlVM solves this very nicely for that world, but it completely disables
+all of the native things that we want.
+General purpose, invoke dynamic, and method handles just simply, essentially doesn't work.
+Then beyond that, we would have to pre-compile all of our code to byte code.
+We'd have to link it in some way that it could ahead of time compile the native.
+This is just not going to work for us.
+We're hoping that Layden will actually pick up here with a ahead of time option that can
+also do some dynamic stuff at runtime.
+Where are we today?
+The solutions we're looking at in the short term are mostly surrounding the checkpointing
+features.
+Checkpoint and restore in user space, the CRIU API on Linux allows us to run JRuby to
+a certain point, like just after startup, and then save off a copy of it that we can
+start quickly with later on.
+This is being standardized in Project Crack, an unfortunate name, but a lovely project.
+This is working pretty well with JRuby right now, just experimenting with it.
+We are still hoping that Layden with some ahead of time compilation that still enables
+the rest of JVM features will be our ultimate solution.
+You can see here, this is CRuby on the left side just doing a baseline startup.
+JRuby's baseline startup without our dash dash dev flag, which turns off all of the
+optimization.
+The dev flag here, not quite 2x, but giving us a good boost.
+Crack of course, significantly faster than all of those.
+We've actually gotten to a point in execution where we can start running Ruby code now,
+starting to get competitive with CRuby, which was essentially designed for fast startup.
+Same example generating a Rails app, again, getting very close to where CRuby sits on
+these numbers.
+So, wrapping up in the last minute here, JRuby is a test bed for all of these crazy
+JVM things that we're doing.
+We're pushing all of these edges.
+So whether you care about Ruby or not, we are the best invoke dynamic torture test.
+We're going to be hitting Panama extremely hard as it gets integrated into the system.
+All of the structural threading will be massively exercised by all of the structured concurrency
+stuff coming on the Ruby side.
+So if you're interested in helping us integrate any of these features, or if you're an implementer
+interested in testing these features at scale, JRuby is definitely something you should look
+at.
+This is more background.
+I'll let you take a quick picture of this if you want.
+These are talks I've done in the past that basically cover all of my many complaints about the
+JVM.
+That list of complaints gets smaller and smaller every year, thankfully.
