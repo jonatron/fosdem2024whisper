@@ -1,0 +1,620 @@
+WEBVTT
+
+00:00.000 --> 00:14.680
+All right. So the next speaker is Tom Dormann and Tom is a real hacker. So I first met Tom
+
+00:14.680 --> 00:21.360
+last year at the CCC event where he talked about, which I did a bit about, an attack
+
+00:21.360 --> 00:26.000
+he did on NX. And I think it's very inspiring in the Dev Room that we have this great company
+
+00:26.000 --> 00:30.400
+talks, but it's also really nice in the real, let's say free software ethos. Tom, there's
+
+00:30.400 --> 00:36.240
+also some work in his free time, just pure hobby projects. And he'll talk a bit about
+
+00:36.240 --> 00:38.320
+work he's been doing on AMD-SEV.
+
+00:38.320 --> 00:45.000
+Sure. So thank you for the introduction. Today my talk will be on integrity protecting
+
+00:45.000 --> 00:50.360
+Linux workloads with Mushroom. Okay. So what are you going to talk about? Well, first up,
+
+00:50.360 --> 00:54.200
+we'll talk about some of the goals of Mushroom. And then I give a short demo to show you how
+
+00:54.200 --> 00:58.680
+it actually works. And then we'll talk about higher level architecture and some of the
+
+00:58.680 --> 01:04.560
+parts in particular. So the supervisor, kernel and the DMM host. And then we'll also talk
+
+01:04.560 --> 01:09.100
+about some of the things we don't want to do, some non goals. And finally, we'll briefly
+
+01:09.100 --> 01:17.040
+touch on how Attestation works with Mushroom. Okay. So, but this is a micro walker. Yeah.
+
+01:17.040 --> 01:22.920
+Okay. But before that, a brief thing about me. So my name is Tom Dormann. I mostly do
+
+01:23.040 --> 01:28.680
+developing and re-security research. But my day job is also reverse engineering. Here are
+
+01:28.680 --> 01:32.760
+some of my links. And one thing about me is that I also really love Rust. So all of the
+
+01:32.760 --> 01:41.160
+code that you may see here today is also written in Rust. Okay. So what do we want to do? The
+
+01:41.160 --> 01:47.120
+main goal is to run Linux programs securely. And in particular, we want to run programs
+
+01:47.120 --> 01:52.160
+that just transform an input file or maybe multiple input files into an output file or
+
+01:52.200 --> 01:56.600
+potentially multiple output file files. And while doing that, we want to prevent any
+
+01:56.600 --> 02:02.880
+tampering during the process so that we can make sure that the output files are authentic. So
+
+02:02.880 --> 02:07.320
+for example, one use case would be that you have some untrusted server and that you want to
+
+02:07.320 --> 02:12.800
+compile code on. And ideally, you want to not trust that server, but still be assured somehow
+
+02:12.800 --> 02:17.280
+that there hasn't been a backdoor injected somewhere in your code. And you just want to have
+
+02:17.320 --> 02:26.560
+assurance that the code has been compiled without any tampering. So yeah. I'll give a brief
+
+02:26.560 --> 02:34.320
+domain of that. So yeah. Okay. So what we'll be doing, I already talked about workloads.
+
+02:34.320 --> 02:40.320
+Mushroom is completely generic in what kind of workload you want to run. It has to be
+
+02:40.320 --> 02:46.440
+Linux binary, but that's basically it. So for this example, I chose to do a simple Docker image
+
+02:46.800 --> 02:51.600
+and just because it's easy to set up. And so in this case, it's an alpine image, which has
+
+02:51.600 --> 02:57.920
+GCC and muzzle installed. And it will run this in its script, which just copies the input file
+
+02:57.920 --> 03:04.440
+and that we want to transform to another file on the file system. And then we'll run GCC on that.
+
+03:04.440 --> 03:12.200
+And then in the end, we'll use that output and copied it to a special output device. And so the
+
+03:12.200 --> 03:17.200
+file that we want to compile is this one right here. Yeah. So it's just a simple head award,
+
+03:17.200 --> 03:26.360
+just a proof of concept. Okay. So, yeah, I should clear that. Okay. So beforehand, I already set up
+
+03:26.360 --> 03:31.640
+some like environment variables just for some of the components. But the important thing is this
+
+03:31.640 --> 03:42.680
+one right here. Okay. So what we'll do is we'll run this command, which as you might already notice
+
+03:42.680 --> 03:47.600
+contains some information like the input file that you just that I just showed to you. It also
+
+03:47.600 --> 03:52.120
+specifies the output and it also specifies where to put the gestation report. And because that's in
+
+03:52.120 --> 03:57.560
+the end, how we really know that that process hasn't been tabbed with is that gestation report. And
+
+03:57.560 --> 04:02.200
+so we'll run that. In this case, we'll actually take a bit longer than usual, because like the
+
+04:02.200 --> 04:06.680
+Docker image is fairly large. It's like under six megabytes or something. And just loading that in
+
+04:06.680 --> 04:16.600
+this fairly slow process. But any second now, the workload will start running. Okay, now it's
+
+04:16.600 --> 04:26.320
+started running. And now it's finished. Okay, so let's take a look at the output file. So just file
+
+04:26.360 --> 04:30.680
+test. And we can already see that it's a 64 bit elf binary, which is of course expected because we
+
+04:30.680 --> 04:36.160
+compile the C program. But before we actually run the executable, like, let's actually verify that
+
+04:36.160 --> 04:40.640
+it hasn't been tampered with. And we can do that by just using the same command that we used previously.
+
+04:41.440 --> 04:48.320
+But instead of saying run, we use verify. So we use the exact same configuration parameters. And
+
+04:48.320 --> 04:52.800
+this will take very shortly. And it says okay, so we know that the process hasn't been tampered with.
+
+04:52.800 --> 04:59.840
+And so as the last step, let's actually make it executable. And run it.
+
+05:03.280 --> 05:07.280
+Yeah, so you can see that also works, which is, yeah.
+
+05:10.720 --> 05:16.320
+Okay, so now that we saw how it work, like, what it's supposed to be doing, let's talk about
+
+05:16.320 --> 05:22.320
+some of the details about how it's implemented. And the first thing to note here is that it's
+
+05:22.320 --> 05:28.800
+implemented using SEV, S&P. And so in this case, we have all the virtualization. The workload is
+
+05:28.800 --> 05:33.280
+of course supplied by user, which in this case was GCC. And then around that we have a completely
+
+05:33.280 --> 05:39.840
+custom kernel, which we'll also talk about later. And around that, then we have so called supervisor,
+
+05:39.840 --> 05:45.200
+and which is a concept I came up with, which is basically just responsible for communicating
+
+05:46.240 --> 05:51.520
+between the kernel and the host. And the important thing to note here is that most of the logic is
+
+05:51.520 --> 05:56.880
+actually in the kernel. And this will probably grow a lot in the future as well. And the supervisor
+
+05:56.880 --> 06:02.960
+is fairly slow, not slow, fairly small, and will also probably not grow a lot in the future. It
+
+06:02.960 --> 06:07.840
+might even shrink. And even in this configuration, there's some code that's like disabled at compile
+
+06:07.840 --> 06:13.920
+time because it's only there for like debug features. Okay. So about the kernel, it's completely
+
+06:13.920 --> 06:20.480
+written in Rust. It just implements the Linux Cisco interface, so that we can run unmodified
+
+06:20.480 --> 06:27.360
+Linux programs. It currently implements 83 Cisco's more or less because like some Cisco's have a
+
+06:27.360 --> 06:32.240
+lot of flags and we don't implement all of those. But still it's a lot of, it's enough for some of
+
+06:32.240 --> 06:39.360
+the applications at least. And yeah. So apart from that, we also support 32-bit and 64-bit
+
+06:39.360 --> 06:45.040
+binaries. And the reason we have this kernel is that usually you have a lot of bloat and you have
+
+06:45.040 --> 06:49.440
+a lot of stuff that you just don't need. And so the reason we have those on-custom kernels that
+
+06:49.440 --> 06:55.120
+we can just throw things away and only implement the things that we need. And yeah. We'll also need
+
+06:55.120 --> 07:02.240
+that for some things that we'll talk about shortly. Okay. So the really interesting thing I think
+
+07:02.240 --> 07:07.360
+about mushroom is the supervisor. And so I already talked about that it handles communication between
+
+07:07.360 --> 07:12.880
+the host and the kernel. What does that mean? Well, the first thing the supervisor does is
+
+07:12.880 --> 07:17.280
+actually load up the input. And so the input is not part of the initial measurement. The reason
+
+07:17.360 --> 07:21.520
+for that is that we don't want to measurement to change every time the input changes because
+
+07:21.520 --> 07:26.880
+then we can sign it or at least not in a way that's like really makes sense. The other thing is memory
+
+07:26.880 --> 07:33.200
+hot plug. So initially mushroom starts out with a very small amount of static memory. And then after
+
+07:33.200 --> 07:40.000
+that we use memory hot plug to load in more dynamic memory once it's needed. And lastly, the thing that
+
+07:40.000 --> 07:45.600
+we do during runtime is scheduling. And so if the kernel wants to run another CPU, it somehow has
+
+07:45.600 --> 07:51.600
+to tell the kernel about the host about that. And so that's also a responsibility of the supervisor.
+
+07:52.400 --> 07:56.800
+And so the interesting thing here is that this communication, it's not just a convention,
+
+07:56.800 --> 08:01.360
+it's not just that the kernel chooses to talk through the supervisor to the kernel and to the
+
+08:01.360 --> 08:07.920
+host. It's actually impossible for the host to talk to the kernel directly. And so the reason
+
+08:07.920 --> 08:12.160
+for that is that we want isolation there. We don't want the kernel to have potentially malicious
+
+08:12.160 --> 08:17.440
+input sending to the kernel and we want to prevent vulnerabilities by just not having an
+
+08:17.440 --> 08:22.640
+interface there. And this is implemented using a couple of hardware features. So for example,
+
+08:22.640 --> 08:28.400
+one of them is virtual top of memory, which just basically makes it so that the kernel can't access
+
+08:28.400 --> 08:34.080
+shared memory, which would of course be needed to access, yeah, to have shared access with the host.
+
+08:34.960 --> 08:41.600
+Another feature is VC reflect, which is basically in some cases you need the hypervisor. And instead
+
+08:41.680 --> 08:48.000
+of using the hypervisor, we can then just offload that responsibility to the supervisor. And that
+
+08:48.000 --> 08:54.640
+way the kernel doesn't even really have to be aware of it being run in a SAP VM. Lastly, the
+
+08:54.640 --> 08:59.760
+separation between the kernel and the supervisor, which is of course also important, is done using
+
+08:59.760 --> 09:04.080
+virtual memory privilege levels, which basically makes it so that the supervisor is allowed to
+
+09:04.080 --> 09:09.920
+access all memory. But the kernel is not. So for example, the supervisor has some secret keys that
+
+09:09.920 --> 09:14.400
+it uses for agitation. And the kernel is of course not allowed to access those secret keys.
+
+09:15.040 --> 09:20.320
+And yeah. So the important thing here though is that the supervisor is the only
+
+09:21.200 --> 09:28.000
+security critical component. The kernel can have as many bugs as it wants. The host will never
+
+09:28.000 --> 09:34.400
+be able to talk to the kernel directly. So it doesn't really matter if there are security
+
+09:34.400 --> 09:38.320
+bugs in there. And this is of course really nice for auditing, because the only thing we have to
+
+09:38.320 --> 09:42.400
+audit and make sure that it actually works is the supervisor, which is this once again fairly small
+
+09:43.440 --> 09:51.920
+fairly small component of code. Yeah. So for the VMM, we don't use QMU or anything.
+
+09:52.560 --> 09:58.720
+Reason for that being is that we have this fairly custom like memory hotplug and so on. And like
+
+09:58.720 --> 10:05.040
+all those interfaces and getting the data in and out. So yeah, instead of using something that already
+
+10:05.040 --> 10:09.520
+existed, that maybe has like abstractions that are not ideal for us. And we just implemented this
+
+10:09.520 --> 10:13.680
+for our own. It's not actually that complicated because we once again, we don't have that much
+
+10:14.880 --> 10:21.120
+host guest communication. So this VMM doesn't really have to implement a lot. And as of a couple
+
+10:21.120 --> 10:27.200
+of weeks ago, it also supports running the kernel outside of an SCV SMP VM, which is of course
+
+10:27.200 --> 10:33.360
+really useful for like debugging and profiling. And maybe not everyone has an S like an epic CPU
+
+10:33.440 --> 10:41.600
+that can actually run those VMs. Okay, so we already talked about a lot about things that we
+
+10:41.600 --> 10:47.680
+want to do, which yeah, but there are also things that we don't want to do. So one of those important
+
+10:47.680 --> 10:54.000
+things is that we don't want to do IO at runtime. If I want to run GCC, I don't need network. I will
+
+10:54.000 --> 10:58.400
+never need that. That's just not a thing that we need. And sort of thing is by not having network,
+
+10:58.480 --> 11:03.840
+we can reduce the tech surface drastically. And once again, like reduce complexity in the
+
+11:03.840 --> 11:09.440
+supervisor in the kernel and mitigate vulnerabilities by just not implementing interfaces. Of course,
+
+11:09.440 --> 11:13.680
+there are a lot of a lot of use cases where you do need network. But in those cases, you can just
+
+11:13.680 --> 11:18.880
+use standard Linux and like, you can just use other projects. But the point is that for a lot of
+
+11:18.880 --> 11:25.040
+projects and workloads, you don't need the extra complexity and job us by just not implementing
+
+11:25.040 --> 11:30.960
+that you can lower the potential for vulnerabilities. Same logic goes for persistent storage. So every
+
+11:30.960 --> 11:37.600
+time mushroom boots up, you boot into tempfs with like all those files that you split doing initialization.
+
+11:38.320 --> 11:42.800
+But once the VM actually exits, all that memory is destroyed because for a lot of use cases,
+
+11:42.800 --> 11:48.560
+you don't need persistent disk. And by not having that, you can once again, low complexity. Similarly,
+
+11:48.560 --> 11:53.200
+we also have fairly low complexity in the supervisor, which once again is this one part that's
+
+11:53.200 --> 11:57.360
+actually security critical. So one of the things that you might have noticed is that none of the
+
+11:57.360 --> 12:02.640
+things that the supervisor is doing are really CPU bound or performance critical in any way. And so
+
+12:02.640 --> 12:06.720
+for example, we can get away by just not implementing multi threading, because in reality, there's
+
+12:06.720 --> 12:11.840
+nothing that requires that amount of performance that could potentially be that could potentially
+
+12:11.840 --> 12:17.600
+like get a performance boost by multi threading. And so by not implementing multi threading, we can
+
+12:17.600 --> 12:23.440
+once again, just like eliminate the whole class of concurrency bucks, because that's just can't
+
+12:23.440 --> 12:28.560
+happen if you don't have multi threading. Similarly, the supervisor is fairly simple and doesn't
+
+12:28.560 --> 12:32.480
+actually need the heap. And then once again, we can just not have any bucks in there if you don't
+
+12:32.480 --> 12:37.680
+have a heap, if you don't need it. And yeah, so I think those non goals also really important
+
+12:38.800 --> 12:43.280
+because they could strain the things that we want to do and that way, like increase the security
+
+12:43.920 --> 12:51.680
+by setting up clear goals. Okay. So lastly, let's talk about agitation. I'm sorry,
+
+12:51.680 --> 12:55.520
+talked about the measurement. So in this case, this contains all of the binaries that you want
+
+12:55.520 --> 13:01.040
+to load up in, which is the first supervisor, the kernel and the in the binary. Those could
+
+13:01.040 --> 13:05.760
+be signed in the future. Currently, we just compare the raw hash. And so the SEV firmware,
+
+13:05.760 --> 13:11.120
+when you load in the image, it like hashes all the memory and like chains it together and just
+
+13:11.120 --> 13:17.440
+produces a hash that you could be some could sign, but we don't currently. And the host data field
+
+13:17.440 --> 13:23.760
+is also field that's supplied when the VM is booted up. And so this, this field just contains
+
+13:23.760 --> 13:28.640
+a hash of the input file. And the first thing the supervisor does is when it boots up is
+
+13:28.640 --> 13:32.320
+loading the input file and actually verifying that that hashes correct. So it doesn't even
+
+13:32.320 --> 13:37.600
+really look at the data, it just hashes it. And that way, there's no way hopefully for the data
+
+13:37.680 --> 13:43.200
+for the input file to potentially be malicious and influence the supervisor before it's actually
+
+13:43.200 --> 13:49.360
+been verified that it actually is the one that we want to see. And lastly, of course, we also want
+
+13:49.360 --> 13:57.440
+to attest the report, I'd like the output. And this is put in the report data field. And this is
+
+13:57.440 --> 14:02.480
+also interesting because this is actually the only field that the guests can influence at runtime.
+
+14:03.360 --> 14:08.240
+So both the measurement and the host data field are set by the SCV firmware. And even if you have
+
+14:08.240 --> 14:15.440
+like some malicious input file or malicious input binary, you can only modify like you can only
+
+14:15.440 --> 14:20.160
+modify the report data field. And so this is really important because if you have like, assume,
+
+14:20.160 --> 14:25.120
+assume you have some untrusted input, you will never be able to fortune attestation report in such a
+
+14:25.120 --> 14:31.440
+way that it pretends to have to come from another host data from another input file. And that way,
+
+14:31.520 --> 14:37.280
+we can just like by making this the simple abstraction choice, we can hopefully reduce the
+
+14:38.080 --> 14:43.920
+potential for any vulnerabilities there. And so this is also another thing where it's compared
+
+14:43.920 --> 14:50.800
+comparatively simpler compared to other projects. Because one of the things is that we only do
+
+14:50.800 --> 14:56.720
+attestation at the end of the process. So we don't have any certificates during runtime. And because
+
+14:57.200 --> 15:01.360
+we don't have any IO at runtime, and so we just don't need any other certificates
+
+15:02.160 --> 15:07.760
+that would usually have to interface with other services. And like, I can see why there are a lot
+
+15:07.760 --> 15:16.240
+of problems like sanitization. But that's just one of the things that this model doesn't really need.
+
+15:16.240 --> 15:20.320
+And similarly for like this encryption case, so the attestation model for mushroom is just
+
+15:20.320 --> 15:26.320
+really, really simple. And hopefully made in such a way that's actually easy to audit for external
+
+15:26.320 --> 15:30.960
+people if they wanted to do that. Okay, so do we have any questions about that?
+
+15:39.920 --> 15:46.800
+Thanks a lot for a very interesting talk. So I particularly like this demo that you showed
+
+15:46.800 --> 15:52.480
+because showing like this use case where you actually run a compiler inside the CVM is like a
+
+15:52.480 --> 15:57.840
+very, very desirable property in like build environments where you want to have this notion
+
+15:57.840 --> 16:04.240
+of hermiticicity where like you actually record the entire tool chain that you use to produce
+
+16:04.240 --> 16:10.240
+software. So related to this, I sort of had a question related to the sort of the trust
+
+16:10.240 --> 16:15.840
+assumptions here. So you talked about this that the supervisor is the sort of the only
+
+16:15.920 --> 16:22.800
+security critical component, but that basically only applies to the communication between like
+
+16:22.800 --> 16:28.480
+the outside world and the kernel. And but you still, you know, you later talk about it that you
+
+16:28.480 --> 16:36.320
+can still have like attacks via the input itself. So for instance, if I have like malicious code
+
+16:36.320 --> 16:43.120
+that targets some vulnerability in GCC, let's say, that's still possible, right? But on the other hand,
+
+16:43.120 --> 16:49.760
+that gets somehow recorded in as part of that station. Can you a little bit like elaborate on
+
+16:50.560 --> 16:57.040
+like, like these aspects? Yeah. Thank you. Great question. Yeah, of course. So
+
+16:58.480 --> 17:04.000
+yeah, so if you have an malicious input, that would show up in the attestation report. And I mean,
+
+17:04.000 --> 17:08.240
+ideally, if you have like a scenario where you want to have like a code cache, where you like
+
+17:08.320 --> 17:16.240
+compile, compile code once, you will only supply inputs that like are not malicious. So as long
+
+17:16.240 --> 17:20.800
+as you don't like request malicious inputs, you will not get malicious inputs out outputs out.
+
+17:22.720 --> 17:27.600
+Yeah. So I mean, in theory, there could be like attacks from the inside, but that's not really
+
+17:27.600 --> 17:31.280
+a problem because that always shows up in the attestation report and like a normal user will
+
+17:31.280 --> 17:41.760
+not request that. So yeah. Yes. Yes. So an additional comment was that this is audible.
+
+17:42.560 --> 17:46.720
+The question was whether or not this is auditable. And yeah, so the answer to that is yes,
+
+17:46.720 --> 17:52.000
+everything shows up in the attestation report. And yeah, so hopefully that's not a threat.
+
+17:53.840 --> 17:54.960
+Any other questions?
+
+18:01.520 --> 18:08.160
+Thank you. This was awesome. And then it's not a question is a feature request. If you could
+
+18:08.160 --> 18:14.720
+spit out as bomb, as bomb from, from the compilation thing with, you know, that would be fantastic.
+
+18:17.200 --> 18:21.120
+And yeah, well, the thing about that is that mushroom is not necessarily only meant for
+
+18:21.120 --> 18:25.120
+compilation processes. But if you want to do that, that's great. And one of the things I've
+
+18:25.200 --> 18:31.120
+been toying around with was, was running nix compilations and nix builds in that. And of
+
+18:31.120 --> 18:35.360
+course, those are already contained like in the build hashes, like the way nix works,
+
+18:35.920 --> 18:40.960
+all the inputs are already specified in that. And so if in that scenario, you would like
+
+18:40.960 --> 18:45.840
+more or less have an S form at least like traceable to some input. And but that's independent
+
+18:45.920 --> 18:50.000
+from mushroom. But of course, that's also the use case I intended. Okay.
+
+18:55.680 --> 19:00.560
+So yeah, first of all, very awesome work. I really like that you show that these
+
+19:01.520 --> 19:07.360
+confidential VM based solutions can also be used with very tiny trust computing bases. That's nice.
+
+19:07.360 --> 19:13.040
+And I mostly agree with your design choice of the non golds. But they said that you don't support
+
+19:13.040 --> 19:17.600
+mighty swing. But wouldn't that be somewhat important for compilation to be able to run on
+
+19:17.600 --> 19:24.880
+multiple costs? And it's kind of CPU can you consuming? Yeah, sure. And so this thing about
+
+19:24.880 --> 19:29.680
+multi threading, this only applies to the supervisor. The actual kernel can run as many
+
+19:29.680 --> 19:35.360
+costs as he wants. I mean, technically, a second limit on 128. But yeah, that could be changed.
+
+19:35.360 --> 19:39.120
+And it's probably enough. Yeah.
+
+19:43.040 --> 19:49.680
+Maybe a question also moving forward, you mentioned support and also even protected
+
+19:49.680 --> 19:55.840
+combination. Do you have a part of your design and I'm thinking about the PMPL support?
+
+20:02.000 --> 20:05.760
+Okay, so the question was whether or not my designs are tied to S&P,
+
+20:05.760 --> 20:11.200
+a CV S&P, or whether or not they could also apply on TDX. So currently, the supervisor is
+
+20:11.200 --> 20:16.480
+highly specific to S&P. But I don't see a reason right now why it couldn't be implemented for
+
+20:16.480 --> 20:23.520
+something like Intel TDX. That should probably be possible. Yeah, I mean, the MPLs are specific
+
+20:23.520 --> 20:29.600
+by I think with TDX stuff like partitions, maybe that could be something. I'm not sure. I haven't
+
+20:29.600 --> 20:32.480
+looked into that. Yeah.
+

@@ -1,0 +1,794 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Can you hear me okay?
+
+00:13.000 --> 00:20.000
+Cool. Okay. So if sound doesn't work for the rest of the presentation, this is basically
+
+00:21.840 --> 00:28.840
+the key of it, right? So I'm a compiler engineer, I'm not an ML specialist, so I'm not a compiler
+
+00:30.000 --> 00:37.000
+engineer, so kind of like a heads up, if I say something wrong about ML, that's why.
+
+00:37.720 --> 00:44.720
+You can use ML in an industrial compiler, which is LLVM. Actually, show off hands, does anyone
+
+00:44.840 --> 00:51.840
+have you heard about LLVM, Clang? Cool. Okay. About half. I have a slide about that too.
+
+00:51.920 --> 00:58.920
+So out of the box, actually, as of Clang 17, it's not very well documented, because it's
+
+01:01.480 --> 01:08.480
+still work in progress, but you can actually connect to Clang and train models. So that's
+
+01:08.640 --> 01:14.520
+an interface just for training. It's a DMM kind of an interface. I think that means something
+
+01:14.520 --> 01:21.520
+to the ML community, if not, tell me. And this is not vaporware, it's just a virtual
+
+01:21.840 --> 01:25.200
+computer. In the sense that we actually use it for real, right? So I mean, you can read
+
+01:25.200 --> 01:29.520
+what's there, but we've been using it for about almost four years now, and we have some
+
+01:29.520 --> 01:35.640
+experience with it. And most of the talk is actually about trying to get to point three
+
+01:35.640 --> 01:42.640
+there, which is like what we've learned. The rest of it is set up. Okay. So LLVM, for those
+
+01:43.640 --> 01:50.640
+that did not raise their hand, is an open source project. It's a compiler. Actually, LLVM
+
+01:53.080 --> 02:00.080
+itself is a library. So it defines an intermediate representation. That's what IR stands for. It
+
+02:00.920 --> 02:07.420
+contains state of the art optimizations. It also knows how to lower to X86 or ARM or
+
+02:07.500 --> 02:14.500
+other targets. And then Clang is something like it compiles C or C++ down to LLVM IR.
+
+02:16.300 --> 02:21.980
+So basically Clang is built on top of LLVM. And so it's Swift. There's a Rust compiler.
+
+02:21.980 --> 02:27.980
+There's a Fortran compiler as well. And I mean, the LLVM project is bigger than this.
+
+02:27.980 --> 02:34.980
+There's a full tool chain there, like debugger, linker, all of that. Actually, shameless plug
+
+02:35.660 --> 02:42.660
+for the LLVM community that I'm part of. There's a dev room this afternoon here somewhere.
+
+02:44.580 --> 02:49.700
+To us, to Google, so I work at Google. To us, C and C++ is very important. Basically,
+
+02:49.700 --> 02:56.700
+anything that is performance critical, which is basically anything is written in C or C++.
+
+02:57.660 --> 03:04.580
+When we say C and C++, I really mean LLVM. And when I talk about LLVM, I mean LLVM at
+
+03:04.660 --> 03:10.300
+the tip of three in GitHub. So we don't have a special fork or anything like this. And
+
+03:10.300 --> 03:16.620
+we really chase the head by plus, like, well, minus usually two weeks. So we're very close
+
+03:16.620 --> 03:22.500
+to the head all the time. We have a release theme that keeps it basically in sync.
+
+03:22.500 --> 03:29.500
+And even small performance improvements matter, because a 1% saving across the fleet really
+
+03:29.500 --> 03:36.500
+means that much less hardware you have to buy, what you have to produce or consume, et
+
+03:36.980 --> 03:41.860
+cetera. And we keep doing this. All the performance improvements that we make are small, but they're
+
+03:41.860 --> 03:48.860
+constant. And it's like interest. It compounds. Our binary is no shocker. They serve RPC requests.
+
+03:49.860 --> 03:56.860
+No surprise there. The key thing is that to do that, to optimize these things, there's
+
+03:59.660 --> 04:03.980
+many things you can do. But as a compiler engineer, we're primarily occupied with how
+
+04:03.980 --> 04:10.220
+do we make the RPC request complete quickly. And the RPC request traverses a lot of code.
+
+04:10.220 --> 04:14.660
+Most of it is actually not the code that you want to execute. So there's things like networking
+
+04:14.700 --> 04:19.940
+stack, serialization, deserialization, security, blah, blah, blah, blah. And all of those things
+
+04:19.940 --> 04:24.580
+are reusable code. And they try to be genetic, which is the exact opposite of what I want
+
+04:24.580 --> 04:28.540
+for performance. Because for performance, I want it to be as specialized to what I'm
+
+04:28.540 --> 04:33.540
+actually doing. Like, I don't want it to be genetic, right? And for that reason, actually,
+
+04:33.540 --> 04:38.340
+the biggest levers that we have for performance are we collect profiles that tell us, like,
+
+04:38.340 --> 04:41.740
+well, actually, the program is spending time and then we reoptimize it. So we recompile
+
+04:41.820 --> 04:46.300
+it with them. And link them optimizations, which are basically like we can look at the
+
+04:46.300 --> 04:53.300
+whole program and try to, based on that understanding, try to make the right decisions. So things
+
+04:54.620 --> 04:58.780
+are big, like, you know, lots of data, lots of instructions to execute, nothing fits in
+
+04:58.780 --> 05:02.980
+any cache. I'm not being ambiguous there. I'm being actually precise. No cache fits
+
+05:02.980 --> 05:08.580
+the data that we're talking about, the instructions or the actual data being processed. So that's
+
+05:08.660 --> 05:14.660
+why, like, optimizations like inlining are, you know, very impactful because they contextualize,
+
+05:14.660 --> 05:20.420
+so they specialize things down to what you actually really have to execute. And then
+
+05:20.420 --> 05:23.860
+you end up with large functions, which means that optimizations are register allocation
+
+05:23.860 --> 05:30.860
+or have like a big problem to solve. What am I doing? Okay. Here we go. Okay. Which kind
+
+05:32.100 --> 05:36.580
+of gets us to why we want to do ML, right? So we want to do ML because we're looking
+
+05:36.580 --> 05:43.580
+at problems that are, sorry, sequential decision making. So inlining is about, hey, is this
+
+05:43.580 --> 05:47.700
+call site worth inlining? Sure. Okay. Fine. Well, the program just changed now, right?
+
+05:47.700 --> 05:52.340
+So what about this other call site? Is it still worth inlining? Maybe not, right? So as you
+
+05:52.340 --> 05:58.260
+go along, the state of the problem that you're trying to optimize changes, we don't have
+
+05:58.260 --> 06:02.100
+an Oracle that tells us what's the perfect optimization decision, especially at like
+
+06:02.140 --> 06:08.820
+the scale that we're talking about. I'm kind of like getting us to say reinforcement learning,
+
+06:08.820 --> 06:14.420
+probably no surprise to an ML community. Because I mean, otherwise what we do is like we have
+
+06:14.420 --> 06:18.100
+heuristics that can only operate on like local information. And because I mean, there's
+
+06:18.100 --> 06:22.940
+the one that actually we can make sense out of, right? So, and we have evidence that they're
+
+06:22.940 --> 06:26.660
+not good enough in the sense that we know that if we play a bit with them, we can, we
+
+06:26.700 --> 06:32.300
+can find headroom in optimization. So, but, you know, we cannot constantly twizzle with
+
+06:32.300 --> 06:35.740
+them, right? Like we want something a bit more systematic. So that's why we are interested
+
+06:35.740 --> 06:42.740
+in ML. We are also scared of ML because the compiler is about everything that ML is not.
+
+06:43.540 --> 06:48.940
+So the compiler must be correct. I don't think that it's a surprise to anyone, but it's a
+
+06:48.940 --> 06:55.220
+non-negotiable. The compiler must be deterministic again, because otherwise it's something that
+
+06:55.260 --> 06:58.700
+you cannot live with or, you know, to take forever to compile things because we cannot
+
+06:58.700 --> 07:05.700
+do incremental builds. So ML at least like naively to us felt like something more analog,
+
+07:06.060 --> 07:09.660
+right? Like it's more like, well, fuzzy, maybe something and that's not, not what we are
+
+07:09.660 --> 07:16.660
+about, right? So how did we go about it? Well, first we're not asking ML to deal with correctness.
+
+07:19.460 --> 07:23.780
+So already in the, in the code that I'm talking about, like in the compiler code that makes
+
+07:23.780 --> 07:28.460
+decisions like in lining and register location and things like this, we kind of already had
+
+07:28.460 --> 07:32.660
+a separation between what's correct. So, you know, there are certain things that are illegal
+
+07:32.660 --> 07:36.820
+to do so that we don't do them. We don't even wonder are they worth, like, you know, would
+
+07:36.820 --> 07:42.120
+they be valuable in doing it? We just don't do them. What we did here is we stressed that
+
+07:42.120 --> 07:49.120
+boundary even more. So we created like a very clear interface between ML questions and like
+
+07:49.120 --> 07:53.680
+what heuristic or policy questions and, you know, correctness issues. So the correctness
+
+07:53.680 --> 08:00.040
+stuff is, you know, written in normal imperative C C plus plus code that we can all look at
+
+08:00.040 --> 08:05.800
+and agree that it's actually correct, right? Module of bugs as always. But then out of
+
+08:05.800 --> 08:12.520
+choices that are equally correct, we go and ask ML, you know, which one should we make?
+
+08:12.520 --> 08:17.880
+To the end user, we don't want to tell them any of these not because it's like a shame
+
+08:17.960 --> 08:23.600
+or anything, but because it's the more different the compiler would look like the more difficult
+
+08:23.600 --> 08:28.560
+it would be to adopt it. So how about we make it look the same as it is today, which means
+
+08:28.560 --> 08:34.800
+no new dependencies, nothing extra, just additional flags, right? So that's something that is
+
+08:34.800 --> 08:41.640
+fine. So which really means that when we give the compiler to the user, we embed, we need
+
+08:41.640 --> 08:45.520
+to embed the models inside and not show any sort of like dependency on some sort of like
+
+08:45.600 --> 08:49.120
+an inference engine or anything like that. But for training, there's totally different. So
+
+08:49.120 --> 08:53.800
+for training, we're totally cool with like, depending on like TensorFlow and like whatever
+
+08:53.800 --> 08:58.520
+and, you know, like random generators in the weights and all of that is fine because that
+
+08:58.520 --> 09:02.440
+this training and actually we're fine with compiling a different compiler just for training,
+
+09:02.800 --> 09:07.120
+because that's not something that, you know, like, it's not for like everybody, right? So
+
+09:07.120 --> 09:11.680
+it's just for whoever does the training activity, which we also want to be rare because we don't
+
+09:11.760 --> 09:15.680
+want to like keep training it as you're trying to ship a product, right? So, you know, like, we
+
+09:15.680 --> 09:19.680
+give you the compiler and then like, hopefully the more the models are good enough, just like
+
+09:19.680 --> 09:24.160
+heuristics today, like, you know, like to, to resist changes that people make to their code,
+
+09:24.160 --> 09:31.920
+right? So basically, there's two types of interfaces that we ended up having. One is
+
+09:31.920 --> 09:36.840
+between compiler and policy. And there's like domain specific. What I mean is like, there's a
+
+09:36.880 --> 09:41.960
+different question that you ask is an inlining pass from the one that you ask is a register
+
+09:41.960 --> 09:46.440
+locator from the one that you ask is a instruction selector or something like that. But then the
+
+09:46.440 --> 09:52.040
+ML obstruction, like the way we interact with the mail is common because fundamentally ML to us
+
+09:52.040 --> 09:57.520
+looks like a function that we pass a bunch of tensors to and it comes back with an answer. And
+
+09:57.520 --> 10:04.320
+we, you know, like how it's implemented is, you know, it's not important, but it's irrelevant
+
+10:04.360 --> 10:08.560
+from the perspective of the interface and the implementations that we have are like either
+
+10:08.560 --> 10:14.760
+ahead of time, like I mentioned, or, you know, the interpreters who use TF light, like the
+
+10:14.760 --> 10:26.240
+people in embedded or for the DMM case, we're actually doing IPC over pipes. So the state in
+
+10:26.240 --> 10:31.640
+LLVM today, like if you, if you go to GitHub and you pull LLVM down, you basically have everything
+
+10:32.640 --> 10:42.040
+that you need to, to, you know, add the mail to a pass if you're a compiler engineer. It's TensorFlow
+
+10:42.040 --> 10:47.640
+centric, no surprise there, but it doesn't have to be. So the obstruction that I mentioned earlier
+
+10:47.640 --> 10:52.840
+can be, you know, like, I mean, you can, you can plug by the pytorch or anything like that. I mean,
+
+10:52.840 --> 10:59.000
+we, we made a pipe based protocol work over that obstruction. So it's clearly not TensorFlow
+
+10:59.040 --> 11:07.720
+specific. Any tools that are genetic, you know, like other utilities, like how you collect a corpus
+
+11:07.720 --> 11:16.320
+for training, right? So that's a problem. That's also in LLVM. We used to have them in, in, in a
+
+11:16.360 --> 11:24.320
+different repository, also open source, but they make more sense to go into LLVM. The training
+
+11:24.320 --> 11:29.040
+tools that we use, so for example, the, the fuchsia operating system that I had on an earlier slide
+
+11:30.440 --> 11:34.680
+trains using those tools, they are available there to as a, as a reference. But if you are a
+
+11:34.680 --> 11:38.880
+researcher, you probably want to use something like compiler Jim that is more research, research
+
+11:38.880 --> 11:43.760
+friendly. So there's kind of like different concerns in, in these tools. And then there's also
+
+11:43.760 --> 11:49.960
+like using the tooling that I mentioned, like there's, there's another body of work that produced a
+
+11:49.960 --> 11:56.240
+large corpus of IR that you can use for like whatever you want, like training for these purposes, or
+
+11:56.240 --> 12:02.000
+maybe doing LLVM training or anything like that. There's links there. In fact, like all the links in
+
+12:02.000 --> 12:07.720
+the, in the slide that are in the, you know, like when you go to falls them and you see the talk,
+
+12:07.800 --> 12:18.480
+they're there. Okay, what we learned, that's what I wanted to get to. And I'm doing well with time. Okay,
+
+12:18.520 --> 12:24.320
+so the, the, it works thing, right? So there's a difference between, I mean, there's been work doing
+
+12:24.320 --> 12:28.440
+ML with compilers in academia, but I mean, that there's a big difference between that and actually
+
+12:28.440 --> 12:37.560
+shipping a product and shipping a compiler for production teams. So the key thing is that, at
+
+12:37.560 --> 12:43.400
+least with a size problem, we have evidence from, from the Fuchsia team that it can work completely,
+
+12:43.400 --> 12:49.400
+meaning like they periodically, like about every month, pull LLVM, retrain a model on their code
+
+12:49.400 --> 12:57.920
+base, all on vanilla build bots. So they're like normal CPU based machines. They train for like
+
+12:57.920 --> 13:03.520
+about a day or so. And they produce a compiler at the end of that that optimizes for, for size,
+
+13:03.520 --> 13:08.880
+because that's what they care about. There's links, I think, down there, like an example of such a
+
+13:08.880 --> 13:16.080
+build bot. So it all, you know, this can be done completely openly. And the key thing also is that
+
+13:16.080 --> 13:22.080
+it works like turnkey, meaning like you don't need someone to go and pay attention to it. It just
+
+13:22.080 --> 13:26.280
+works repeatedly. And he's been working like this for like almost four years now, which is, which is
+
+13:26.280 --> 13:31.360
+good. Like we have a signal that we can have like an industrial process that produces an optimized
+
+13:31.360 --> 13:40.000
+compiler, you know, on a cadence, right? Okay, here's what it didn't work. So performance is hard. So,
+
+13:40.000 --> 13:48.000
+okay, so you are ML experts, you are not surprised at the statement that for reinforcement learning,
+
+13:48.000 --> 13:56.360
+the, the quality of the reward is very important. And we understood that through we, okay, it makes
+
+13:56.360 --> 14:04.120
+sense. However, for performance, the problem is a bit tricky. So it goes like this, you cannot just say, oh,
+
+14:04.120 --> 14:09.400
+let's run programs and see how well they run, because it takes time to build a program. And it takes
+
+14:09.400 --> 14:14.680
+time to run it. So you either do it very quickly, which, which means that you're doing it for small
+
+14:14.680 --> 14:20.000
+little benchmarks, which are completely relevant to what we're doing, right? So then basically you learn
+
+14:20.240 --> 14:24.640
+on something that has feature value distributions that have no match in what we're actually going to try to
+
+14:24.640 --> 14:34.000
+use it for. So we don't want to do that. Or you cannot do it. Like, it just takes too much time. So we were
+
+14:34.000 --> 14:37.880
+like, hold on a second, but we have profile information, like I talked earlier, like, we know, we collect
+
+14:37.880 --> 14:42.360
+this profile information that tells us where the program spends time and how many iterations loops take and
+
+14:42.360 --> 14:48.120
+all of that. So can't we do something based on that that kind of like guesstimates, at least a trend, right?
+
+14:48.120 --> 14:53.440
+Like, we don't care about absolute values, but at least something that can allow us to compare, you know, like to a
+
+14:53.440 --> 15:00.600
+baseline, the results of applying a new policy. And we thought we could any kind of worked like for register
+
+15:00.600 --> 15:08.160
+location. But we ended up having to select a winning model out of like a set of models that we trained, you
+
+15:08.160 --> 15:13.840
+know, like with this over synthetic reward. And we're not very happy with that. Like it's not how to put this
+
+15:13.840 --> 15:20.080
+like, we're missing that explanatory thing of like, well, why, you know, like, so if I do it for how long do I
+
+15:20.120 --> 15:25.960
+have to do it? And what do I have to look at when I look at the TensorFlow rewards and all of that? Like, what do I
+
+15:25.960 --> 15:32.480
+have to look at to know that I have to take it out and now train it or like, sorry, compare these models on on on
+
+15:32.480 --> 15:37.640
+running benchmarks? There's basically a bit of a waka mall. And that's not engineering. That's waka mall, right?
+
+15:38.080 --> 15:43.640
+So this is basically the main challenge for performance. And I basically like, you know, scaling this effort to more
+
+15:43.640 --> 15:54.560
+performance problems. And well, knowing that there's efforts on that, of course, like, come on, okay. ML model
+
+15:54.560 --> 16:02.080
+evaluation costs. So in the big scheme of things, when we did like in lining for size, or we did register
+
+16:02.080 --> 16:09.240
+location, I mean, we measured like the micro measurements on how much it takes to evaluate the model. But in the big
+
+16:09.280 --> 16:15.120
+scheme of things of like the entire compilation of a module, like of a C plus plus, basically, they kind of like goes
+
+16:15.120 --> 16:21.520
+in the noise, like it was more like a few percent variations. And it's fine. But there's not going to be that funny if the
+
+16:21.600 --> 16:26.600
+methodology, you know, like gains traction, right? There's not going to have lots of these things that take a lot of
+
+16:26.600 --> 16:35.160
+time. Also, the size of the model, which is really the weights, seems like it was kind of surprising to us. Initially, we
+
+16:35.200 --> 16:44.880
+had a small one and then working with some researchers in other teams at Google, they managed to produce a much, much
+
+16:44.880 --> 16:53.520
+larger model kind of accidentally, like, which kind of like took us by surprise, like it was suddenly 11 megs, like out of
+
+16:53.520 --> 16:58.520
+nowhere. And it's kind of funny when we're trying to optimize something for for reducing the size of either binary and
+
+16:58.600 --> 17:05.960
+LLVM itself blew up, right? I think that these are more like things that caught us by surprise. And we, to our
+
+17:05.960 --> 17:13.360
+understanding, in talking to ML experts, there's ways to mitigate this. But we kind of learned that we look a lot more
+
+17:13.360 --> 17:16.960
+like an embedded scenario than that we imagined, basically.
+
+17:19.880 --> 17:26.680
+So kind of like an interesting research topic, I think it's interesting at least to us as compiler engineers, but it's a
+
+17:26.680 --> 17:35.400
+research topic for the ML community, rather. How would we know without having to actually compare the result that a
+
+17:35.400 --> 17:43.040
+policy loses power, if you will, right? So, you know, like I was saying, people like Fuchsia, for example, train a
+
+17:43.040 --> 17:50.520
+policy and then they just decided, well, we'll just retrain one automatically whenever we we produce a new toolchain,
+
+17:50.520 --> 17:58.200
+right? But is that overly aggressive? Or was it like about time to do that anyway? Like, it'd be great to have a signal
+
+17:58.200 --> 18:04.680
+that tells you, hey, you know, hypothetically, maybe the feature value distribution changed, and it's out of the domain that
+
+18:04.680 --> 18:10.000
+actually the model was trained on. So hint hint nudge nudge, maybe it's time to train. But we don't know if that's
+
+18:10.000 --> 18:15.400
+actually what the indicator is. So that's what I say. I think it's an interesting topic that would be valuable to us, because
+
+18:15.400 --> 18:21.680
+it was give us an early indicator purely based on compiling, right? We can run the compiler and just see these values as you
+
+18:21.680 --> 18:32.200
+compile. You don't have to like do benchmarking for for for that. Oh, so in retrospect, I really so this is like honest
+
+18:32.200 --> 18:39.480
+truth. The first statement is true. We thought that right, like we are convinced that ML is magical. And we will get
+
+18:39.480 --> 18:45.440
+these policies that are awesome. And there will be at least not regressing and you know, like improving things and there will
+
+18:45.440 --> 18:52.360
+be no regressions and things will be great. And then we saw that all of them have the typical pattern that we have also in
+
+18:52.360 --> 19:00.840
+manually written heuristics, which is, you know, some things regress, some things improve. So that's all things are, I suppose. And
+
+19:00.840 --> 19:05.960
+maybe we can do something better than than that with additional policies that select the right one. But that was a bit of a
+
+19:05.960 --> 19:17.800
+surprise to us. Okay, performance. So like I was saying, I guess performance is some issues. But we went ahead and like,
+
+19:18.400 --> 19:28.640
+looked at like, where does the train model find opportunities for additional savings, right? And taking a step back. So what do I do as a
+
+19:28.640 --> 19:35.940
+compiler engineer in these sort of cases, like I look with Linux Perftool at, you know, runtime information. And I see
+
+19:35.940 --> 19:42.220
+where it's read. So where there's hotspots. And then I think really hard and look at the compiler and why it made those decisions.
+
+19:42.660 --> 19:50.500
+And I go and fix that. And then the red turns gray or green and sweet, right? And then I have to do it again and again until I make
+
+19:50.500 --> 19:56.900
+sure that there's no regressions in other parts of the code base. But that is basically what you do in that case. So when we looked
+
+19:56.900 --> 20:04.980
+at like functions that we had both indicators in the reward signal as poor as it was. But I mean, it was indicating that, you
+
+20:04.980 --> 20:10.820
+know, he's doing better. And we looked also empirically at them like, and yeah, they were doing better. And we're like, well, why? Right?
+
+20:10.820 --> 20:17.580
+So we look at the code and we couldn't tell why like we look at with Linux Perft and there was nothing shining, right? I mean, the code was
+
+20:17.580 --> 20:25.500
+different, right? Like we could tell that like, you know, pure line by line, you know, deep, it was different, but nothing was
+
+20:25.500 --> 20:31.340
+popping. And then we did a bit more investigation. And it turns out that the mail was finding or like, you know, the enforcement learning
+
+20:31.340 --> 20:39.020
+algorithm was finding opportunities in lukewarm parts of the code. So these are things that kind of like end up being like a peanut
+
+20:39.020 --> 20:48.380
+butter effect, right? Like I mean, nothing in particular is bad, or is improved categorically. But in aggregate, you can, you know, you
+
+20:48.380 --> 20:55.580
+get like a spread effect that is actually amounting to something. Great, but it's possible that that something is actually just noise,
+
+20:55.580 --> 21:01.140
+right? And I mean, today, we don't have a way of capturing that. Like we just say, Hey, here's the profile that we got by
+
+21:01.140 --> 21:08.060
+collecting it from from a running binary. And then I'm as is great. Okay, here I found an opportunity and actually that's just purely
+
+21:08.060 --> 21:16.900
+noise, right? So this is the part that I kind of had a bit of a trouble like how am I going to title it or anything. So what I ended up
+
+21:16.900 --> 21:25.380
+doing is just saying what I wanted to say. So as a compiler engineer, so as a developer in the open source, like as an LLVM compiler
+
+21:25.420 --> 21:32.460
+engineer, if this pans out more, like, you know, if you get more passes and the mail is, you know, like actually delivering more and
+
+21:32.460 --> 21:41.140
+more value to us, right? What's going to happen, right? So, well, on the plus side, I spent less time, you know, like tuning and
+
+21:41.140 --> 21:49.340
+twizzling with thresholds and other flags that I have today in the compiler, because I actually can can use a automatic feedback driven,
+
+21:49.620 --> 21:56.460
+self improving methodology, right? Like reinforcement learning. Okay, I think that's great, because I can actually focus on understanding
+
+21:56.460 --> 22:01.820
+what actually matters, right? Like for for driving that performance, like what features are important stuff like that.
+
+22:03.740 --> 22:11.580
+The barrier to entry though might change. So today you can use like, you know, like, you know, cheap, not this one, but a cheap machine,
+
+22:11.580 --> 22:23.860
+right? And compile the compiler and look at performance, you know, like optimization problems, and it's all fine. And ML, at least my view of it is
+
+22:23.860 --> 22:29.740
+that it has this risk of like quickly skidding into like, Oh, you need a farm of computers. And today, that's not the case, like I was
+
+22:29.740 --> 22:36.860
+saying, like, with what we've been doing, the models are small. So we didn't hit that problem. But that's a consideration, right? Like, I
+
+22:36.860 --> 22:48.060
+mean, is it going to be harder for, you know, the compiler engineer aspirant of the future to enter the field or what? The mental
+
+22:48.060 --> 22:52.740
+model is kind of different. You can have hinting at that before, right? Like, I mean, like, you don't think of the problem like you
+
+22:52.740 --> 22:59.700
+were before, you look at Linux perf and you find hotspots and stuff like that. But that's fine. Different, different just means
+
+22:59.940 --> 23:07.020
+different. It means like, you know, we can adapt, right? This is my pet peeve. Like the when you look as a compiler engineer, the ML
+
+23:07.020 --> 23:12.060
+frameworks, they are scary, because they're like very low level and they talk about things that I don't understand. And they're not
+
+23:12.060 --> 23:17.660
+talking about things that I want them to talk about. And we're not sure yet where that interface is. And I think that part of the
+
+23:17.700 --> 23:26.580
+the goal of the project is to kind of like figure out what that interface is. But today, it's like that. Like I was saying, there's
+
+23:26.580 --> 23:32.580
+links in the, all the links are actually in the, in the deck. And that's the end of my presentation. Yeah, questions.
+
+23:41.460 --> 23:50.820
+So the optimizations that you find using machine learning in code, can they also be put in LLVM itself without using machine
+
+23:50.820 --> 23:59.380
+learning? Or is it, can it only be learned using machine language because it is using the data, for instance, optimizations?
+
+24:04.500 --> 24:13.940
+So the optimizations, can they also be put in LLVM itself without using machine learning? Is it missing up? Is LLVM missing
+
+24:13.940 --> 24:16.100
+up? The optimizations that you find using machine learning?
+
+24:17.580 --> 24:24.340
+Right. So I'll say just to make sure that you're saying like the types of optimizations that we learned, could we just do them as
+
+24:24.340 --> 24:32.460
+normal imperative code back in LLVM? Some yes, some no. So especially the, when we looked at the type of optimizations that the size
+
+24:32.860 --> 24:41.020
+optimizer was doing, means some decisions are unexplainable, right? To do the wrong thing early on, but just because he kept
+
+24:41.020 --> 24:46.740
+learning the statistic by taking that path later is going to be all right. So that's kind of hard to translate into imperative
+
+24:46.740 --> 24:54.540
+code, I think. But some, some might be. What I'm saying is that the hope is that we, like so far in the evidence is that we kind of,
+
+24:55.060 --> 24:56.300
+it's hard to do that.
+
+25:00.060 --> 25:02.940
+We only have one time for one more question, one more question after this.
+
+25:03.940 --> 25:12.940
+Hi, thanks for your great talk. You've been talking about applying these techniques to clang and traditional compilers targeting,
+
+25:12.940 --> 25:23.940
+well, executables in the usual sense. What about machine learning compilers? So I'm thinking, yeah, applying ML to ML. I know there is some research
+
+25:23.940 --> 25:26.820
+in that. Do your techniques connect to that?
+
+25:27.820 --> 25:28.700
+Yes.
+
+25:31.820 --> 25:42.820
+So applying ML to ML compilers, right? I mean, MLIR, for example, is part of the LLVM project. And I think that there is work trying to do that too.
+
+25:42.820 --> 25:50.820
+And the infrastructure would be the same because I mean, it's all the same code, right? I'm not an ML for ML compilers compiler engineer. The word compiler appears
+
+25:50.820 --> 25:58.820
+way too many times, but we work with those people, like, so I don't see a reason they cannot apply this. I think that the domain though is,
+
+25:58.820 --> 26:09.820
+has its own idiosyncrasies that you cannot just take exactly what it is and apply it over, but the tooling would be the same. Does that make sense? Okay.
+
+26:11.820 --> 26:15.820
+One more question. All the way up there, really?
+
+26:20.820 --> 26:47.820
+Hi. I saw during the slide that one of the problems is that you are not really aware if by choosing a tree, a representational tree of the semantics that you are trying to compile, it's going to be better or worse compared to another tree that you are not for.
+
+26:47.820 --> 27:02.820
+And I was wondering, are we using the operative research theory? I mean, all the mixed integer linear programming theory that gives you a model of the reality and help you understanding how far you are from the
+
+27:02.820 --> 27:05.820
+optimal value of a certain representation.
+
+27:10.820 --> 27:18.820
+So, I'm not sure understood the question. Let me try to say back to your saying, are we applying? Okay, yeah.
+
+27:19.820 --> 27:38.820
+I'm seeing that machine learning basically relies on a loss on how far you are from a certain optimal value. And I'm seeing that there's a branch of mathematics called operational research that his work is trying to describe a word in an idealized
+
+27:39.820 --> 28:00.820
+matter. And you try to describe how it's costing respect to my objective value, making a certain decision instead of another one, and you get like a math formula. And there's the simplex algorithm that helps you to traverse those.
+
+28:01.820 --> 28:08.820
+Yeah, and I was wondering, are we trying to integrate those two fields of mathematics to reach?
+
+28:08.820 --> 28:21.820
+So, I think, let me give the answer because it's also time. So, and if the answer doesn't make sense, let's talk. I think the key problem is like understanding what that gap is, actually measuring that. And it goes back to the reward signaling thing.
+
+28:22.820 --> 28:37.820
+So, should we apply what you said? Probably, again, I'm not an expert in that. So, I mean, if you think it's worth doing like great. But the problem is that you'll hit very quickly is that the reward that we give or the signal that we give is bad.
+
+28:37.820 --> 28:48.820
+Right? So, then probably the rest of it falls, right? So, we need to fix that first before we can apply these things. But yeah, absolutely. Like, I mean, we should try all sorts of like methodologies. Like, there's a whole point.
+
+28:48.820 --> 28:53.820
+Did I make sense or did I miss it? Okay, let's talk more.
+
+28:53.820 --> 28:57.820
+All right, everyone give March another round of applause, please.
+
+29:02.820 --> 29:15.820
+All right, we're starting in about two more minutes. So, please, stick around. Don't forget, the desks are very loud. Please hold them down. Don't slam them.
+
+29:15.820 --> 29:18.820
+And we have the matrix room up and running again.
+
+29:18.820 --> 29:25.820
+Can you help me try to figure out how to make the both mics work? Can you do that? Can you hold it and can you talk to that?
+
+29:25.820 --> 29:27.820
+And unmute it in a second.
+
+29:33.820 --> 29:34.820
+This, this.
+
+29:36.820 --> 29:38.820
+Yeah, yeah. Can you start?
+
+29:38.820 --> 29:42.820
+How about now? Hello? Can someone give me a thumbs up?
+
+29:42.820 --> 29:43.820
+No.
+
+29:43.820 --> 29:46.820
+Someone got a thumbs up? Hey, thanks Marty.
+
+29:48.820 --> 29:49.820
+One second.
+
+29:56.820 --> 29:57.820
+Huh.
+
+29:57.820 --> 29:59.820
+At all. Nothing at all?
+
+29:59.820 --> 30:04.820
+Nothing? Okay, yeah, this is not working at all.
+

@@ -1,0 +1,206 @@
+All right. So the next speaker is Tom Dormann and Tom is a real hacker. So I first met Tom
+last year at the CCC event where he talked about, which I did a bit about, an attack
+he did on NX. And I think it's very inspiring in the Dev Room that we have this great company
+talks, but it's also really nice in the real, let's say free software ethos. Tom, there's
+also some work in his free time, just pure hobby projects. And he'll talk a bit about
+work he's been doing on AMD-SEV.
+Sure. So thank you for the introduction. Today my talk will be on integrity protecting
+Linux workloads with Mushroom. Okay. So what are you going to talk about? Well, first up,
+we'll talk about some of the goals of Mushroom. And then I give a short demo to show you how
+it actually works. And then we'll talk about higher level architecture and some of the
+parts in particular. So the supervisor, kernel and the DMM host. And then we'll also talk
+about some of the things we don't want to do, some non goals. And finally, we'll briefly
+touch on how Attestation works with Mushroom. Okay. So, but this is a micro walker. Yeah.
+Okay. But before that, a brief thing about me. So my name is Tom Dormann. I mostly do
+developing and re-security research. But my day job is also reverse engineering. Here are
+some of my links. And one thing about me is that I also really love Rust. So all of the
+code that you may see here today is also written in Rust. Okay. So what do we want to do? The
+main goal is to run Linux programs securely. And in particular, we want to run programs
+that just transform an input file or maybe multiple input files into an output file or
+potentially multiple output file files. And while doing that, we want to prevent any
+tampering during the process so that we can make sure that the output files are authentic. So
+for example, one use case would be that you have some untrusted server and that you want to
+compile code on. And ideally, you want to not trust that server, but still be assured somehow
+that there hasn't been a backdoor injected somewhere in your code. And you just want to have
+assurance that the code has been compiled without any tampering. So yeah. I'll give a brief
+domain of that. So yeah. Okay. So what we'll be doing, I already talked about workloads.
+Mushroom is completely generic in what kind of workload you want to run. It has to be
+Linux binary, but that's basically it. So for this example, I chose to do a simple Docker image
+and just because it's easy to set up. And so in this case, it's an alpine image, which has
+GCC and muzzle installed. And it will run this in its script, which just copies the input file
+and that we want to transform to another file on the file system. And then we'll run GCC on that.
+And then in the end, we'll use that output and copied it to a special output device. And so the
+file that we want to compile is this one right here. Yeah. So it's just a simple head award,
+just a proof of concept. Okay. So, yeah, I should clear that. Okay. So beforehand, I already set up
+some like environment variables just for some of the components. But the important thing is this
+one right here. Okay. So what we'll do is we'll run this command, which as you might already notice
+contains some information like the input file that you just that I just showed to you. It also
+specifies the output and it also specifies where to put the gestation report. And because that's in
+the end, how we really know that that process hasn't been tabbed with is that gestation report. And
+so we'll run that. In this case, we'll actually take a bit longer than usual, because like the
+Docker image is fairly large. It's like under six megabytes or something. And just loading that in
+this fairly slow process. But any second now, the workload will start running. Okay, now it's
+started running. And now it's finished. Okay, so let's take a look at the output file. So just file
+test. And we can already see that it's a 64 bit elf binary, which is of course expected because we
+compile the C program. But before we actually run the executable, like, let's actually verify that
+it hasn't been tampered with. And we can do that by just using the same command that we used previously.
+But instead of saying run, we use verify. So we use the exact same configuration parameters. And
+this will take very shortly. And it says okay, so we know that the process hasn't been tampered with.
+And so as the last step, let's actually make it executable. And run it.
+Yeah, so you can see that also works, which is, yeah.
+Okay, so now that we saw how it work, like, what it's supposed to be doing, let's talk about
+some of the details about how it's implemented. And the first thing to note here is that it's
+implemented using SEV, S&P. And so in this case, we have all the virtualization. The workload is
+of course supplied by user, which in this case was GCC. And then around that we have a completely
+custom kernel, which we'll also talk about later. And around that, then we have so called supervisor,
+and which is a concept I came up with, which is basically just responsible for communicating
+between the kernel and the host. And the important thing to note here is that most of the logic is
+actually in the kernel. And this will probably grow a lot in the future as well. And the supervisor
+is fairly slow, not slow, fairly small, and will also probably not grow a lot in the future. It
+might even shrink. And even in this configuration, there's some code that's like disabled at compile
+time because it's only there for like debug features. Okay. So about the kernel, it's completely
+written in Rust. It just implements the Linux Cisco interface, so that we can run unmodified
+Linux programs. It currently implements 83 Cisco's more or less because like some Cisco's have a
+lot of flags and we don't implement all of those. But still it's a lot of, it's enough for some of
+the applications at least. And yeah. So apart from that, we also support 32-bit and 64-bit
+binaries. And the reason we have this kernel is that usually you have a lot of bloat and you have
+a lot of stuff that you just don't need. And so the reason we have those on-custom kernels that
+we can just throw things away and only implement the things that we need. And yeah. We'll also need
+that for some things that we'll talk about shortly. Okay. So the really interesting thing I think
+about mushroom is the supervisor. And so I already talked about that it handles communication between
+the host and the kernel. What does that mean? Well, the first thing the supervisor does is
+actually load up the input. And so the input is not part of the initial measurement. The reason
+for that is that we don't want to measurement to change every time the input changes because
+then we can sign it or at least not in a way that's like really makes sense. The other thing is memory
+hot plug. So initially mushroom starts out with a very small amount of static memory. And then after
+that we use memory hot plug to load in more dynamic memory once it's needed. And lastly, the thing that
+we do during runtime is scheduling. And so if the kernel wants to run another CPU, it somehow has
+to tell the kernel about the host about that. And so that's also a responsibility of the supervisor.
+And so the interesting thing here is that this communication, it's not just a convention,
+it's not just that the kernel chooses to talk through the supervisor to the kernel and to the
+host. It's actually impossible for the host to talk to the kernel directly. And so the reason
+for that is that we want isolation there. We don't want the kernel to have potentially malicious
+input sending to the kernel and we want to prevent vulnerabilities by just not having an
+interface there. And this is implemented using a couple of hardware features. So for example,
+one of them is virtual top of memory, which just basically makes it so that the kernel can't access
+shared memory, which would of course be needed to access, yeah, to have shared access with the host.
+Another feature is VC reflect, which is basically in some cases you need the hypervisor. And instead
+of using the hypervisor, we can then just offload that responsibility to the supervisor. And that
+way the kernel doesn't even really have to be aware of it being run in a SAP VM. Lastly, the
+separation between the kernel and the supervisor, which is of course also important, is done using
+virtual memory privilege levels, which basically makes it so that the supervisor is allowed to
+access all memory. But the kernel is not. So for example, the supervisor has some secret keys that
+it uses for agitation. And the kernel is of course not allowed to access those secret keys.
+And yeah. So the important thing here though is that the supervisor is the only
+security critical component. The kernel can have as many bugs as it wants. The host will never
+be able to talk to the kernel directly. So it doesn't really matter if there are security
+bugs in there. And this is of course really nice for auditing, because the only thing we have to
+audit and make sure that it actually works is the supervisor, which is this once again fairly small
+fairly small component of code. Yeah. So for the VMM, we don't use QMU or anything.
+Reason for that being is that we have this fairly custom like memory hotplug and so on. And like
+all those interfaces and getting the data in and out. So yeah, instead of using something that already
+existed, that maybe has like abstractions that are not ideal for us. And we just implemented this
+for our own. It's not actually that complicated because we once again, we don't have that much
+host guest communication. So this VMM doesn't really have to implement a lot. And as of a couple
+of weeks ago, it also supports running the kernel outside of an SCV SMP VM, which is of course
+really useful for like debugging and profiling. And maybe not everyone has an S like an epic CPU
+that can actually run those VMs. Okay, so we already talked about a lot about things that we
+want to do, which yeah, but there are also things that we don't want to do. So one of those important
+things is that we don't want to do IO at runtime. If I want to run GCC, I don't need network. I will
+never need that. That's just not a thing that we need. And sort of thing is by not having network,
+we can reduce the tech surface drastically. And once again, like reduce complexity in the
+supervisor in the kernel and mitigate vulnerabilities by just not implementing interfaces. Of course,
+there are a lot of a lot of use cases where you do need network. But in those cases, you can just
+use standard Linux and like, you can just use other projects. But the point is that for a lot of
+projects and workloads, you don't need the extra complexity and job us by just not implementing
+that you can lower the potential for vulnerabilities. Same logic goes for persistent storage. So every
+time mushroom boots up, you boot into tempfs with like all those files that you split doing initialization.
+But once the VM actually exits, all that memory is destroyed because for a lot of use cases,
+you don't need persistent disk. And by not having that, you can once again, low complexity. Similarly,
+we also have fairly low complexity in the supervisor, which once again is this one part that's
+actually security critical. So one of the things that you might have noticed is that none of the
+things that the supervisor is doing are really CPU bound or performance critical in any way. And so
+for example, we can get away by just not implementing multi threading, because in reality, there's
+nothing that requires that amount of performance that could potentially be that could potentially
+like get a performance boost by multi threading. And so by not implementing multi threading, we can
+once again, just like eliminate the whole class of concurrency bucks, because that's just can't
+happen if you don't have multi threading. Similarly, the supervisor is fairly simple and doesn't
+actually need the heap. And then once again, we can just not have any bucks in there if you don't
+have a heap, if you don't need it. And yeah, so I think those non goals also really important
+because they could strain the things that we want to do and that way, like increase the security
+by setting up clear goals. Okay. So lastly, let's talk about agitation. I'm sorry,
+talked about the measurement. So in this case, this contains all of the binaries that you want
+to load up in, which is the first supervisor, the kernel and the in the binary. Those could
+be signed in the future. Currently, we just compare the raw hash. And so the SEV firmware,
+when you load in the image, it like hashes all the memory and like chains it together and just
+produces a hash that you could be some could sign, but we don't currently. And the host data field
+is also field that's supplied when the VM is booted up. And so this, this field just contains
+a hash of the input file. And the first thing the supervisor does is when it boots up is
+loading the input file and actually verifying that that hashes correct. So it doesn't even
+really look at the data, it just hashes it. And that way, there's no way hopefully for the data
+for the input file to potentially be malicious and influence the supervisor before it's actually
+been verified that it actually is the one that we want to see. And lastly, of course, we also want
+to attest the report, I'd like the output. And this is put in the report data field. And this is
+also interesting because this is actually the only field that the guests can influence at runtime.
+So both the measurement and the host data field are set by the SCV firmware. And even if you have
+like some malicious input file or malicious input binary, you can only modify like you can only
+modify the report data field. And so this is really important because if you have like, assume,
+assume you have some untrusted input, you will never be able to fortune attestation report in such a
+way that it pretends to have to come from another host data from another input file. And that way,
+we can just like by making this the simple abstraction choice, we can hopefully reduce the
+potential for any vulnerabilities there. And so this is also another thing where it's compared
+comparatively simpler compared to other projects. Because one of the things is that we only do
+attestation at the end of the process. So we don't have any certificates during runtime. And because
+we don't have any IO at runtime, and so we just don't need any other certificates
+that would usually have to interface with other services. And like, I can see why there are a lot
+of problems like sanitization. But that's just one of the things that this model doesn't really need.
+And similarly for like this encryption case, so the attestation model for mushroom is just
+really, really simple. And hopefully made in such a way that's actually easy to audit for external
+people if they wanted to do that. Okay, so do we have any questions about that?
+Thanks a lot for a very interesting talk. So I particularly like this demo that you showed
+because showing like this use case where you actually run a compiler inside the CVM is like a
+very, very desirable property in like build environments where you want to have this notion
+of hermiticicity where like you actually record the entire tool chain that you use to produce
+software. So related to this, I sort of had a question related to the sort of the trust
+assumptions here. So you talked about this that the supervisor is the sort of the only
+security critical component, but that basically only applies to the communication between like
+the outside world and the kernel. And but you still, you know, you later talk about it that you
+can still have like attacks via the input itself. So for instance, if I have like malicious code
+that targets some vulnerability in GCC, let's say, that's still possible, right? But on the other hand,
+that gets somehow recorded in as part of that station. Can you a little bit like elaborate on
+like, like these aspects? Yeah. Thank you. Great question. Yeah, of course. So
+yeah, so if you have an malicious input, that would show up in the attestation report. And I mean,
+ideally, if you have like a scenario where you want to have like a code cache, where you like
+compile, compile code once, you will only supply inputs that like are not malicious. So as long
+as you don't like request malicious inputs, you will not get malicious inputs out outputs out.
+Yeah. So I mean, in theory, there could be like attacks from the inside, but that's not really
+a problem because that always shows up in the attestation report and like a normal user will
+not request that. So yeah. Yes. Yes. So an additional comment was that this is audible.
+The question was whether or not this is auditable. And yeah, so the answer to that is yes,
+everything shows up in the attestation report. And yeah, so hopefully that's not a threat.
+Any other questions?
+Thank you. This was awesome. And then it's not a question is a feature request. If you could
+spit out as bomb, as bomb from, from the compilation thing with, you know, that would be fantastic.
+And yeah, well, the thing about that is that mushroom is not necessarily only meant for
+compilation processes. But if you want to do that, that's great. And one of the things I've
+been toying around with was, was running nix compilations and nix builds in that. And of
+course, those are already contained like in the build hashes, like the way nix works,
+all the inputs are already specified in that. And so if in that scenario, you would like
+more or less have an S form at least like traceable to some input. And but that's independent
+from mushroom. But of course, that's also the use case I intended. Okay.
+So yeah, first of all, very awesome work. I really like that you show that these
+confidential VM based solutions can also be used with very tiny trust computing bases. That's nice.
+And I mostly agree with your design choice of the non golds. But they said that you don't support
+mighty swing. But wouldn't that be somewhat important for compilation to be able to run on
+multiple costs? And it's kind of CPU can you consuming? Yeah, sure. And so this thing about
+multi threading, this only applies to the supervisor. The actual kernel can run as many
+costs as he wants. I mean, technically, a second limit on 128. But yeah, that could be changed.
+And it's probably enough. Yeah.
+Maybe a question also moving forward, you mentioned support and also even protected
+combination. Do you have a part of your design and I'm thinking about the PMPL support?
+Okay, so the question was whether or not my designs are tied to S&P,
+a CV S&P, or whether or not they could also apply on TDX. So currently, the supervisor is
+highly specific to S&P. But I don't see a reason right now why it couldn't be implemented for
+something like Intel TDX. That should probably be possible. Yeah, I mean, the MPLs are specific
+by I think with TDX stuff like partitions, maybe that could be something. I'm not sure. I haven't
+looked into that. Yeah.

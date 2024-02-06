@@ -1,0 +1,929 @@
+WEBVTT
+
+00:00.000 --> 00:10.720
+All right guys, so back to the matter of the day.
+
+00:10.720 --> 00:17.120
+The next speaker is Kian who works at Evervolt and I think it's quite exciting to have a
+
+00:17.120 --> 00:21.640
+bit of a complimentary perspective in let's say this exciting new field where we talk
+
+00:21.640 --> 00:26.400
+a lot about new technologies, but you will actually talk about how to use them in production.
+
+00:26.400 --> 00:28.480
+So take it away.
+
+00:28.480 --> 00:31.920
+Thanks.
+
+00:31.920 --> 00:38.680
+So I work for Evervolt and I will talk about Evervolt to begin with just so you know why
+
+00:38.680 --> 00:43.880
+we use enclaves in production and not just traditional computing.
+
+00:43.880 --> 00:49.320
+So we offer also, I don't know how loud that is if I'm too quiet, tell me so I can speak
+
+00:49.320 --> 00:50.920
+louder.
+
+00:50.920 --> 00:57.920
+So we offer tooling to allow customers to guarantee data security in different forms
+
+00:57.920 --> 01:03.200
+like encryption before it ever hits your system or ways to process said encrypted data
+
+01:03.200 --> 01:07.960
+in secure environments and so on and so forth.
+
+01:07.960 --> 01:11.920
+At the core of all of this is enclaves.
+
+01:11.920 --> 01:17.560
+We're running on AWS so we're using the Nitro enclaves which as far as I can tell aren't
+
+01:17.560 --> 01:21.920
+as open source as the Intel SGX or any of that stuff.
+
+01:21.920 --> 01:25.800
+But we've been doing this for a couple of years now and that was when we started the
+
+01:25.800 --> 01:32.520
+best we could find for doing VMs that guaranteed the security model that we required.
+
+01:32.520 --> 01:39.040
+So like I said encryption, so yeah we're running in fully isolated VMs where we can basically
+
+01:39.040 --> 01:45.040
+see nothing that's happening inside the VM without a lot of effort on our part which
+
+01:45.040 --> 01:48.520
+is mainly so we can protect our users data.
+
+01:48.520 --> 01:54.360
+So just to give the context, relay is our main product is what I would say.
+
+01:54.360 --> 01:59.920
+It's an encryption proxy, you put it in front of your service and you define some rules
+
+01:59.920 --> 02:05.520
+and before the service your request ever hit you, the rules are applied and all your data
+
+02:05.520 --> 02:06.520
+is encrypted.
+
+02:06.520 --> 02:11.800
+Sorry, I lost my mouse.
+
+02:11.800 --> 02:19.160
+So yeah so it's very much focused on web services but it's mainly for people who want
+
+02:19.160 --> 02:24.760
+to de-scope their environment so they can be more PCI compliant or protect HIPAA data
+
+02:24.760 --> 02:27.600
+and stuff like that.
+
+02:27.600 --> 02:34.040
+Relay runs, relay doesn't run in an enclave mainly due to performance reasons because
+
+02:34.040 --> 02:39.680
+it's processing lots of network requests and we want it to get quick because encryption
+
+02:39.680 --> 02:42.800
+is slow and we don't want to add overhead to our users.
+
+02:42.800 --> 02:49.960
+So we store all of our keys inside a KMS that is accessed from a secure enclave.
+
+02:49.960 --> 02:54.640
+That service, we have no access to the keys then.
+
+02:54.640 --> 03:02.720
+On startup it tests connections to the KMS, pulls down user keys, decrypts them and then
+
+03:02.720 --> 03:09.000
+we are able to process the user's requests and outside of that environment we can't replicate
+
+03:09.000 --> 03:12.240
+anything.
+
+03:12.680 --> 03:18.960
+This started though when more users joined us and we started to scale.
+
+03:18.960 --> 03:22.840
+At first we just had a lot of automation.
+
+03:22.840 --> 03:31.840
+That was stuff like how do you run Docker containers in enclaves and how do you make sure that
+
+03:31.840 --> 03:34.120
+you can scale up or scale down.
+
+03:34.120 --> 03:41.000
+AWS Nitro enclaves are guest VMs on top of EC2 nodes.
+
+03:41.000 --> 03:45.560
+There's not much automation about actually running what's in there so you have to build
+
+03:45.560 --> 03:52.800
+it all ourselves and get all that running and actually performing requests for our users.
+
+03:52.800 --> 04:00.880
+So after we got all that running we had issues with just the libraries in general.
+
+04:00.880 --> 04:06.360
+So the parts of AWS that are open source are all the interface libraries for connecting
+
+04:06.400 --> 04:13.960
+to them but we found that there's many, many edge cases where they just were very poorly
+
+04:13.960 --> 04:20.160
+documented or not documented at all about how do you interact with it, how do you work
+
+04:20.160 --> 04:21.720
+with the proxies.
+
+04:21.720 --> 04:27.160
+So for reference for those that haven't used it, you need to run a Vsoc.
+
+04:27.160 --> 04:31.560
+There is a Vsoc on your host for communicating with the secure enclave and this is the only
+
+04:31.560 --> 04:35.520
+I.O. you have in and out of the VM.
+
+04:35.520 --> 04:39.960
+You then need to manage all the connections yourself and how you transfer data in and
+
+04:39.960 --> 04:44.520
+out and communicate.
+
+04:44.520 --> 04:51.480
+We ran into some really fun problems though trying to use this and talking to the AWS
+
+04:51.480 --> 04:54.040
+guys about using their library and getting stuff.
+
+04:54.040 --> 05:01.120
+The funnest one I think was we lost, we were dropping, we had file descriptor leakage.
+
+05:02.120 --> 05:08.960
+Our VM guests, VMs were dying because we just couldn't connect to them anymore because
+
+05:08.960 --> 05:15.240
+we run out of file descriptors on them which I had not seen in a long time aside from just
+
+05:15.240 --> 05:21.240
+like breaking my own machine which was fun.
+
+05:21.240 --> 05:25.040
+Turned out we just made some assumptions about how stuff worked because we thought, oh this
+
+05:25.040 --> 05:30.800
+is how it works in Rust and no, that wasn't how it worked in the library and we were just
+
+05:31.000 --> 05:35.440
+not reading the code but we needed to read the code which was unfortunate because I would
+
+05:35.440 --> 05:38.880
+have liked it to be in the docs.
+
+05:38.880 --> 05:45.000
+But yeah, it really showed that there was no metrics or observability for these enclaves.
+
+05:45.000 --> 05:51.120
+We weren't able to know what's happening inside them or how to interact with them.
+
+05:51.120 --> 05:55.040
+We started trying to monitor them.
+
+05:55.040 --> 05:57.920
+This was interesting.
+
+05:58.040 --> 05:59.800
+Like I said, no metrics, no nothing.
+
+05:59.800 --> 06:05.600
+I realize you probably can't see a lot of those graphs but these were our load tests.
+
+06:05.600 --> 06:11.080
+We started to try and get metrics out of them because there's limited IO.
+
+06:11.080 --> 06:16.480
+We didn't want to just try and put a metrics collector inside them and shoot all the metrics
+
+06:16.480 --> 06:19.360
+out to Datadog or AWS.
+
+06:19.360 --> 06:24.720
+We started instrumenting the clients that we were talking to it with and we started sending
+
+06:24.800 --> 06:28.320
+load data and trying out different workloads.
+
+06:28.320 --> 06:30.080
+So a lot of black box testing.
+
+06:30.080 --> 06:37.560
+This was several weeks of just staring at graphs that I may have gone a little insane
+
+06:37.560 --> 06:41.200
+during but we're here now and it worked.
+
+06:41.200 --> 06:46.560
+So once we got through it all we were able to find different bottlenecks in the code
+
+06:46.560 --> 06:53.680
+but based on guesses and automation changes we were able to go from, I don't know if you
+
+06:53.760 --> 06:58.120
+can see that but about 1,500 requests per second, no, encryptions per second inside the
+
+06:58.120 --> 07:05.520
+enclave to about 5,000 encryptions per second just by switching our default curve which we
+
+07:05.520 --> 07:11.640
+hadn't ever considered because we encourage our users to set the curve but it made massive
+
+07:11.640 --> 07:13.040
+improvements for us.
+
+07:13.040 --> 07:17.400
+But we had no idea that the encryptions themselves were the bottleneck because we couldn't see
+
+07:17.400 --> 07:23.120
+what was happening inside of our enclaves or the VMs and know where our workloads were
+
+07:23.200 --> 07:26.000
+slowing down.
+
+07:26.000 --> 07:31.920
+So once we started doing the observability we really went in on it.
+
+07:31.920 --> 07:36.080
+So we did this black box testing and we found the limit pretty quickly.
+
+07:36.080 --> 07:40.680
+We had to guess where the bottlenecks were and there was a whiteboard in the office of
+
+07:40.680 --> 07:43.720
+like here are ideas we have to try in different configurations.
+
+07:43.720 --> 07:49.120
+We just worked our way taking each box off and turning itself on and off until we were
+
+07:49.120 --> 07:52.400
+able to actually get some improvements from it.
+
+07:52.400 --> 07:59.400
+We then started working on a level of, so AWS does have a concept of debug logs but
+
+07:59.400 --> 08:03.840
+the moment you turn it on your enclave isn't actually a testable anymore.
+
+08:03.840 --> 08:11.160
+The attestation variables all just turn to zero and you're not able to attest your connection.
+
+08:11.160 --> 08:15.720
+And like I mentioned before we need to be able to attest the connection to the KMS to
+
+08:15.720 --> 08:21.280
+actually even load keys into it so we couldn't run in debug mode at all.
+
+08:21.280 --> 08:23.160
+We had to figure it out.
+
+08:23.160 --> 08:29.400
+So we had to basically reimplement a level of tracing like if anyone is familiar with
+
+08:29.400 --> 08:33.480
+open telemetry and stuff we had to come up with a way of doing trace requests inside
+
+08:33.480 --> 08:34.440
+of it.
+
+08:34.440 --> 08:38.240
+We couldn't use open telemetry because it had no understanding of how to communicate
+
+08:38.240 --> 08:40.400
+outside of the VMs.
+
+08:40.400 --> 08:46.080
+We had to take concepts, reimplement them and come up with a way of batching requests, sending
+
+08:46.080 --> 08:51.480
+them out and limiting the amount of IO overhead that we were doing that.
+
+08:51.480 --> 08:56.040
+We eventually got there and we were able to monitor our boxes.
+
+08:56.040 --> 08:59.560
+That's when we started to notice more problems.
+
+08:59.560 --> 09:09.600
+So we basically had these two processes in the enclave talk into a shutter and we expected
+
+09:09.600 --> 09:12.480
+the green line there.
+
+09:13.240 --> 09:14.240
+Yellow line would be perfect.
+
+09:14.240 --> 09:15.440
+That was our local dev environment.
+
+09:15.440 --> 09:18.560
+But the green line is what we wanted to see in production.
+
+09:18.560 --> 09:21.480
+The blue line is what we were seeing in production.
+
+09:21.480 --> 09:24.200
+I've lost.
+
+09:24.200 --> 09:30.440
+I wasn't allowed to put the lines of the numbers on it to be specific here but that was about
+
+09:30.440 --> 09:36.480
+a 20x slowdown I think which was insane.
+
+09:36.480 --> 09:37.880
+We're still debugging this one.
+
+09:37.880 --> 09:41.200
+We're not 100% sure where the bottlenecks are.
+
+09:41.200 --> 09:46.880
+We're fairly certain it's the virtualization of the network layer inside the containers
+
+09:46.880 --> 09:50.480
+is just insanely slow.
+
+09:50.480 --> 09:54.080
+So what we're looking at is how can we short circuit that.
+
+09:54.080 --> 09:56.080
+There's some things like sock maps.
+
+09:56.080 --> 09:58.720
+You can re-root sockets.
+
+09:58.720 --> 10:03.480
+But effectively you can't just take a container and throw it, take a process and throw it
+
+10:03.480 --> 10:07.120
+in or take two processes and throw it into the VM and think that will work.
+
+10:07.120 --> 10:08.520
+It works on my machine.
+
+10:08.520 --> 10:10.880
+It does not just magically work.
+
+10:10.880 --> 10:20.360
+You need to really tune the system to actually be able to talk effectively.
+
+10:20.360 --> 10:21.880
+We're still tuning it.
+
+10:21.880 --> 10:27.720
+We're hoping to have some stuff to note soon about ways to speed it up with sock map and
+
+10:27.720 --> 10:29.440
+different improvements.
+
+10:29.440 --> 10:36.440
+Like I said, it's seemingly either the VM or the user space networking.
+
+10:36.440 --> 10:43.000
+The fun one which I think was a lot of people who have worked with Enclave go, duh, of course
+
+10:43.000 --> 10:45.080
+you had time slippage.
+
+10:45.080 --> 10:48.080
+There's no NTP in an Enclave.
+
+10:48.080 --> 10:54.360
+You can mount the PTP of the hypervisor.
+
+10:54.360 --> 10:59.600
+But again, that invalidates our security model for PCI.
+
+10:59.600 --> 11:04.600
+So we had to actually synchronize with NTP which meant we need to add another layer of
+
+11:04.640 --> 11:09.360
+periodic work that needs to be done by the guest box to ensure that the VM could actually
+
+11:09.360 --> 11:12.680
+know what the hell time it was.
+
+11:12.680 --> 11:18.880
+We noticed that we were losing a second a day which is quite a lot when you are doing
+
+11:18.880 --> 11:23.120
+and that was based on traffic volume as well, more traffic, more time we lost.
+
+11:23.120 --> 11:28.760
+But if we did nothing, it was just one second a day.
+
+11:28.760 --> 11:34.000
+That really got into it when we had to do anything that was sensitive such as token
+
+11:34.040 --> 11:35.040
+validation.
+
+11:35.040 --> 11:40.920
+So, off effectively broke if a VM was running for more than three days which led us to a
+
+11:40.920 --> 11:46.240
+cron job that just cycled VMs for every three days for a little while until we re-implemented
+
+11:46.240 --> 11:49.240
+NTP through the VSOC.
+
+11:49.240 --> 11:50.240
+Fun.
+
+11:50.240 --> 11:55.320
+These are a lot of, like, yeah.
+
+11:55.320 --> 12:00.600
+So we kept running into issues and we kind of said, why is this so painful?
+
+12:00.720 --> 12:05.440
+It should be easy to just deploy a service into an enclave and give other people the
+
+12:05.440 --> 12:10.200
+ability to, like, say, yeah, that person who hosts my cloud computer definitely can't see
+
+12:10.200 --> 12:13.760
+the data being processed and I can guarantee it.
+
+12:13.760 --> 12:19.280
+Really useful for health data or financial data which are our main customers.
+
+12:19.280 --> 12:25.200
+So we put it all together and have a product called enclaves if you want an easy way to
+
+12:25.240 --> 12:27.560
+do hosted enclaves.
+
+12:27.560 --> 12:31.280
+So you can effectively give, we'll give you a Docker container.
+
+12:31.280 --> 12:32.960
+No, we don't give you anything actually.
+
+12:32.960 --> 12:39.080
+We give you a CLI and you build the Docker container with a Docker file into a secure
+
+12:39.080 --> 12:40.440
+enclave.
+
+12:40.440 --> 12:44.160
+You are given PCRs so it's fully attested.
+
+12:44.160 --> 12:47.560
+You give us your secure enclave and we run it for you.
+
+12:47.560 --> 12:54.200
+We push our data plane and control plane into the enclave and it talks to the control
+
+12:54.200 --> 12:59.400
+plane that we use so you can leverage it, all of that is open source so you can reproduce
+
+12:59.400 --> 13:02.640
+the build yourself and validate all the attestation.
+
+13:02.640 --> 13:09.640
+That's the same and ensures that everything is communicating effectively and there's no,
+
+13:12.640 --> 13:16.760
+well, me or my team aren't, like, messing with your code or changing it or anything like
+
+13:16.760 --> 13:19.320
+that.
+
+13:19.320 --> 13:20.880
+So it's just regular Docker containers.
+
+13:20.960 --> 13:25.960
+The connection is fully attestable and you can connect to it.
+
+13:25.960 --> 13:28.960
+I see 10 minutes and I probably don't need that long.
+
+13:28.960 --> 13:33.720
+So, but yeah, we're working on this.
+
+13:33.720 --> 13:37.840
+We're taking everything we learn from building our own service, putting it into our Everloot
+
+13:37.840 --> 13:41.440
+enclaves and it's on our GitHub.
+
+13:41.440 --> 13:46.480
+If you want to have a look and go through it, we want to be able to, people to be able
+
+13:46.480 --> 13:50.000
+to look at it, see that we're not doing anything wrong and try it out and hopefully have a
+
+13:50.080 --> 13:55.200
+better experience getting on boarded with confidential computing than we had because
+
+13:55.200 --> 14:00.920
+it was a lot of like throwing stuff at the wall, seeing what broke, where it broke and
+
+14:00.920 --> 14:03.440
+trying to figure it out.
+
+14:03.440 --> 14:06.440
+I'm going to go for questions then.
+
+14:14.040 --> 14:15.440
+You said you had problems with curse.
+
+14:15.440 --> 14:17.760
+British didn't be using ECC.
+
+14:17.760 --> 14:19.960
+Do you have any idea why the curse might have been a problem?
+
+14:20.040 --> 14:23.880
+Are you hitting page boundaries, packet boundaries or any ideas?
+
+14:23.880 --> 14:28.760
+Yeah, so we what we were seeing was that it was in the CPU.
+
+14:28.760 --> 14:31.880
+There was optimizations that we hadn't accounted for.
+
+14:31.880 --> 14:40.480
+So by default, the box we were developing on ARM Max, who were highly optimized for
+
+14:40.480 --> 14:45.160
+the curve we were using in default, which led us to like say, great, look at the performance
+
+14:45.160 --> 14:49.480
+here on our local machines deployed to production performance crashed.
+
+14:49.520 --> 14:54.800
+Turns out the AWS boxes we were running on were optimized for the standard K1 curve or
+
+14:54.800 --> 14:58.280
+one curve, a camera, which one it is now, but basically wrong curve.
+
+14:58.760 --> 15:02.800
+And we were an evening in the enclave, those optimizations still come true.
+
+15:02.800 --> 15:06.600
+So we were able to get 20 X performance gains from that, I think.
+
+15:08.640 --> 15:09.640
+Anyone else?
+
+15:12.000 --> 15:19.240
+Can you elaborate a bit on the nature of the payload or whatever you're executing
+
+15:19.240 --> 15:25.760
+there? Because I mean, we saw there pretty much encryption transactions.
+
+15:26.440 --> 15:29.480
+But what was exactly running there?
+
+15:30.880 --> 15:32.720
+So what do we run in the enclave?
+
+15:33.640 --> 15:41.600
+So for the benchmark was so the benchmark was basically fuzzing was what we were doing.
+
+15:41.840 --> 15:43.960
+But we send.
+
+15:44.560 --> 15:48.800
+So as I mentioned, in the enclaves, we have all our customer keys each in it.
+
+15:49.040 --> 15:53.880
+So we had one of our keys in there that we would send 20,000.
+
+15:54.040 --> 15:57.680
+So we would have 20,000 fields to encrypt.
+
+15:57.840 --> 16:00.920
+And we'd say each of these fields, we're going to iterate through this dictionary
+
+16:00.920 --> 16:04.400
+and encrypt it. So we'd send just a generic JSON blob.
+
+16:04.720 --> 16:10.040
+But for purposes of encryption, we could send just that we could just be a Boolean
+
+16:10.040 --> 16:11.800
+or a string or whatever and just send it in.
+
+16:12.400 --> 16:18.160
+And we then would iterate through that JSON blob and it would have the it would say,
+
+16:18.200 --> 16:24.640
+I am this user or application in which would then cause service to choose the right key.
+
+16:25.120 --> 16:29.280
+And it would then just it and they would say, these are the fields inside the
+
+16:29.280 --> 16:31.120
+JSON blob to find and encrypt.
+
+16:31.760 --> 16:35.240
+So it was JSON blob and ID and fields encrypt.
+
+16:35.720 --> 16:38.200
+Very simple payload, but it was just iterative work.
+
+16:39.360 --> 16:43.040
+And because of how the encryption is implemented, it's all blocking work.
+
+16:43.040 --> 16:48.040
+So we'd have to farm out the work differently, not like directly related
+
+16:48.040 --> 16:53.040
+to enclaves, but when we did the load testing, we determined that we were blocking
+
+16:53.040 --> 16:57.240
+and dropping connections in the service.
+
+16:57.600 --> 17:01.320
+So what was happening was the connection we'd schedule the work on the enclave
+
+17:02.320 --> 17:05.680
+and then the connection from the upstream service would die.
+
+17:06.240 --> 17:09.200
+Then we wouldn't propagate that connection dying downstream.
+
+17:09.480 --> 17:13.680
+The enclave would do the work, try to send the encryption back and then go,
+
+17:13.960 --> 17:15.440
+oh, no one wants this work and stop.
+
+17:15.680 --> 17:18.400
+So we had to put some keep alive and connections.
+
+17:18.640 --> 17:21.640
+But these are again the things we missed because we were having to
+
+17:21.640 --> 17:29.880
+reimplement just what would be generic TCP or or HP for talking over the Vsoc in the enclave.
+
+17:35.480 --> 17:41.640
+So you mentioned the the architecture you you are using
+
+17:41.840 --> 17:47.160
+made you adapt your cryptographic parameters.
+
+17:48.240 --> 17:51.920
+So how would that scale up to the future?
+
+17:52.120 --> 17:58.720
+I mean, crypto agility facing any words on that?
+
+18:02.000 --> 18:03.520
+I don't know.
+
+18:03.640 --> 18:08.360
+I'm the SRE who's meant to make such scale, but that's actually outside of my domain.
+
+18:08.360 --> 18:11.960
+We have people who understand cryptography a lot better than me and the company who
+
+18:11.960 --> 18:13.760
+would be able to answer that question.
+
+18:14.320 --> 18:18.920
+I can give you an email address if you want to talk about it, but I can't speak myself on that.
+
+18:24.480 --> 18:25.640
+Thanks a lot for the great talk.
+
+18:26.640 --> 18:30.840
+So I wanted to go a little bit back to like the use case you presented in the beginning.
+
+18:31.360 --> 18:36.360
+And I might have missed something, but it sort of sounds to me that like the use case
+
+18:36.360 --> 18:41.920
+here was not really like a sort of protection at runtime, but it's kind of like a long term
+
+18:41.920 --> 18:46.760
+protection of the of the keys and not while they are used by the proxy, but where they are in store.
+
+18:47.320 --> 18:53.240
+So did you like consider other solutions for this like HSM's and do you have like any
+
+18:53.280 --> 19:01.120
+insights there that why did you end up choosing the nitro enclaves for this particular particular use case?
+
+19:02.120 --> 19:05.520
+So I'll be honest, that predates me at the company.
+
+19:05.520 --> 19:06.720
+I'm not sure why it is.
+
+19:06.760 --> 19:12.240
+I will I would say that we did level of evaluation that were probably not too deep.
+
+19:12.520 --> 19:18.800
+We are a startup for and find our feet at the time and we had implemented a level of encryption
+
+19:19.440 --> 19:21.080
+just inside a process.
+
+19:21.360 --> 19:27.400
+And then when we attempted to secure it and build it, the enclaves seemed like an easy solution.
+
+19:27.400 --> 19:31.000
+I think that we've proven they were not an easy solution.
+
+19:32.000 --> 19:38.520
+But yeah, that's so we we would have valid what we validated were just ways to do encryption
+
+19:38.560 --> 19:44.240
+that would guarantee we didn't have access to users keys and we couldn't decrypt any of their data.
+
+19:44.640 --> 19:48.920
+And yeah, uncle, it seemed easy in reality, not so easy.
+
+19:48.920 --> 19:52.000
+So there's one online question.
+
+19:52.600 --> 19:55.240
+Can you explain the TSTLF protocol that you use?
+
+19:55.280 --> 19:58.680
+Is the protocol specified somewhere and has it been formally verified?
+
+20:00.040 --> 20:02.240
+So it is.
+
+20:02.280 --> 20:04.840
+So we actually had to reimplement it.
+
+20:04.880 --> 20:11.040
+We I can't remember which one we did, but we've looked at one that was done by the confidential
+
+20:11.080 --> 20:12.040
+computing.
+
+20:12.160 --> 20:19.960
+Consorting more of the paper that was published on it and we it was attestation in TLS connection
+
+20:20.000 --> 20:23.000
+inserts as our original implementation.
+
+20:24.000 --> 20:27.760
+That then I can't remember the specifics of it.
+
+20:27.800 --> 20:31.760
+So I will have to refer you to our get history on this.
+
+20:32.280 --> 20:35.920
+We deployed it and we were able to do it.
+
+20:36.000 --> 20:44.200
+In production because people had to add our root CA to their root CA store because you couldn't
+
+20:44.240 --> 20:49.600
+extend TLS in the way that was specified in the RCA for customers.
+
+20:49.640 --> 20:56.640
+So we eventually had to switch to a new attestation, which unfortunately I'm not the expert on.
+
+20:57.160 --> 20:59.640
+But it is available in the TLS.
+
+20:59.640 --> 21:01.640
+It's written in Rust.
+
+21:01.680 --> 21:09.120
+It's on actually it is linked in the talks on the page and the files them under attestation
+
+21:09.160 --> 21:09.720
+bindings.
+
+21:09.760 --> 21:13.760
+So anyone can look at the protocol we use for a testing it.
+
+21:13.800 --> 21:20.160
+Effectively, we leverage the PCRs that are provided by the underlying nitro enclave to
+
+21:20.200 --> 21:24.760
+and then we have an attestation protocol that we use to test the TLS.
+
+21:24.760 --> 21:31.360
+The underlying nitro enclave to and then we have an attestation protocol that on connection
+
+21:31.400 --> 21:38.040
+to what we do a TLS handshake that then performs the attestation and the client must supply
+
+21:38.080 --> 21:42.840
+the attestation bindings and we have implementations on the client side and go
+
+21:42.880 --> 21:45.880
+Rust node Ruby Python.
+
+21:45.920 --> 21:48.520
+Actually not Ruby, just Python and node and go.
+
+21:48.560 --> 21:51.720
+Oh and Swift and Kotlin.
+
+21:55.720 --> 21:59.880
+I will ask it like this because the interference with the micro and then you can
+
+21:59.920 --> 22:01.880
+Yeah, sure.
+
+22:01.920 --> 22:06.880
+So there was also a bit of discussion in the chat here about nitro enclaves and in what
+
+22:06.920 --> 22:10.280
+far you can go about the E and I know this is an endless debate and we even had an
+
+22:10.320 --> 22:12.280
+exclusive debate last year.
+
+22:12.320 --> 22:17.960
+Maybe can you briefly react to that and maybe also say a bit about the infrastructure you
+
+22:18.000 --> 22:22.280
+built, how tidal is to nitro and then the next problem can be solved.
+
+22:22.280 --> 22:26.280
+Yeah, so last, oh yeah, sorry, repeating the question.
+
+22:26.320 --> 22:31.040
+It's the debate about nitro enclave versus TLS.
+
+22:31.080 --> 22:35.160
+They are not, as I said, they're not as open source because it's mainly on the client side,
+
+22:35.200 --> 22:39.400
+they're open source rather than the server side and it's mainly just white papers, I
+
+22:39.440 --> 22:46.240
+believe that specify how the nitro enclaves operate or just documentation.
+
+22:46.280 --> 22:49.640
+So and the other part of the question was.
+
+22:50.600 --> 22:53.800
+How specific the tooling you built in the company?
+
+22:53.840 --> 22:57.000
+Yeah, so how specific is the tooling to nitro?
+
+22:57.040 --> 23:02.720
+So we did evaluate other cloud providers to see if we could move off to it.
+
+23:02.760 --> 23:05.160
+This was done a year and a half ago.
+
+23:05.200 --> 23:08.360
+We looked at Azure for doing it.
+
+23:08.400 --> 23:14.000
+Azure didn't have the new Intel SGX or is it SGX?
+
+23:14.040 --> 23:18.760
+Sorry, TDS sorry.
+
+23:18.880 --> 23:23.480
+They didn't have the TDS at the time, so we validated that it couldn't fit our model
+
+23:23.520 --> 23:27.000
+of secure computing.
+
+23:27.040 --> 23:32.520
+We probably need to reevaluate now, but the tooling is very AWS focused right now
+
+23:32.560 --> 23:37.640
+and nitro enclave focused because it was about trying to make nitro enclaves easier
+
+23:37.680 --> 23:39.280
+for us to use.
+
+23:39.320 --> 23:45.080
+Conceptually though, the control plane and data plane aren't specific to that.
+
+23:45.120 --> 23:51.720
+So far, they could be reimplemented for anything that wants to do TCP over a network
+
+23:51.760 --> 23:55.760
+connection for inside non-clave and outside non-clave.
+

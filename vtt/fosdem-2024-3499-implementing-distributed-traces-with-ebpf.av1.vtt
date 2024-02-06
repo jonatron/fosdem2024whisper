@@ -1,0 +1,770 @@
+WEBVTT
+
+00:00.000 --> 00:06.920
+Thank you so much.
+
+00:06.920 --> 00:11.400
+My name is Likol Goczewski and I'm here with my colleague Mario Matias.
+
+00:11.400 --> 00:12.880
+I think I pronounced your name right.
+
+00:12.880 --> 00:15.760
+Yeah, you pronounced it very well.
+
+00:15.760 --> 00:21.960
+We work on open source project at Grafana called Grafana Vela about software engineers.
+
+00:21.960 --> 00:25.320
+We didn't practice this presentation much because we live on two different continents
+
+00:25.320 --> 00:27.480
+so you get what you get.
+
+00:27.480 --> 00:31.640
+It's always not too bad but yeah, we'll give it a shot.
+
+00:31.640 --> 00:34.160
+Let's go.
+
+00:34.160 --> 00:39.160
+So we will first do a very quick introduction to what is distributed tracing.
+
+00:39.160 --> 00:46.280
+I know most of you already know but just to try to get a common mindset even for people
+
+00:46.280 --> 00:50.480
+that is new to observability or to distributed tracing.
+
+00:50.480 --> 00:57.160
+Then we will explain a bit how it is implemented and how do we implement it in Grafana Vela
+
+00:57.160 --> 01:00.440
+using ABPF.
+
+01:00.440 --> 01:10.520
+So if you want to instrument a server, you might add an instrumentation library like
+
+01:10.520 --> 01:21.720
+for example the OpenTelemetry SDK and insert some instrumentation points in your server
+
+01:21.720 --> 01:30.520
+to get on each request a span containing data like the start and the end or some extra
+
+01:30.520 --> 01:36.720
+information about the request like client ID, the path of an HTTP, the response, etc.
+
+01:36.720 --> 01:42.800
+Then you can send that to an OpenTelemetry collector and visualize that.
+
+01:42.920 --> 01:52.360
+If we have a distributed service in which one service calls another, gets responses and
+
+01:52.360 --> 01:59.720
+so on, you could still do the same instrument each point and then send them to an OpenTelemetry
+
+01:59.720 --> 02:03.440
+collector for example.
+
+02:03.440 --> 02:13.920
+But the spans themselves could give information but separately may lack a lot of context.
+
+02:13.920 --> 02:20.560
+So if you get just a bunch of front end database back in the span separate, it will not be
+
+02:20.560 --> 02:30.760
+as useful as for example getting for each span which is the request that invoked that
+
+02:30.760 --> 02:34.560
+other request so you can see everything in context.
+
+02:34.560 --> 02:42.240
+This is what we say name distributed tracing or context propagation.
+
+02:42.240 --> 02:52.440
+In OpenTelemetry concretely we use the W3C standard that is using a trace parent header
+
+02:52.440 --> 02:53.680
+in the request.
+
+02:53.680 --> 03:01.320
+So you can insert into your request, you can insert headers with the trace ID and the
+
+03:01.320 --> 03:08.520
+parent span ID and then their services getting these or receiving those invocations can read
+
+03:08.520 --> 03:11.520
+this trace parent and add it to their own request.
+
+03:11.520 --> 03:15.640
+So that way you can always track the context.
+
+03:15.640 --> 03:21.840
+This is not any real SDK, any real language, it's just an example on how could you do it.
+
+03:21.840 --> 03:29.760
+You have a service and on each request you can read this trace parent, create your span,
+
+03:29.760 --> 03:36.360
+the part of the trace and when you have to call other services you will add this trace
+
+03:36.360 --> 03:41.000
+parent in the headers and then in the span.
+
+03:41.000 --> 03:46.920
+This can be manually done by code, be an SDK or this can be injected by your instrumentation
+
+03:46.920 --> 03:53.440
+or SDK agent like the OpenTelemetry Java or OpenTelemetry.net agents.
+
+03:53.440 --> 04:02.440
+Bayla, those are another or follows a similar approach especially for these services that
+
+04:02.440 --> 04:08.080
+are written in a language that is not so easy to instrument be an external agent.
+
+04:08.080 --> 04:16.280
+I'm thinking of for example, compiler languages like Go, Rust and C. In that case, Grafana
+
+04:16.360 --> 04:22.760
+Bayla can be deployed in the host, in the same host as the services you want to instrument
+
+04:22.760 --> 04:32.560
+and it will use the EVPF technology, we will talk later a bit about it, to hook and inspect
+
+04:32.560 --> 04:38.960
+the runtimes and libraries of your application or the functions of your application and as
+
+04:38.960 --> 04:42.440
+well some points of the Linux kernel.
+
+04:42.440 --> 04:49.960
+Then compose metrics, traces and forward them to your OpenTelemetry collector.
+
+04:49.960 --> 04:59.600
+What is CVPF? I mentioned it before. It's just in time, virtual machine that is shipped
+
+04:59.600 --> 05:10.400
+inside the Linux kernel. This allows you to efficiently hook programs to multiple events
+
+05:10.440 --> 05:16.280
+in the kernel, libraries and the user space programs. For example, Bayla can hook every
+
+05:16.280 --> 05:23.280
+time an HTTP request is received in the instrumented application. Bayla can execute immediately
+
+05:23.280 --> 05:32.440
+a piece of code, a probe and then inspect and even modify the memory, the runtime memory
+
+05:32.440 --> 05:43.840
+of your process or even the kernel. This way is able to know when request, service request
+
+05:43.840 --> 05:48.880
+starts and ends and even inspect some arguments about them.
+
+05:48.880 --> 06:00.880
+Bayla has two ways to provide a span information. One is to inspect at the language level.
+
+06:01.320 --> 06:08.680
+At the language level, we only currently support Go and it hooks user probes into the Go runtime
+
+06:08.680 --> 06:16.160
+and the Go libraries to inspect them. To support other languages, this is compiler languages
+
+06:16.160 --> 06:23.280
+but also Python, Ruby or other interpreted languages.
+
+06:23.680 --> 06:31.080
+It hooks K probes in several kernel functions and libraries to know when connections are
+
+06:31.080 --> 06:40.680
+started to read the arguments of the requests and the responses and so on. We are able to do that
+
+06:40.680 --> 06:50.640
+in Go. We are currently inspecting HTTP, HTTPS, GRPC, HTTP2 and soon SQL. At the kernel level,
+
+06:50.640 --> 07:00.040
+at the moment, we are inspecting HTTP and HTTPS but other protocols will come at some point.
+
+07:04.040 --> 07:13.560
+We will talk about how to provide the spans but Nicola will talk about how the context is
+
+07:13.560 --> 07:15.960
+propagated with Bayla.
+
+07:15.960 --> 07:20.960
+I think you can hear me here. You can hear me, right?
+
+07:20.960 --> 07:29.960
+Yeah, this is working. We showed a previous example where we had this done by manual introduction
+
+07:29.960 --> 07:35.960
+in that logic in the program about reading the trace information coming in on a request
+
+07:35.960 --> 07:42.360
+and then how we send that over which is effectively what most of the open telemetry SDK instrumentations
+
+07:42.360 --> 07:49.760
+do or the agents in Java or .NET, they do that injection for you automatically but we
+
+07:49.760 --> 07:56.680
+do it with eBPF so you don't have to have an SDK added to your packages or languages
+
+07:56.680 --> 08:01.800
+when that doesn't exist or languages where maybe your library dependencies don't quite
+
+08:01.800 --> 08:10.400
+work with the SDK because of different versions or it's not up to date or whatever the reason.
+
+08:10.440 --> 08:16.560
+We hook into the program like Mario mentioned in different ways and when a request starts
+
+08:16.560 --> 08:23.240
+we actually read the memory with eBPF and what is in that trace parent. If there isn't
+
+08:23.240 --> 08:30.480
+one, we'll generate one according to the W3 stack. Then what we do next is that we notice
+
+08:30.480 --> 08:37.000
+an outgoing call and then in that outgoing call, if we can find the information about
+
+08:37.040 --> 08:44.000
+the headers, we will inject the outgoing trace header just like the SDK would do. This is
+
+08:44.000 --> 08:50.120
+what happens in Go currently with Vela. This is exactly what we do. Now internally, how
+
+08:50.120 --> 08:57.760
+this all works? Well, to make sure that we can tag an incoming request on a server accepted
+
+08:57.760 --> 09:03.360
+something like slash ping for example and it did an outgoing request to slash ping me too
+
+09:03.400 --> 09:09.960
+and in that case we need to track that this incoming request matches this outgoing request
+
+09:09.960 --> 09:16.560
+by the call maybe async. Maybe somebody wrote a library and said, well, I don't want to
+
+09:16.560 --> 09:20.520
+wait for this request. I just want to do it async for whatever the reason. I'm using
+
+09:20.520 --> 09:28.160
+some reactive library. In that case for Go, we track the Go routine creation and termination
+
+09:28.160 --> 09:34.200
+essentially. Because the Go runtime and the standard libraries are very standardized and
+
+09:34.200 --> 09:40.840
+everybody uses that, we're able to do this kind of stuff. It doesn't need to be the first argument,
+
+09:40.840 --> 09:44.840
+needs to be the context. None of that stuff. We just track Go routine creation and we're
+
+09:44.840 --> 09:53.320
+able to match it later on. That's how we propagate the context. Now for the other languages,
+
+09:53.320 --> 09:57.400
+we thought, well, how are we going to do that for other languages? People use number of libraries.
+
+09:58.000 --> 10:05.080
+How do you do this on compile languages? Somebody does just think on time compile language. It's
+
+10:05.080 --> 10:12.000
+kind of hard. For that we wrote additional support that does something more sneaky or if you will,
+
+10:12.000 --> 10:18.680
+something more interesting. Land 2 servers or two processes talk to each other over HTTP,
+
+10:18.680 --> 10:24.360
+for example. They have a unique pair of information and they identify every connection. I have a
+
+10:24.360 --> 10:30.360
+client, opens a remote connection to a server. It has a source port, which is typically a
+
+10:30.360 --> 10:35.320
+femoral. I have a destination port, which is a server port. When we see that connection pair,
+
+10:35.320 --> 10:40.960
+we use it as a unique key and we say, we'll store it in the eBPF map. Then when the server on the
+
+10:40.960 --> 10:46.680
+other side gets that request, they look up that map and say, well, I have this connection pair.
+
+10:46.680 --> 10:51.960
+Does that match any client that made this connection? It does require that one single
+
+10:51.960 --> 11:00.280
+baler monitors both processes. If that is true, then we can actually tag these requests between
+
+11:00.280 --> 11:05.960
+servers without actually using this transparent propagation. For languages where we haven't
+
+11:05.960 --> 11:10.840
+written additional support to inject the headers information, we use this as a backup option.
+
+11:10.840 --> 11:19.520
+This context propagation correlates internally requests through the kernel. Here's an example.
+
+11:19.640 --> 11:25.800
+We start the client call. It may read the transparent information that was present from a previous call,
+
+11:25.800 --> 11:31.360
+but if there isn't one, it's just going to generate it right there in eBPF and then store that information.
+
+11:31.360 --> 11:36.440
+Then later on, when another server request happens based on the client call, we'll read that map,
+
+11:36.440 --> 11:42.200
+read the transparent information, create the spans, just like if you will, that transparent
+
+11:42.320 --> 11:49.200
+logic flew through the HTTP headers. More or less the same. There's restrictions, of course.
+
+11:49.200 --> 11:58.200
+Obviously, for this to actually work, we have to have a single node. Now, these eBPF maps can be shared
+
+11:58.200 --> 12:04.600
+on a volume and maybe there's a way to use that, but we don't do that and support that right now.
+
+12:04.600 --> 12:11.000
+This is also not released yet, so we just have it in the main branch. It's one of the newer things we added.
+
+12:11.960 --> 12:19.320
+But with this, I think I'm more of a person. I'll believe it when I see it.
+
+12:19.320 --> 12:26.640
+I think we want to try to do a demo to show you everything's running off the laptop that Mario has here.
+
+12:26.640 --> 12:33.480
+We're not going to connect to any cloud services, but what we want to demonstrate is a few HTTP services here.
+
+12:33.480 --> 12:34.880
+And GRPC also.
+
+12:35.760 --> 12:41.240
+They're using GRPC in this case. They're returning Go. We're going to have one Bayline instance.
+
+12:41.240 --> 12:47.720
+Look at all of them. We're going to use this little tool that actually Fabian made,
+
+12:47.720 --> 12:53.720
+this little Docker Compose LGTN, which has the full Grafana stack with all our open source products,
+
+12:53.720 --> 13:00.160
+with the OpenTelemetry collector setup that it can ingest and do traces, metrics, and everything you need.
+
+13:00.800 --> 13:02.760
+Very convenient for testing.
+
+13:02.760 --> 13:06.240
+Very convenient for testing or spinning up your own Dockerfana cluster at home.
+
+13:06.240 --> 13:08.640
+So it's just one Dockerfile with all of it.
+
+13:10.640 --> 13:15.120
+I also wanted to mention, because we didn't say, it's obvious the presentation is about distributed traces,
+
+13:15.120 --> 13:17.240
+but Bayline does support metrics too.
+
+13:17.240 --> 13:21.040
+So HTTP metrics were included from the Star Door product.
+
+13:21.040 --> 13:25.040
+Traces distributed traces is some of the newer stuff we're working on.
+
+13:25.760 --> 13:32.760
+Okay, so for this demo, we will show a simple distributed application.
+
+13:32.760 --> 13:38.280
+It means a synthetic application is just a frontend sending a request to a backend,
+
+13:38.280 --> 13:45.280
+and the backend asking for distributing some load on the workers and then getting a response.
+
+13:46.960 --> 13:47.960
+Do you need to hold that?
+
+13:47.960 --> 13:49.520
+No, it's okay. It's okay. Thank you.
+
+13:50.520 --> 14:03.520
+Then I have added everything into a Docker compose file just for facilitating the demo in my laptop.
+
+14:03.520 --> 14:13.520
+So we have this OpenTelemetry collector, which is the hotel LGTM container that Fabian did.
+
+14:14.520 --> 14:17.520
+And we just dropped Bayline as a container.
+
+14:17.520 --> 14:24.520
+You can drop Bayline there as a host process, but for convenience also as a container.
+
+14:24.520 --> 14:30.520
+We need to give access to the pit name space of the host,
+
+14:30.520 --> 14:36.520
+because it will have to instrument all the processes in that host,
+
+14:36.520 --> 14:46.520
+and also privilege access because loading EVPF programs requires administrative privileges.
+
+14:46.520 --> 14:57.520
+Then we set here some the OpenTelemetry endpoint in a standard configuration.
+
+14:57.520 --> 15:02.520
+Bayline accepts the standard OpenTelemetry configurations for setting up many values.
+
+15:03.520 --> 15:08.520
+And also we are providing a configuration file.
+
+15:08.520 --> 15:15.520
+Basically here we say how to group the HTTP routes.
+
+15:15.520 --> 15:24.520
+For example, there is a route that calculates a factorial, and you will pass in the request,
+
+15:24.520 --> 15:27.520
+you will set factorial and the number to calculate.
+
+15:27.520 --> 15:35.520
+We don't get a cardinality explosion because we don't want to create a different route value for every number we calculate.
+
+15:35.520 --> 15:46.520
+So we say, okay, just group all the URLs matching this pattern, group them in factorial number.
+
+15:46.520 --> 15:51.520
+And then we tell Bayline how to discover the services to instrument.
+
+15:51.520 --> 15:58.520
+We have a frontend, a backend, and a worker container, and then we pass that.
+
+15:58.520 --> 16:01.520
+This accepts any regular expression.
+
+16:01.520 --> 16:09.520
+So if we say just a dot, it will instrument or try to instrument all the processes in the host.
+
+16:09.520 --> 16:16.520
+But in that case it will also instrument some parts of the Docker API, the Docker Compose API.
+
+16:16.520 --> 16:22.520
+So to not generate noise, we are just providing the services we want to instrument.
+
+16:22.520 --> 16:27.520
+And let me then run this Docker Compose file.
+
+16:29.520 --> 16:32.520
+Okay, this application is a very simple application.
+
+16:32.520 --> 16:37.520
+It's a huge factorial calculator application.
+
+16:37.520 --> 16:42.520
+I will just write a number, and it will calculate the factorial.
+
+16:42.520 --> 16:46.520
+And if you need more numbers, okay, you calculate.
+
+16:46.520 --> 16:52.520
+Boom! This is an error introduced as on purpose because I also use this application to track errors from Bayline.
+
+16:52.520 --> 16:55.520
+But it usually works.
+
+16:55.520 --> 16:59.520
+Then, doing that, we have, Bayline was already running.
+
+16:59.520 --> 17:02.520
+We have been generating some traces.
+
+17:02.520 --> 17:05.520
+So let me go to the local Grafana.
+
+17:05.520 --> 17:07.520
+Let's see.
+
+17:08.520 --> 17:11.520
+I go to, for example, explore.
+
+17:11.520 --> 17:16.520
+Here I selected the tempo, and let me search for all the traces.
+
+17:16.520 --> 17:19.520
+Okay, beautiful.
+
+17:19.520 --> 17:26.520
+It's strange because here we can see that Bayline...
+
+17:26.520 --> 17:29.520
+Oh, yeah?
+
+17:29.520 --> 17:32.520
+Okay, let me check.
+
+17:32.520 --> 17:34.520
+No data.
+
+17:34.520 --> 17:37.520
+Okay, it happens in the best families.
+
+17:37.520 --> 17:40.520
+No, but we have this...
+
+17:40.520 --> 17:43.520
+I mean, it is able to...
+
+17:43.520 --> 17:45.520
+Okay, I don't know what happened.
+
+17:45.520 --> 17:47.520
+But...
+
+17:52.520 --> 17:55.520
+For sure, it's a book in Grafana.
+
+17:55.520 --> 18:02.520
+So I have here many, many requests.
+
+18:02.520 --> 18:04.520
+Or many traces.
+
+18:04.520 --> 18:12.520
+Let me just instrument this, submit trace, which is the one that triggers the backend and the workers.
+
+18:12.520 --> 18:18.520
+If we enter here, you will see the trace information.
+
+18:18.520 --> 18:22.520
+How the front end invokes the backend.
+
+18:22.520 --> 18:28.520
+You can track also an internal status of the request, like how much time the queue is in...
+
+18:28.520 --> 18:30.520
+Or the request is in queue or is being processed.
+
+18:30.520 --> 18:36.520
+And you can see how, for example, the backend might invoke the worker multiple times.
+
+18:36.520 --> 18:40.520
+So we got distributed traces automatically.
+
+18:40.520 --> 18:45.520
+We can even see the node graph of all the requests.
+
+18:45.520 --> 18:53.520
+How this process invokes or the relation of all the traces as a graph.
+
+18:53.520 --> 19:00.520
+How the front end as a server, because we instrument either server or client side spans.
+
+19:00.520 --> 19:05.520
+How the front end invokes the backend, the backend invokes different workers and so on.
+
+19:05.520 --> 19:07.520
+I just want to add something here.
+
+19:07.520 --> 19:10.520
+So we're here, if you see, when you look at the Bayla stuff that we produce,
+
+19:10.520 --> 19:13.520
+we produce these two spans for some of the server requests.
+
+19:13.520 --> 19:15.520
+We have in queue and processing.
+
+19:15.520 --> 19:17.520
+And for most people, that's like, what is this two things?
+
+19:17.520 --> 19:19.520
+Like why are you tracking two times?
+
+19:19.520 --> 19:24.520
+And if you have a typical application server that saves with an in-go,
+
+19:24.520 --> 19:30.520
+and you accept the request and as soon as that happens, go or launch a go routine for this.
+
+19:30.520 --> 19:38.520
+But how long before this go routine gets scheduled on a physical thread, which is M in the world of go,
+
+19:38.520 --> 19:41.520
+and how long before this physical thread actually gets CPU time?
+
+19:41.520 --> 19:47.520
+So from a traditional instrumentation, you instrument the handler of the server request.
+
+19:47.520 --> 19:50.520
+This handler of the server request is the time the handler started running,
+
+19:50.520 --> 19:55.520
+not the time that the runtime accepted the request coming in from the kernel.
+
+19:55.520 --> 19:59.520
+Well, at the EVPF, because we're at a low level, we can actually track that time.
+
+19:59.520 --> 20:04.520
+We can actually see where the request actually came from the kernel, when the go routine was launched,
+
+20:04.520 --> 20:06.520
+and when you finally got the handler to run.
+
+20:06.520 --> 20:12.520
+So in a situation where you have a server which is overloaded and it's not able to serve the request,
+
+20:12.520 --> 20:16.520
+you'll get the actual request time, much closer to what the client sees on the other end.
+
+20:16.520 --> 20:21.520
+Rather than the fake time, which is what the application server would see normal.
+
+20:21.520 --> 20:26.520
+Okay, so that was the demo.
+
+20:26.520 --> 20:34.520
+Let's summarize something that is that, using EVPF, you can capture distributed traces,
+
+20:34.520 --> 20:38.520
+as we, as Nicole explained it, with some limitations.
+
+20:39.520 --> 20:46.520
+The advantage is that it requires almost no effort from the developer or operator,
+
+20:46.520 --> 20:50.520
+in the sense that you don't need to reconfigure your service, you don't need to change the code,
+
+20:50.520 --> 20:57.520
+you don't need to redeploy, just drop it and get whatever Rela can get.
+
+20:58.520 --> 21:09.520
+Yeah, and it's, another conclusion is combining this packet tracing with language level support,
+
+21:09.520 --> 21:14.520
+is what we, we allow Bayla get those distributed traces.
+
+21:14.520 --> 21:23.520
+So if you like it and want to give a try, Bayla is available to download freely, to test it.
+
+21:23.520 --> 21:33.520
+You can, you can connect to our GitHub page, or, and then you will see instructions and links to the documentation
+
+21:33.520 --> 21:36.520
+or the main open source page of Bayla.
+
+21:36.520 --> 21:41.520
+Yeah, and on the GitHub page is what we start with, we have a link to our community Slack,
+
+21:41.520 --> 21:46.520
+if you want to chat with us, and we also are soon going to start organizing the community call.
+
+21:46.520 --> 21:51.520
+So once every month we have a call where you can just join in and chat or yell at us,
+
+21:51.520 --> 21:56.520
+for whatever reason, but yeah, that's it. Thank you.
+
+22:04.520 --> 22:07.520
+Thanks a lot. Oh, so many questions. I'm running.
+
+22:08.520 --> 22:23.520
+You said that when you're tracing in Go, you, you are, you are tracing the coroutines that are, that are handling requests,
+
+22:23.520 --> 22:30.520
+but in Go you don't have ideas of these coroutines and you don't have the relationship between them.
+
+22:31.520 --> 22:38.520
+And to, to make it worse, the go around time actually reuses coroutines for something completely different.
+
+22:38.520 --> 22:45.520
+So how do you, how do you do that without constantly handing pretty much all the coroutines all the time in order to get your trace?
+
+22:45.520 --> 22:50.520
+Yeah, okay. So like with EVPF you get superpowers.
+
+22:50.520 --> 22:55.520
+So from a regular goal developer perspective, you never actually have the access to this information.
+
+22:55.520 --> 22:58.520
+Yeah, for whatever reason, they won't give it to you.
+
+22:58.520 --> 23:01.520
+But with EVPF, I attached the go runtime.
+
+23:01.520 --> 23:05.520
+So the address in memory of the go routine is my ID.
+
+23:05.520 --> 23:12.520
+Now I can tell when the go routine starts and when it gets parked back, when it's reused for something else, it can be reused and that's fine.
+
+23:12.520 --> 23:16.520
+But at that time I'll clear up all the information because I know the go routine is done.
+
+23:16.520 --> 23:19.520
+Because like superpowers.
+
+23:19.520 --> 23:23.520
+Hey, thank you for your talk.
+
+23:23.520 --> 23:28.520
+I'm one of those guys that manage a lot of infrastructure in code in general.
+
+23:28.520 --> 23:35.520
+And when you say that, hey, you just have to eat that and just work sort of a box, it's kind of scares me because potentially it can cause problems.
+
+23:35.520 --> 23:46.520
+And one of the issues that we saw with both kind of solutions usually is if you inject into request a tracing header, potentially the request might be changed.
+
+23:46.520 --> 23:51.520
+And some protocols do signing and request like AWS signature free, for example.
+
+23:51.520 --> 23:56.520
+And they don't really like you injecting headers in the middle of request, especially at a lower level.
+
+23:56.520 --> 24:05.520
+So how do you envision if you have some kind of like agent in the code itself, then you can work on that by disabling the tracing on both specific endpoints.
+
+24:05.520 --> 24:13.520
+But if you do that at a lower level, then you don't really have a visibility to be able to disable that or recognize that you are creating a request to such a back end.
+
+24:13.520 --> 24:17.520
+How do you envision like working around those issues in the future?
+
+24:17.520 --> 24:20.520
+Because this is one example, but this will happen many, many times.
+
+24:20.520 --> 24:22.520
+Yeah, yeah. So that's true.
+
+24:22.520 --> 24:30.520
+So if you need sign some IDs and whatever, it's not letting you change the header information, then disable that feature.
+
+24:30.520 --> 24:34.520
+Don't use what we do right now for propagating using the headers. Use the black box.
+
+24:34.520 --> 24:36.520
+This is the back boxes are sort of the full back.
+
+24:36.520 --> 24:46.520
+We've been toying with the idea that maybe in the future we'll let it work with an external storage of some kind that we can actually make past the one node restriction we have with the black box right now.
+
+24:46.520 --> 24:52.520
+But that's the very reason we're designing for because in so many environments, injecting the header information is just not possible.
+
+24:52.520 --> 24:55.520
+I'm dealing with interpreter language.
+
+24:55.520 --> 25:01.520
+No compiled methods, no dice. So I can't do anything with you.
+
+25:01.520 --> 25:03.520
+Thanks. Good question.
+
+25:03.520 --> 25:04.520
+Thank you.
+
+25:06.520 --> 25:07.520
+Thank you.
+

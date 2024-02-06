@@ -1,0 +1,209 @@
+Yeah, it's done.
+Yeah, well, we're about to start, so meet your Euro.
+Yeah, really.
+You're already on it?
+Really?
+I don't think so.
+Already on it?
+Yeah.
+You think it's on it, right?
+Yeah.
+It's on where do you want it?
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Hi, everybody.
+My name is Shivam and I work for KDAB and I also work this summer, Google Summer of Code
+with LLVM, working on this project, this mapping LLVM values to the corresponding source level
+expressions.
+And, but why?
+So the challenge of understanding the compiler optimizations.
+So, so compilers are basically performing different sorts of optimizations and it's not
+always possible that it's going to be optimized or basically vectorized.
+So, we basically our motivation was vectorization for the first because we wanted to include
+those optimization remarks in for the vectorization part.
+So, our motivation was vectorization.
+So, it's not always possible.
+So, your compiler can always vectorize your code.
+So, there's some sort of data dependencies there where that's why your compilers cannot
+actually vectorize all the time.
+So, on that cases you have to emit a good remarks and I'll let you know what currently
+clang actually generates as a remark.
+So, understanding why and how these optimization occurs is not always straightforward.
+Even the authors or vectorizer don't know what's going on if the vectorization didn't
+happen.
+So, consider this example.
+So, you can see there is a data dependencies between A of i and A of i plus 3.
+So, this loop clang will not be not able to vectorize this code.
+Okay.
+So, see this remark that produced with the clang which is that loop not vectorize.
+You can use pragma loop distribute.
+So, you can compile the tries to distribute the loop and it might be able to vectorize
+in some sense.
+But, just see the remarks.
+It's not clear that what actually gone wrong here and where's the data dependency.
+It's not telling you that where's the data dependency actually was and so you can improve
+the code itself.
+Right.
+So, it just that remarks and you can see this not actually clear.
+Right.
+So, it's a bit unclear and if you can have such this remarks nothing much just two expressions
+are the dependent source and the dependence destination for example.
+So, you know that okay there is a data dependencies between two to these two locations and so
+if you are aware of the code so you are going to modify your code and you might be able
+to modify in the way so you know that it will be possible for the compiler to vectorize
+now.
+So, you can modify the code by looking at this these expressions for example.
+So, yeah so it's going to surely enhance the remarks include the exact so if it includes
+the exact source and destination of the dependencies within the error for example and it will pinpoint
+the lines of those dependencies and let's look at the impact of these enhanced remarks
+so it would be clarity for the developers so they can quickly look where the dependencies
+are actually occurring and so they can improve their code and probably make it vectorizable
+and efficiency in the terms of that they can save time and improve efficiency by reducing
+the need for the deep debugging that where was the actual data dependencies so you can
+just look at the optimization remarks and you get the quite a lot of information that
+okay there is the data dependencies between two load and stores.
+So, let's look at the approach that we took for solve this problem or this project so
+approach was very simple to just utilize the debug information that available into the
+intermediate representation right so to recreate the variable and the function names lost during
+the optimization so the optimizations are actually a problem in our case because we
+currently don't know how to build those for example instructions that's lost into the
+optimization for example so if you see a multiplier if you see a MUL instruction in the IR so
+compiler might optimize that into shift left so the MUL was the original information that
+was actually available in the source code but right now we have shift left so we just
+lose the context that what was the actual source level information so that's still a
+problem for us and we have different approach for that but we didn't see to be so we see
+that it was not much a performance good so it was very bad so we wanted to clone the
+module so we have so we can look that what's happened after each optimizations so we can
+have the clone of the original IR and we can see that what's going on after every pass
+of optimization or every implementation passes so if you look at the different transformation
+pass and you have to look over that what's the thing that gets changed and anything that
+you have stored that okay there was the original instruction as MUL but right now it gets
+changed to shift left so you see that okay the MUL gets changed to shift left so you
+have to cache the expressions basically to reload the things in a new way so if there is
+no need for that so we will proceed after it so let's see how to utilize that information
+that available in the IR so LLVM uses a small set of infernsic functions if you are aware of so
+those are provided for the debug information so they contains different metadata so they have
+different arguments so these infernsic functions are named prefixed by this LLVM.debug
+and these things helps you to track the variables through the optimizations and code
+generation so if you look in the IR so if you dump your IR with the dash G symbol so you will
+get to know about the LLVM.debug.value or .declare so those contains everything related to the
+source level things so they contains the metadata information and the metadata are there for that
+so they can give you a lot more information about what was actually in the source so for example
+like variable names so when you trace the metadata so you can get the variable name from the actual source
+so for us these two infernsic functions were very important the debug.declare and the debug.value
+and let's try to understand a bit so if you can see the I is allocated and just below it you can see
+the call to the infernsic function which is .debug.declare and these you can see the three arguments
+in the infernsic function the first represents the first will always represent the address of the variable
+the second metadata always pointing to the for example you can see the DI local variable
+so which contains this is a metadata node and it contains the variable name so what was the actual name
+so you can see the actual name was I in the actual source expression so you can when you
+trace back the information so you can retrieve the name so these are these infernsic functions
+so the second can really help us a lot and the second was actually the source just the source
+information like name and the third argument is DI expression and generally DI expression is useful
+as a complex expression so you have expressions like for example int a is equals to b plus c
+a DI expression can hold that stuffs yeah and yeah so debug declare is used for that and the second
+is debug.value so .value is very similar to it it's just that when I is gets updated when a value is updated
+so debug value can up and so everything goes in the debug value for the same
+so we now have enough information to at least give a try to build the source expressions and only if the code is
+compiled with the debug info on so it's compiled using the dash g symbol
+so we use the we are infernsic as a bridge so our focus was on memory access and vectorization as I said
+so importance of the memory access pattern is so we really want this project for vectorization at first
+and then we also have a plan to give it a push into the debugger so debuggers can utilize this information
+to provide better remarks but the main goal initially was the vectorization pass
+vectorization is a transformation pass so a transformation pass can always query an analysis pass
+and what our work is our work was an analysis pass so this vectorization pass in LLVM can always query the
+analysis pass this transformation pass okay so project contribution is actually that we have we have
+built an analysis pass that can generate these mappings and provides a better remarks for the case of
+vectorization or any other things that requires it let's look at the implementation detail
+so for us the point of interest is load and store instruction because of the vectorization
+because we want to analyze the memory access patterns to actually emit in the vectorization so which is useful for the remark
+and for example just take a look at this C code and if you compile this with clag or to dash g and if you emit the LLVM
+just for showing you that what's going on so I think it should be visible so you can see the call to
+in intrinsic functions debug.7 so we can build these expressions from them so as I said so if you look these were
+the first is to multiply n1 but and we compile it with the optimization on so the multiply instruction gone away and it just updated by
+shift lift operator okay so that's why you can see the shift lift operator here and not multiply so that's a problem so that's
+a problem of accuracy of the expressions because we still not have a good plan of how to accurately generate the expressions
+because a lot many times these things gone away because of the optimizations on and it's always been a hard problem of how to actually debug
+in the case of when optimizations are actually gone so it's a classic problem which we still have to look so you can see the
+we can build these expressions from the instructions so yeah you can see this from example that computing the equivalent source expressions
+of interest will involve walking through the LLVM IR and using the information that provided in the debug in forensics
+so even though our current interest is load and store but we still have to build for every instructions because those load and store
+can contain any sort of an instruction when you trace back to them it's maybe any binary instruction it contains gap instructions
+so it might be contain any instructions and we have to we still have to build for them too and as I said that optimizations
+make it impossible to recover the original source expressions so as you see that for example the 2 into N1 is optimized to N1
+left shift 1 so which is recovering the original expression may not be possible every time
+so let's look at how we proceed it's just a basic algorithm that I just want to go through so we started by traversing the IR
+so we have we started with the traversing the IR we identify the operations that were there for example load and store
+source or main so current interest is load and store instructions so specifically look for those instructions in the IR
+and then trace those operands it might be any other instructions it might be inside any metadata so we can retrieve any information like name
+and utilizing those metadata information building the source expressions and then we reconstruct the expressions
+with all the information that we get so that's a bit all but just look at the current state so it's still not yet upstream to LLVM
+the PR is here so what I need from you or anyone you have experience or anyone you have active in that zone of optimizations
+or for example analysis passes or transformation passes in LLVM so I do like you to have a look at the patch if you have some experience try to review the code as well
+and give some feedback so we can proceed with much detail because it's still it's still a new analysis and still need a lot of work for struct as well
+so as I mentioned we need more review on the patch and some active work from me as well and if any of you interested please reach out
+and as I said the struct pose a unique challenge to when we try to build the expression for struct for example it was not quite easy
+it was very difficult to build the expression for struct because they pose a unique challenge if you see them in the intermediate representation
+it's very weird to look at them because I don't know how they actually gets there in the IR how they represent it it's not as simple as the giving expressions for an array
+so struct is still a problem accurate source level expression in case of optimization it's still a problem and there isn't always one to one mapping between the source code and IR
+so if you see that we still don't know what to do in these cases if you see there's a pointer and the PTR 0 so IR can generate the same code for these two patterns
+and we don't know which have to pick so that's still a problem one solution for this was that debug information also contain the information about the file
+so there is a DI file in the debug info so what was actually we were discussing is so we have still information about the file path
+so what we can do is we can actually open the file and just go on that line and retrieve the information what was the actual ground truth just look at that
+second thing was fall back and anything because we don't know what was there so just fall back to any of them
+so but the DI file was actually quite easy but it's not good performance wise if you see open the file and just retrieving just going on that line and retrieving that
+so it's not good performance wise so yeah that's it for the talk and thank you for listening and if you are interested in letting
+knowing more about this project and the algorithm please reach out to me on mail or for example discord so yeah thank you
+any questions
+yes
+why do you need to rebuild the entire sequence of expressions for each of the values
+why not the specific value of the value it is what the dependencies and the production line from the file just like after a year ago
+can you just free us the question
+so you know like when you admit after marks there's a tool called the operator that just put everything in line
+so between that and what you have here it seems that you know you would get excellent results in terms of debubbability if you just did what the operator does
+plus you specify which of the values are causing the dependence that what you said and what the reason for the failed optimization
+okay so the question is basically about using opt viewer right
+yeah I was just admitting a more limited view as you have here and not trying to reconstruct everything
+so we still not reconstructing everything for example so we still we still not focusing on creating whole I at or just mapping whole I at the expressions
+we still focusing on those loads and stores as I said so we still focusing on that right
+yeah yes yes yes
+yeah so we we still we still picking up the load and stores so if we see that is there any gap instructions because gap instruction actually contains a chain of instructions
+so so but we still have to build the loop for loads and stores and opt viewer still not good at emitting those remarks it's still very abstract in that sense if I remember it correctly
+so I'm not sure how to go with opt viewer but we still making it for load and stores and tracing back the information
+yeah yep
+yeah yes
+nope
+nope
+not sure but one thing I can guess that so basically opening a file is not something which is very good performance wise and and just choosing and just going on that line down because you can see that there could be a multiple lines of code in code base
+so you have to go on that particular line so it would need it would need it would be very bad in performance was I think
+okay
+and there is no and there is no theory about if it would be more beneficial to tell the programmer the error that or the sub optimal choice that you made was between line 27 28 compared to generating some arbitrary complex expression that might not be representative of what the program originally wrote
+I'm not sure
+okay
+okay
+yeah I think it would be fine then if you if you're choosing for emitting a remarks then then you know that this is not good performance right so if you want to look at the performance if you want to look at the actual correct remarks so you have to going deep in the performance
+thing then yeah then it would be possible and we have also we also talking about preserving the metadata in LVM as they go through but but in LVM metadata is designed in a way so we can drop we can drop at any time so we still cannot preserve the metadata information
+so it's still a challenge this lot move what going on on this side so yeah
+yeah
+yeah
+okay
+yeah
+thank you
+yeah
+okay
+thank you for joining when you leave make sure to take everything
+yeah
+yeah
+yeah
+yeah

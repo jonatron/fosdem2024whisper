@@ -1,0 +1,256 @@
+Thank you so much.
+My name is Likol Goczewski and I'm here with my colleague Mario Matias.
+I think I pronounced your name right.
+Yeah, you pronounced it very well.
+We work on open source project at Grafana called Grafana Vela about software engineers.
+We didn't practice this presentation much because we live on two different continents
+so you get what you get.
+It's always not too bad but yeah, we'll give it a shot.
+Let's go.
+So we will first do a very quick introduction to what is distributed tracing.
+I know most of you already know but just to try to get a common mindset even for people
+that is new to observability or to distributed tracing.
+Then we will explain a bit how it is implemented and how do we implement it in Grafana Vela
+using ABPF.
+So if you want to instrument a server, you might add an instrumentation library like
+for example the OpenTelemetry SDK and insert some instrumentation points in your server
+to get on each request a span containing data like the start and the end or some extra
+information about the request like client ID, the path of an HTTP, the response, etc.
+Then you can send that to an OpenTelemetry collector and visualize that.
+If we have a distributed service in which one service calls another, gets responses and
+so on, you could still do the same instrument each point and then send them to an OpenTelemetry
+collector for example.
+But the spans themselves could give information but separately may lack a lot of context.
+So if you get just a bunch of front end database back in the span separate, it will not be
+as useful as for example getting for each span which is the request that invoked that
+other request so you can see everything in context.
+This is what we say name distributed tracing or context propagation.
+In OpenTelemetry concretely we use the W3C standard that is using a trace parent header
+in the request.
+So you can insert into your request, you can insert headers with the trace ID and the
+parent span ID and then their services getting these or receiving those invocations can read
+this trace parent and add it to their own request.
+So that way you can always track the context.
+This is not any real SDK, any real language, it's just an example on how could you do it.
+You have a service and on each request you can read this trace parent, create your span,
+the part of the trace and when you have to call other services you will add this trace
+parent in the headers and then in the span.
+This can be manually done by code, be an SDK or this can be injected by your instrumentation
+or SDK agent like the OpenTelemetry Java or OpenTelemetry.net agents.
+Bayla, those are another or follows a similar approach especially for these services that
+are written in a language that is not so easy to instrument be an external agent.
+I'm thinking of for example, compiler languages like Go, Rust and C. In that case, Grafana
+Bayla can be deployed in the host, in the same host as the services you want to instrument
+and it will use the EVPF technology, we will talk later a bit about it, to hook and inspect
+the runtimes and libraries of your application or the functions of your application and as
+well some points of the Linux kernel.
+Then compose metrics, traces and forward them to your OpenTelemetry collector.
+What is CVPF? I mentioned it before. It's just in time, virtual machine that is shipped
+inside the Linux kernel. This allows you to efficiently hook programs to multiple events
+in the kernel, libraries and the user space programs. For example, Bayla can hook every
+time an HTTP request is received in the instrumented application. Bayla can execute immediately
+a piece of code, a probe and then inspect and even modify the memory, the runtime memory
+of your process or even the kernel. This way is able to know when request, service request
+starts and ends and even inspect some arguments about them.
+Bayla has two ways to provide a span information. One is to inspect at the language level.
+At the language level, we only currently support Go and it hooks user probes into the Go runtime
+and the Go libraries to inspect them. To support other languages, this is compiler languages
+but also Python, Ruby or other interpreted languages.
+It hooks K probes in several kernel functions and libraries to know when connections are
+started to read the arguments of the requests and the responses and so on. We are able to do that
+in Go. We are currently inspecting HTTP, HTTPS, GRPC, HTTP2 and soon SQL. At the kernel level,
+at the moment, we are inspecting HTTP and HTTPS but other protocols will come at some point.
+We will talk about how to provide the spans but Nicola will talk about how the context is
+propagated with Bayla.
+I think you can hear me here. You can hear me, right?
+Yeah, this is working. We showed a previous example where we had this done by manual introduction
+in that logic in the program about reading the trace information coming in on a request
+and then how we send that over which is effectively what most of the open telemetry SDK instrumentations
+do or the agents in Java or .NET, they do that injection for you automatically but we
+do it with eBPF so you don't have to have an SDK added to your packages or languages
+when that doesn't exist or languages where maybe your library dependencies don't quite
+work with the SDK because of different versions or it's not up to date or whatever the reason.
+We hook into the program like Mario mentioned in different ways and when a request starts
+we actually read the memory with eBPF and what is in that trace parent. If there isn't
+one, we'll generate one according to the W3 stack. Then what we do next is that we notice
+an outgoing call and then in that outgoing call, if we can find the information about
+the headers, we will inject the outgoing trace header just like the SDK would do. This is
+what happens in Go currently with Vela. This is exactly what we do. Now internally, how
+this all works? Well, to make sure that we can tag an incoming request on a server accepted
+something like slash ping for example and it did an outgoing request to slash ping me too
+and in that case we need to track that this incoming request matches this outgoing request
+by the call maybe async. Maybe somebody wrote a library and said, well, I don't want to
+wait for this request. I just want to do it async for whatever the reason. I'm using
+some reactive library. In that case for Go, we track the Go routine creation and termination
+essentially. Because the Go runtime and the standard libraries are very standardized and
+everybody uses that, we're able to do this kind of stuff. It doesn't need to be the first argument,
+needs to be the context. None of that stuff. We just track Go routine creation and we're
+able to match it later on. That's how we propagate the context. Now for the other languages,
+we thought, well, how are we going to do that for other languages? People use number of libraries.
+How do you do this on compile languages? Somebody does just think on time compile language. It's
+kind of hard. For that we wrote additional support that does something more sneaky or if you will,
+something more interesting. Land 2 servers or two processes talk to each other over HTTP,
+for example. They have a unique pair of information and they identify every connection. I have a
+client, opens a remote connection to a server. It has a source port, which is typically a
+femoral. I have a destination port, which is a server port. When we see that connection pair,
+we use it as a unique key and we say, we'll store it in the eBPF map. Then when the server on the
+other side gets that request, they look up that map and say, well, I have this connection pair.
+Does that match any client that made this connection? It does require that one single
+baler monitors both processes. If that is true, then we can actually tag these requests between
+servers without actually using this transparent propagation. For languages where we haven't
+written additional support to inject the headers information, we use this as a backup option.
+This context propagation correlates internally requests through the kernel. Here's an example.
+We start the client call. It may read the transparent information that was present from a previous call,
+but if there isn't one, it's just going to generate it right there in eBPF and then store that information.
+Then later on, when another server request happens based on the client call, we'll read that map,
+read the transparent information, create the spans, just like if you will, that transparent
+logic flew through the HTTP headers. More or less the same. There's restrictions, of course.
+Obviously, for this to actually work, we have to have a single node. Now, these eBPF maps can be shared
+on a volume and maybe there's a way to use that, but we don't do that and support that right now.
+This is also not released yet, so we just have it in the main branch. It's one of the newer things we added.
+But with this, I think I'm more of a person. I'll believe it when I see it.
+I think we want to try to do a demo to show you everything's running off the laptop that Mario has here.
+We're not going to connect to any cloud services, but what we want to demonstrate is a few HTTP services here.
+And GRPC also.
+They're using GRPC in this case. They're returning Go. We're going to have one Bayline instance.
+Look at all of them. We're going to use this little tool that actually Fabian made,
+this little Docker Compose LGTN, which has the full Grafana stack with all our open source products,
+with the OpenTelemetry collector setup that it can ingest and do traces, metrics, and everything you need.
+Very convenient for testing.
+Very convenient for testing or spinning up your own Dockerfana cluster at home.
+So it's just one Dockerfile with all of it.
+I also wanted to mention, because we didn't say, it's obvious the presentation is about distributed traces,
+but Bayline does support metrics too.
+So HTTP metrics were included from the Star Door product.
+Traces distributed traces is some of the newer stuff we're working on.
+Okay, so for this demo, we will show a simple distributed application.
+It means a synthetic application is just a frontend sending a request to a backend,
+and the backend asking for distributing some load on the workers and then getting a response.
+Do you need to hold that?
+No, it's okay. It's okay. Thank you.
+Then I have added everything into a Docker compose file just for facilitating the demo in my laptop.
+So we have this OpenTelemetry collector, which is the hotel LGTM container that Fabian did.
+And we just dropped Bayline as a container.
+You can drop Bayline there as a host process, but for convenience also as a container.
+We need to give access to the pit name space of the host,
+because it will have to instrument all the processes in that host,
+and also privilege access because loading EVPF programs requires administrative privileges.
+Then we set here some the OpenTelemetry endpoint in a standard configuration.
+Bayline accepts the standard OpenTelemetry configurations for setting up many values.
+And also we are providing a configuration file.
+Basically here we say how to group the HTTP routes.
+For example, there is a route that calculates a factorial, and you will pass in the request,
+you will set factorial and the number to calculate.
+We don't get a cardinality explosion because we don't want to create a different route value for every number we calculate.
+So we say, okay, just group all the URLs matching this pattern, group them in factorial number.
+And then we tell Bayline how to discover the services to instrument.
+We have a frontend, a backend, and a worker container, and then we pass that.
+This accepts any regular expression.
+So if we say just a dot, it will instrument or try to instrument all the processes in the host.
+But in that case it will also instrument some parts of the Docker API, the Docker Compose API.
+So to not generate noise, we are just providing the services we want to instrument.
+And let me then run this Docker Compose file.
+Okay, this application is a very simple application.
+It's a huge factorial calculator application.
+I will just write a number, and it will calculate the factorial.
+And if you need more numbers, okay, you calculate.
+Boom! This is an error introduced as on purpose because I also use this application to track errors from Bayline.
+But it usually works.
+Then, doing that, we have, Bayline was already running.
+We have been generating some traces.
+So let me go to the local Grafana.
+Let's see.
+I go to, for example, explore.
+Here I selected the tempo, and let me search for all the traces.
+Okay, beautiful.
+It's strange because here we can see that Bayline...
+Oh, yeah?
+Okay, let me check.
+No data.
+Okay, it happens in the best families.
+No, but we have this...
+I mean, it is able to...
+Okay, I don't know what happened.
+But...
+For sure, it's a book in Grafana.
+So I have here many, many requests.
+Or many traces.
+Let me just instrument this, submit trace, which is the one that triggers the backend and the workers.
+If we enter here, you will see the trace information.
+How the front end invokes the backend.
+You can track also an internal status of the request, like how much time the queue is in...
+Or the request is in queue or is being processed.
+And you can see how, for example, the backend might invoke the worker multiple times.
+So we got distributed traces automatically.
+We can even see the node graph of all the requests.
+How this process invokes or the relation of all the traces as a graph.
+How the front end as a server, because we instrument either server or client side spans.
+How the front end invokes the backend, the backend invokes different workers and so on.
+I just want to add something here.
+So we're here, if you see, when you look at the Bayla stuff that we produce,
+we produce these two spans for some of the server requests.
+We have in queue and processing.
+And for most people, that's like, what is this two things?
+Like why are you tracking two times?
+And if you have a typical application server that saves with an in-go,
+and you accept the request and as soon as that happens, go or launch a go routine for this.
+But how long before this go routine gets scheduled on a physical thread, which is M in the world of go,
+and how long before this physical thread actually gets CPU time?
+So from a traditional instrumentation, you instrument the handler of the server request.
+This handler of the server request is the time the handler started running,
+not the time that the runtime accepted the request coming in from the kernel.
+Well, at the EVPF, because we're at a low level, we can actually track that time.
+We can actually see where the request actually came from the kernel, when the go routine was launched,
+and when you finally got the handler to run.
+So in a situation where you have a server which is overloaded and it's not able to serve the request,
+you'll get the actual request time, much closer to what the client sees on the other end.
+Rather than the fake time, which is what the application server would see normal.
+Okay, so that was the demo.
+Let's summarize something that is that, using EVPF, you can capture distributed traces,
+as we, as Nicole explained it, with some limitations.
+The advantage is that it requires almost no effort from the developer or operator,
+in the sense that you don't need to reconfigure your service, you don't need to change the code,
+you don't need to redeploy, just drop it and get whatever Rela can get.
+Yeah, and it's, another conclusion is combining this packet tracing with language level support,
+is what we, we allow Bayla get those distributed traces.
+So if you like it and want to give a try, Bayla is available to download freely, to test it.
+You can, you can connect to our GitHub page, or, and then you will see instructions and links to the documentation
+or the main open source page of Bayla.
+Yeah, and on the GitHub page is what we start with, we have a link to our community Slack,
+if you want to chat with us, and we also are soon going to start organizing the community call.
+So once every month we have a call where you can just join in and chat or yell at us,
+for whatever reason, but yeah, that's it. Thank you.
+Thanks a lot. Oh, so many questions. I'm running.
+You said that when you're tracing in Go, you, you are, you are tracing the coroutines that are, that are handling requests,
+but in Go you don't have ideas of these coroutines and you don't have the relationship between them.
+And to, to make it worse, the go around time actually reuses coroutines for something completely different.
+So how do you, how do you do that without constantly handing pretty much all the coroutines all the time in order to get your trace?
+Yeah, okay. So like with EVPF you get superpowers.
+So from a regular goal developer perspective, you never actually have the access to this information.
+Yeah, for whatever reason, they won't give it to you.
+But with EVPF, I attached the go runtime.
+So the address in memory of the go routine is my ID.
+Now I can tell when the go routine starts and when it gets parked back, when it's reused for something else, it can be reused and that's fine.
+But at that time I'll clear up all the information because I know the go routine is done.
+Because like superpowers.
+Hey, thank you for your talk.
+I'm one of those guys that manage a lot of infrastructure in code in general.
+And when you say that, hey, you just have to eat that and just work sort of a box, it's kind of scares me because potentially it can cause problems.
+And one of the issues that we saw with both kind of solutions usually is if you inject into request a tracing header, potentially the request might be changed.
+And some protocols do signing and request like AWS signature free, for example.
+And they don't really like you injecting headers in the middle of request, especially at a lower level.
+So how do you envision if you have some kind of like agent in the code itself, then you can work on that by disabling the tracing on both specific endpoints.
+But if you do that at a lower level, then you don't really have a visibility to be able to disable that or recognize that you are creating a request to such a back end.
+How do you envision like working around those issues in the future?
+Because this is one example, but this will happen many, many times.
+Yeah, yeah. So that's true.
+So if you need sign some IDs and whatever, it's not letting you change the header information, then disable that feature.
+Don't use what we do right now for propagating using the headers. Use the black box.
+This is the back boxes are sort of the full back.
+We've been toying with the idea that maybe in the future we'll let it work with an external storage of some kind that we can actually make past the one node restriction we have with the black box right now.
+But that's the very reason we're designing for because in so many environments, injecting the header information is just not possible.
+I'm dealing with interpreter language.
+No compiled methods, no dice. So I can't do anything with you.
+Thanks. Good question.
+Thank you.
+Thank you.

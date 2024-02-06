@@ -1,0 +1,527 @@
+So, we're going to start.
+So Martin here is going to tell us some stuff about Apple.
+And I have to confess, I'm very anti-Apple, so I wanted to actually refuse this talk,
+so that everybody will, again, refuse this talk.
+So, Martin, take it.
+Thank you very much.
+So good morning, everyone.
+Thank you.
+So good morning, everyone.
+Thank you for providing me with the opportunity to speak here.
+My name is Martin DeVos, and today I will present to you my hobby project, which involves
+an open-source emulator of legacy Apple devices.
+And in this talk, I will explain how I managed to emulate these kinds of devices, what it
+takes, what the challenges are, and what the next steps are.
+So let me first briefly introduce myself.
+So I'm a postdoctoral researcher at EPFL in Switzerland.
+And my main research topic is not actually on emulation or reverse engineering, but it's
+on distributed machine learning systems, like many people are working on nowadays, like
+LLMs and stuff.
+But I'm also a very big enthusiast of reverse engineering.
+And I actually started doing this during my master thesis already.
+And during my PhD, I worked on reverse engineering some mobile applications of banking apps
+in the Netherlands and other countries as well.
+And that has resulted in, well, my first paper of my PhD.
+And, yeah, and two years ago, I decided to pick up this project.
+I was inspired by reading a blog post of someone that managed to emulate an iPhone in software.
+And that's how I was motivated to work on this project.
+And this was actually Jonathan Effek.
+And I think he was one of the first that managed to boot iOS, the operating system of iPhones
+and other Apple devices, with QMU, which is a very popular open-source emulator.
+And he managed to boot it to an interactive Bash shell.
+So he managed to boot this emulator to user land, which is quite an achievement.
+And I thought, well, I want to learn how that works.
+It involves some reverse engineering, which is a thing I really like.
+I like seeing how software works, trying to decipher some of the secrets in the software.
+And it would also contribute eventually to long-term hardware preservation, because
+when people would run it, it has some feeling of nostalgia.
+And, well, I mean, I had my first Apple device, was an Apple Touch, and I decided to, well, work on that.
+So after reading the blog post, I was a bit puzzled.
+And I was like, OK, where do I start?
+How can I set up my own project to work on this kind of stuff?
+And, you know, Apple has released many different devices over time.
+And the first question I had to answer is, which device am I going to emulate?
+And if you think about contemporary devices, they are incredibly hard to emulate,
+at least emulating all the aspects of these devices is a very, very challenging and difficult task.
+They contain neural engines.
+They have phase ID touch IDs, which also has interactions with secure enclaves,
+but also software-based security measures like trust caches,
+which is a mechanism that's by Apple that only allows particular applications to have privileges.
+So I was thinking, if I go back in time and I take one of the first devices by Apple,
+at least in the Apple Touch family, that should be somewhat, well, easy to emulate.
+It is a device that was released in 2007, and it doesn't contain, well,
+the complicated hardware peripherals that I just mentioned.
+And, yeah, hopefully that will be simple enough to emulate,
+well, which were some famous last words, because even these devices are very, very complicated,
+as I will outline a bit later in this talk as well.
+So I'm definitely not the first one to work on this kind of emulation.
+So there are some related projects.
+One of the, I think the earliest attempt actually on emulating the SOC of an iPhone was by a CMW.me,
+who actually is the founder of Corellium, which you might know as a company that provides
+virtualization services, both of iPhone and Android applications.
+Yeah, we had the blog post that I just mentioned, which enforced the emulation of an iPhone 6S Plus.
+And that work was picked up by someone else and eventually involved in an iPhone 11 emulator.
+And there's also OpenEyeBoots, which is an open source bootloader for early generation Apple devices.
+And all of these projects have been extremely helpful in understanding and connecting all the different pieces together,
+because without them I wouldn't have been able to get this far.
+So then I had to pick a framework for emulation.
+And QMU is one of the most popular open source frameworks for this kind of emulation.
+It provides support for hardware emulation.
+You can define your peripherals, your hardware components.
+You can implement their expected behavior.
+And it already comes pre-shipped with support for many different protocols,
+like the USB protocol, network interfaces, SPI, SQC, SDAO, etc.
+So that was all very nice, but unfortunately it has a very, very steep learning curve.
+So it's quite difficult to wrap your head around particular parts of the project.
+So most of the time I had to rely on existing emulations provided by QMU to see how that works.
+And when doing emulation, you also need a way, or you would like to have a way of debugging your software,
+because you want to see which code path execution is being followed,
+what the register values are, and what's generally happening in the system.
+So the nice thing about QMU is that it automatically provides a GDB stop, a GDB server,
+that I can directly connect to, and then I can step through the code,
+I can jump to functions, and I can inspect all the register values.
+And for the reverse engineering part, I've been using Gidra, if I pronounce that correctly.
+It is a very popular open source tool for reverse engineering and decomposition,
+and this assembly of binaries, and this has been also tremendously helpful.
+So here on the right you can see, for example, some code related to the start procedure of the SPI controller,
+which controls the SPI interface.
+And if you look at it, it's actually pretty readable.
+You can do a lot with this stuff, but also the way Apple has engineered our software is very predictable.
+So they're using the IOCAD framework, which is very similar in structure.
+I mean, most of the peripherals look like this.
+You initialize some memory, you set some variables, and that's mostly it.
+So now let's talk a bit more about the emulation itself.
+So my philosophy when it comes to emulation is that I wanted to stay very close to the actual hardware,
+to what's actually happening on the hardware, no matter how difficult that might be.
+What I noticed is that many existing emulators, they cut corners, which is not unsurprising, right?
+Because for example, if you run into some kind of signature check,
+it might take a lot of time to get everything working and to get the right functionality
+and to make sure that pass steps.
+So one way is, for example, to just patch out that particular procedure or function call.
+Why do I want to do this?
+Because I had a feeling that any hack, any workaround I would do in the very early stages
+of working on this emulator would bite me back later.
+So I'd rather do it right very early in the bootpress process,
+where things might not be as involved as when dealing with a more high level of a user land or application.
+So I tried to, well, get it right the first try.
+Well, but as expected, it still ended up with a bunch of hacks, patches, works around,
+and patched out binaries, because for some things I really, really couldn't wrap my head around,
+at least not within a reasonable amount of time.
+So another philosophy that I had, I started with following the bootshank.
+So I started with the lowest level components in here, which is the Securon Bootrom.
+This is the very first piece of code that runs on an Apple device.
+It is actually fused into the chip of any device.
+If you find vulnerability in there, it's very nice, because you cannot patch that out.
+That's actually something that happened a few years ago.
+The Securon loots another called low level bootloader, LLB.
+That in turn loads the main bootloader, iBoot.
+Then that's iBoot, the component loads the X and U kernel.
+When the kernel has launched, it will start the launch D process,
+which is the very first process that runs on the system.
+That's launched Springboard, which is responsible for drawing the iconic user interface
+with the app icons and the hope screen.
+Springboard in turn starts all the different apps,
+like the Alarms, Safari, and other applications that you are familiar with.
+So I started working on the Bootrom first.
+As a very first step, I had to get the Bootrom, which is fortunately provided online.
+So that's very nice.
+It was dumped.
+The main responsibility of the Bootloader is not only to load the other bootloader,
+the low level bootloader, but also to initialize some key peripherals,
+like a clock, the timer, and the USB stack.
+Because even if everything else on the device fails,
+the Bootrom allows you to restore the device using some USB protocol.
+So if something goes wrong, you can use DFU, DFU mode to restore,
+to refresh your device.
+Now, I had some instructions running there,
+but I very quickly found out that when emulating this binary, this Bootrom,
+that it jumps to some unknown memory locations.
+And that was a bit problematic, because I didn't really know where it jumped to.
+And I looked a bit on the internet and I asked around.
+And it looks like this first generation iPhone
+is using some proprietary logic by Samsung.
+So very early generations of Apple devices were made in collaboration with Samsung.
+So the Bootrom was also made by Samsung.
+And I didn't really have any idea of what happens,
+because the Bootrom is very obfuscated and very small,
+and there are almost no strings and no contacts to work with.
+And I also didn't have any physical iPhone,
+Apple Touch device at that time.
+So I couldn't really figure out or dump that part of memory.
+And the same actually goes for the low-level Bootloader.
+I was running into the same problem there.
+It jumped to some unknown memory locations,
+so I decided to skip these two parts and go straight to iBoot.
+Yes, and this is how I load iBoot in code.
+So iBoot is the main Bootloader.
+It is responsible for loading the kernel from basically the hard disk.
+I was very fortunate that the source code of iBoot got leaked in 2018.
+So that actually was a newer version of iBoot,
+but at least it gave me some idea of how this all works.
+So I really tried hard to map all different components
+in the leaked source code with what I see in Gidra in the binaries.
+And I managed to boot iBoot and get all the peripherals up and running
+that iBoot expects.
+One thing about that is that there is this device tree,
+which you might also be familiar with if you work with Linux,
+some low-level Linux.
+It is basically a big dictionary of all the peripherals and their properties.
+It is included in the IPSW file,
+which is like the firmware file that you can download from Apple,
+and that is being installed.
+It is populated by iBoot.
+So iBoot, for example, gets the MAC address of the Wi-Fi driver
+and then it injects this number in the device tree.
+So here on the right, you can see a part of the device tree
+containing some information about the crypto AES engine.
+So it contains some identifiers and some other things.
+That was also dumped.
+So I also used that as reference to get an idea
+about which peripherals there are to emulate.
+And I can tell you that these devices are extremely complicated.
+So this is a diagram that I made of all the components
+that I managed to get up and running.
+Not all of them are fully functional,
+but most of them at least have some functionality.
+And this is for the Apple Touch 2G,
+which is slightly more complicated
+than the first-generation Apple Touch.
+So these peripherals, most of the peripherals,
+you can talk to them through something called memory map I.O.
+So in the memory map, there is a small part
+that is allocated to a particular peripheral.
+So here on the right, you can see the addresses
+of all these peripherals,
+which I also mostly got from the device tree.
+And you can write to these memory locations
+to talk to your hardware devices.
+And then the main challenge becomes, of course,
+like to talk with these hardware devices.
+And you have to do that in such a way
+that you get the expected responses
+and that the kernel and the other parts of the boot stage
+are happy with what these peripherals are saying.
+So this is an example how you can initialize
+the hardware components in QMU.
+You define some methods, some initialization methods,
+and then you include them in some main file.
+I won't spend too much time on this now.
+This is how you implement the functionality
+of each hardware component.
+You create a read method and a write method.
+The read method is called when something,
+a hardware address associated with the peripheral is read
+and the write function is called
+when you write to a register.
+And you can see, for example, in the read method
+that you have a switch,
+so you look at which address am I reading something from
+and then you return the write response.
+And sometimes that can be very arbitrary.
+I mean, I haven't deciphered all the meanings
+of all registers and what they expect,
+but you can at least do a best effort attempt
+in returning the values that makes the kernel happy.
+And this can become complicated very quickly.
+So here you can see a part of the SPI controller,
+which was a particularly difficult component
+because Apple has some, well, weird things sometimes.
+They make some modifications to their hardware,
+which not always follow well-established
+hardware protocols to say.
+And finally, you attach the peripheral
+to the overall machine in QMU.
+And you, so, and you optionally, you can connect the IRQ
+like the interrupt request.
+So interrupts are also functional there.
+Again, I won't spend too much time on this now.
+So after iBoot was running, I had to load the kernel
+and the kernel uses iOkit
+and it starts all the device,
+all the device drivers that are declared in the device tree.
+So whereas the low-level bootloader in iBoot
+would only load the most important peripherals,
+this would start all the peripherals.
+And here on the right, you can see some of the peripherals
+that I reverse engineered with the Ghidra.
+You can see LCD display, the power management unit,
+some other functionality that I didn't even know
+that were part of the Apple Touch itself.
+And this mostly follows a very similar protocol.
+When you start a peripheral, you usually execute
+some reset procedure or you do like an inter,
+you wait for interrupt or something
+to indicate that the device is ready.
+And after all these devices are loaded,
+then you start launch D.
+And this is the part where I spend most time on
+because I had to like get past all these peripherals.
+I had to understand how they work.
+And the further you get into the bootchain,
+the more complicated things become
+because then you are really building on,
+on the correct functionality of say the clock
+and the timer and interrupt requests, et cetera.
+So roughly 20 peripherals later,
+I got most of the things functional,
+like the clock, timer, the interrupt controllers,
+they're all fully functional.
+I'm pretty sure there are a few bugs left,
+but nothing too major.
+And only partial support for some of the more
+involved peripherals, just enough to make it
+past initialization.
+And then we're talking about peripherals like TV out,
+which happens that if you connect your Apple Touch
+to a TV, the GPU, also the accelerometer,
+the light sensors, they're not really important
+at this point.
+I was very fortunate that I could avoid GPU rendering,
+hardware GPU rendering with a flag.
+So the GPU rendering in this emulator
+happens fully in software, which is slower,
+but still it's reasonable enough to use the
+Apple Touch itself.
+So there's a lot of work to do,
+but at least at this point I managed to boot to userlens.
+To give you one more interesting challenge,
+was the persistence layer.
+So the Apple Touch contains two types of memory,
+some more memory that contains small binaries.
+I think it's at most a few megabytes.
+And you also have the NAND memory, which is like
+eight gigabytes, and you can store all your applications
+and the operating system in there.
+There are some key difference between the layout
+of these, of NAND and NAND.
+So I had to spend a lot of time on when I emulated
+the Apple Touch 2G to make sure that also works.
+The main problem here is that once the kernel
+gets some kind of block, let's say block five,
+it uses logical block addressing.
+And that doesn't match with what's how the NAND layout
+underneath works.
+So I had to really figure out
+how something is mapped from a logical block level
+to the physical block level.
+And that took a lot of time.
+I ended up with some scripts in a separate repository
+that takes a dmg file and that converts it
+to like a raw file system, a file system as it is
+like really in the hardware.
+This is the diagram for that to give you some more context.
+This is for the NAND.
+So we have the file system which is implemented in the kernel
+and that's if it wants to get something
+from the operating system, it uses a logical block address
+that goes through two different layers,
+the flash translation layer and the virtual flash layer,
+again with their own numbering and addressing and mappings.
+And that results eventually in some physical page number
+and a CE which is basically like a bank,
+a number between one and eight.
+I think in the interest of time I'm going to skip this
+but I just want to say that multi-touch,
+even though it looks very simple,
+how hard can it be to convert a touch on a screen
+from to an X and Y coordinate was very, very complicated
+to get right and for this I actually,
+for this I actually needed a real device.
+So most of the things I could do without having
+an actual device but for this I needed a real device
+because I had to play with touches
+and see how the encoding of the touch works.
+So here on the right you can see,
+well me playing around so you do press a button
+and then I recorded what the multi-touch driver
+gives back to me.
+So all in all I managed, when doing all of this,
+I managed to boot to the, I will touch one G
+to the home screen.
+Well you can see it's a pretty basic home screen,
+not many applications.
+I think I got this running about one and a half year ago
+and a few months ago I managed to get the Apple Touch 2G
+working as well running iOS 2.1.1
+and the Apple Touch 1G is running iPhone OS 1.0.
+And that mostly concludes my presentation.
+I open sourced all the code,
+I created this GitHub project out of it
+which is a fork of the QEMU project.
+I'm not sure if I want to upstream it
+because it has a lot of ugly code
+and a lot of well, work arounds.
+But contributions are very welcome.
+It currently has support for the Apple Touch 1G and 2G
+and I'm currently focusing on getting
+the Apple Touch 2G stable so I can get an app store
+and third party applications up and running.
+So that's all, thank you.
+And if you want to know more, I have some blog posts
+with more technical details on my personal website.
+APPLAUSE
+Right, hello.
+Yeah, so we have some sign for questions.
+I hope the people ask questions are here in the front
+because I don't want to run to the back.
+But I'm going to start with a question
+because you mentioned Corellium, which is awesome by the way,
+they are very expensive but they are awesome,
+but Apple suites them into oblivion and they are lost,
+which I'm very proud of.
+It has nothing to do with it.
+But so the question is, has Apple made any friendly inquiries?
+No, no, no.
+I think this project is still too insignificant for Apple
+to care about.
+I also know about the Rockbox, for example, which
+does Ipod generation emulation.
+I'm not sure.
+I don't think they've been sued.
+But I'm not that worried about it right now.
+OK, excellent.
+Questions?
+Sorry, come to the side.
+Hi, thank you very much for your speaking.
+Only one simple question.
+Because why you choose the iPod Touch and the iPhone
+platform, it's only a simpler problem,
+or because there are patents or other problems in that way.
+Thank you very much.
+Yes, thank you.
+So the question is, why did I choose for the iPhone
+and not for the iPod Touch and not for the iPhone?
+Well, I mean, when I started this project,
+I was not familiar with the architecture of both.
+But I was thinking, well, the iPod Touch contains at least
+one less peripheral, namely the baseband, the modem baseband.
+And I was not sure how critical that
+would be for the entire booting procedure.
+So that was, I think, my main motivation.
+But most of this stuff can also be applied to the iPhone.
+I think with some changes, you can get the iPhone 2G working.
+Because the iPhone 2G is architecturally similar
+to the iPod Touch 1G.
+Yeah.
+Hi, great talk.
+What are your future plans for this project?
+Do you want to support newer devices
+or expand like the computer in a more modern iOS version?
+Yeah, thank you for your question.
+So what are my future plans?
+I am currently working on getting the USB up and running.
+There is an independent researcher
+that also managed to get a syscalls between the guest
+and the host running.
+So that's pretty cool.
+So we can do some syscalls.
+So I'm currently working on USB.
+Whether I want to work on newer generations,
+I'm not so sure.
+I think it will be possible to emulate them.
+But I think having one stable and, well,
+actively used emulator is better than having
+10 fragmented, half supported emulators.
+Because there are like many Apple devices out there.
+So yeah.
+OK.
+OK.
+Hi, thank you for this great talk.
+I was wondering, you were talking
+about getting the app store up and running.
+Have you considered getting in touch with Jay Freeman,
+the author of Cydia?
+Cydia, no, I haven't considered getting in touch with him.
+I know some people are asking me about,
+can we jailbreak and then install Cydia?
+I think we probably can.
+But there's almost no tooling around this emulator
+at the moment.
+So getting these jailbreaks up and running
+is kind of difficult right now.
+But I think it's a good suggestion.
+I think at one point I should.
+Yes.
+Thank you.
+Yes.
+Anybody at the front, hopefully?
+Thank you.
+Hi.
+And thank you for your talk.
+I don't remember in 2007 with this type of device,
+required activation behind us or not?
+I think they indeed require activation.
+Oh, actually, that's a good point.
+I used activation tokens from an actual device.
+Because I also had to match the serial number, et cetera.
+So I matched the serial number.
+I used activation tokens from an actual device.
+And then it worked.
+But I could have well patched out all the look down the demon.
+It's the look down the is a demon responsible for this checking
+if everything is activated, et cetera.
+I could have well patched that out.
+OK.
+Thank you.
+Great talk.
+Have you got the opportunity to play with JTAG debugging
+to cross check if your emulator works well,
+like a real device?
+What are you referring to?
+Like how can you do this check?
+I would say you try to execute some peripheral access,
+both on the real device and in your emulator.
+And you cross check the read results.
+The spell is a good point.
+I think you could do it with open iBooks.
+So I managed to install open iBooks on the actual device.
+There you can play around with the peripherals.
+So I think you can have some kind of trace where you just
+fire requests to the hardware.
+And you get some responses.
+And you can cross check that indeed with what I get.
+No, I haven't done that yet.
+But I think that's an excellent idea
+to make sure that your emulator is mostly
+compatible or the same as your real device.
+So I had a small question, actually,
+because at the beginning you mentioned you're a postdoc.
+So how much time do you spend on this?
+It's very difficult to say.
+Because sometimes I have a week and I spend every evening on it.
+Sometimes I don't spend any time on it for three weeks.
+I mean, it also depends on my main schedule for my work.
+I mean, depends on paper deadlines as postdocs, obviously.
+Yeah, I think when you get closer to getting something up
+and running, you tend to be more motivated.
+And then I spend more time on it than when you're completely
+stuck.
+And yeah.
+OK, does anybody have a question?
+I can keep going on.
+So another small question is, because one of the previous
+talks, they mentioned motivation.
+How do you get motivation to start something like this?
+And where do you start?
+So can you tell us something about that?
+Yeah, I think for this, well, you mean,
+first of all, you need some curiosity.
+You want to know how things work.
+And you really want to, yeah, you
+have to be able to dig deep into some components.
+And you know, there are many components.
+So you will inevitably run into something
+that you don't know anything about.
+So I learned a lot about all the different components
+that are in there.
+But another very important thing, I think, is persistence.
+Because at many times, for example,
+when working on the multi-tarch or the nonce,
+I was like, yeah, I really don't know how this works.
+And then you solve a small part.
+And then it turns out there's yet another layer
+of indirection going on.
+And you have to figure that out again.
+And then it turns out that something you did earlier
+was you made the wrong assumption,
+which breaks all other components further in the pipeline.

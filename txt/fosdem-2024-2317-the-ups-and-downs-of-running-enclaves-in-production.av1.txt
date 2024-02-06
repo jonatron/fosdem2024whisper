@@ -1,0 +1,309 @@
+All right guys, so back to the matter of the day.
+The next speaker is Kian who works at Evervolt and I think it's quite exciting to have a
+bit of a complimentary perspective in let's say this exciting new field where we talk
+a lot about new technologies, but you will actually talk about how to use them in production.
+So take it away.
+Thanks.
+So I work for Evervolt and I will talk about Evervolt to begin with just so you know why
+we use enclaves in production and not just traditional computing.
+So we offer also, I don't know how loud that is if I'm too quiet, tell me so I can speak
+louder.
+So we offer tooling to allow customers to guarantee data security in different forms
+like encryption before it ever hits your system or ways to process said encrypted data
+in secure environments and so on and so forth.
+At the core of all of this is enclaves.
+We're running on AWS so we're using the Nitro enclaves which as far as I can tell aren't
+as open source as the Intel SGX or any of that stuff.
+But we've been doing this for a couple of years now and that was when we started the
+best we could find for doing VMs that guaranteed the security model that we required.
+So like I said encryption, so yeah we're running in fully isolated VMs where we can basically
+see nothing that's happening inside the VM without a lot of effort on our part which
+is mainly so we can protect our users data.
+So just to give the context, relay is our main product is what I would say.
+It's an encryption proxy, you put it in front of your service and you define some rules
+and before the service your request ever hit you, the rules are applied and all your data
+is encrypted.
+Sorry, I lost my mouse.
+So yeah so it's very much focused on web services but it's mainly for people who want
+to de-scope their environment so they can be more PCI compliant or protect HIPAA data
+and stuff like that.
+Relay runs, relay doesn't run in an enclave mainly due to performance reasons because
+it's processing lots of network requests and we want it to get quick because encryption
+is slow and we don't want to add overhead to our users.
+So we store all of our keys inside a KMS that is accessed from a secure enclave.
+That service, we have no access to the keys then.
+On startup it tests connections to the KMS, pulls down user keys, decrypts them and then
+we are able to process the user's requests and outside of that environment we can't replicate
+anything.
+This started though when more users joined us and we started to scale.
+At first we just had a lot of automation.
+That was stuff like how do you run Docker containers in enclaves and how do you make sure that
+you can scale up or scale down.
+AWS Nitro enclaves are guest VMs on top of EC2 nodes.
+There's not much automation about actually running what's in there so you have to build
+it all ourselves and get all that running and actually performing requests for our users.
+So after we got all that running we had issues with just the libraries in general.
+So the parts of AWS that are open source are all the interface libraries for connecting
+to them but we found that there's many, many edge cases where they just were very poorly
+documented or not documented at all about how do you interact with it, how do you work
+with the proxies.
+So for reference for those that haven't used it, you need to run a Vsoc.
+There is a Vsoc on your host for communicating with the secure enclave and this is the only
+I.O. you have in and out of the VM.
+You then need to manage all the connections yourself and how you transfer data in and
+out and communicate.
+We ran into some really fun problems though trying to use this and talking to the AWS
+guys about using their library and getting stuff.
+The funnest one I think was we lost, we were dropping, we had file descriptor leakage.
+Our VM guests, VMs were dying because we just couldn't connect to them anymore because
+we run out of file descriptors on them which I had not seen in a long time aside from just
+like breaking my own machine which was fun.
+Turned out we just made some assumptions about how stuff worked because we thought, oh this
+is how it works in Rust and no, that wasn't how it worked in the library and we were just
+not reading the code but we needed to read the code which was unfortunate because I would
+have liked it to be in the docs.
+But yeah, it really showed that there was no metrics or observability for these enclaves.
+We weren't able to know what's happening inside them or how to interact with them.
+We started trying to monitor them.
+This was interesting.
+Like I said, no metrics, no nothing.
+I realize you probably can't see a lot of those graphs but these were our load tests.
+We started to try and get metrics out of them because there's limited IO.
+We didn't want to just try and put a metrics collector inside them and shoot all the metrics
+out to Datadog or AWS.
+We started instrumenting the clients that we were talking to it with and we started sending
+load data and trying out different workloads.
+So a lot of black box testing.
+This was several weeks of just staring at graphs that I may have gone a little insane
+during but we're here now and it worked.
+So once we got through it all we were able to find different bottlenecks in the code
+but based on guesses and automation changes we were able to go from, I don't know if you
+can see that but about 1,500 requests per second, no, encryptions per second inside the
+enclave to about 5,000 encryptions per second just by switching our default curve which we
+hadn't ever considered because we encourage our users to set the curve but it made massive
+improvements for us.
+But we had no idea that the encryptions themselves were the bottleneck because we couldn't see
+what was happening inside of our enclaves or the VMs and know where our workloads were
+slowing down.
+So once we started doing the observability we really went in on it.
+So we did this black box testing and we found the limit pretty quickly.
+We had to guess where the bottlenecks were and there was a whiteboard in the office of
+like here are ideas we have to try in different configurations.
+We just worked our way taking each box off and turning itself on and off until we were
+able to actually get some improvements from it.
+We then started working on a level of, so AWS does have a concept of debug logs but
+the moment you turn it on your enclave isn't actually a testable anymore.
+The attestation variables all just turn to zero and you're not able to attest your connection.
+And like I mentioned before we need to be able to attest the connection to the KMS to
+actually even load keys into it so we couldn't run in debug mode at all.
+We had to figure it out.
+So we had to basically reimplement a level of tracing like if anyone is familiar with
+open telemetry and stuff we had to come up with a way of doing trace requests inside
+of it.
+We couldn't use open telemetry because it had no understanding of how to communicate
+outside of the VMs.
+We had to take concepts, reimplement them and come up with a way of batching requests, sending
+them out and limiting the amount of IO overhead that we were doing that.
+We eventually got there and we were able to monitor our boxes.
+That's when we started to notice more problems.
+So we basically had these two processes in the enclave talk into a shutter and we expected
+the green line there.
+Yellow line would be perfect.
+That was our local dev environment.
+But the green line is what we wanted to see in production.
+The blue line is what we were seeing in production.
+I've lost.
+I wasn't allowed to put the lines of the numbers on it to be specific here but that was about
+a 20x slowdown I think which was insane.
+We're still debugging this one.
+We're not 100% sure where the bottlenecks are.
+We're fairly certain it's the virtualization of the network layer inside the containers
+is just insanely slow.
+So what we're looking at is how can we short circuit that.
+There's some things like sock maps.
+You can re-root sockets.
+But effectively you can't just take a container and throw it, take a process and throw it
+in or take two processes and throw it into the VM and think that will work.
+It works on my machine.
+It does not just magically work.
+You need to really tune the system to actually be able to talk effectively.
+We're still tuning it.
+We're hoping to have some stuff to note soon about ways to speed it up with sock map and
+different improvements.
+Like I said, it's seemingly either the VM or the user space networking.
+The fun one which I think was a lot of people who have worked with Enclave go, duh, of course
+you had time slippage.
+There's no NTP in an Enclave.
+You can mount the PTP of the hypervisor.
+But again, that invalidates our security model for PCI.
+So we had to actually synchronize with NTP which meant we need to add another layer of
+periodic work that needs to be done by the guest box to ensure that the VM could actually
+know what the hell time it was.
+We noticed that we were losing a second a day which is quite a lot when you are doing
+and that was based on traffic volume as well, more traffic, more time we lost.
+But if we did nothing, it was just one second a day.
+That really got into it when we had to do anything that was sensitive such as token
+validation.
+So, off effectively broke if a VM was running for more than three days which led us to a
+cron job that just cycled VMs for every three days for a little while until we re-implemented
+NTP through the VSOC.
+Fun.
+These are a lot of, like, yeah.
+So we kept running into issues and we kind of said, why is this so painful?
+It should be easy to just deploy a service into an enclave and give other people the
+ability to, like, say, yeah, that person who hosts my cloud computer definitely can't see
+the data being processed and I can guarantee it.
+Really useful for health data or financial data which are our main customers.
+So we put it all together and have a product called enclaves if you want an easy way to
+do hosted enclaves.
+So you can effectively give, we'll give you a Docker container.
+No, we don't give you anything actually.
+We give you a CLI and you build the Docker container with a Docker file into a secure
+enclave.
+You are given PCRs so it's fully attested.
+You give us your secure enclave and we run it for you.
+We push our data plane and control plane into the enclave and it talks to the control
+plane that we use so you can leverage it, all of that is open source so you can reproduce
+the build yourself and validate all the attestation.
+That's the same and ensures that everything is communicating effectively and there's no,
+well, me or my team aren't, like, messing with your code or changing it or anything like
+that.
+So it's just regular Docker containers.
+The connection is fully attestable and you can connect to it.
+I see 10 minutes and I probably don't need that long.
+So, but yeah, we're working on this.
+We're taking everything we learn from building our own service, putting it into our Everloot
+enclaves and it's on our GitHub.
+If you want to have a look and go through it, we want to be able to, people to be able
+to look at it, see that we're not doing anything wrong and try it out and hopefully have a
+better experience getting on boarded with confidential computing than we had because
+it was a lot of like throwing stuff at the wall, seeing what broke, where it broke and
+trying to figure it out.
+I'm going to go for questions then.
+You said you had problems with curse.
+British didn't be using ECC.
+Do you have any idea why the curse might have been a problem?
+Are you hitting page boundaries, packet boundaries or any ideas?
+Yeah, so we what we were seeing was that it was in the CPU.
+There was optimizations that we hadn't accounted for.
+So by default, the box we were developing on ARM Max, who were highly optimized for
+the curve we were using in default, which led us to like say, great, look at the performance
+here on our local machines deployed to production performance crashed.
+Turns out the AWS boxes we were running on were optimized for the standard K1 curve or
+one curve, a camera, which one it is now, but basically wrong curve.
+And we were an evening in the enclave, those optimizations still come true.
+So we were able to get 20 X performance gains from that, I think.
+Anyone else?
+Can you elaborate a bit on the nature of the payload or whatever you're executing
+there? Because I mean, we saw there pretty much encryption transactions.
+But what was exactly running there?
+So what do we run in the enclave?
+So for the benchmark was so the benchmark was basically fuzzing was what we were doing.
+But we send.
+So as I mentioned, in the enclaves, we have all our customer keys each in it.
+So we had one of our keys in there that we would send 20,000.
+So we would have 20,000 fields to encrypt.
+And we'd say each of these fields, we're going to iterate through this dictionary
+and encrypt it. So we'd send just a generic JSON blob.
+But for purposes of encryption, we could send just that we could just be a Boolean
+or a string or whatever and just send it in.
+And we then would iterate through that JSON blob and it would have the it would say,
+I am this user or application in which would then cause service to choose the right key.
+And it would then just it and they would say, these are the fields inside the
+JSON blob to find and encrypt.
+So it was JSON blob and ID and fields encrypt.
+Very simple payload, but it was just iterative work.
+And because of how the encryption is implemented, it's all blocking work.
+So we'd have to farm out the work differently, not like directly related
+to enclaves, but when we did the load testing, we determined that we were blocking
+and dropping connections in the service.
+So what was happening was the connection we'd schedule the work on the enclave
+and then the connection from the upstream service would die.
+Then we wouldn't propagate that connection dying downstream.
+The enclave would do the work, try to send the encryption back and then go,
+oh, no one wants this work and stop.
+So we had to put some keep alive and connections.
+But these are again the things we missed because we were having to
+reimplement just what would be generic TCP or or HP for talking over the Vsoc in the enclave.
+So you mentioned the the architecture you you are using
+made you adapt your cryptographic parameters.
+So how would that scale up to the future?
+I mean, crypto agility facing any words on that?
+I don't know.
+I'm the SRE who's meant to make such scale, but that's actually outside of my domain.
+We have people who understand cryptography a lot better than me and the company who
+would be able to answer that question.
+I can give you an email address if you want to talk about it, but I can't speak myself on that.
+Thanks a lot for the great talk.
+So I wanted to go a little bit back to like the use case you presented in the beginning.
+And I might have missed something, but it sort of sounds to me that like the use case
+here was not really like a sort of protection at runtime, but it's kind of like a long term
+protection of the of the keys and not while they are used by the proxy, but where they are in store.
+So did you like consider other solutions for this like HSM's and do you have like any
+insights there that why did you end up choosing the nitro enclaves for this particular particular use case?
+So I'll be honest, that predates me at the company.
+I'm not sure why it is.
+I will I would say that we did level of evaluation that were probably not too deep.
+We are a startup for and find our feet at the time and we had implemented a level of encryption
+just inside a process.
+And then when we attempted to secure it and build it, the enclaves seemed like an easy solution.
+I think that we've proven they were not an easy solution.
+But yeah, that's so we we would have valid what we validated were just ways to do encryption
+that would guarantee we didn't have access to users keys and we couldn't decrypt any of their data.
+And yeah, uncle, it seemed easy in reality, not so easy.
+So there's one online question.
+Can you explain the TSTLF protocol that you use?
+Is the protocol specified somewhere and has it been formally verified?
+So it is.
+So we actually had to reimplement it.
+We I can't remember which one we did, but we've looked at one that was done by the confidential
+computing.
+Consorting more of the paper that was published on it and we it was attestation in TLS connection
+inserts as our original implementation.
+That then I can't remember the specifics of it.
+So I will have to refer you to our get history on this.
+We deployed it and we were able to do it.
+In production because people had to add our root CA to their root CA store because you couldn't
+extend TLS in the way that was specified in the RCA for customers.
+So we eventually had to switch to a new attestation, which unfortunately I'm not the expert on.
+But it is available in the TLS.
+It's written in Rust.
+It's on actually it is linked in the talks on the page and the files them under attestation
+bindings.
+So anyone can look at the protocol we use for a testing it.
+Effectively, we leverage the PCRs that are provided by the underlying nitro enclave to
+and then we have an attestation protocol that we use to test the TLS.
+The underlying nitro enclave to and then we have an attestation protocol that on connection
+to what we do a TLS handshake that then performs the attestation and the client must supply
+the attestation bindings and we have implementations on the client side and go
+Rust node Ruby Python.
+Actually not Ruby, just Python and node and go.
+Oh and Swift and Kotlin.
+I will ask it like this because the interference with the micro and then you can
+Yeah, sure.
+So there was also a bit of discussion in the chat here about nitro enclaves and in what
+far you can go about the E and I know this is an endless debate and we even had an
+exclusive debate last year.
+Maybe can you briefly react to that and maybe also say a bit about the infrastructure you
+built, how tidal is to nitro and then the next problem can be solved.
+Yeah, so last, oh yeah, sorry, repeating the question.
+It's the debate about nitro enclave versus TLS.
+They are not, as I said, they're not as open source because it's mainly on the client side,
+they're open source rather than the server side and it's mainly just white papers, I
+believe that specify how the nitro enclaves operate or just documentation.
+So and the other part of the question was.
+How specific the tooling you built in the company?
+Yeah, so how specific is the tooling to nitro?
+So we did evaluate other cloud providers to see if we could move off to it.
+This was done a year and a half ago.
+We looked at Azure for doing it.
+Azure didn't have the new Intel SGX or is it SGX?
+Sorry, TDS sorry.
+They didn't have the TDS at the time, so we validated that it couldn't fit our model
+of secure computing.
+We probably need to reevaluate now, but the tooling is very AWS focused right now
+and nitro enclave focused because it was about trying to make nitro enclaves easier
+for us to use.
+Conceptually though, the control plane and data plane aren't specific to that.
+So far, they could be reimplemented for anything that wants to do TCP over a network
+connection for inside non-clave and outside non-clave.

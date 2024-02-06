@@ -1,0 +1,153 @@
+Hello.
+I want to start. Hi, everybody. So my name is Foyker Simonis.
+Hi, guys and girls.
+So my talk, my slides and my examples are on GitHub.
+I will show this link one more time at the end of the talk, so you can take a picture if you want.
+I'm currently having some fun at the Amazon Coroeta team working on OpenJK
+and I did the same along for quite some time in the past at the sub-JVM and submachine team.
+Today I want to tell you some details about running Java in containers and in different containers.
+One is Cue and the other is Firecracker.
+So what is Cue? Cue is checkpoint and restoring user space.
+That's functionality in Linux which allows you to serialize a whole process tree to the file system,
+basically to an image or a set of images and then it can be later restored from this image
+and run at the same state where it was checkpointed.
+It only saves anonymous pages of the process so it's quite efficient.
+It doesn't save the shared pages. We will see what impact that has.
+And correct, that's a coordinated restore and checkpoint. It was mentioned before in several talks.
+That's a project in the OpenJK which has basically two goals.
+One is to create a user land checkpoint and restore notification API
+which allows it applications to react and take actions based on a snapshot or restore event.
+So before the snapshot they can do certain things like zero out, secret memory or stuff like that
+and then to restore for example they can restore network connections which they tear down at snapshot, things like that.
+And gaining quite some traction in the community, the new versions of the popular frameworks
+like Spring, Micronaut, Quarkus or even AWS Lambda, they support this API
+so if you write applications or code for this frameworks you can already use this API.
+The second part of the goal of the correct project is to make the JDK itself SNAP safe.
+So the JDM as well as the JDK. This means that it uses this notification API for example in the JDK classes
+to take the actions I just talked about.
+And this is sometimes useful or even required to make, to react appropriately not only on checkpoint, on restore
+but also on clone because once you've checkpointed an application you cannot only restore it,
+you can basically restore it many times which I call cloning and then it's important for example if you have
+UUIDs or secrets to as I said to either wipe them out or reset them or recreate them.
+And Quark is using CRIU as a tool to do the actual checkpoint and restore process
+but as I said the API can be used without CRIU itself and we will see how that can be used with Firecracker for example.
+So let's dive into a quick demo.
+So I will use Pet Clinic as an example here.
+Oh this is the wrong window. So this is for CRIU.
+So I just start Java with some default settings which I pick up from Java options.
+It's basically Java 20 or 22 I think running with 512 max of memory, running the REST version of Spring Pet Clinic.
+And it takes about 10 seconds to initialize and then I use URL to access it just to make sure that it works.
+And yes you see it works, it really works.
+Now we use PMAP to look at RSS of the Java process. It's about almost 450 megabytes as you can see.
+And we can now use CRIU to dump this process.
+Oh I think it's hard to see.
+Yeah I will scroll it up. I just start to dump.
+So this was just the command line here to dump the Java process into a directory.
+And once we've done that we can take a look to see how much memory that used.
+And you see that the image itself is smaller than the footprint of the process itself.
+That's because what I said the image only contains the private and the dirty pages of the process,
+the shared pages from the mapped files for example.
+And we can now restore this process.
+So we use CRIU restore from the same directory and it works like in about 200 milliseconds.
+And if we use PMAP again you see that it uses, after we store it uses less memory, about 20 megabytes less than before.
+So why is that the case?
+Again that's because of shared pages.
+This is the diff of the whole PMAP output for the initial process before it was snapshotted and after we store.
+And you see the basic difference here is that for a lot of libraries like system libraries, LAP-NSS for example,
+we used 140 kilobytes for startup but this memory, these pages are not required anymore after we restore the process.
+So CRIU has still recorded that the process can access this memory but until it doesn't touch these pages they won't be paged in.
+So that's why after we store the process uses less memory which is a nice side effect.
+Okay so what other possibilities do we have?
+We start the application once again and it always takes about 10 seconds.
+So it works again.
+Now there is a feature called Trim-NATIFIP which was introduced by Thomas, my former colleague Thomas Stüffer,
+which basically frees the Maloch, the G-Lipsy Maloch buffers.
+And this can have quite a significant impact on the footprint of the process.
+So we see that the G-Lipsy Maloch cache used about 60 megabytes.
+And if we run now P-Map again we see that the RSS is much slower now, much slower now, just about 450 megabytes.
+And we can now...
+I also experimented with the new option which zeroes part of the heap.
+So it basically does a system GC and all the unused parts of the heap will be zeroed.
+If we do that and look at the memory footprint of the process we will see that the memory footprint got bigger
+because now parts of the heap which weren't mapped before get paged into the memory but they contain only zeros.
+And I have a pull request for the QIO project which such as QIO can recognize zero pages and ignore them while dumping.
+If we check point now with this zero option, it's basically the same like before.
+We just used the skip zero flag which is not standard until now but I hope it will be integrated soon.
+And if we take a look at image size we see that the image size now gets considerably smaller.
+So it's just 200 megabytes because all the pages which contain just zero bytes are replaced by reference to the kernel zero page.
+So basically it's a sparse file, the image file.
+And when we restart the process the memory footprint will be smaller as well.
+So we restart now from the new directory and when we take a look at the P-map output you see again it's just 270 megabytes.
+This is a little cumbersome so why not using the crack release itself.
+And the good thing is that crack basically does all what I've showed you what you basically can manually do with a normal JDK and with a normal QIO release.
+This is basically built into a crack version of crack build of the open JDK.
+We use the option crack check point two and give it a directory.
+So we run the application and then once it initializes we see it works and then instead of using the QIO command directly we can use a J command to check point.
+So I scroll it up here so we just scroll J command with the PID of the pet cleaning application and we execute the JCMD JDK checkpoint and that killed the checkpoint and also killed the process.
+And we can now restart that again with the help of Java by using the second crack option which is crack restore from and then give it the directory where the file was saved to.
+And this takes just a few milliseconds again and we see it works and again the memory footprint is like before it's like 280 after the first restore so it's considerably smaller because the heap was shrink.
+So what crack is actually doing it's not zeroing the memory but it's unmapping all the unused parts of the heap and I also recently added the feature to call into Tomas Trim native memory functionality to also free the JLPC buffers.
+So to summarize like in for a spring pet clinic application it has about memory footprint of a good 500 megabytes and after restore it's a little smaller because it doesn't have to restore all the shared pages.
+Image size is about 500 megabytes.
+If we zero out all the heap unused heap and use the skip zero flag of crew the RSS goes up just before the checkpoint but instead we get a much smaller image size and also a smaller footprint when we restore.
+And that's the same with crack because it basically it doesn't zero but it unmapped the memory and it has the same effect so it would wonder why do we need the zeroing at all then and not just use crack so I hope that will get clear in my next example.
+So for the next example I will use firecracker which is a KVM based virtualization.
+It's basically QMU on steroids it's a stripped down version of a virtualizer it has only a restricted set of network block device network device.
+It's rest base configuration it's written in Rust and it's open source under Apache 2 license and if you ever used AWS Lambda or Fargate for example that's the technology which drives this offering so every Lambda function is running in its own KVM based firecracker container.
+This is a diagram of how it works but I think we don't have time to go into the details today.
+It said I want to show you how this works practically.
+So I have another prepared another window here.
+So I use a script which which basically starts firecracker and inside firecracker it then starts again the pet cleaning application.
+If you take a close look this basically boots its own kernel which is 6.0 this here Linux 6.1.7 so it boots its own kernel in a virtual machine and then inside the kernel it starts firecracker and now if you see a rail this virtual machine has its own network address so we cannot use localised anymore.
+So we have to use the IP address of the virtual machine running on our host system but apart from them it works exactly the same and we have to look for two footprints now.
+We want to know we have to look at the footprint of the firecracker VM itself which is about 670 megabytes.
+Slightly bigger than that of the whole process and we can also look at the size of the JVM inside the guest and we see the JVM size inside the firecracker guest is about the same like when you run it locally which is basically clear.
+And we can now snapshot the whole firecracker container.
+Again that takes just a few seconds to this directory and if we want to see how big it is it's like 670 megabytes about the size of the whole firecracker container had in memory when it ran.
+So just to demonstrate how it works now we can restore from the snapshot.
+This again basically spins up the whole virtual machine in about 200 milliseconds and we can check how much memory it takes and you see it takes very few memory because it takes only 570 megabytes.
+Because it only pages in the pages which are really required to start the virtual machine.
+Crew paged in all the pages from its page file into the newly created process.
+Whereas firecracker does this lazily that's why initially it needs so few memory.
+The funny thing is that if you look inside the container by SSH and to the container and to a P map the Java process within the firecracker container still basically needs 500 megabytes but the VM itself only has paged in like 50 megabytes of memory.
+And what we can do now is, yeah we wanted to see, we already saw how big the, yeah we are sorry, we just do a request.
+So you see it's still working after we store the network devices are restored interfaces and it works and if we look at the image size of firecracker after the restore you see it gets bigger like 270 megabytes which corresponds mostly to what the crew process used.
+So that's actually the crew restore Java process so that's about this 270 megabytes seems to be required in order to process this request in pet clinic.
+So now how can we get this smaller the image size of the firecracker container because 690 megabytes is quite big.
+So again we run firecracker and you can see that I started a starter firecracker process with the checkpoint option so I with the crack checkpoint option so I can actually use the J command version now to check point.
+So we have the Java process in the KVM guest.
+Again we use SSH to SSH into the firecracker container and then inside the container we execute J command to checkpoint.
+This is a special version of checkpoint where we doesn't make sense to use crew within the firecracker container because anyway we will snapshot the whole firecracker container so instead we just use the special version of crack which only executes all the callbacks and thus all the optimizations but doesn't really call crew.
+So that's where we have to restart it inside and when we look at the memory.
+Inside the the Docker container we see that it's about 290 so it was it went down the SS but unfortunately the container it's like firecracker process itself still uses that much memory and if we.
+If we snapshot it.
+That that works.
+But.
+Let's take a look at the size.
+It's still 600 megabytes so that's why I called why I choose the title like that that's what I call the semantic.
+Gap between the guest and the host like even if I free memory in the guest container the host colonel does not cannot know that these pages are not used anymore by the guest system and they are still dirty from his perspective so if I if I.
+Snapshot.
+The container the whole VM it's it has to save them to this which makes it inefficient.
+So there are different possibilities to cope with this.
+One is to use.
+The the trim native image and the the zero heap options are showed you before because then firecracker has the chance to wipe out these pages from the image which make the image.
+Sight smaller.
+So I have I've summarized this here in this table so initially the firecracker process needs about six or almost 700 megabytes of RSS the JVM inside like before 500.
+Snapshot is about 600 megabytes after we store 50 megabytes and after the first request again 266.
+If you run this crack and do the checkpoint we can minimize the memory size within the VM to about 290 but the but the image size that the snapshot size itself stays at at at 600.
+If we do the trim native and zero unused heap the the memory consumption of the of the of the of the virtual machine goes up because again we we touch all the pages in order to zero them.
+But we get a much smaller image size because now the virtual machine manager again replaces these pages by the kernel zero page so we get a much smaller image and faster start up time.
+There's another possibility and that's called in it of in it on three that's a kernel option so the kernel usually when you give when you am a page and give it back to the kernel.
+The kernel doesn't do anything with this memory the kernel zeros the memory when you allocate it when you am up on your page the kernel will give you a zero page a page only containing zeros.
+But there is an option called in it on three which does this in the other other way around so it's and it's.
+Just for example in security critical application where people want to make sure that once they release memory this memory is immediately zeroed out.
+The thing with this is that the initial memory size of the container goes up because when the kernel boots up it was zeros the whole memory so it touches all pages so the footprint of the of the.
+Firecracker process is like one gigabyte which is what I gave him for the for the guest on the other side.
+When we snapshot this.
+We we get down to a four hundred twenty megabytes which is already quite nice.
+Last feature which I wanted to mention briefly is ballooning that's a special device inside the guest which can allocate memory can sing of it like a file cache.
+And then it has a means to communicate is back to the KVM manager and the host and tell the host that the host can now reuse this part of the memory so with this.
+If we inflate the balloon we can decrease the the footprint of the whole virtual machine but unfortunately the snapshot again gets bigger because from the.
+Host site this page is still look tainted so we have to combine ballooning within it on three then we get like all the benefits small very small footprint of the running KVM process and the smallest image size so with that I came to the end of my talk there are some references here.
+And I linked to the to the examples I showed you and this is where you find the presentation so thanks a lot.
+Thank you.

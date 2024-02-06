@@ -1,0 +1,264 @@
+Can you hear me okay?
+Cool. Okay. So if sound doesn't work for the rest of the presentation, this is basically
+the key of it, right? So I'm a compiler engineer, I'm not an ML specialist, so I'm not a compiler
+engineer, so kind of like a heads up, if I say something wrong about ML, that's why.
+You can use ML in an industrial compiler, which is LLVM. Actually, show off hands, does anyone
+have you heard about LLVM, Clang? Cool. Okay. About half. I have a slide about that too.
+So out of the box, actually, as of Clang 17, it's not very well documented, because it's
+still work in progress, but you can actually connect to Clang and train models. So that's
+an interface just for training. It's a DMM kind of an interface. I think that means something
+to the ML community, if not, tell me. And this is not vaporware, it's just a virtual
+computer. In the sense that we actually use it for real, right? So I mean, you can read
+what's there, but we've been using it for about almost four years now, and we have some
+experience with it. And most of the talk is actually about trying to get to point three
+there, which is like what we've learned. The rest of it is set up. Okay. So LLVM, for those
+that did not raise their hand, is an open source project. It's a compiler. Actually, LLVM
+itself is a library. So it defines an intermediate representation. That's what IR stands for. It
+contains state of the art optimizations. It also knows how to lower to X86 or ARM or
+other targets. And then Clang is something like it compiles C or C++ down to LLVM IR.
+So basically Clang is built on top of LLVM. And so it's Swift. There's a Rust compiler.
+There's a Fortran compiler as well. And I mean, the LLVM project is bigger than this.
+There's a full tool chain there, like debugger, linker, all of that. Actually, shameless plug
+for the LLVM community that I'm part of. There's a dev room this afternoon here somewhere.
+To us, to Google, so I work at Google. To us, C and C++ is very important. Basically,
+anything that is performance critical, which is basically anything is written in C or C++.
+When we say C and C++, I really mean LLVM. And when I talk about LLVM, I mean LLVM at
+the tip of three in GitHub. So we don't have a special fork or anything like this. And
+we really chase the head by plus, like, well, minus usually two weeks. So we're very close
+to the head all the time. We have a release theme that keeps it basically in sync.
+And even small performance improvements matter, because a 1% saving across the fleet really
+means that much less hardware you have to buy, what you have to produce or consume, et
+cetera. And we keep doing this. All the performance improvements that we make are small, but they're
+constant. And it's like interest. It compounds. Our binary is no shocker. They serve RPC requests.
+No surprise there. The key thing is that to do that, to optimize these things, there's
+many things you can do. But as a compiler engineer, we're primarily occupied with how
+do we make the RPC request complete quickly. And the RPC request traverses a lot of code.
+Most of it is actually not the code that you want to execute. So there's things like networking
+stack, serialization, deserialization, security, blah, blah, blah, blah. And all of those things
+are reusable code. And they try to be genetic, which is the exact opposite of what I want
+for performance. Because for performance, I want it to be as specialized to what I'm
+actually doing. Like, I don't want it to be genetic, right? And for that reason, actually,
+the biggest levers that we have for performance are we collect profiles that tell us, like,
+well, actually, the program is spending time and then we reoptimize it. So we recompile
+it with them. And link them optimizations, which are basically like we can look at the
+whole program and try to, based on that understanding, try to make the right decisions. So things
+are big, like, you know, lots of data, lots of instructions to execute, nothing fits in
+any cache. I'm not being ambiguous there. I'm being actually precise. No cache fits
+the data that we're talking about, the instructions or the actual data being processed. So that's
+why, like, optimizations like inlining are, you know, very impactful because they contextualize,
+so they specialize things down to what you actually really have to execute. And then
+you end up with large functions, which means that optimizations are register allocation
+or have like a big problem to solve. What am I doing? Okay. Here we go. Okay. Which kind
+of gets us to why we want to do ML, right? So we want to do ML because we're looking
+at problems that are, sorry, sequential decision making. So inlining is about, hey, is this
+call site worth inlining? Sure. Okay. Fine. Well, the program just changed now, right?
+So what about this other call site? Is it still worth inlining? Maybe not, right? So as you
+go along, the state of the problem that you're trying to optimize changes, we don't have
+an Oracle that tells us what's the perfect optimization decision, especially at like
+the scale that we're talking about. I'm kind of like getting us to say reinforcement learning,
+probably no surprise to an ML community. Because I mean, otherwise what we do is like we have
+heuristics that can only operate on like local information. And because I mean, there's
+the one that actually we can make sense out of, right? So, and we have evidence that they're
+not good enough in the sense that we know that if we play a bit with them, we can, we
+can find headroom in optimization. So, but, you know, we cannot constantly twizzle with
+them, right? Like we want something a bit more systematic. So that's why we are interested
+in ML. We are also scared of ML because the compiler is about everything that ML is not.
+So the compiler must be correct. I don't think that it's a surprise to anyone, but it's a
+non-negotiable. The compiler must be deterministic again, because otherwise it's something that
+you cannot live with or, you know, to take forever to compile things because we cannot
+do incremental builds. So ML at least like naively to us felt like something more analog,
+right? Like it's more like, well, fuzzy, maybe something and that's not, not what we are
+about, right? So how did we go about it? Well, first we're not asking ML to deal with correctness.
+So already in the, in the code that I'm talking about, like in the compiler code that makes
+decisions like in lining and register location and things like this, we kind of already had
+a separation between what's correct. So, you know, there are certain things that are illegal
+to do so that we don't do them. We don't even wonder are they worth, like, you know, would
+they be valuable in doing it? We just don't do them. What we did here is we stressed that
+boundary even more. So we created like a very clear interface between ML questions and like
+what heuristic or policy questions and, you know, correctness issues. So the correctness
+stuff is, you know, written in normal imperative C C plus plus code that we can all look at
+and agree that it's actually correct, right? Module of bugs as always. But then out of
+choices that are equally correct, we go and ask ML, you know, which one should we make?
+To the end user, we don't want to tell them any of these not because it's like a shame
+or anything, but because it's the more different the compiler would look like the more difficult
+it would be to adopt it. So how about we make it look the same as it is today, which means
+no new dependencies, nothing extra, just additional flags, right? So that's something that is
+fine. So which really means that when we give the compiler to the user, we embed, we need
+to embed the models inside and not show any sort of like dependency on some sort of like
+an inference engine or anything like that. But for training, there's totally different. So
+for training, we're totally cool with like, depending on like TensorFlow and like whatever
+and, you know, like random generators in the weights and all of that is fine because that
+this training and actually we're fine with compiling a different compiler just for training,
+because that's not something that, you know, like, it's not for like everybody, right? So
+it's just for whoever does the training activity, which we also want to be rare because we don't
+want to like keep training it as you're trying to ship a product, right? So, you know, like, we
+give you the compiler and then like, hopefully the more the models are good enough, just like
+heuristics today, like, you know, like to, to resist changes that people make to their code,
+right? So basically, there's two types of interfaces that we ended up having. One is
+between compiler and policy. And there's like domain specific. What I mean is like, there's a
+different question that you ask is an inlining pass from the one that you ask is a register
+locator from the one that you ask is a instruction selector or something like that. But then the
+ML obstruction, like the way we interact with the mail is common because fundamentally ML to us
+looks like a function that we pass a bunch of tensors to and it comes back with an answer. And
+we, you know, like how it's implemented is, you know, it's not important, but it's irrelevant
+from the perspective of the interface and the implementations that we have are like either
+ahead of time, like I mentioned, or, you know, the interpreters who use TF light, like the
+people in embedded or for the DMM case, we're actually doing IPC over pipes. So the state in
+LLVM today, like if you, if you go to GitHub and you pull LLVM down, you basically have everything
+that you need to, to, you know, add the mail to a pass if you're a compiler engineer. It's TensorFlow
+centric, no surprise there, but it doesn't have to be. So the obstruction that I mentioned earlier
+can be, you know, like, I mean, you can, you can plug by the pytorch or anything like that. I mean,
+we, we made a pipe based protocol work over that obstruction. So it's clearly not TensorFlow
+specific. Any tools that are genetic, you know, like other utilities, like how you collect a corpus
+for training, right? So that's a problem. That's also in LLVM. We used to have them in, in, in a
+different repository, also open source, but they make more sense to go into LLVM. The training
+tools that we use, so for example, the, the fuchsia operating system that I had on an earlier slide
+trains using those tools, they are available there to as a, as a reference. But if you are a
+researcher, you probably want to use something like compiler Jim that is more research, research
+friendly. So there's kind of like different concerns in, in these tools. And then there's also
+like using the tooling that I mentioned, like there's, there's another body of work that produced a
+large corpus of IR that you can use for like whatever you want, like training for these purposes, or
+maybe doing LLVM training or anything like that. There's links there. In fact, like all the links in
+the, in the slide that are in the, you know, like when you go to falls them and you see the talk,
+they're there. Okay, what we learned, that's what I wanted to get to. And I'm doing well with time. Okay,
+so the, the, it works thing, right? So there's a difference between, I mean, there's been work doing
+ML with compilers in academia, but I mean, that there's a big difference between that and actually
+shipping a product and shipping a compiler for production teams. So the key thing is that, at
+least with a size problem, we have evidence from, from the Fuchsia team that it can work completely,
+meaning like they periodically, like about every month, pull LLVM, retrain a model on their code
+base, all on vanilla build bots. So they're like normal CPU based machines. They train for like
+about a day or so. And they produce a compiler at the end of that that optimizes for, for size,
+because that's what they care about. There's links, I think, down there, like an example of such a
+build bot. So it all, you know, this can be done completely openly. And the key thing also is that
+it works like turnkey, meaning like you don't need someone to go and pay attention to it. It just
+works repeatedly. And he's been working like this for like almost four years now, which is, which is
+good. Like we have a signal that we can have like an industrial process that produces an optimized
+compiler, you know, on a cadence, right? Okay, here's what it didn't work. So performance is hard. So,
+okay, so you are ML experts, you are not surprised at the statement that for reinforcement learning,
+the, the quality of the reward is very important. And we understood that through we, okay, it makes
+sense. However, for performance, the problem is a bit tricky. So it goes like this, you cannot just say, oh,
+let's run programs and see how well they run, because it takes time to build a program. And it takes
+time to run it. So you either do it very quickly, which, which means that you're doing it for small
+little benchmarks, which are completely relevant to what we're doing, right? So then basically you learn
+on something that has feature value distributions that have no match in what we're actually going to try to
+use it for. So we don't want to do that. Or you cannot do it. Like, it just takes too much time. So we were
+like, hold on a second, but we have profile information, like I talked earlier, like, we know, we collect
+this profile information that tells us where the program spends time and how many iterations loops take and
+all of that. So can't we do something based on that that kind of like guesstimates, at least a trend, right?
+Like, we don't care about absolute values, but at least something that can allow us to compare, you know, like to a
+baseline, the results of applying a new policy. And we thought we could any kind of worked like for register
+location. But we ended up having to select a winning model out of like a set of models that we trained, you
+know, like with this over synthetic reward. And we're not very happy with that. Like it's not how to put this
+like, we're missing that explanatory thing of like, well, why, you know, like, so if I do it for how long do I
+have to do it? And what do I have to look at when I look at the TensorFlow rewards and all of that? Like, what do I
+have to look at to know that I have to take it out and now train it or like, sorry, compare these models on on on
+running benchmarks? There's basically a bit of a waka mall. And that's not engineering. That's waka mall, right?
+So this is basically the main challenge for performance. And I basically like, you know, scaling this effort to more
+performance problems. And well, knowing that there's efforts on that, of course, like, come on, okay. ML model
+evaluation costs. So in the big scheme of things, when we did like in lining for size, or we did register
+location, I mean, we measured like the micro measurements on how much it takes to evaluate the model. But in the big
+scheme of things of like the entire compilation of a module, like of a C plus plus, basically, they kind of like goes
+in the noise, like it was more like a few percent variations. And it's fine. But there's not going to be that funny if the
+methodology, you know, like gains traction, right? There's not going to have lots of these things that take a lot of
+time. Also, the size of the model, which is really the weights, seems like it was kind of surprising to us. Initially, we
+had a small one and then working with some researchers in other teams at Google, they managed to produce a much, much
+larger model kind of accidentally, like, which kind of like took us by surprise, like it was suddenly 11 megs, like out of
+nowhere. And it's kind of funny when we're trying to optimize something for for reducing the size of either binary and
+LLVM itself blew up, right? I think that these are more like things that caught us by surprise. And we, to our
+understanding, in talking to ML experts, there's ways to mitigate this. But we kind of learned that we look a lot more
+like an embedded scenario than that we imagined, basically.
+So kind of like an interesting research topic, I think it's interesting at least to us as compiler engineers, but it's a
+research topic for the ML community, rather. How would we know without having to actually compare the result that a
+policy loses power, if you will, right? So, you know, like I was saying, people like Fuchsia, for example, train a
+policy and then they just decided, well, we'll just retrain one automatically whenever we we produce a new toolchain,
+right? But is that overly aggressive? Or was it like about time to do that anyway? Like, it'd be great to have a signal
+that tells you, hey, you know, hypothetically, maybe the feature value distribution changed, and it's out of the domain that
+actually the model was trained on. So hint hint nudge nudge, maybe it's time to train. But we don't know if that's
+actually what the indicator is. So that's what I say. I think it's an interesting topic that would be valuable to us, because
+it was give us an early indicator purely based on compiling, right? We can run the compiler and just see these values as you
+compile. You don't have to like do benchmarking for for for that. Oh, so in retrospect, I really so this is like honest
+truth. The first statement is true. We thought that right, like we are convinced that ML is magical. And we will get
+these policies that are awesome. And there will be at least not regressing and you know, like improving things and there will
+be no regressions and things will be great. And then we saw that all of them have the typical pattern that we have also in
+manually written heuristics, which is, you know, some things regress, some things improve. So that's all things are, I suppose. And
+maybe we can do something better than than that with additional policies that select the right one. But that was a bit of a
+surprise to us. Okay, performance. So like I was saying, I guess performance is some issues. But we went ahead and like,
+looked at like, where does the train model find opportunities for additional savings, right? And taking a step back. So what do I do as a
+compiler engineer in these sort of cases, like I look with Linux Perftool at, you know, runtime information. And I see
+where it's read. So where there's hotspots. And then I think really hard and look at the compiler and why it made those decisions.
+And I go and fix that. And then the red turns gray or green and sweet, right? And then I have to do it again and again until I make
+sure that there's no regressions in other parts of the code base. But that is basically what you do in that case. So when we looked
+at like functions that we had both indicators in the reward signal as poor as it was. But I mean, it was indicating that, you
+know, he's doing better. And we looked also empirically at them like, and yeah, they were doing better. And we're like, well, why? Right?
+So we look at the code and we couldn't tell why like we look at with Linux Perft and there was nothing shining, right? I mean, the code was
+different, right? Like we could tell that like, you know, pure line by line, you know, deep, it was different, but nothing was
+popping. And then we did a bit more investigation. And it turns out that the mail was finding or like, you know, the enforcement learning
+algorithm was finding opportunities in lukewarm parts of the code. So these are things that kind of like end up being like a peanut
+butter effect, right? Like I mean, nothing in particular is bad, or is improved categorically. But in aggregate, you can, you know, you
+get like a spread effect that is actually amounting to something. Great, but it's possible that that something is actually just noise,
+right? And I mean, today, we don't have a way of capturing that. Like we just say, Hey, here's the profile that we got by
+collecting it from from a running binary. And then I'm as is great. Okay, here I found an opportunity and actually that's just purely
+noise, right? So this is the part that I kind of had a bit of a trouble like how am I going to title it or anything. So what I ended up
+doing is just saying what I wanted to say. So as a compiler engineer, so as a developer in the open source, like as an LLVM compiler
+engineer, if this pans out more, like, you know, if you get more passes and the mail is, you know, like actually delivering more and
+more value to us, right? What's going to happen, right? So, well, on the plus side, I spent less time, you know, like tuning and
+twizzling with thresholds and other flags that I have today in the compiler, because I actually can can use a automatic feedback driven,
+self improving methodology, right? Like reinforcement learning. Okay, I think that's great, because I can actually focus on understanding
+what actually matters, right? Like for for driving that performance, like what features are important stuff like that.
+The barrier to entry though might change. So today you can use like, you know, like, you know, cheap, not this one, but a cheap machine,
+right? And compile the compiler and look at performance, you know, like optimization problems, and it's all fine. And ML, at least my view of it is
+that it has this risk of like quickly skidding into like, Oh, you need a farm of computers. And today, that's not the case, like I was
+saying, like, with what we've been doing, the models are small. So we didn't hit that problem. But that's a consideration, right? Like, I
+mean, is it going to be harder for, you know, the compiler engineer aspirant of the future to enter the field or what? The mental
+model is kind of different. You can have hinting at that before, right? Like, I mean, like, you don't think of the problem like you
+were before, you look at Linux perf and you find hotspots and stuff like that. But that's fine. Different, different just means
+different. It means like, you know, we can adapt, right? This is my pet peeve. Like the when you look as a compiler engineer, the ML
+frameworks, they are scary, because they're like very low level and they talk about things that I don't understand. And they're not
+talking about things that I want them to talk about. And we're not sure yet where that interface is. And I think that part of the
+the goal of the project is to kind of like figure out what that interface is. But today, it's like that. Like I was saying, there's
+links in the, all the links are actually in the, in the deck. And that's the end of my presentation. Yeah, questions.
+So the optimizations that you find using machine learning in code, can they also be put in LLVM itself without using machine
+learning? Or is it, can it only be learned using machine language because it is using the data, for instance, optimizations?
+So the optimizations, can they also be put in LLVM itself without using machine learning? Is it missing up? Is LLVM missing
+up? The optimizations that you find using machine learning?
+Right. So I'll say just to make sure that you're saying like the types of optimizations that we learned, could we just do them as
+normal imperative code back in LLVM? Some yes, some no. So especially the, when we looked at the type of optimizations that the size
+optimizer was doing, means some decisions are unexplainable, right? To do the wrong thing early on, but just because he kept
+learning the statistic by taking that path later is going to be all right. So that's kind of hard to translate into imperative
+code, I think. But some, some might be. What I'm saying is that the hope is that we, like so far in the evidence is that we kind of,
+it's hard to do that.
+We only have one time for one more question, one more question after this.
+Hi, thanks for your great talk. You've been talking about applying these techniques to clang and traditional compilers targeting,
+well, executables in the usual sense. What about machine learning compilers? So I'm thinking, yeah, applying ML to ML. I know there is some research
+in that. Do your techniques connect to that?
+Yes.
+So applying ML to ML compilers, right? I mean, MLIR, for example, is part of the LLVM project. And I think that there is work trying to do that too.
+And the infrastructure would be the same because I mean, it's all the same code, right? I'm not an ML for ML compilers compiler engineer. The word compiler appears
+way too many times, but we work with those people, like, so I don't see a reason they cannot apply this. I think that the domain though is,
+has its own idiosyncrasies that you cannot just take exactly what it is and apply it over, but the tooling would be the same. Does that make sense? Okay.
+One more question. All the way up there, really?
+Hi. I saw during the slide that one of the problems is that you are not really aware if by choosing a tree, a representational tree of the semantics that you are trying to compile, it's going to be better or worse compared to another tree that you are not for.
+And I was wondering, are we using the operative research theory? I mean, all the mixed integer linear programming theory that gives you a model of the reality and help you understanding how far you are from the
+optimal value of a certain representation.
+So, I'm not sure understood the question. Let me try to say back to your saying, are we applying? Okay, yeah.
+I'm seeing that machine learning basically relies on a loss on how far you are from a certain optimal value. And I'm seeing that there's a branch of mathematics called operational research that his work is trying to describe a word in an idealized
+matter. And you try to describe how it's costing respect to my objective value, making a certain decision instead of another one, and you get like a math formula. And there's the simplex algorithm that helps you to traverse those.
+Yeah, and I was wondering, are we trying to integrate those two fields of mathematics to reach?
+So, I think, let me give the answer because it's also time. So, and if the answer doesn't make sense, let's talk. I think the key problem is like understanding what that gap is, actually measuring that. And it goes back to the reward signaling thing.
+So, should we apply what you said? Probably, again, I'm not an expert in that. So, I mean, if you think it's worth doing like great. But the problem is that you'll hit very quickly is that the reward that we give or the signal that we give is bad.
+Right? So, then probably the rest of it falls, right? So, we need to fix that first before we can apply these things. But yeah, absolutely. Like, I mean, we should try all sorts of like methodologies. Like, there's a whole point.
+Did I make sense or did I miss it? Okay, let's talk more.
+All right, everyone give March another round of applause, please.
+All right, we're starting in about two more minutes. So, please, stick around. Don't forget, the desks are very loud. Please hold them down. Don't slam them.
+And we have the matrix room up and running again.
+Can you help me try to figure out how to make the both mics work? Can you do that? Can you hold it and can you talk to that?
+And unmute it in a second.
+This, this.
+Yeah, yeah. Can you start?
+How about now? Hello? Can someone give me a thumbs up?
+No.
+Someone got a thumbs up? Hey, thanks Marty.
+One second.
+Huh.
+At all. Nothing at all?
+Nothing? Okay, yeah, this is not working at all.

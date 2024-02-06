@@ -1,0 +1,386 @@
+Okay, up next we have Del Roth.
+He's going to be talking about improving security in Nix packages.
+Thank you.
+It's a microphone actually working.
+Yes, good.
+So I'm Del Roth.
+I've been working on Nix packages for a few years now.
+I've been involved in some security mediation events and recently working on Nix source infrastructure.
+So it all comes from a story.
+So let's start with a story.
+Sometime last year, this vulnerability dropped kind of silently.
+Chrome released an update saying, hey, we released an update saying, hey, we released an update.
+You should really update today because people have actually been exporting to the world and it's giving code execution.
+So the interesting thing is we actually patched that in Chrome really quickly, but also what Nix packages, Nix OS and some other distros started realizing that that's not actually a Chrome vulnerability.
+It was reported everywhere as a Chrome vulnerability at the time, but it was actually vulnerability like a dependency of Chrome, which is WebP, which is an image parsing library.
+So we patched WebP and not just Chrome and everything is solved.
+Everyone depends on WebP, so whenever the version is updating Nix packages, they'll pick up the update.
+It gets rebuilt.
+Everything is magical and we don't have to do anything else.
+So then it's viewed about a month of work to actually make this happen.
+So this is the tracking bugs that I actually linked at the bottom for trying to actually fix this vulnerability in Nix packages, not just in Chrome, not just in WebP itself, but in actually everything else that's in Nix packages.
+I've highlighted part of it here, which is that some applications bundle their own version of WebP.
+Each of these need to be updated separately by Nix packages' maintainers.
+And that's not just Chrome, that's including some other web browsers, for example, that was not including Firefox, but for example including Thunderbird, because the packaging was slightly different, etc.
+See Bigo for a guess of all the non-applications that need an update in their status.
+So this is Bigo.
+And yeah, so as you can see, this was about a month of work.
+I'm not going to go through the whole list, but there's a lot of stuff.
+This list is probably not complete, because as I'm going to get to, we lack tooling on this, we lack statistics, we lack data.
+And so this talk is trying to, given overview of this problem, try to bring awareness to it and try to bring up a few solutions and how we could actually do things better.
+So why is this happening?
+Why did we have to fix so many things?
+So this is a phenomenon known as vendering.
+Vendering is when a piece of software decides that instead of depending on the library that they get through, like, you know, package config or through the general build environment providing to it, the software is just going to copy the source code of that library,
+put it somewhere in their own source directory, and then, you know, it's easier to build because people don't have to install dependencies.
+The problem with that is, since they've pinned the version of the dependency, whenever there's an update that needs to happen to it, then the update doesn't just need to happen to the dependency, it needs to happen to everyone who has pinned the version of the dependency by copying it into their source repository.
+To some extent, vendering also happens with rock files.
+Rock files aren't exactly the same thing because technically you're not copying the source code, you're just enforcing that your software can only build with one specific version of a library, and sometimes even if you're providing the hash of the source code or the binaries that you need to use to build the software,
+which means that in practice, you're not copying the source code, you're just copying the hash of the source code, you're still basically pinning it and making it impossible to do any kind of update.
+So, for this specifically web people ability, so we spent about a month on this, we did not, but it should fix everything.
+So that's a sad part of this, is that tens of people, I don't actually have a full list here, but tens of people spent probably hundreds of hours combined on this,
+trying to fix software that we have index packages but maintainers weren't super active on or just chased on upstream, because if upstream has copied the version of a package of a webp into the source code, then you need them to actually go and fix the problem,
+or you need to apply patches, but patches are fragile, they'll just break on the next update, etc.
+And yeah, even though we spent hundreds of hours on this, we did not actually fix everything.
+We fixed, I think about like 50% by count of a new number of packages, but what we did actually is we spent some time categorizing and saying, okay, these are the actual high risk stuff that's likely to get exploited,
+that's connected to the internet, pulsing and trusted input, and then there is the rest, which is like, you know, maybe we can get away with not updating it now and sometime in the future upstream will realize that they actually are vulnerable to something and we'll maybe fix it.
+Even if you look at only the high risk stuff that we categorize as high risk, we had some packages in there that we did not actually get fixed.
+We had to mark them as insecure index packages because even though they are like internet facing software that passes and trusted image files, for example, like email clients, they did not get an update within a month for critical vulnerability that Chrome people were saying was exploited in the world.
+So, let's play a little game. Let's have some maybe, well, I don't know if we'll do audience participation.
+Give WebP copies index packages. So I've counted, I've actually been building some tooling as part of the remediation for this Give WebP vulnerability and we have a better idea now of how many packages are copying libraries that we have in Ex packages.
+So for Give WebP, we had about 116 different packages and by packages here, you know, we had a whole talk about what the package is.
+I'm talking about something that is built by Hydra. So, next package is stuff that is not non free, that is not insecure and not marked as insecure.
+And I'm not counting like, I'm counting only one architecture, I'm like grouping by package name.
+So we have about 116 Give WebP copies, but I think WebP is actually fairly recent. WebP is a modern image format.
+What about the PNG, which is significantly older?
+2037 WebP JPEG, which is maybe even more common than with PNG, 2053.
+ZGib. So ZGib is a really small C library that people have been using for maybe 30 years to decompress gz files and zip files and stuff like this.
+We have about 761 of those in Expack, copied throughout multiple Ex packages things.
+So let's say that for example, there would be like a vulnerability in the PNG. How do we go and fix it?
+Well, given that we took about a month for 116 packages in WebP and we got 250% of them, I guess the PNG would take about like two months maybe and we get also 250% of them.
+It's not really a great outcome.
+So is this actually a problem? How often do these libraries actually have vulnerabilities?
+Also, okay, we have copies of them, but maybe they're actually being kept up to date and it's not actually that bad.
+So here is actually for gpng, this is a grouping by version.
+It's another that we actually have enough information that we can figure out what version of the PNG is being embedded within all the packages in the next packages.
+And you'll see that the top of the distribution is very much like recent versions 1637, 1639, 1640.
+That's actually pretty good.
+Next packages unsurprisingly is at 1640 right now. We have the gate.
+Well, I don't know if it's a gate version because you want 170 in there and I don't actually know it's definitely not as used as the others.
+What I've also looked at is the biggest date for some of these versions and these are also versions really small than 10 years ago.
+So we actually have two packages in next packages right now using a gpng version from 2004, which is kind of impressive.
+It's like, you know, was x6664 even a thing at the time? I don't know.
+But somehow it works. I don't know actually I've not tested it, maybe it doesn't work, but it's in there.
+You can next build it and you'll get a binary that has a gpng from 2004.
+Does it have vulnerabilities? Yes.
+There's like about like 12 different critical CVs that give code execution, buffer overflows.
+Some of this might be might be mitigated these days because we have vulnerability mitigation that's part of operating system.
+That's part of compilers and stuff like that.
+So it's not exactly clear how many vulnerabilities apply to these old versions.
+Another thing is that there isn't really anyone right now who like finds a new vulnerability in gpngs and goes and say,
+oh, I'm going to test it on this version from 2004.
+Just to see if it actually applies.
+So a lot of the vulnerability databases out of date and doesn't really contain the right information to even check against that.
+I've mentioned block files.
+So block files are kind of a new problem.
+It turns out if you go back to 10 years ago, we didn't have software in Rust and go in JavaScript.
+At least we didn't have as much as we do now.
+Java kind of did block files a bit with Maven even at the time.
+But it's mostly a new phenomenon.
+And the good thing with block files is it's actually really easy to get a full transitive list of all the dependencies because they're in the rock file.
+That doesn't mean that people are any better at actually managing their dependencies unfortunately, even though there is good tool game to do so.
+So for example, for Rust, there is this tool called Calgo Audit.
+And Calgo Audit is a tool that takes a Calgo.rock file and tells you all of the vulnerabilities that apply in this Calgo.rock file.
+So I used some tools that I wrote as well to go through every single Rust package, current index packages.
+And that's kind of like looking at every single derivation that has a Calgo.debs in it, correcting the rock file from that.
+And what we find by doing this is that there is 62% of all Rust packages in the next packages right now that have at least one vulnerable dependency locked in a rock file.
+This is, I mean, I'm describing as an X packages problem.
+The problem is it's not entirely an X packages problem.
+We're just fetching it from upstream.
+It's just people are locking dependencies.
+We don't really have control over that.
+We did for Python, C, C++ dependencies.
+And upstream is just not doing as good a job as distributions were doing.
+I mentioned a thousandth and a hundredth vulnerable dependencies.
+About 750 of these are actually higher critical severity based on CVSS score, which is a third metric, but it's about as good as we have.
+So yeah, if you get a Rust packages in X packages at random, you have a 40% chance that one of these dependencies has at least one known critical, like higher critical vulnerability.
+Doesn't mean it's exploitable, but let's say that even like one percent of this is exploitable, that's seven packages in X packages with higher critical vulnerabilities exploitable.
+That's still not good.
+And one percent is just a random number I picked.
+Yeah, so as I mentioned, it's an ecosystem.
+It's a general open source ecosystem problem.
+I don't know that this specific log files thing is something that we can fix at the next packages site.
+Next packages has some fault.
+We have some rust software that's just out of date, for example.
+And so when we do that, you know, well, the log file is also out of date.
+But from the ones that I've manually inspected, this is not the majority of these cases.
+In the majority of cases, this is that next package is packaging the latest version from upstream and is just containing insecure dependencies.
+What is causing vendor in X packages?
+A few things.
+We don't actually try to prevent it.
+I've checked.
+I was really surprised next packages does not have any documentation, any policy against vendor.
+There's nothing that says, you know, if a software has an option to use system with PNG itself using its own empty version,
+there's actually no documentation that says that we should prefer using that option.
+A lot of people do it because it's good practice.
+Not everyone does.
+We don't really have, yeah, like we don't really have a way to prevent it for newer language ecosystems like for Goura, JavaScript, as I mentioned.
+You don't have a choice.
+You just have to vendor stuff because we don't have a way to, we don't have Rust libraries in X packages.
+We just have the GIF software.
+Same for Go, same for JavaScript.
+Well, now same for JavaScript.
+We used to have Node 2.x for a while, which kind of added NICS derivations for libraries, but it was automatically generated anyway.
+So it's not like we could really do much about it.
+And finally, like until recently, we didn't actually have any tooling to try and detect and measure this problem.
+So it was just like hidden, big of the water.
+And we couldn't really go and say, oh, hey, there's a new derivation that's being proposed by someone.
+Like a new package has been added into NICS packages.
+Is it actually rendering anything?
+People would have to go and manually check.
+And nobody was doing this when reviewing packages because it's just a lot of effort.
+This potentially stuff we could do now automatically with some newer tooling that I've been writing.
+As I mentioned, we don't have policies against rendering, but it's even wasn't that in X packages.
+We don't have really policies against even building from source.
+It's preferred, but there's actually no preference expressed anywhere.
+I've checked again today and I could not find it.
+So people just go and fetch things from app images, for example.
+Upstream this with an app image.
+It's too complicated to build.
+I'm just going to fetch the app image, run patch health to fix a path to dependencies.
+And then the problem is, well, you don't really know what libraries,
+what dependencies upstream has been using to build these app images.
+It's usually not great.
+So this is something we had with WebP, for example, where I think Anki, for example,
+like the flashcard software is using.
+We just using the app image for it.
+And it was vulnerable because it was using some build environment from 2018 or something.
+That was, of course, not receiving any security updates.
+We fetched dev files.
+We fetched...
+People are very creative about how to get binaries.
+We fetched targz.
+We fetch static go binaries.
+We...
+Let's not even talk about JavaScript because you can just fetch a targz and unpack it somewhere.
+And it's fine because when would JavaScript software ever have vulnerabilities?
+And, yeah.
+So some of the distros have famously strong preferences for building from source.
+Debian has really good policies regarding rendering, which have always been kind of the gold standard,
+I think, in the distribution world.
+We should probably do some of that.
+How do we address Rust, GoNPM, et cetera?
+I don't think we can.
+I think it's an upstream problem.
+But what we could probably do is make it clearer to users that they're actually using intellectual software.
+It's not really a problem that any other big distros have been...
+Has been hitting much because just...
+NICS packages are much bigger in terms of scope.
+We put everything in NICS packages.
+We don't have a UR.
+I mean, we have any UR, like some people use, but like the bar for what goes into NICS packages is very low, right?
+We don't actually have many policies against like, you know, this...
+Let's just keep this out of NICS packages because it's not well maintained by upstream.
+We don't really do this much.
+So, you know, by being a huge package set, we have the problem that we have pretty bad software that's not really being kept up to date.
+We have stuff that's just not maintained anymore by upstream.
+And I feel like this is some...
+Like the way we should fix this in NICS packages is like,
+lockfile insecurity problem is just by making sure that if upstream is actually maintaining the lockfiles,
+we should probably inform the users and make them actually aware of the risks.
+We currently have this non-rune...
+Like non-runeabilities bit that we can put in the package.
+The problem is that it's extremely cold and it's extremely annoying to work around.
+Like, people have to manually...
+It stops evaluation.
+It's not a warning.
+It's like a critical error.
+You're using like an insecure package.
+And so what people do is they just allow every insecure package because the easiest way to work around the error.
+So, yeah.
+Tool Gang, as I mentioned, until recently, we didn't really have any way to detect this.
+I have actually written a bunch of things to try and detect rendering.
+So, one tool which is called GrepNICSOS Cache, and what it does is get rid of GrepNICSOS Cache.
+It goes and it takes a list of store paths which we get from Hydra.
+And it runs...
+It will just go and fetch every single store path that Hydra has built,
+which is like a few, usually 100,000,
+and it just runs some signatures on it.
+It looks for some strings that you find as part of the implementation of some libraries.
+And if the library has been vended or statically ganked,
+you will find a string in there.
+And sometimes you can even get version numbers and stuff like this.
+And some other projects I've been working on is...
+I've kind of called it NICS packages Vendor Drone Scan
+because I wanted to also make it include the above, like, new rendering thing.
+But this one is currently specifically doing log file analysis.
+So, finding all of the log files for Rust, JavaScript,
+and doing automatic vulnerability detection based on the log files.
+Conclusion.
+We have new tool gang.
+We have a better idea of how rendering goes in NICS packages,
+and it's not great.
+And it's a problem because we cannot actually fix
+security vulnerabilities in base libraries right now.
+We tell ourselves that we did by, you know, fixing the library itself,
+and we say, I have 100 different instances of the library being unpatched.
+How to fix it?
+Well, awareness.
+Now all of you probably know about this,
+and when you review new packages,
+and maybe look at whether this is happening,
+more discipline.
+I think we should have policies about this.
+I have not thought about the exact policy we should have yet,
+but we should probably have one.
+And better reporting for cases that we cannot fix ourselves,
+which is the insecure log files, most of the time.
+Yeah.
+Here we go.
+If you have any thoughts or comments,
+please ask any questions now.
+Otherwise, this is a contact info and some links to tooling.
+Thank you.
+Thank you for that.
+That was terrifying as someone who's come from the Debian world.
+Exciting as well.
+It's a really simple social approach that we could take to this
+to add another tick box to the default pull request template to say,
+have you checked that there's no vended crap
+that you could be using a system library for?
+I think it would help.
+At some point, if we just continue adding check boxes,
+people are just going,
+people are already ignoring a lot of them.
+They say, has anyone actually checked the sandbox thing
+in the pull request template anytime soon?
+It's like, you know, I see two people check, raise their hands.
+The rest of us have never touched a check box.
+Yeah, I kind of, I'd prefer if it was automated through tooling,
+if we could detect some of it automatically.
+And I'd prefer if at least we fix the policy first
+and then, you know, maybe figure out the actual edge cases
+before we start taking people to look for stuff
+without actually being accurate about what to look for.
+But yes, we probably should be doing some valiant of this.
+One of my favorite things to do is package and archive
+and preserve old software.
+And some of that work has been done as a pull request
+in next packages.
+Sometimes it doesn't get merged because, you know,
+it's got an old dependency on like Qt4 or something.
+So they say, oh, no, we can't merge this.
+And it does prevent some software from getting into next packages,
+but there is still a lot of software still in there
+that managed to sneak in.
+And since we don't have a policy,
+it's kind of like ad hoc,
+like some things get in, some things don't.
+Some people launch Crusades against like old Python,
+and they don't want that there.
+And yeah, it's kind of, yeah, messy.
+So what do you think about it?
+Because I think there's like a real value proposition
+for archiving old software,
+because Table is not nix-source.org,
+will archive the source code.
+It will be around forever.
+You'll be able to reproduce it in 20 years.
+Yeah, so what do you think about like, you know,
+banning old stuff and only striving for perfection
+versus keeping everything in next packages
+and just accepting everything?
+Yeah, I don't think we should be striving
+necessarily for perfection.
+Like, I don't think we can anyway,
+but the problem right now is,
+so for the case of old software, for example,
+usually one of the things that's blocking old software
+is when they use library versions that, you know,
+when they have so many dependencies in next packages
+that having this old software will induce costs
+on other maintainers, because they have to care
+about this old software that will never actually be updated
+to, like, you use a new API or something like that in the library.
+And so I think that we should figure out a way
+to include this old software or it can use this,
+like, you know, less-maintained software
+in a way that doesn't use a bandwidth of all the maintainers.
+Right now, we don't have a way to distinguish this software
+from, you know, stuff that more people care about,
+more people use, which means that whenever there is
+security radiation that needs to happen,
+the people doing the security radiation
+don't have a way to distinguish these things.
+And we use our bandwidth on stuff that maybe is, like,
+your old software and stuff like this.
+That's why I think that we should have better query
+categorization, better ways to inform the users
+about which category a given software falls into.
+We don't really have any of this right now in next packages.
+And I think it's, I don't know how we've managed to survive
+that long without having such a system.
+I think we just burn a bunch of maintainer time
+on stuff that, really, we shouldn't.
+And we should just accept to be broken.
+Hi.
+As you went around interacting with upstream
+to have these sorts of issues fixed,
+I'm pretty sure some of these things were also things
+that other distros were also dealing with and working with.
+As you encountered them, what sorts of things did you see
+in terms of those interactions with dealing with upstream,
+where you had maybe requests coming from other people,
+kind of a similar position as you, but just from other distros?
+Yeah.
+So a lot of the cases where I've actually had to contact
+upstream myself were stuff that was not actually packaged
+in other distros, just because, you know,
+Debian doesn't actually package .NET software, for example,
+or doesn't package much Go software, surprisingly.
+Like, if you want to get Grafana from Debian,
+I think they still won't have that in every repository.
+I mean, it's not free anymore, so they have a good reason now,
+but, you know, they never did, right?
+Do they even package Prometheus?
+Right?
+Like some pretty base software that people would expect
+to be able to apt-get.
+You have to use some external repositories because they don't
+have the right tools to package Go codes.
+So I think because the next package is much broader in scope,
+we have a lot more things to care about,
+and we've had to do a lot more of the talking to upstream.
+There is stuff that has been useful to all these distros
+and, like, you know, we, like, other distros have contacted
+upstream before us in some cases,
+and usually when we do contact upstreams,
+they are receptive to this.
+The problem is when they just don't reply.
+So, for example, for WebP, we had the issue that the main
+libraries that people are using to use WebP in Go
+was just unmaintained, and we failed the bug,
+and the maintainer has just still not replied to it to this day.
+So you have 500 users of this library that indirectly
+has a vanduid, vulnerable WebP version.
+What do we do?
+So we had to go and manually contact some other users of this
+and say, like, hey, you use a vulnerability that's not actually
+maintained anymore.
+You should fix that.
+And suddenly it's like, you know, like, the tree of things
+you need to contact grows and grows.
+It's a complicated problem.
+But does that value?
+It does.
+It does add value.
+Yes.
+I mean, it's general, like, you value to, like,
+the whole software ecosystem.
+It's just not the next packages thing, but it's tiring, right?
+You know, it's not feasible that we would be the only people
+caring about this for every single vulnerability.
+Great.
+Let's have another round of applause for Delo.
+Thank you.
+Thank you.

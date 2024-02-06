@@ -1,0 +1,255 @@
+Hello everyone. My name is Marcus. I would like to share some lessons that I learned while
+working on the Firefox Profiler. So yeah, I work at Mozilla. I'm on the Firefox Performance
+Team and I work on Firefox itself and on the Profiler and I also have my own Profiler called
+Sample which you can use on macOS and Linux to profile your own applications. And I'll give you
+a brief overview of the Profiler. So this is what it looks like when you have a profile loaded.
+You have a timeline at the top. You have a call tree and you have a sidebar here in the call tree.
+It's very, very small down there. I'll zoom in a little bit. In the call tree you can see which
+function called which function. You can see how much time each function spent running. So let's say
+this function here dispatch event. Firefox Profiler is a sampling Profiler. So it interrupts the
+thread at a given interval like usually one millisecond every one millisecond. It checks what's on
+the stack and then it accumulates that into this call tree. So one thing that I want to call out
+here is the category breakdown in the sidebar. So here we have a bunch of categories. User is
+just regular code. Ion here means this is JavaScript code that was jitted into the IonMonkey
+subengine of our JavaScript engine. And yeah, there are a bunch of other categories. And you
+can select in the timeline and as you draw your selection, oops, as you draw your selection,
+the category breakdown updates in the sidebar. So we can also zoom in, see something a little
+smaller. So here we have more code in Ion, more code in the user category. It also has a flame
+graph. So zoom back out. And flame graph, you're probably familiar with flame graphs. They're a
+different representation of the same information. Like you have a call tree, you have nested functions,
+the width of each box is the time that is spent in that function. And we also have a tooltip here
+in the call tree, which again gives us a category breakdown. I'm emphasizing the category breakdown
+so much because we're going to implement our own profiler in a minute, which, and we're going to
+focus on calculating this category breakdown. So here we see it's a bit sluggish as you move the
+mouse around, because it actually needs to iterate over all the samples in the timeline. It checks
+for every sample is the stack inside of the function that you're hovering. If so, check the
+category that the CPU is spending its time on for that sample, accumulate that into a map of
+categories to counts, and yeah, do that for all the samples. And we can see here at the root node,
+we have about 500,000 samples in this profile. So what I didn't tell you is this is actually the
+version from last July. And I fixed this performance problem here. So this is what's live now on
+profile.farfax.com. Hovering these boxes is no instant. And it's still doing the work. It's still
+going through all 500,000 samples every time you move your mouse. So I want to talk a bit about
+how we can crunch through all that data in in very short time. Wrong direction. So yeah, even with
+lots of samples, we can now have a fast UI. And I made an example project just for this talk
+called mini profiler. It is on GitHub. It's also live on Netlify. You can try it out in your browser
+if you want to. And this is what it looks like. It has a very reduced feature set, but it also has
+this timeline. You can select parts of the timeline and it calculates this category breakdown. So
+yeah, let's say here, we spent 30% in Ion Monkey Jitter JavaScript code. At the same time, it also
+calculates the heaviest stack. The heaviest stack is the stack that we spend the most samples in.
+All right. So yeah, mini profiler features. There's only two features. You select the range, and it
+gives you a category breakdown and a heaviest stack. So how does it calculate that? We have an input
+JSON, which describes the profile contents. The JSON is a list of samples. Every sample has a
+time, a weight, and a stack. Every stack is an array of frames. Every frame has a name and a
+category. I'll show you that here in an example. So as I said, a list of samples, every sample has a
+time property, a stack property, a weight property. The stack is an array. Each stack frame has a name
+and a category. To calculate the category breakdown, we take in the profile. We take in a range of the
+indexes of the samples that are in the selection. Then we iterate over this range. We get each sample.
+Whoops. We get its stack and its weight. We get the top frame from the stack. We get the category
+from the frame. And then we check. Does our map have this category already? If so, get the current
+value. Otherwise, default to zero. We add the weight of the current sample. We put the sum back into
+the map. And then this map is what gets used by this spelt component. For the heaviest stack, it's
+somewhat similar. We again iterate over all the samples in the selected range. For each sample,
+we again get the stack and the weight. And now we need to check if this stack has been used by
+multiple samples. And how do we find two samples with the same stack? Well, the stack is an array,
+and you can't really check them for equality easily. So what I'm doing here is I'm stringifying the
+stack into a JSON string. I'm using that as the map key. And then here is a similar issue to what
+we had with the category breakdown. We check. Do we have an entry in the map for this stack?
+If so, take its current value. Otherwise, default to zero. Add the weight. Put that back into the map.
+And if this stack is the heaviest that we've seen so far, we remember it, and then at the end,
+we return it. So these are the two main algorithms in this mini-profiler. Category breakdown,
+heaviest stack. Both of them have to iterate over all the samples. So how fast is it?
+So if I select here, it's reasonably fast. If I make the selection bigger, it starts getting a
+little janky. I'm computing some throughputs down here. So 100 nanoseconds per sample is how
+long the algorithm for the category breakdown takes. And 30,000 something nanoseconds per sample
+for computing the heaviest stack. Because, yeah, we saw the heaviest stack algorithm,
+it was really inefficient. It used JSON stringify. It looked up this gigantic string in a map.
+It needs to hash the entire big string and so on. So this is obviously not the way to go. But this
+is just a place to start so that we understand what's going on. So this is the throughput here.
+The nanoseconds per sample might not tell you much. But what you can think about is, how does it
+limit the size that you can handle while still being responsive? So let's say you have 100,000
+samples. In this example here, we just had 1,600 something samples. What if you have 100,000?
+Then you get 10 milliseconds for computing the category breakdown and 3.6 seconds for computing
+the heaviest stack. 3.6 seconds per update, that's not acceptable. So we need to do something.
+And also the JSON file, because it has all those repeated stacks, it's just massive.
+So let's use a different format, different JSON format. Here I made a V2 format. It still has
+samples, but instead of having the stacks right in the sample, it just has an index. And this
+index now goes into a stack list. Each element in the stack list has a frame index, which goes
+into the frame list. Each frame has a name and a category index, which goes into the category list.
+So I hope that's not too overwhelming. We just have a bunch of indexes now. Instead of nested
+objects, we just have some side-by-side lists and we index into them. And also here the stacks
+are a little special because of this parent stack index here. So if, for example, a sample
+refers to stack number two, then this is the frame at the top of the stack. Then we go to the parent
+stack, find this frame, that's the next frame on the stack, find this stack, put this frame on the
+stack, and then the parent here is null. So that means we're at the end of the stack.
+Hope I haven't lost anyone yet. So let's go back to the compute-heavy stack algorithm. So we were
+iterating over the samples. We were stringifying the stack arrays and we were checking the JSON
+string. Now we don't need to do that anymore. Now we have an index. If two samples have the same
+stack index, that means they have the same stack. So we just use the stack index now here and we
+don't need the JSONification. We don't look up big strings. And this is like a massive performance
+improvement. So 300 times faster. The category breakdown is also affected by the new format
+changes. So now instead of getting the stack and the frame directly from inside the sample,
+we instead get a stack index. We look up the stack index in the stack array,
+which gives us a frame index. We look that up again, get the category index, look that up again,
+get a category name. This is a string. Put that in the map or add up the weight.
+This string here, this is kind of unnecessary. We know if two samples have the same category index,
+we can use that as the key. So I made an optimization here to remove this name lookup.
+And now we're just accumulating category index weights in this map here. There needs to be
+some process, post-processing afterwards to make sure we get these names here in the category
+breakdown again. But that's outside of our algorithm. All right. So here I had selected
+the small profile for the format version one. Let's switch to the same profile in format version two
+and do the selection again. And now we can see, we can select to the full width and it's still
+very responsive. So here's our throughputs. So how fast is it now? 47.1 nanoseconds per
+sample for the category breakdown is what I measured, 51 for the heaviest stack.
+Okay. So that's much better. Let's see how far we can go. We want to see if there's more we can do
+here. So we use a profiler. I am going to start the profiler. Oh, what I didn't show you is how to
+use the profiler. Well, let me do that really quick. So if you use Firefox and you go to
+profiler.firefox.com, you can click this big button here, which gives you a toolbar button.
+And then if you click that toolbar button, it starts recording. So let's record our current
+implementation. Do a little bit of this, capture a profile and see where the time is spent.
+Well, where is the time spent?
+One second.
+Let's try that again.
+Let me refresh this page.
+Ah, I can tell you for this time spent. It is so fast that it barely shows up in the profiler
+because we are still using the small profile size. So let's do that again.
+Capture profile. The local host here, there's barely any CPU usage.
+You would see more yellow in here. So let's switch to a bigger profile. We still have just the
+1600 samples. Let's switch to the medium profile. So here, yeah, it still works okay.
+It gets a little bit janky towards the edge here. So again, we're going to start the profiler,
+select, play around a little bit so that we get lots of samples.
+Capture the profile. And there we go. This is what I was expecting. So now we have lots of yellow
+in here. I'm going to show just this thread. I'm going to switch to JavaScript only. I'm going to
+switch to the flame graph. And now what we can see here is we are spending time in compute category
+breakdown with string key map and compute heaviest stack with map. And what we see here is that we
+are spending some time in map.prototype.set, both over here and over there. That makes sense. We're
+assigning things to a map. So can we not use a map? Wrong direction here. So we're seeing the time
+in map prototype set. We have the map here. For the category breakdown computation, we're getting
+the category index out and putting it back in. But we know these are integers. They're integers
+into the category list. The category list doesn't have lots of elements. We can just use an array
+here instead. I'm going to use a float 64 array here. Because the weights are floats,
+using a typed array means I know that the maximum number of elements is already preallocated. It's
+initialized to zero. I don't need to check if there's something in it already. I know that it
+starts with zero. I can just add the weight. And that's it. We can do the same modification to
+getting the heavier stack, the seriously compute heavy stack algorithm. It was also using a map.
+We can use a float 64 array because we know how many stacks there are. Here the key is the
+index into the stacks array. We use that key as our index into the map array. And then it should
+work as before. And what we see down here, it is three times faster to skip the map to use a typed
+array instead. Let's try that out. Here I'm going to switch from the basic implementation to the
+integer keys for category breakdown. No, sorry, to the typed arrays instead of maps implementation.
+And now I'm going to select, and it's very smooth through the entire profile. And we have 500,000
+samples now here. And we are still responsive. And let's see if we get an even bigger profile.
+This one here has two million samples. How responsive are we? It's okay. It gets a little
+janky towards the end here. It's mostly okay. So where are we now? Let's just take some,
+take some recap. We've addressed the obvious load ons. We've done what the profile told us.
+We fixed the hotspots. We changed the format so that comparing stacks is cheap, we changed
+two maps into typed arrays. Got us a 3x perf boost. In the heaviest stack case,
+the map or the amount of memory we're using might be a bit bigger now because we're allocating an
+array where we have an element for every single stack index, even if no sample references that
+stack index. So maybe some extra memory, but we have a performance boost. And so we have the
+throughput here. Yeah. So for the medium profile, our throughput is like 16 nanoseconds. Or
+let's see, sometimes it goes up and down a little bit. Yeah, let's say 16 nanoseconds for the category
+break down, 40 nanoseconds for the heaviest stack. I was seeing some other numbers when I was trying
+this at home. So it's pretty impressive. Modern computers are pretty fast, but maybe we can do
+even better. So let's try better. Let's go back to the category breakdown algorithm. We are taking
+these two values out of every sample. The sample is an object. It has three properties. We're
+ignoring the time property. We're getting these two properties out. So what does that mean at a byte
+level? So how are arrays of objects stored in memory? Well, it depends a little bit on which
+JS engine you're using, how you're allocating the object, if you happen to be on a fast path or not.
+But in SpiderMonkey, this is what you might expect. So we have a samples array, which is backed just
+by a list of pointers. Every pointer takes up 8 bytes on a 64-bit system, and it points to a JS
+object. So let's say here, the first entry in our samples array points to this JS object here.
+The JS object starts with a header. SpiderMonkey takes up 24 bytes on a 64-bit machine.
+Then if we're lucky, we have the fields inline just after the header. We might not be lucky,
+but let's say we're lucky. We might also have a bit of padding here at the end, because the inline
+slots might be only sized to four or eight, and we're using three properties here, so there might
+be a bit of extra memory used up by that. So this is just one representation that we could have.
+It varies a lot by engine. For example, Chrome has pointer compression, so these things here might
+be four bytes each, but then the time field might be an extra pointer, because in Chrome,
+sometimes the floating point values are a separate heap allocation. The padding could vary, the
+object header size could vary. These fields here could be behind another pointer if they're stored
+out of line, and so on. But anyway, what it comes down to is we wanted to get these two fields here,
+16 bytes in total, but what we ended up with is all of these other not-so-useful bytes
+clogging up our cache. So when the CPU wants to get those bytes, it gets them in 64-bit chunks.
+Cache line is 64 bytes. So if you're getting this value here, you're getting the other bytes that
+are in the vicinity, even if you don't need them. Well, here we do need the JS object header,
+because the JIT needs to check that the object is of the right shape, and so on. But we really just
+want those values here. So can we do anything about that? We want to improve our cache line
+utilization, and we want to reduce the indirection. Maybe we can. Let's do something radical.
+Let's turn everything on the side. So we have this array of objects. What we could do instead
+is to have an object of arrays, or struct of arrays, where we have a column,
+or where we have just one key for the time column with a big array that has just the time values,
+one for the stack index, just the stack index values, the weight, just the weight values,
+and a length stored on the side. These arrays must all have the same length.
+So now everything's backwards. If we want to access the weight in the past, we had samples i.weight.
+Now it looks a bit weird, because we have the sample table.weight column,
+and then we get the ith element of that. But let's do it. Let's see where it goes. And so what
+we end up with here is a new profile format again. Now we have a sample table, a stack table, a frame
+table. The calories are still a list, because it's just some strings. And same thing as before,
+the stack index goes into the stack table, the frame index goes into the frame table.
+We just need to access the properties differently.
+So what does it do for the computation of the heavier stack? Here we were getting the stack
+index and the weight property from an object. Now we just get them from separate columns.
+And already we're seeing a 2x performance improvement.
+For the category breakdown, similar story. Instead of getting the properties from objects,
+we get the column first, access the ith element, and get that. This here is even faster, like 3.5x
+faster. Let's see that in practice. So we're switching to format v3 now, struct of arrays.
+Let's get the medium, medium sized profile. And now it just flies. It's just responsive all the way.
+4.5 nanoseconds per sample, that's really not a lot of time. This is super fast now.
+Let's get an even bigger profile. Still super responsive.
+So when we think about the memory model, or the memory, how it is represented in memory again.
+We're accessing these columns now. We're accessing them in order.
+And what happens is that our cache lines are now fully utilized. We don't have object headers
+clogging up our cache anymore. We just have the numbers that we wanted.
+But yeah, it's just super efficient now. We get all the stack indexes, we got all the weights.
+The time column is now pretty much irrelevant. It was clogging up our cache before,
+but now we're not accessing the time column at all. So it just doesn't bother us anymore.
+Okay, so let's recap quickly. We have a struct of arrays. Some people call it parallel arrays,
+commonly used in game engines, databases, and so on. It has a few drawbacks. It looks a bit
+backwards if you read it. Sometimes when you want to pass around an object, you need to manually
+materialize it because you don't just want to pass around an index. But it also means that the
+type system, at least in TypeScript, is now less of a help. We can introduce mistakes that it
+wouldn't catch. So for example, if we build up our arrays and we end up not putting our values in
+every one of the columns, we end up with mismatched lengths, and that is hard to catch at the type
+level. Also, when we pass around indexes, sometimes, yeah, you get a number, you don't really know,
+is this an index into the stack table, into the frame table? I don't know. The type system,
+at least in TypeScript, I don't think is well set up to catch these kinds of mistakes.
+But it's much more cache efficient. It's easier on the garbage collector. You need to traverse
+fewer objects. Some engines skip the contents of arrays and numbers, so it should speed up that too.
+Less memory overhead from object headers and padding. And we can just treat columns separately.
+Like sometimes we want to make a change to one column. Let's say we want to shift the entire
+profile by some time delta. We can change just the time column. The other columns stay untouched.
+We don't need to recreate any objects. And it also gives us a little more control over sizes and how
+compact our integers or our numbers are stored. We can pick with our typed array. We could pick
+an int32 array. We could pick an int16 array. If we know what the domain of our values are,
+we can store things more compactly and we get back in control of the representation.
+Okay. I want to make it even faster. So if we look back at our category breakdown,
+we're getting the stack index, we're getting the frame index, but it's all just to look up the
+category from the frame table. We're not really interested in the stack of the frame. We just
+want the category for a sample table, for a sample. So what if we just got the categories for
+each sample and use that instead of here, stack, frame, category, just go category, boom. Well,
+it would be great if we had this column. Where does it come from? Well, we can compute it here
+with the get sample categories method. We iterate over all the samples. We do the stack frame category
+conversion here. We cache that in the sample categories column. We pass that to our existing
+function, but we only want to do this once, not on every call. So we need to cache it somewhere.
+We can use memorization for that. So here's a memorized call. We get the profile. We only run
+this once. So if we call this multiple times with the same profile, let's say our profile is immutable,
+we have it cached from last time. And we can make the caching even more precise.
+If we memorize a function which takes just the columns that we need, then we get it. We wrap
+this into the existing get sample categories function, which takes the profile, but then it
+takes out the categories. Sorry, it takes out the columns we want, passes those separately to the
+memorized function, and that makes the caching even more or even tighter. If you touch a column
+that is not involved, you don't invalidate your cache. And did it work? Yes, it did. Oops,
+wrong direction again. Memorized sample categories. We're now down to three nanoseconds.
+So I'm basically done with the talk. Let's just look at the graph here at the end. This V1 graph
+is off the charts like this. It's way higher than this. But we made it faster with every change here.
+And this last step of caching the sample, the categories for each sample, it looks like it's
+not much, like 25% on these nanoseconds. But what it actually means is we can handle more data.
+We can handle a higher count of samples in, let's say, a 16 millisecond interval. And like 25%
+more data, that's massive. Okay, I want to say really quick, what is data-oriented design? It's
+a mindset and it's a collection of techniques. The main technique here is structure of arrays.
+The mindset is more about how you think about it. The shape of the data determines the algorithm
+and its performance. You need to know which things are small, which things are big. We might have
+seven elements in this array and 100,000 in that array. If you keep that in mind, you're better
+set up to write fast code. And if you also think about cache line utilization, you're even better
+set up. The rest is not that important. Thanks, everyone.
+You can find me in the Firefox Profiler channel. You can check the Firefox Profiler online. Happy profiling!

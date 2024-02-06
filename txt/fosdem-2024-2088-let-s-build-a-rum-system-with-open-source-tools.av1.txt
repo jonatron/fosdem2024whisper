@@ -1,0 +1,228 @@
+Hello, everyone. Today I'm going to be talking about building a real user monitoring system
+with open source tools. And before I dive in, a bit more info about me. My name is Tvetan
+Stojchev. I work on MPALS in Akamai. MPALS is a real user monitoring system. It's a commercial one
+and it serves, I think, thousands of customers, Akamai customers. And my hobby project is basic
+run, which will be the focal point of this presentation. And really before I dive in,
+I would like to share a bit more about some of my other personal activities. Every December,
+I make an attempt to publish at least one blog post on the web performance calendar.
+That's the best place for the web performance to see us in the year. And the other thing is,
+sometimes I do a street art. So that's my safety net plan. If chat GPT takes over the world,
+I still will have something creative to do. Yeah. So let's now move on to the important part of
+the presentation. And let's take a look how, in general, how a real user monitoring system
+would look like. So we will need to have something in the browser, ideally a JavaScript agent,
+that will read some data and it will send it to a server. We will store it somewhere in a storage
+and later we will analyze this data. And here we just see the most trivial piece of JavaScript.
+This is the bare minimum that will do the job in the browser. So this piece of JavaScript will
+read what is the current page URL. And it will create a one by one image,
+one by one pixel image. It will append it to the HTML and this actually will create,
+will force the browser to create a request to this endpoint. And here is a really very simple
+code snippet on the server side, how the code will look like when we need to intercept this
+data and to store it somewhere. So here is our route where the browser will hit this route.
+We will read the query parameters, headers, headers, and even we will put a timestamp in
+the structure and then we'll save it to JSON on the file system and we will return back to the
+browser a transparent GIF. And eventually we will, on the next stage, when we want to analyze the data,
+we will go through all the files and we can create a summary for the page visits. And for
+example here in this example we can see that category four was the most visited page with 427
+page visits. So that's the theory. And in 2019 I started as a hobby basicram and that's the
+initial version and the components that I used to build basicram. So on the browser side I started
+using an open source library called boomerang.js which collects a bunch of interesting metrics
+from the browser and sends them to a server. On the server side I used nginx and some PHP
+application code. And for storage I used mysql and for analyzing the data I still used php and
+for reading the data and serving it to a frontend and on the frontend I used plot.ly.js for visualizations.
+And I ended up with something like this. It actually, it's really interesting after five years it's
+still running. So if you want to give it a try this is the first version of basicram. You can
+visit demo.basicram.com and you can play with this UI. Now about boomerang.js. Boomerang.js was
+started 2011 in Yahoo by Philip Tellis who happened actually to be now a colleague of mine.
+And currently the library is maintained by MPAL's engineering team in Akamai.
+And as I mentioned the library collects a bunch of interesting metrics like the
+interesting ones for core web vitals, lcp, cls, fid. It also can track some session data. It can also
+help users of the library to create a timeline of all the clicks over the page like cycle of a visitor.
+And also it has more modern ways to send the data to the server like more modern
+JavaScript APIs fetch, XHR and send beacon. And it can be found on GitHub in akamai slash boomerang.
+On the back end side that's again like very theoretical but what actually was happening I
+still was every request that I was getting to my server I was saving it in a file.
+And then periodically I was running a cron job which here I just marked as a that's kind of a
+too much overhead and you understand why later. But I was running a cron job that was reading all
+these collected files and I was creating one big batch and I was inserting this data in my SQL.
+I also ended up with a database model that's very biased. My previous background was I was building
+Magento online shops and if somebody ever worked with Magento we'll probably recognize some patterns
+about all these foreign key relationships and this main table that's in the center of everything.
+I had to put bunch of indexes here and again this created a bit too much overhead for I would say
+also on the code level like on the application level but also for me as a maintainer. So I had to
+take care about again every time when I wanted to introduce some new dimension I had to create a new
+table and to put a bit more code for inserting the data and it was just too much maintenance for me.
+Also I had to take care about not duplicating some of the data here and this is because of the nature
+of PHP. PHP is kind of a stateless so every request is independent from the other request
+so I couldn't keep some things in memory. If I could keep some references in memory I probably
+could optimize some things here. And actually question to the audience do you have an idea what
+this query actually would produce? What's the idea behind this query? Maybe.
+I can say that.
+Bucketing? Yeah it's a bucketing for a histogram and I also had to write
+a lot of kind of queries that are in the data scientists type of queries which also was for
+me introduced a bit of a learning curve but the system had really had coded in itself such type of
+queries and this here represents a histogram of the time to first byte. Like we can see that the
+median is around 1.8 seconds. It's a bit skewed. And with the help of plotly the JavaScript library
+for visualization I could create such panels for distributions for operating systems and
+mobile operating systems and I also could write such bar charts that were showing kind of the
+relationship between the first byte and start render time. And yeah reference to the plotly
+it's a really cool library really rich and you can create a bunch of panels with it.
+But I found myself like having difficulties and probably not focusing at the right place. So
+as I say when you build a real user monitoring system you need to change your mindset and your
+queries should be more like in data scientist style. And the PHP were out and the ORM that I was
+using I was using doctrine. It's not really meant for writing complex queries from this fashion. So
+I found myself writing my own query builder and using doctrine when convenient and using my
+query builder when convenient but this was again too much maintenance for just for a single
+maintainer of a project. I also wanted to introduce user management and permission system
+but again with my limited time and working from time to time on the project during the weekends
+this was just again too much it was not the right focus. I wanted just to show some meaningful data.
+And yeah I really love plotly but I just ended up with large blobs of JavaScript here and there
+and it was more like more and more plotlier. I wanted to see data not writing JavaScript.
+So I took a break I believe half a year and I focused on my main job but from time to time I was
+doing research and I was reading some other articles about time series databases and I started
+exploring some of the open source available open source systems for visualization. So I
+kind of rebuilt the complete backend. I still kept boomerang but I rewritten the server site so I
+completely removed nginx and PHP and I used golang. I replaced my SQL with click house
+and I replaced all the custom code all the PHP and plotlier with grafana.
+And again if you would like to play with the current version of basicram that's what I ended up with
+that's actually a let's say a bit of rebranded version of grafana with the specific basicram
+dashboards and settings. So if you would like to play with it just visit this address and write
+calendar calendar as a username and password. So where golang was really useful, golang it's
+just different paradigm it's a different idea compared to PHP. Golang you can compile a single
+binary that and in this single binary everything that I needed was packaged inside the binary so
+it's just a process that you run on the server and it has everything inside and this allow me to
+replace the actually to get rid of nginx because golang has a package for built in
+htp server and yes PHP also has a package for PHP for htp server but you need to do a lot of
+work arounds to make it working because just not native in this is not native in PHP.
+I also could leverage the existing click house package in golang for interacting with the
+click house database and I took advantage of asynchronous insert which saved me a lot of
+I could get rid of some code that I had in the PHP version of the basicram.
+Also in golang it was very easy to create a backup mechanism for all the data that was
+flowing through the system because in golang I could easily keep stuff in memory I didn't have
+to write each request to the system on a file and later to batch it and bundle it. I was just
+keeping these data points and requests in for example in memory for 10 minutes and I could
+just flush them on the hard drive and compress them and this was again really really easy few
+lines of code and just natively coming in golang and also for some cases where I needed encryption
+again in golang there is a let's encrypt package it's a third-party package but I could easily just
+spin a server and say okay I want to use let's encrypt and I was getting secure connection to
+this server with it it really reduced the operation the effort on the operation site.
+I also took advantage of a gip lookup library which is using the maxmind database and why
+I needed this because in a real user monitoring system you would like to see from which city a
+visitor visited the website or from which country visited the website this is really helpful when
+you want to create a report and when you want to figure out maybe in which country is your website
+is slow. I also took advantage of another library about user agent parsing so this library helped
+me to extract important information about the browser name the operating system and the user
+agent family and I also started using my new favorite database Clickhouse. So you remember
+where I say that I was doing a lot of work when I was like batching and bundling everything and
+inserting these big batches in MySQL. Clickhouse comes with a really cool feature called asynchronous
+inserts so Clickhouse allowed me every time when a request reaches my back end to immediately to
+create an insert to Clickhouse and Clickhouse was internally batching this and it was deciding
+where it needs to insert in the database so this was not this helped to like not reach some performance
+botonics. Another thing that I could do with Clickhouse so here you see I have seven tables
+in the old setup with MySQL but in Clickhouse I actually end up with two tables and I actually
+could I actually could have one table but I needed this table for showing the host names in the filters
+in Grafana and just Clickhouse or in general when you work when we work with time series
+the main idea is that here the the the data is normalized I try to really build
+to build a user monitoring system in the fashion of a webshop right which is really the wrong idea
+but when we use time series database the idea is that the data you can just throw your data into
+this database you you have one large fat table and you throw a lot of data and you don't really
+need to consider duplication of the data for example here we have this filter's device type
+and I don't have a foreign key here to another table where I keep references to all the device types
+I just can insert and insert the same string over and over again desktop desktop desktop and this
+database will be completely fine with it it will compress the data internally and I won't experience
+any performance bottlenecks when I filter by this field and here is my other favorite feature in
+Clickhouse it's called it's called low cardinality data type and this data type is really convenient for
+columns where the distinct values in this column some less less than 10 000 because this it's
+optimizing eternally and it's the the where conditions and the filters in this case are much
+much faster when we use low cardinality we if if we have more than 10 000 distinct values we probably
+need to go again to something like this and to start introducing additional dimension tables
+also so here in left is really uh I would say insane I even don't know how I created this I still
+I'm really surprised with myself and you we cannot zoom in here but this was a process where
+it included querying my my secure database and I had some application code and I had bunch of
+cron jobs and this was trying to guess and to find out all the sessions that bounced and what was
+the duration of the sessions it was just really complex and for example to to calculate the bounce
+rate with my new setup in Clickhouse I just could use such a query again I got a bit help with this
+query I don't completely understand it but it does it actually it works and it's much more
+simple and much much more it makes my it makes basic run much much easier to maintain and with
+with this query I could actually create easily this correlation between bounce rate and epic
+and metric and in our case this is time to first bite
+also I want to say that open source is not only about how great is the open source
+product that you work with but also the community is very important and that's why
+I also stick to Clickhouse they have really great slack community and every time when I ask a question
+I I can say that in the matter of a few hours I get really a good response for example here I'm
+asking hey I I wrote this query but I feel that it's not optimal I'm not a SQL expert and here
+another expert actually suggested a better way how to write this query it's it's shorter and it's much
+more performant and also probably this is the first and probably the last database channel
+YouTube channel that I will be subscribed but I'm actually subscribed to the Clickhouse YouTube
+channel and they have really really good videos like they have every month they have like a release
+party video where the the Clickhouse team is showing the new features and there are a lot of
+good tutorials so it's it's really welcoming for for beginners and they say you get support from
+the community and there is really good there are really good materials out there so now let's look at
+the user interface Grafana earlier I mentioned that I was about to start in my in the first
+version of basicram I was about to start implementing my own my own user management and login and
+authentication and Grafana this comes out of the box so it's much easier to add new user to give them
+different permissions and again this is just the code that I would never want to write again
+right and in this repository I bundle the basicram version of Grafana it has some customizations
+also another benefit of Grafana is it's very easy to model the data and what you want to see
+in the in the visualization panels so for example here we have we can define filters
+we can have a preview of our data we can also configure different things for example here I'm
+just showing how I can configure different colors for the different thresholds and also there is an
+SQL editor so when I write the SQL here this Grafana uses this SQL to fetch the data from Clickhouse
+and here are other panels that I took advantage of here is the world map so I could it was really
+literally plug-and-play I just configured few stuff and I say it from where to read the data about
+the countries Grafana also has a third-party plugin for plotly so I still there were scenarios
+where I wanted to build some more complex panels and with this panel I could actually build this
+one which is showing how the device the screen size is the width of the screen size is distributed
+yeah time series this is the kind of the most the default view in Grafana and also I could present
+the data in a table this is very good when you want to explore your own data
+also Grafana comes with different data sources and of course Grafana needs to know how to talk to
+Clickhouse in my in basic realm I'm using a data source developed by company called
+Altinity but there is also another one developed by actually official by Clickhouse right
+yeah and just to say that all these things that I'm showing all these dashboards that
+are built in in the basic version of Grafana
+everything there is actually under version control so it's not just that I created a dashboard in
+Grafana instance and exported it and save it somewhere this I have this repository where I have
+the configuration for each of the panels that I'm maintaining and then this makes makes it much
+easier when I need to change something or to add a new panel and I can go through the history and I
+can understand what actually change if something has to be reverted yeah for example here we are
+seeing how I keep this row as it's a templated SQL but this is how it's presented then when we look
+in Grafana and again out of all this source code configuration that I keep for the dashboards
+I'm building a docker image where we here we have a bit of branding work just removing
+some things from the default or rewriting some things from the default Grafana image here we are
+installing the plugins that we need for our setup and here we are importing all the configurations
+for the dashboards and the data sources and what I found over time when I spoke to different people
+who asked me about three user monitoring systems very often the conversation was just ending when
+when I was explaining yeah you need to run this component on this server and you need to run this
+component on this server and you don't need to run this component on this server and it looks like
+their use case the use case of the people that I spoke to was actually not requiring them to scale
+they had pretty small websites or web shops and I work on something a bit more monolithic
+it's called basicrum o in one and the idea is that probably again probably it sounds from
+engineering point of view a bad practice but it actually could be really practical thing
+the idea is to run everything on one big box and I believe for 20 euro a month this could be actually
+hosted somewhere and I tested it it can handle 1.5 million page views a month and the idea here is
+we introduced traffic which is a proxy it stays in front of this folder components and it's helping
+me for SSL termination and routing request because some of the request needs to go to the data
+collection part and other request needs to go to the grafana to the part where we analyze the data
+so this is really convenient it's really easy for people if you just want to give it a try
+and a few takeaways I just have to say that a real user monitoring system is fairly complex system
+and you need to learn to train yourself you want to develop one you need to you need to
+learn more about on the data collection site where how the data is collected from the browser
+how to visualize the data and it will be a bonus if you learn about how time series databases work
+again choosing the right database to solve the right problem is the key
+and it's great when when you can transfer a problem from the application on the database
+layer it just saves a lot of time and yeah grafana could save a lot of time and effort even I
+recommend it even if you still want to build your own front end maybe just start with grafana to
+play with the data and to display something it literally will save a lot of time and I got a
+signal that I run out of time but you can catch me up all right I can take one question
+so in this project we don't really keep any IP addresses so for example that I guess that's
+what we consider like user data or yeah so the backend doesn't store any personal data
+in this case so by default it's using the IP address only to identify the country and the
+the city but it's not storing the IP address after that and I know that on the data collection site
+from the boomerang library I'm not sure if it's on the boomerang library has also like
+part of the boomerang source code is private but I know that for PCI compliance reasons it has
+special parts that try to avoid collecting stuff around the user sometimes the user may
+put for example a credit card number and this could be actually collected by mistake so this
+library also tries to avoid collecting critical user information do you mean to consent
+the cons
+so the library comes with a special snippet that's a loader snippet so you can have your own
+callback so you can you can call this loader snippet only after a cookie consent so it's possible
+you

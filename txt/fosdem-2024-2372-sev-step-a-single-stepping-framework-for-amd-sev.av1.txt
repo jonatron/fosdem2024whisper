@@ -1,0 +1,206 @@
+So, the next speaker is Luca Wilk from the University of Lubbeck and he will talk about
+some recent work he has been doing, actually, attack research.
+I'm very excited that the Dev Room from the start has had some consistent attack research
+line as well, which I think is very important for this new type of technology.
+So Luca, enlighten us.
+Yeah, thank you very much for the kind introduction.
+I will be talking about SCVSTEP, which is a single stepping framework for AMD SCV,
+and it's open source and available on GitHub, so feel free to check it out.
+And this was created as part of an academic paper, which is joint work with these great people down here.
+Okay, just a quick recap where we are in the trusted execution environment landscape.
+So as the name suggests, SCVSTEP is about AMD SCV.
+So we are in this confidential VM area here.
+However, single stepping is something that basically affects all TEs that are out there right now,
+so keep that in mind.
+Okay, with that out of the way, we can jump right in and explore what single stepping attacks actually are.
+So we start with a quite high level picture.
+What you want to do here is you want to take some kind of snapshot or observation of our protected application,
+and we use this for our tech.
+Now, if our TE runs normally, then it runs basically at full speed,
+and if we take these snapshots, we don't affect any synchronization with this TE process,
+and thus the observation and the data that we get is very blurry.
+But now if we start to interrupt the enclave at certain points,
+then we have these synchronous points in time where you can start to take our snapshots.
+So it's not running in parallel anymore, but the enclave is paused when we take our snapshots.
+And thus we already get a little bit more information.
+And now if we take this to the maximum resolution and we are able to interrupt the enclave
+after every single instruction reliably, then we get a pretty clear picture of what's going on.
+So I hope that already gave you like a good intuition.
+And now we go into what single-stepping attacks have actually been used for, mostly in academia.
+And these are all examples that have been done with SGX that really made this popular in academia
+because it made single-stepping very accessible.
+So the first attack avenue basic here is something called interrupt latency,
+and there you basically measure how long it takes from where you like started this attack
+to when you get like this callback that the enclave has been now interrupted or exited.
+And it has been shown that this timing actually revealed something about the kind of information
+that's running in the enclave.
+And for some instructions like different instructions, you can even learn something about the operands.
+So dividing by certain numbers takes longer than dividing by other numbers.
+And thus you really kind of instruction and maybe even the operand with these attacks.
+Then the second major attack avenue here is called interrupt counting or instruction counting.
+And here the idea is that certain algorithms and applications have secret dependent control flows,
+especially true for cryptographic algorithms.
+We have some secret key, and then I do some large integer multiplication or division and decode the dusted.
+Executes a different number of instructions depending on the secret data.
+And now when I do this senior stepping attacks, I can simply count the numbers of steps that I take.
+And then if I know on which code page I'm currently in, then I can learn something about the secret data
+just by observing the number of instructions.
+So in this tiny example here with a conditional jump, and in one case we skip over this move here,
+and the others we don't.
+So here we get two instructions executed here, three.
+And by knowing the code that's currently running, we can infer the value of the secret bit here.
+Then the third really popular attack avenue is not directly senior stepping, but closely related.
+It's called zero stepping.
+And here the idea is that we interrupt the enclave even more frequently.
+So before this able to actually execute a single instruction.
+So it doesn't make any progress on an architectural level, but on a micro-architectural level,
+it is first instruction.
+It's already starting to execute, then gets a board and roll it back.
+But on the micro-architectural state, there's actually still already stuff going on.
+And these attacks are able to measure this.
+And what we can do then is basically take an infinite number of measurements, but only running the enclave once.
+And this allows you to measure really, really tiny effects.
+And then the third column here is kind of the miscellaneous sketch all column.
+So as you can imagine, just by increasing this temporal resolution, you can improve basically any side channel attacks.
+So it has been used in many of these MDS attacks here, for example.
+Okay, so now that we know what senior stepping basically is and why it's really dangerous,
+we come to the main question of the stock here.
+Can ACVVM be single stepped?
+And if so, how?
+So let's take a look at the basic setup here.
+So this is like a very boiled down version of the control loop that's going on in the hypervisor, where we enter DVM here.
+Then we execute some instructions and then at some point we exit.
+So for senior stepping, the obvious question is, when we exit DVM here, this is what you want to control in our attack.
+And there are multiple reasons why this can happen.
+So we can configure certain instructions to be intercepted.
+And you can also use page for it by removing access rights in these nested page tables.
+However, none of these two methods give us the amount of control that we want because they are not instruction granular.
+However, you can also use external interrupts to force an exit from our VM.
+And this is actually what will allow us to achieve this instruction granularity.
+And for this, the attacker uses something that's called the APIC timer.
+It's a common timer on x86 used by the operating system.
+And by injecting this timer, we will force exits from DVM.
+So let's zoom in a little bit.
+This is a typical attack sequence here.
+In red, we have the coded ones in the hypervisor.
+It's controlled by the attacker.
+And on the right here, the blue, that's the three instructions from DVM that you just saw.
+So what do we need to do now to achieve senior stepping?
+Well, intuitively, you would think that you would need to hit this tiny window between these two instructions here to single step.
+However, luckily on x86, it's already sufficient if our interrupt hits somewhere during the execution of this instruction.
+Because then it will be held pending and will be basically recognized at instruction boundary.
+Okay, but if we just naively implement this and try to do this, then we are not quite there yet.
+And we will see that sometimes we will overshoot here and then we will execute two or more instructions.
+And this, of course, decreases our resolution because now we cannot guarantee that we do something after every instruction.
+Maybe we have bad luck and skip over very important memory access instructions also on.
+So this is really bad, this mighty stepping.
+And on the other side, we might undershoot a little bit and zero step.
+And this is not really dangerous because then we simply repeat, we don't miss out on any instructions.
+We just try again and it's a little bit less efficient.
+So why is this the case?
+And there has been some really nice papers on SGX and they show that this APIC timer has quite some jitter.
+So it's not cycle accurate.
+So it kind of makes sense that we see this behavior here.
+So what do we do about this?
+And the kind of obvious idea is, okay, we kind of need to make this window larger because our timer doesn't have the high enough resolution.
+So we kind of need to enlarge the window at which our timer can hit.
+And for this, we look at what's actually going on when we execute an instruction here.
+So first we have to fetch the instruction from memory from the code page and then the CPU can decode it,
+issue it to the pipeline and eventually retire it.
+So for the attack, the idea here is now that we make sure that this year takes a long time and we achieve this
+by simply flushing the page from the memory.
+So we flush the VMs TLB and that's when we enter it again.
+We need to do a page that we walk, which will take some time and this effectively prolongs this window here.
+That is required to execute the first instruction.
+And now although our timer still has this jitter, this window is large enough so that we can actually rely on the single step.
+And the ACV step at the time of publishing was the first frame that did this shortly afterwards.
+There were also some papers that did something similar and it's also open source.
+So we hope that other people will reuse it.
+Okay, so now let's take a little bit closer look at the ACV step framework itself.
+So besides reliably single stepping, we wanted to achieve two other goals.
+And this is reusability and interactivity for the attacks.
+And I will go over these two goals now in more detail.
+So for reusability, let's again look at our setup here.
+And since we want to program this APIC timer, we want to manipulate these page tables and maybe do some cache priming and probing.
+All of these things would benefit from being really close to entering and leaving DVM because this is the point.
+We have the lowest noise.
+However, this also means that we need to manipulate or change the kernel code and developing kernel code.
+It's quite hard. It's hard to debug. You're limited to see. You don't have any external libraries.
+So it's not the nicest programming environment.
+And also it makes reusing this for different attacks or for different papers quite hard because this environment is not so nice.
+And your tech logic is basically mixed together with these attack primitives.
+So instead what you want to do here is we only want to implement these bare primitives inside the kernel,
+like programming the timer, manipulating these page tables and cache priming and probing.
+And all of the other stuff is then moved out to user space.
+And we use an IOCTL API then to trigger this behavior from user space.
+So then here we have this much nicer programming environment.
+And other people can simply link against this library and write their attack code with it.
+And one tiny note is that this execution loop of DVM is asynchronous from our IOCTL API.
+So it changes only take effect the next time DVM exits.
+So we have some data variables here for communication,
+but this is something you kind of need in mind when you program these attacks.
+Okay, so we achieved this goal of usability.
+Let's move on to the second goal for interactivity.
+And to understand this a little bit better, I will go into more detail of how I envision this programming environment here in the user space library.
+And there we also basically want to have some kind of event loop.
+Initially we set up some configuration like I want to get a page forward once this page is accessed.
+And then we want basically to wait until this event happens.
+And when this event happens, we want to react to this event.
+We have usually in these attacks some kind of page forward sequence that would tell us when the VM is about to execute some certain function.
+And then maybe at this point we want to enable single stepping and do some steps to a cache attack, this kind of stuff.
+So this is basically the process event and the deved config part here.
+And the really important thing is that once we got this event, we also want the VM here to basically wait for us to process this event
+because we would allow it to resume.
+Then we would again lose this precise control you wanted to have to manipulate the environment after every instruction.
+So we now also need a way to basically communicate from the kernel side to a user space library to be able to send these events and wait for these acknowledgments.
+And for this we opted for a shared memory protocol.
+So the library and the kernel code here simply agree on a shared memory page and then use a simple protocol with some spin locks to basically implement this.
+Why is this not the most efficient?
+It is very low latency because it's just memory communication.
+You don't have any user space, kernel space context switch as with the IOCTL here and also reasonably to implement.
+Okay, and this is how we achieve this interactivity goal.
+This is basically the current state of the framework.
+But to close up, I also want to give an overview of ongoing and future work.
+So one thing I've been working on a little bit already and I would really like to continue on is to improve this API, this programming environment because right now it's kind of basically have these
+start, track, stop, track commands.
+And if you start to write your attack code as I've experienced myself, this can get quite messy and quite long really quick.
+So it would be cool to have some higher level abstractions for this.
+For example, a component that could track a certain page for a sequence for you and restart the tracking if you get some unexpected access and so on.
+And then some kind of mechanism or protocol to chain together these components so that you can structure your attack better.
+Also make it easier for people to get started by reusing these building blocks.
+And thinking about this even more, this is totally independent of the actuality underneath.
+So this is maybe something where the existing S3X step community could come together and could build these libraries at a higher level and then S3X step and SIV step.
+And I think the trust zone one is called load step could basically be initiated as drivers underneath that so that everyone could profit from this.
+Okay.
+And this is more or less it.
+You can again find the links for SIV step and also for SGX step, which I mentioned here.
+They are both open source and on GitHub.
+Feel free to check them out.
+Send me a pre request if you want to change something, create an issue that's something broken.
+And yeah, thank you so much.
+And I'm happy to answer questions now.
+Yeah.
+Yeah, thank you for the very interesting talk.
+A new Satchel attack for me.
+And now you've showed how to break things.
+Do you have some ideas how this kind of attack could be mitigated possibly?
+Yeah, so it's a really good question.
+So for S3X, there recently has been a paper which was does is called a X notify.
+And then basically the idea is to make the S3X and play interrupt aware and then execute some special handler that will pre fetch this first instruction that I showed so that you can't do this.
+I flushed the TAB and make everything really slow approach, but ensure that this the first instruction always executes really fast and this then mitigates this attack.
+And for TDX, which we just talked about, there's also some mitigation built into the TX module.
+And for SEV, we are currently looking into ideas how we could protect SEV VMs against this.
+Thank you. Thank you, Luca.
+Yes, we're back.
+So can you elaborate a bit on how much of this is SEV specific and how much of it is actually, let's say KVM step?
+Let's say if you don't have a mitigation in TDX, can you just launch this as is on any kind of VM or is this specific to SEV in any in any way? Thank you.
+So I don't think it's really specific to SEV because this ability to flush the TAB that should also be available with VMX with the hardware acceleration for Intel.
+I think that the basic primitive should apply.
+I also know that there has been like an internal prototype that's what's called TDX step that's on one of the Intel pages.
+So they basically build something similar for this.
+So I guess in principle, this should apply to all like VM based systems where the VM can be forced to exit by external interrupts.
+There's one more question.
+Can you repeat it if you have all the plans for TDX?
+It's definitely really interesting.
+The question was if you have also plans for TDX and as I've said, TDX is a bit in countermeasure, but I guess it would be of course interesting to try to figure out how this works exactly.
+If you can do something there.

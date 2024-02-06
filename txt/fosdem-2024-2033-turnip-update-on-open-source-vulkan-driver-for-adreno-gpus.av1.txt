@@ -1,0 +1,347 @@
+Hello everyone, thanks for coming here.
+I'm Danilo, I've been working on Tornip Driver
+for three years in Igelya.
+And I want to give a status update,
+what we have achieved so far,
+and what's coming for us.
+Let's start with the new hardware we support.
+We now support a lot of hardware.
+And recently we started support at 700 series,
+Adreno GPUs.
+We already merged Adreno 730 and 740,
+and the merge request for the most recent,
+Adreno GPU 750 is being on review.
+There are a lot of changes between Adreno generations
+with four mostly performance reasons.
+There are registers changed,
+and many new performance features out there.
+We also currently implemented only direct rendering
+and not tile based rendering.
+Adreno GPUs are a bit weird
+because they support two modes,
+tiling and direct rendering,
+which is the same that desktop GPUs support.
+But tile based rendering is still
+working progress for now.
+We also support a lot of, almost all,
+600 series GPUs, but there are some variants
+out there we don't support.
+There are five sub generations of 600 series.
+We support all of them.
+So to add a new one, new variant of the GPU,
+we just need to change some registers there.
+As for our features and extensions,
+we now support Falcon 1.3
+and a lot of extensions with it.
+Most interesting one for us was dynamic rendering.
+It's rather simple for desktop GPUs
+because they don't care about render passes boundaries,
+mostly don't care about them.
+But for tiled rendering for mobile GPUs, it's a big deal.
+We have to stitch together the render passes,
+sometimes even at the submission time.
+It could be really nasty.
+Like the code is bodily readable for it.
+And we have all extensions implemented for DxVK,
+D3D Proton and for Zinc supported.
+So it's great.
+While we do not claim Falcon 1.3 conformance,
+we do regularly test
+Vulkan CTS.
+We test a lot of game traces, we test games,
+but with games it feels like a vacuum all game right now
+because there are not a lot of real users out there.
+And we don't have a proper CI with game traces,
+like Radvid does.
+Another big changes we've done are in pipelines.
+Our GPU has some unique way of dealing with pipelines
+and with all the new pipeline related extensions,
+we have to rewrite them every time in some way.
+But thanks to Conor, Conorabot, our pipelines are healthy.
+We've done a lot of IRC optimizations,
+which is our backend compiler.
+They add up a lot with time passing.
+And we've done a lot of work in debug tooling
+because we have to reverse engineer GPU.
+We deal a lot of with unknown registers, unknown instructions,
+so we have to be able to quickly understand
+what's going on right there.
+So I want to spend some time on these debug tools
+we've implemented so far.
+I gave a more in-depth talk last XDC.
+You could find it at this link.
+So what's our debug tool?
+We have GPU breadcrumbs like in Google flight,
+graphics flight recorder.
+We have ability to reply common streams.
+We have ability to edit common streams.
+We can print for GPU memory.
+We could print from shader assembly in these common streams.
+And we could debug register reading
+of undefined state from registers.
+I'll describe each of these feature
+a bit more in the following slides.
+Why we even need our own GPU breadcrumbs?
+There is already a solution for this at Vulkan API level.
+It called graphics flight recorder from Google.
+It already could tell you where Hank occurs
+at which command, but there are two issues with that.
+It's two cores because for example,
+the start of the render pass could translate into like 10s
+or 20 bleeds at the worst case
+and each of them may hang.
+So API level tooling could be like not great at this.
+And what's really prompted me to create
+the breadcrumbs to implement breadcrumbs in our driver
+is debugging of unrecoverable hanks.
+When your computer or board just completely hangs,
+you cannot do anything, writes to disk
+doesn't come through.
+Like graphics flight recorder doesn't work with it.
+And to make it work, you need some new Vulkan extension
+and so on.
+It was much easier to deal with in the driver itself
+by doing all the things synchronously.
+And it worked rather great.
+But this tool is currently is not used too much
+due to the tooling I will talk about now.
+Okay, let's say you cannot even reproduce the bugs.
+Some bugs are random hanks occurring
+in different parts of the game and so on.
+So the easy way to reproduce them
+is just to record all comments submitted to the GPU
+and then replace them back.
+I mean, for most hanks and issues works great
+for reproducing them.
+There are a few caveats like it's necessary
+to record all buffer objects submitted
+and there could be a lot for some triple A game.
+So it works mostly for one frame or two frames.
+And not all issues are reproducible this way.
+There are some that are too finicky for this.
+But most of them are reproducible, so it's good enough.
+But it's not enough to just be able to replay the trace
+and see a hank in the mask.
+You have to have a way to narrow it down.
+So what we implemented is a simple way
+to edit the common stream.
+So we could decompile some submit to the GPU
+into very trivial packets.
+Like there are packet names only in comments right there
+besides some of them.
+It's really easy to do for probably any GPU
+and even in this form, it's very powerful
+because you could bisect the trace
+and find the exact comment which hanks
+even if you have like the comment.
+Even if it's impossible to determine from any other way
+how to deal with it.
+So you could edit some part of the packet
+and see if it helps.
+If it solves the hank, you could like deal with it
+as with ordinary code.
+What if the issue is inside the shader itself?
+We already could compile the shaders from assembly.
+So with this replay tool, we could add ability
+to just print some registers from the shader.
+And the most trivial print is good enough.
+So our print takes temporary registers for address
+and so on and registers to print.
+And print them.
+Like it increments global counter
+and tries to global storage and replay tool
+just reads from it and prints the registers.
+It's trivial and it was incredibly useful
+in reverse engineering and hardware.
+You get the trace from proprietary driver,
+you decompile it, you edit the shader to print something
+and you see the values and what's going on.
+It's incredibly useful.
+And the last tool in our tooling is the way to debug
+undefined registers, stale registers.
+A lot of issues are due to reading of
+like run value from the registers.
+Some state is not immediate.
+Even games have issues of not emitting some state
+and so on.
+A simple solution, at least for us,
+it was writing
+run values to all the registers
+and seeing what's breaks.
+And it mostly works.
+It's not that trivial because there are at least registers
+which are written at the start of command buffers
+and never touched again.
+And there are registers written in each,
+like in the render pass, like registers set
+that are set by pipelines.
+So we divided the registers into two categories.
+The ones that are set at the start of command buffer
+and the ones that should be stomped before each bleed
+and render pass.
+Again, there are some other caveats
+but it helped us quite a lot in debugging various issues
+when we implement new features.
+Let's forget about some weird registers.
+Okay.
+What are the real users of our driver at the moment?
+Like where you could see it.
+At the moment they are emulators on Android.
+Why?
+Because proprietary drivers are terrible on Android.
+Not due to their code but due to update policy
+of proprietary drivers there.
+They are not updated at all.
+So users are stuck with their terrible,
+many years outdated drivers.
+And with many issues, these drivers have many issues.
+They don't have necessary extensions.
+Like it's bad, it's really bad.
+And emulators need new features.
+They need for drivers to work.
+They push drivers to the limit.
+So if, so they, like for example,
+you now is able to load our driver, Chornip,
+and use it instead of proprietary driver.
+And it works rather well for them.
+And I remember some other emulators
+use the same technique to deal with issues
+in proprietary driver.
+Let's see an example.
+Here is some Zelda game running on Android
+on Adreno 650 with our driver.
+It's running rather great,
+even if it's a previous generation of Adreno.
+Like FPS is nice, runs correctly, it's great.
+So proprietary driver is a bit weird to say the least.
+Like maybe it works with the most recent one
+but it's hard to tell.
+Drivers are not updated.
+It's hard for users to update them and so on.
+So there are lots of issues
+and probably they don't test with these games.
+Okay, fair enough.
+We also don't really test these games.
+But the developers of at least Yuzu
+are willing to implement some debug tooling
+like recording the games, the game traces
+for us to easy to debug them.
+Because it's not that easy to launch a game
+without having the switch itself.
+Like it's not legal.
+Okay, earlier I said that Tornip implements
+all the features for DXVK and VKD3D Proton.
+So can we run desktop games?
+Yes, we can run desktop games.
+Here you see laptop X, X13S running cyberpunk.
+It runs via a lot of layers.
+Like you need FAC simulator to translate X64 assembly
+into IRM 64 assembly.
+You need Vine for Windows compatibility.
+You need VKD3D Proton and so on.
+There are lots of layers.
+So we mostly test game traces, not games themselves.
+We test games, but mostly traces
+because they are easier to deal with.
+But we will test games more soon.
+So what is the future for us?
+We need to support tile based rendering on 700 series
+because it would maybe not give a lot of performance boost
+for desktop games, but it would lower power consumption
+and help probably on Android for the games.
+Mark Collins, my teammate is working on it.
+And I hope we will see it merged soon.
+It would be great.
+And then we need to squeeze even more performance.
+There are lots of performance features
+we need to implement there.
+So even if we will not come to proprietary driver performance,
+we expect to be somewhere near it.
+At least we hope for this.
+I hope.
+And in the distant future,
+we want to implement ray tracing
+because at least like,
+740 should be able to support Rayquery.
+And 750 probably could support ray tracing pipelines.
+I hope we implement this someday.
+And maybe we would be able to implement my shaders.
+That would be cool.
+Okay, another exciting development, not from us.
+It's not a Galeas project,
+but an easy way to run desktop games on Android.
+There is a work in progress project called Kasha.
+It's worked upon by one of my teammates, again, Mark Collins
+and some other people out there.
+It's an amalgamation of Vine,
+DXVK, VKD3D and FaxCore on Android.
+And I hope Jornip would have a first party support there.
+So it would be all bundled together
+and work together as one.
+Or you may say that people already
+are running desktop games on Android.
+Like here you see some person running Assassin's Creed
+on their device.
+Like it runs.
+Yes, that's true.
+There is project.
+There are several projects probably for this.
+It is done with Thermux.
+It's, I mean, I'm not sure exactly what it is.
+But it's even more unholy amalgamation
+of projects.
+It runs, it's really cool.
+But there are some performance issues,
+some issues with how all these moving scenes are
+are stuck together.
+But like people running games, desktop games on Android,
+that's super cool.
+Okay, that's all from me.
+For today, so you have some questions, suggestions.
+So you said you...
+Mike, Mike, no, okay.
+So you said you could use this on Android
+to replace the proprietary devices.
+Yes, you could use...
+So does that, okay,
+does it meet the root device or custom kernel?
+There are two cases.
+If you want to replace
+proprietary driver for the whole system,
+you need the root.
+You cannot change system libraries without root.
+But if you want to use a tournip for emulator,
+if emulator supports this,
+it could just load the shared library, packaged for it.
+So, and Google Play allows emulators
+to use custom drivers, they asked for it.
+And Google Play allowed it for this case.
+And the loaded driver talks to the proprietary kernel driver.
+Yeah, there is proprietary kernel driver, KGSL,
+it's a downstream driver.
+So we have backends for several kernel interfaces.
+That's right.
+Anyone else then?
+Sorry, will you recall the one with the upstream
+for doing all the kernel?
+Could you repeat the question, sorry?
+How would your implementation interact
+with the upstream kernel driver for the seven access?
+Do you go as fast as you can?
+We develop a Mesa for 700 series on MSM, on upstream.
+Not exactly on upstream MSM,
+because we have some custom changes to make it work.
+Not all of them are upstreamed, at least for 750 GPU.
+But it will be all upstream, we need it upstreamed.
+It would be there.
+But the kernel is not done by us,
+so we don't have much control.
+It's other people working on it.
+Okay, I guess that's all.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
