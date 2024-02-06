@@ -1,0 +1,980 @@
+WEBVTT
+
+00:00.000 --> 00:09.100
+I'm very excited about this because this is actually the tool that I'm using to build
+
+00:09.100 --> 00:14.160
+kernels for a while now and it's made my life a lot easier.
+
+00:14.160 --> 00:16.200
+So thank you for that.
+
+00:16.200 --> 00:17.700
+Dan?
+
+00:17.700 --> 00:18.700
+Thank you.
+
+00:18.700 --> 00:22.240
+Yeah, so let's talk about kernel hacking.
+
+00:22.240 --> 00:23.440
+First a little bit about me.
+
+00:23.440 --> 00:24.440
+I'm Dan.
+
+00:24.440 --> 00:29.480
+I work at META on the Linux user space team and I'm a system demaintainer and I also maintain
+
+00:29.480 --> 00:34.320
+the tool that I'll be talking about today which is a METCO sign.
+
+00:34.320 --> 00:37.320
+So quick motivation for the stock.
+
+00:37.320 --> 00:44.280
+A little while ago I started looking into running system dejournality which I work on for individual
+
+00:44.280 --> 00:47.800
+users instead of just on a per system basis.
+
+00:47.800 --> 00:53.600
+But to make this work I actually needed a BPF feature for Unix tokens that wasn't available
+
+00:53.600 --> 00:54.960
+yet.
+
+00:54.960 --> 00:59.940
+So I looked at the kernel source code and I figured this is probably doable to do myself.
+
+00:59.940 --> 01:05.160
+So I got into kernel hacking.
+
+01:05.160 --> 01:08.680
+One site figured out the code and were written up my first batch.
+
+01:08.680 --> 01:14.280
+I of course had to test it but there wasn't really a clear way like this is how you test
+
+01:14.280 --> 01:16.720
+your Linux kernel batch.
+
+01:16.720 --> 01:22.260
+So I started looking into what I could do to do this.
+
+01:22.260 --> 01:27.780
+The first thing of course that I needed to fix is like if you have your batch you can't
+
+01:27.780 --> 01:31.700
+test your compiled kernel on your host machine of course because if it's broken then you
+
+01:31.700 --> 01:33.660
+suddenly lose your system.
+
+01:33.660 --> 01:37.900
+So you need a virtual machine or something to avoid breaking your machine.
+
+01:37.900 --> 01:44.260
+I also wanted to make sure that this setup is quickly replicable to any different machine
+
+01:44.260 --> 01:48.020
+because I started on my laptop because that's what I do for system dejournality and it works
+
+01:48.020 --> 01:49.020
+great.
+
+01:49.260 --> 01:53.700
+The kernel is quite a bit bigger than system dejournality and it also compiles a lot slower.
+
+01:53.700 --> 01:57.380
+So I was quickly looking for a bigger machine with a lot more cores so that my kernels could
+
+01:57.380 --> 01:58.820
+compile quicker.
+
+01:58.820 --> 02:05.020
+So it would be very nice if that I could replicate the setup very quickly to another machine.
+
+02:05.020 --> 02:13.060
+And ideally I'm not too reliant on whatever the host distribution of that machine is because
+
+02:13.060 --> 02:17.700
+well I work at Meta and we can get like very big beefy servers that have a lot of cores
+
+02:17.700 --> 02:22.980
+that we can work on but they might also be running some old version of CentOS with all
+
+02:22.980 --> 02:25.540
+the not all the latest tools available.
+
+02:25.540 --> 02:31.460
+So ideally I still get those but on the big beefy server with the old Linux distribution
+
+02:31.460 --> 02:32.460
+running.
+
+02:32.460 --> 02:36.020
+Of course I want it all to be fast so that I have a quick turnaround time so I can fix
+
+02:36.020 --> 02:41.780
+bugs or notice bugs, fix bugs, recompile everything and boot again without waiting
+
+02:41.780 --> 02:42.780
+too long.
+
+02:42.780 --> 02:46.940
+Like everyone knows the XKCD with like compiling and two dudes are fighting.
+
+02:46.940 --> 02:49.940
+So I wanted to avoid that.
+
+02:49.940 --> 02:54.780
+And then of course when you hack on the kernel these days it's not just the kernel that you're
+
+02:54.780 --> 02:55.780
+working on.
+
+02:55.780 --> 02:58.860
+There's very often some user space projects involved as well.
+
+02:58.860 --> 03:03.780
+A good example for the file system service XFS tests which is a separate project.
+
+03:03.780 --> 03:08.540
+I also wanted to be able to compile all those things and get them available in the virtual
+
+03:08.540 --> 03:11.820
+machine so that I can run them.
+
+03:11.820 --> 03:16.300
+So of course because I work on system D and we use Mako aside to do all of this for system
+
+03:16.300 --> 03:19.020
+D because system D suffers from the same problems.
+
+03:19.020 --> 03:23.580
+You also can't really test system D on your system because if it's broken then you can't
+
+03:23.580 --> 03:24.660
+use your system anymore.
+
+03:24.660 --> 03:30.300
+So Mako aside is basically my hammer and like kernel hacking is just another nail that I
+
+03:30.300 --> 03:33.300
+wanted to slam in.
+
+03:33.300 --> 03:35.340
+So what is Mako aside specifically?
+
+03:35.340 --> 03:40.260
+It's a tool that the Linux puttering developed to simplify its hacking on system D. So he
+
+03:40.260 --> 03:44.620
+had all the same issues so he developed Mako aside to fix it.
+
+03:45.300 --> 03:49.260
+What Mako aside does is it builds you a Linux image.
+
+03:49.260 --> 03:52.580
+So it invokes a package manager and then it installs packages.
+
+03:52.580 --> 03:58.500
+It packages that up as like in one of various formats and then it allows you to boot it
+
+03:58.500 --> 04:02.500
+either in a virtual machine or in a container and then you can do whatever testing you want
+
+04:02.500 --> 04:08.340
+and when you're done you just exit the virtual machine and it's like nothing ever happened.
+
+04:08.340 --> 04:12.500
+So Mako aside supports like it has a general execution flow.
+
+04:12.500 --> 04:15.820
+So of course like we have CLI options, configuration all that.
+
+04:15.820 --> 04:18.380
+We install packages for the distribution.
+
+04:18.380 --> 04:24.500
+So this is invoking DNF apps, what zipper, Pacman for all the distributions that we support.
+
+04:24.500 --> 04:29.860
+Optionally we set up a boot loader and all that if you're doing it bootable disk image.
+
+04:29.860 --> 04:35.540
+We run various system D tools that are helpful to configure an image.
+
+04:35.540 --> 04:37.300
+If needed we build an NNRMFS.
+
+04:37.300 --> 04:40.460
+This is again when you're doing bootable stuff.
+
+04:40.460 --> 04:43.380
+We generate what's called a unified kernel image.
+
+04:43.380 --> 04:48.020
+This is this new system D thing that allows you to combine the kernel command line, kernel
+
+04:48.020 --> 04:54.980
+image NNRMFS all in a single file and then boot that from that in UEFI.
+
+04:54.980 --> 04:58.620
+Then we package up the entire thing as a disk image and then optionally of course you can
+
+04:58.620 --> 05:04.140
+boot it in QM or container with this in the N spawn.
+
+05:04.140 --> 05:06.300
+So how do you get started with Mako aside?
+
+05:06.300 --> 05:11.460
+This is not like the kernel hacking specific stuff but this is just like if you want to
+
+05:11.460 --> 05:16.860
+make a side image you specify which distribution you want, you specify the packages you want
+
+05:16.860 --> 05:20.300
+in this case is in the NLINX and we're running on ARCH.
+
+05:20.300 --> 05:25.140
+We have an auto log an option to basically automatically get a root shell in the virtual
+
+05:25.140 --> 05:29.100
+machine and then you say I want to boot this in QM.
+
+05:29.100 --> 05:30.900
+That gives you something like this.
+
+05:30.900 --> 05:38.140
+So we support this for Debian, Santos, OpenSuzi, ARCH, Fedora and Ubuntu.
+
+05:38.140 --> 05:43.820
+And there's a few other distributions but they're all derivatives of these.
+
+05:43.820 --> 05:48.420
+So everything can be specified via CLI, the settings as you can see here but of course
+
+05:48.420 --> 05:51.380
+we also have configuration.
+
+05:51.380 --> 05:58.300
+So this is like the system, the init, any files and things that we all know and love.
+
+05:58.300 --> 06:02.300
+So we more or less do the same stuff so you can also specify it all in the configuration
+
+06:02.300 --> 06:04.460
+file.
+
+06:04.460 --> 06:08.900
+Using Mako aside for kernel development and development in general.
+
+06:08.900 --> 06:12.500
+So what I showed previously just in soft packages from the distribution of course that doesn't
+
+06:12.500 --> 06:13.840
+really help us.
+
+06:13.840 --> 06:19.500
+We want to build stuff from source either system D or in this case the kernel.
+
+06:19.500 --> 06:21.100
+So you can specify a build script.
+
+06:21.100 --> 06:24.540
+The build script is responsible for building your software.
+
+06:24.540 --> 06:26.700
+Canonically we call this Mako aside.build.
+
+06:26.700 --> 06:30.580
+So when you define that Mako aside will pick it up and it just contains the instructions
+
+06:30.580 --> 06:32.060
+to build your software.
+
+06:32.060 --> 06:37.060
+So either make for the kernel or mess on for system D.
+
+06:37.060 --> 06:42.220
+You can specify build packages which are just the packages that are needed to run the build
+
+06:42.220 --> 06:43.220
+script.
+
+06:43.220 --> 06:45.100
+So compiler, build system and all that.
+
+06:45.100 --> 06:50.300
+You can specify a build directory so that everything is cached.
+
+06:50.300 --> 06:54.420
+This is important so that your incremental builds are fast.
+
+06:54.460 --> 06:59.020
+With the build directory we have to build cached but we don't have the image cached yet so
+
+06:59.020 --> 07:03.540
+we have the incremental setting for that which will install all the packages once cached
+
+07:03.540 --> 07:09.340
+result and then reuse that on the next builds so that our image builds are fast as well.
+
+07:09.340 --> 07:14.220
+And then we have various settings that you can use to configure the image without invalidating
+
+07:14.220 --> 07:15.380
+the cache.
+
+07:15.380 --> 07:20.340
+So you can add extra files for testing or to configure your shell in the image or basically
+
+07:20.340 --> 07:23.980
+anything you might want that configures the environment to your liking.
+
+07:23.980 --> 07:29.140
+You can do with the extra trees and the post installation script so that the testing environment
+
+07:29.140 --> 07:31.260
+is the way you want it.
+
+07:31.260 --> 07:34.740
+Whatever customization you want you can pretty much do it.
+
+07:34.740 --> 07:42.300
+And then we have the runtime trees to basic which we use Fertile.ufsd then to mount extra
+
+07:42.300 --> 07:46.740
+directories into the virtual machine so you can make the XFScast source code for example
+
+07:46.740 --> 07:53.300
+available for running XFS tests or you can make your home directory available in the
+
+07:53.300 --> 07:55.420
+VM if you want that.
+
+07:55.420 --> 07:58.980
+Whatever you want with runtime trees.
+
+07:58.980 --> 08:03.140
+You can modify the kernel command line and whatever way you want.
+
+08:03.140 --> 08:07.980
+And we want to specify the output format as a directory so that we don't have to build
+
+08:07.980 --> 08:14.020
+a disk image but we can just boot from the directory itself also using Fertile.ufsd.
+
+08:14.020 --> 08:15.020
+Why do we want to do that?
+
+08:15.020 --> 08:16.020
+Because it's faster.
+
+08:16.020 --> 08:17.260
+It takes time.
+
+08:17.260 --> 08:24.300
+And we're looking for this quick turnaround time so we try to make everything go as fast
+
+08:24.300 --> 08:25.700
+as possible.
+
+08:25.700 --> 08:29.380
+So make OSI kernel is really nothing more than a make OSI configuration in the separate
+
+08:29.380 --> 08:32.840
+repository that's specific to hacking on the kernel.
+
+08:32.840 --> 08:37.500
+So we have a build script for the kernel and then we have various other modules that are
+
+08:37.500 --> 08:43.940
+all just build scripts for user space projects that are related to kernel development.
+
+08:43.940 --> 08:47.100
+So as of this moment we have of course a module for the kernel and then we have other modules
+
+08:47.100 --> 08:51.500
+for better FES procs because well I work at Meta and Meta work some better FES.
+
+08:51.500 --> 08:58.420
+The Linux test project which I added for Christian and then some other testing projects like
+
+08:58.420 --> 09:04.980
+block tests and BP filter which is a Quentance project for hacking on firewalls.
+
+09:04.980 --> 09:06.580
+So I added that as well.
+
+09:06.580 --> 09:14.500
+So you basically specify which modules you want and then all those get included.
+
+09:14.500 --> 09:17.900
+So getting started with MakeOSI kernel more or less looks like this.
+
+09:17.900 --> 09:18.900
+You clone the repository.
+
+09:18.900 --> 09:20.340
+MakeOSI is pretty easy to install.
+
+09:20.340 --> 09:24.660
+You can also install it from your package manager of course but it's a pretty fast moving
+
+09:24.660 --> 09:29.700
+project so in this case we install it from source so you just clone the repository.
+
+09:29.700 --> 09:34.740
+You sim link the script to somewhere in your path and then that's all you need.
+
+09:34.740 --> 09:37.740
+You can then run it.
+
+09:37.740 --> 09:42.340
+We download if you want, well by default for the MakeOSI kernel we download all the other
+
+09:42.340 --> 09:44.260
+tools we need on demand.
+
+09:44.260 --> 09:51.500
+So the only stuff it needs is Python and bubblewrap and of course the package manager and then
+
+09:51.500 --> 09:53.740
+that's enough to get started.
+
+09:53.740 --> 09:57.540
+Then we clone the MakeOSI kernel repository which contains the kernel configuration, a
+
+09:57.540 --> 10:03.380
+specific configuration and then you can write a local configuration file that basically says
+
+10:03.620 --> 10:09.060
+what distribution do I want to use to test or to use MakeOSI kernel.
+
+10:09.060 --> 10:14.860
+So we support Fedora, CentOS and Dabian at this point but it's easy to add more.
+
+10:14.860 --> 10:19.540
+The only thing that's distribution specific is basically which packages you need to do
+
+10:19.540 --> 10:21.060
+kernel development.
+
+10:21.060 --> 10:26.780
+So you just define the list of packages to build a kernel and to boot the system and
+
+10:26.780 --> 10:28.980
+that's sufficient to add a new distribution.
+
+10:28.980 --> 10:34.060
+So it would be very easy to add Arch Linux here as well.
+
+10:34.060 --> 10:39.660
+And then of course finally we specify the modules and we specify where our kernel sources
+
+10:39.660 --> 10:40.660
+live.
+
+10:40.660 --> 10:42.420
+So this is what the build source is setting.
+
+10:42.420 --> 10:47.500
+So your kernel can be checked out anywhere on your system and then you use the build
+
+10:47.500 --> 10:51.980
+source setting to specify here's the source location and then the target directory where
+
+10:51.980 --> 10:53.900
+it should be mounted when we run the build script.
+
+10:53.900 --> 10:56.380
+So this should always be kernel, the target directory.
+
+10:56.380 --> 11:01.220
+Of course the directory can be anything and it will be mounted in the right place and
+
+11:01.220 --> 11:06.100
+then we run MakeOSI and it will do its thing.
+
+11:06.100 --> 11:11.180
+So I hope this works with the internet here but I made a video.
+
+11:11.180 --> 11:15.020
+This is with everything cached so otherwise it would take a little bit too long for the
+
+11:15.020 --> 11:21.980
+stock but when we run QM we see the images cached and then we start running make.
+
+11:22.340 --> 11:26.580
+Kernel build is of course cached as well otherwise it would take forever.
+
+11:26.580 --> 11:31.740
+So not too much happening but we get a new kernel image packaged up.
+
+11:31.740 --> 11:38.300
+Then we make OSI does its thing and then we boot and then you're running in a VM that's
+
+11:38.300 --> 11:44.900
+running the kernel compile from source and you can do whatever testing you want and then
+
+11:44.900 --> 11:51.100
+we shut down again.
+
+11:51.220 --> 11:56.260
+So of course to build the kernel we need kernel configuration.
+
+11:56.260 --> 12:00.300
+We ship a default kernel config in MakeOSI itself.
+
+12:00.300 --> 12:05.940
+This is just with the minimal amount of stuff enabled to do to test various things and to
+
+12:05.940 --> 12:09.020
+the necessary drivers to be able to boot in a virtual machine.
+
+12:09.020 --> 12:12.980
+So we keep the drivers to a minimum and the features to a maximum.
+
+12:12.980 --> 12:18.540
+Anything like that's related to kernel development can be enabled so that it's available and
+
+12:18.540 --> 12:20.040
+then you can use it for testing.
+
+12:20.040 --> 12:28.480
+We also enable a few debugging things so that it's easier to figure out what's going on.
+
+12:28.480 --> 12:32.880
+For example also the kernel command line we configure it to panic on oops and stuff like
+
+12:32.880 --> 12:36.520
+that so that when something goes wrong when you're testing you immediately see and you
+
+12:36.520 --> 12:39.640
+don't have to go to the message to figure out if something went wrong with stuff like
+
+12:39.640 --> 12:40.800
+that.
+
+12:40.800 --> 12:44.320
+We also allow configuring to build a self test if you want that and specifically which
+
+12:44.320 --> 12:49.280
+self test so you can specify targets or you can specify to skip specific targets.
+
+12:49.280 --> 12:55.240
+For example the BPF self test because those take absolutely forever to build.
+
+12:55.240 --> 12:58.560
+You can specify your own K config if you want so you don't have to use MakeOSI's default
+
+12:58.560 --> 13:06.520
+one you can specify your own and the interesting way that we basically use this minimal config
+
+13:06.520 --> 13:14.000
+file is by using the all death config make command which basically says take the config
+
+13:14.000 --> 13:19.080
+file that we specify with K config all config use everything from that and set every other
+
+13:19.080 --> 13:23.080
+option K config option to its default value.
+
+13:23.080 --> 13:28.840
+So we specify what we want and we give everything else a default value.
+
+13:28.840 --> 13:33.440
+And then finally while I said that MakeOSI can build an inner ramifest for you building
+
+13:33.440 --> 13:37.480
+an inner ramifest is again more work which means slower which means slower turnaround
+
+13:37.480 --> 13:42.760
+time so in this case because we're building our own kernel anyway we simply build the
+
+13:42.760 --> 13:46.900
+virtual aero fests driver right into the kernel and that removes the entire need for even
+
+13:46.900 --> 13:55.260
+needing an inner ramifest so we just skip that step completely.
+
+13:55.260 --> 13:59.920
+As I already mentioned there's a few useful settings to like runtime trees and extra trees
+
+13:59.920 --> 14:02.460
+to customize the image.
+
+14:02.460 --> 14:08.020
+Another one that's useful for file system development is the QMU drives in the QMU arcs
+
+14:08.020 --> 14:09.020
+setting.
+
+14:10.020 --> 14:17.900
+So to add extra devices block devices to a VM with QMU you need both a drive which is
+
+14:17.900 --> 14:22.740
+the host facing side of it and then of course a device which is the guest facing side of
+
+14:22.740 --> 14:31.100
+it so MakeOSI can allocate the drive for you using a file that it creates itself on the
+
+14:31.100 --> 14:36.220
+file system which then removes when the VM shuts down so that's what you can do with
+
+14:36.220 --> 14:42.220
+the QMU drives and you can specify the serial or the drive ID you can specify the size and
+
+14:42.220 --> 14:47.420
+you can specify all the extra QMU options you might want in this case we specify that
+
+14:47.420 --> 14:53.940
+asynchronous IO should be done using IO U-ring and then of course you need to attach the
+
+14:53.940 --> 15:00.260
+drive to an actual QMU device so in this case we specify an NVMe device and we give it a
+
+15:00.260 --> 15:04.940
+better RFS serial and we specify that the drive should be better RFS which is the same
+
+15:04.980 --> 15:08.620
+as the ID we gave to drive.
+
+15:08.620 --> 15:14.020
+Like I said we can configure the kernel command line and if you want to do bootloader stuff
+
+15:14.020 --> 15:18.100
+you might want to hack on the EFI stuff or stuff like that you can also specify that
+
+15:18.100 --> 15:25.820
+we should boot in UEFI environment so that you can basically hack on the EFI stuff code
+
+15:25.820 --> 15:30.380
+or anything related to that.
+
+15:30.380 --> 15:35.980
+Well all this stuff I mentioned works like usually what you do with QMU is you have your
+
+15:35.980 --> 15:40.500
+dash kernel argument and your dash append and your dash init RD which you use for kernel
+
+15:40.500 --> 15:46.900
+development but when you start doing UEFI you might not have all of that available anymore.
+
+15:46.900 --> 15:50.340
+Now what MakeOSI does is it basically sets things up so that even if you're booting in
+
+15:50.340 --> 15:55.860
+a UEFI environment everything really works the same even though we don't directly might
+
+15:55.860 --> 15:59.420
+not directly use dash kernel anymore we might be booting from a disk image we can still
+
+15:59.460 --> 16:07.460
+like append to the kernel command line and all that it's all still all supported.
+
+16:07.460 --> 16:12.580
+You can get some extra shells in the image as well so of course you get the serial console
+
+16:12.580 --> 16:17.220
+but you might want extra shells so you can do that with MakeOSI SSH.
+
+16:17.220 --> 16:20.580
+You have to also enable the SSH option to make sure that the image gets configured for
+
+16:20.580 --> 16:24.700
+this but we do that by default in MakeOSI kernel.
+
+16:24.700 --> 16:30.860
+There's a very complicated diagram here that basically shows how we implement this in systemd
+
+16:30.860 --> 16:36.580
+but the interesting thing about what MakeOSI SSH is that you don't need your VM to have
+
+16:36.580 --> 16:39.060
+a configured network to be able to do this.
+
+16:39.060 --> 16:44.980
+So for VMs there's this alternative socket family which is called AFVSoc which allows
+
+16:44.980 --> 16:50.500
+for inter-VM communication that doesn't rely on the network interface being up and running
+
+16:50.500 --> 16:52.420
+and configured.
+
+16:52.460 --> 17:00.020
+So using a bunch of new systemd features what we're able to do is at runtime provision
+
+17:00.020 --> 17:06.460
+the virtual machine with your SSH public key so we can put it in the authorized keys file
+
+17:06.460 --> 17:13.740
+for the root user and then if there's a VSOC device attached to the VM in the next systemd
+
+17:13.740 --> 17:18.300
+release systemd you'll basically be able to automatically detect that a VSOC device is
+
+17:18.340 --> 17:25.020
+attached and if so it will generate a socket unit that will run SSHD on port 22 of the AFVSoc
+
+17:25.020 --> 17:31.260
+family and this allows you to connect to the VM over VSOC from the host without needing a network.
+
+17:31.260 --> 17:39.500
+We can also do install a drop-in file for the SSH on the host configuration which SSH
+
+17:39.500 --> 17:45.620
+support now as you can do drop-in configuration for SSH and we can use the SSH proxy protocol
+
+17:45.660 --> 17:52.340
+to basically take possession of the UNIX and the VSOC host name prefixes so that you can use
+
+17:52.340 --> 18:00.220
+those to connect to VSOC enabled VMs. So with all this setup you can basically do SSH VSOC
+
+18:00.220 --> 18:05.460
+slash the VSOC connection ID to connect to that specific virtual machine all without going over
+
+18:05.460 --> 18:10.660
+the network. So we don't use this stuff yet and may go aside we have our own version because the
+
+18:10.700 --> 18:16.500
+systemd thing is very recent but we'll be moving to this in the future once this is available
+
+18:16.500 --> 18:26.980
+everywhere. Running tests manually is all good and fine but you want to move from manual testing
+
+18:26.980 --> 18:35.340
+to automatic testing of course so we also support this when you want to do automatic testing you
+
+18:35.340 --> 18:38.900
+want to run the test and you want to get an exit status usually this is very simple with a process
+
+18:39.140 --> 18:44.220
+you just run the process in your shallow whatever and you get the exit status from the kernel when
+
+18:44.220 --> 18:48.460
+you run the test in a VM this gets a bit harder there's not really an easy way to get the exit
+
+18:48.460 --> 18:56.540
+status of a process that's run in the VM and transfer it back to the host. If you're running a
+
+18:56.540 --> 19:02.540
+directory from a directory with FURTAOFS you can just write some files to the directory and retrieve
+
+19:02.540 --> 19:07.820
+all the information that way if you want but if you're doing testing from a disk image then you
+
+19:07.860 --> 19:13.260
+have to mount the disk image once the VM shuts down to access the information and of course to
+
+19:13.260 --> 19:17.300
+mount the disk image on Linux you need root privileges so you have to start entering your
+
+19:17.300 --> 19:23.220
+password and stuff so it all becomes a bit more complicated so what we added instead is a way again
+
+19:23.220 --> 19:32.180
+using the VSOC stuff to have the VM when it shuts down and you use these two unit settings
+
+19:32.180 --> 19:37.780
+success action equals exit and failure action equals exit in the systemd unit when that
+
+19:37.780 --> 19:43.900
+unit exits the VM will also system they will also shut down so the VM will shut down but it will
+
+19:43.900 --> 19:49.540
+use the SD notify protocol which is a some systemd thing to send notifications to send the exit
+
+19:49.540 --> 19:56.180
+status over VSOC from the VM to the host and make a way so I can pick up on this and exit with
+
+19:56.180 --> 20:01.060
+that exit status so seems pretty trivial to get the exit status but there's a bit of work involved
+
+20:01.060 --> 20:06.860
+to get it out of the VM and then of course what we also want is the locks so this isn't actually
+
+20:07.140 --> 20:14.460
+upstream yet but we're looking to have add another forwarding mode to systemd-journally so that again
+
+20:14.460 --> 20:21.220
+using VSOC it can forward locks over an AFV socket and then we can listen on the host receive those
+
+20:21.220 --> 20:28.820
+forwarded locks with systemd-journally remote and write all the locks to a local directory and
+
+20:28.820 --> 20:36.300
+that means we can access the locks on the host without needing root privileges we don't have to
+
+20:36.340 --> 20:41.180
+mount the image we just have to the locks locally we run internal cuddle on it and we can access the
+
+20:41.180 --> 20:50.140
+locks see what went wrong with the test and debug further of course I'm not the only project in
+
+20:50.140 --> 20:56.420
+the space we do have some competition so the latest product in this space is Furtmianji so I thought
+
+20:56.420 --> 20:59.780
+I'd mention it as well because I don't want to claim everything for myself like there's more
+
+20:59.780 --> 21:05.620
+tools than just to make a side kernel so definitely take a look at Furtmianji as well Furtmianji is
+
+21:05.660 --> 21:13.260
+very focused on kernel development so it has a lot more options to for example use the kernel from
+
+21:13.260 --> 21:20.620
+the host and various other options but it's very specific to kernel development it also has its
+
+21:20.620 --> 21:27.140
+own in its system that runs in the VM which allows it to boot very fast but you don't get all the
+
+21:27.140 --> 21:32.820
+you don't get a regular Linux system like you would when you well I mean I don't want to like
+
+21:32.860 --> 21:38.020
+say that system D is regular but you don't get system D so if you wanted to start doing stuff with
+
+21:38.020 --> 21:42.420
+devices or something like that you definitely won't be running so it gives you a bit more limited
+
+21:42.420 --> 21:49.780
+environment so depending on what you're doing one or the other might be more useful yeah that's
+
+21:49.780 --> 21:54.900
+more or less it on the comparison if you want to know more about this like come talk to me
+
+21:54.900 --> 22:01.100
+afterwards or something and I can say a bit more about the differences between it too of course I'll
+
+22:01.140 --> 22:05.820
+end with some reactions from users so of course like Christian already said he was using it so
+
+22:05.820 --> 22:12.900
+it's very nice as well his reaction to it and then Joseph from Meta the better FS fast
+
+22:12.900 --> 22:17.380
+system maintainer is also using it so and he's also very happy with it so I hope it can be more
+
+22:17.380 --> 22:23.740
+useful for more than just them so please give it a try and I'm happy to answer any questions or
+
+22:23.740 --> 22:27.340
+implement more features if needed thanks for listening
+
+22:31.100 --> 22:55.580
+hello thanks for the thanks for talk or two quick questions so one what about cross compiling
+
+22:56.540 --> 23:04.460
+so that works we don't like we don't have like a specific environment rival in the
+
+23:04.460 --> 23:10.220
+build script yet that allows you to specify cross compile but we can simply add that but I
+
+23:10.220 --> 23:14.300
+already tried it like just by hacking the build script and saying cross like changing the
+
+23:14.300 --> 23:20.900
+architecture to compile for arm 64 and that works Christian also or I'm not sure who added it but
+
+23:20.900 --> 23:26.620
+we also had the support for compiling with LLVM if you want to and the second small question
+
+23:26.620 --> 23:31.660
+maybe I missed that because I was late for the talk what gets into the unit MFS so what about
+
+23:31.660 --> 23:37.300
+from the all in the last half so make was I kernel by default doesn't boot with an around
+
+23:37.300 --> 23:43.140
+fast when we do the third I your FAS stuff if you do a disk image then the inner MFS is built
+
+23:43.140 --> 23:47.900
+with make or side cell so I actually have another talk about this in the distributions
+
+23:47.900 --> 23:52.420
+there from but yeah we just install regular RPM packages or whatever into the inner MFS and
+
+23:52.420 --> 24:00.380
+then by default we just copy all the girl modules and firmware from the host but we have a suite of
+
+24:00.380 --> 24:06.220
+settings to basically include and exclude whatever you want and we also have like the stuff that
+
+24:06.220 --> 24:10.740
+in the ramfs generators to to include everything that's loaded on the host if you want that so you
+
+24:10.740 --> 24:16.580
+can configure a bit which firmware and then drivers you want we'll also make sure that we when if
+
+24:16.620 --> 24:22.020
+you specify these drivers modules to be included we pick up all the pen the dependencies as well so
+
+24:22.020 --> 24:28.100
+we make sure that all that is set up correctly and included I'm using the inner drum FAS stuff
+
+24:28.100 --> 24:35.380
+like I'm building full images and I'm not using the QMU part I'm using a different virtual machine
+
+24:35.380 --> 24:41.340
+manager for this and it works really nice because that was the biggest the biggest thing for me that
+
+24:41.340 --> 24:46.260
+it wasn't easy to build an inner drum FS especially if you want to do it destroy independent which
+
+24:46.260 --> 25:07.340
+was really annoying it's this also useful if you want to run a mainline on a new device
+
+25:07.620 --> 25:18.140
+where there's only some heavy patched in the window kernel so you want to test if your drivers
+
+25:18.140 --> 25:29.300
+work and so you need to you want to test it but don't want to touch any non-volatile memory just
+
+25:30.260 --> 25:38.780
+started somehow without like this fast boot boot or something like this
+
+25:38.780 --> 25:53.140
+sorry I don't think I completely here to her to question so this was all about mainly so if you
+
+25:53.140 --> 26:06.580
+want to test if the kernel works on a new device so where there's only vendor kernels are known to
+
+26:06.580 --> 26:20.900
+boot so you want to you don't want to destroy the user space there but first test it there before you
+
+26:20.900 --> 26:31.300
+touch your space and you want to boot it only from ram can it also be used in that way so it's very
+
+26:31.300 --> 26:36.380
+focused on virtual machines at the moment while make or size kernel specifically is but make or
+
+26:36.380 --> 26:42.460
+size can build your images that you can then deploy on another device so like you can run the stuff
+
+26:42.460 --> 26:48.260
+that is produced by make or sign on your laptop or you can flash it to your disk and it will it will
+
+26:48.260 --> 26:56.380
+boot but specifically without destroying the user space we don't have anything specifically to make
+
+26:56.380 --> 27:04.420
+that work you could take the kernel produced and then keep the user space the same but it's not
+
+27:04.420 --> 27:08.260
+something I've really I've looked at before so it probably won't work
+
+27:22.900 --> 27:27.860
+all right I think if there are no more questions and thanks for your talk thanks for the tool
+
+27:34.420 --> 27:34.920
+you
+

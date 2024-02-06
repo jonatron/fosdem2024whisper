@@ -1,0 +1,289 @@
+I had my second talk of the day. The first talk was very somewhat topic, but it focused
+more on the distribution side of things, how to build all this stuff. I welcome you to
+look at the video if you have some time later, because what I'll not be able to answer in
+these 20 minutes, hopefully the other talk might.
+So I will talk about this in boots, this in BSTAP UKIs and what those are, and why you
+should all switch to that, of course.
+So let's jump right in. So system reboot, what is it? We usually call it bootloader,
+but it actually isn't. It's a stupid boot menu. Like if a bootloader, at least in my
+view, is something that actually is capable of loading sectors onto disk, parthing them,
+and then eventually setting up the boot params and jumping into this, we do nothing of that
+in system reboot. All we do is we give you a menu and you pick something, and then we
+chain load some other UFI binary. So yeah, it's a fancy boot menu, nothing else. Makes
+it on one hand dumb, but also nice and robust.
+It's built around this model that you have drop-in files inside of a directory, which
+I guess is very different from Grub where you have these boot scripts and things like
+this. Our way to configure things is supposed to be as simple as possible and modeled after
+how we started doing things in package management and classic Linux distributions like that,
+but it's not this pattern where it has this directory, like a configuration directory or
+a directory where you put desktop files on the desktop into and things like that, where
+every package can put more stuff into it, and then the combination of all of them is what
+makes the system work. And we just said, okay, let's do it the same way. Have one directory
+in the ESP, and people that want to populate the boot menu just put one file in there,
+and that's what populates the boot menu, and that's already it.
+So, yeah, it just takes basically this Linux pattern around package management and just
+takes it to the boot loader stuff.
+So, this boot is UFI only, right? Like, this makes things nice because it basically means
+we don't have to actually do any boot loading. It implements something we call the boot loader
+spec, which is spec we wrote ourselves. Actually, it just basically tries to define in abstract
+terms how, like, where to place kernels, where to place descriptions of what to boot.
+It supports two kinds of menu entries. Type one and type two, we call them, I think the
+focus should always be nowadays on type two because they have much nicer properties regarding
+measurement, cryptography, and things like that. But type one still exists, and people
+will continue to use it because it's more flexible in regards, it allows you to configure
+the individual items manually.
+Type one is a configuration file, basically, which just says use that kernel, use that
+in already, use that stuff and things like that. Type two is something where the boot
+menu items are just binaries, UKIs, as we call them, UKIs. We'll talk about this later
+in more detail, but the very short version of that is it's a kernel glued together with
+its init.rd and a couple of other things and then turned into one UFI binary. So, basically
+takes much of the early state of the OS and makes one thing out of it that can be updated
+as one, signed as one, measured as one, loaded as one, which makes it robust and secure and
+very nice.
+Since Friday or something, System Boot is also like eligible for signing, like Suze actually
+did this ahead of time, but now it's officially okay, so you can get it assigned by Shim with
+the same infrastructure and things like exactly like you can get grub signed.
+System Boot is supposed to be fully automatic, no configuration, right? Like there's no boot
+scripts, no nothing. I mean, there are some configuration options, but the design is to
+just work and not require configuration, right? It should be just one binary you drop in and
+then you have this other directory where you drop in the menu entries and that's supposed
+to be it. Of course, there is something like you can configure something in EFI variables
+and there is also a configuration file, but that's just for the nerds and it's not supposed
+to be the default.
+It also has a nice functionality that besides looking at these directories for boot menu
+items actually capable of finding Windows installations automatically and Mac OS, which
+is kind of nice because you don't have to configure that either, right? Like from the
+West you don't need to do anything. SD boot when it boots up, it just looks, oh, is there
+also Windows installation that adds the one awake? It's really nice because it's robust
+and it has also benefited that if you add Windows after you install Linux it will just
+show up.
+It also has APIs to user space, which I think is very important, right? Like for us, the
+bootloader world and the user space world are not distinct, right? Like they are closely
+intertwined for various reasons, like for example, because user space adds and manages
+the boot menu entries because from user space you generally might want to be able to select
+what's going to be booted next because there are things like automatic boot assessment,
+right? That you figure out did this boot actually work? If it worked, booted forever
+in the next time, if it didn't work and you've tried a couple of times and give up and revert
+to the previous thing. So this always requires communication between the bootloader and the
+operating system. So we defined, that's actually another spec where we defined this generically
+with CFI variables and things like that. We said this is how bootloader and user space
+can communicate and can send each other commands basically. It also does early boot random
+seed stuff. This is because traditionally in particularly in VM environments there was
+no RDRan, no Virtio RNG things and then Linux really didn't like it. You didn't have to
+any entropy in your VM and then certain things just hung and that's super annoying. So we
+took a bit of inspiration with something that FreeBSD did which is an early boot random
+seed. So basically you have a random seed that is stored in the ESP. You can update it
+from user space and it is updated from user space. After we did this, Jason Donfeld who's
+also the maintainer of the Linux kernel RNG, we wrote a couple of things that we kind of
+confident nowadays that it's really good actually and the good thing is it works everywhere,
+at least everywhere where you have EFI and make sure that from earliest moment on you
+have really good entropy in addition to whatever the hardware might support you. It has automatic
+enrollment of Secure Boot keys which I think is actually kind of nice. It implements like
+this tofu concept for Secure Boot enrollment. So if you want to change your certificates,
+which I think people should do and particularly in virtualized environments, then you can
+just add the keys to the ESP and then on first boot up when we are in setup mode we'll just
+enroll the whole thing and then we'll be locked down. So you have the trust on first use.
+Like on first time you boot up, nothing is enrolled, nothing is trusted. That's the moment
+where everything is trusted. Then you add the keys and from that point on this is how it's
+locked down. It also has this thing where again with the drop in deer you can load additional
+drivers mostly exist so that people who really want can make the ESP or something like that,
+one of the weird file systems. Yeah, already mentioned briefly automatic boot assessment
+exists which is like the infrastructure that we count before. We boot something,
+how often we have booted it and then from user space can report back if that actually worked
+and then I get this kind of robustness thing going. So much about system reboot. Boot control is
+one part of the user space part side of things. Boot control is like a command line tool for
+installing system reboot. That's kind of its primary job but it can do a couple of other
+things as well. It's a use space side. You can tell it to boot on the next boot up to specific
+menu entries. You can list the menu entries. You can update the random seed in a couple of
+other things. We hope that it actually runs automatically on boot for example to update
+the boot loader. It always will do this. To make sure that the copy of the boot loader that is
+in slash user is instantly copied also like if it's for some reason the package manager
+who ever updated system forgot this it's always kept up to date. So the focus is really that
+the boot loader is always up to date. It also resets the random seed by the way like from the
+Linux pool so that there's a good chance that the random seed is as good as it could possibly be.
+So much about boot control. Next thing system destub. System destub is also UFI binary.
+System destub is basically a little UFI binary that you glue in front of a Linux kernel and an
+inodori that runs in UFI mode. It does a couple of things before it transitions into the actual
+kernel. Why do we have this? It does a couple of things like for example it measures the payload
+of what it's going to start. So now you might wonder if it's a UFI binary that a second would
+sign and things like that. Why does it need to measure because firmware already measures all
+second boot binaries. Very good question if you ask that. The reason we do this is because these
+measurements that the firmware does are PCR9 I think and there's a lot of stuff in there and that
+basically means it's hard to predict because there's stuff that is controlled by the firmware and
+there's stuff that comes from the West and you cannot bind security to a PCR that has sources
+that you cannot really control. At least you cannot do this in a predictable way from the West
+point of view like figure it already out. Like you cannot predict it on basically the Fedora
+bridge systems if you build Fedora. But if we do the measurement separately of the payload of the
+UKI we can do that in a separate PCR and then we can predict it because in that PCR there's only
+going to be the stuff that the West vendor controls and not also the firmware stuff and then cover
+the firmware stuff with something else. UKI is what this becomes when you use system-based stuff
+right like the combination of system-based stuff plus a kernel plus an inodori plus kernel
+command line plus all these other kind of things that's what we call a UKI unified kernel image.
+Yeah it is system-based stuff supports a couple of sidecars right like this UKI model that we try
+to want to push distributions towards where you unify everything into one image that you can
+sign measure as one update as one and things like that that comes as with problems like inherent
+problems like for example the inodori that you built into this you like we expect that vendors
+will build those on their build system so they're always going to be the exact same ones on every
+installation which is great for many reasons but also horrible for others because depending on the
+machines you will need large drivers large firmwares like Nvidia driver for example comes with
+multiple hundred megabytes of firmware if you would always build that into all the UKIs that you
+as a generic distro vendor ship to your people then yeah this will be really really large
+second-build binary as it turns out because of all the measurements booting really large second-build
+binaries works but it's kind of slow so I also had this inherent problem that yeah in this model
+where UKIs are built on OS vendor build systems the question is open how do you parameterize that
+right like because on a simple laptop you do not need to parameterization you can figure out
+everything on its own but a learner is supposed to be generic right like you have these installations
+that want additional parameters like they want to configure I don't know additional ways like
+route passwords so that it can log into the inodori or a boot ice-gazzy device that you
+actually want to boot to so these this I mean there's a reason why the kernel command line exists
+people want to want to be able to do this in certain setups not a laptop is mentioned that
+should not necessarily be necessary but the more you go to the server side they all want to do this
+so we came up with a couple of ways how you can have sidecars so that even though while we push
+everything to the UKI model where you have a single thing that is self-contained and that has
+everything you can put next to it the sidecars that configure individual things like there's one
+concept we call system creds I went into this in more detail in my earlier talk but let's just
+summarize this at system decreds like the asterisk cred stuff that is that is basically short little
+bits of information like like keys like cryptographic keys and passwords and things like that that you
+need to operate but they're individual bits and they they are encrypted and locked to TPM so that
+you can actually put them in an untrusted environment like for example the ESP where there's no
+implicit trust and you have to authenticate it before you use it there's another concept we
+called add-on if I add-ons which are basically the same idea as UKI's right you take you make a
+PE binary that you can sign can you can measure as one however you leave out the Linux kernel the
+inner D in all these kind of stuff and just insert the kernel command line that you would also
+add to UKI so you basically have a binary that looks like a binary but doesn't contain any
+code however you can authenticate it via the usual Secureboot usual shim APIs like it was a binary
+because the UFI just cares that it's a PE thing so these add-ons as we call them are our way how we
+can allow people to extend the kernel command line because when a UKI is booted and system D
+stop takes over it will look for the side card files find this add that to the kernel command line
+and boot on and it's in a fully trusted way because these things need to be authenticated the same
+way as everything else is authenticated via the the shim Secureboot stuff I already mentioned this
+the system you stop also does measurements right like of the content so that we get this isolated
+out so that we have yeah one PCR that only contains the US stuff separate from the stuff where the
+firmware is this means duplicate measurement but that's fine at least I think it's fine something
+that also does it can read additional kernel command line options from SM bias type 11 I'm
+not sure SM bias type 11 well I'm in the boot loader room so I hope you know what that is like
+SM bias you you you probably all know is like this descriptive thing that the firmware passes to
+the West and there's one object type you can add that's type 11 and it's wonderful because it's just
+called vendor strings and you can put we can put anything in there that you want and various
+virtualizers like QEMO for example allow you to directly set that from the kernel command line
+from the QEMO command line and yeah we use that also to extend the kernel command line right like
+so you can just on the QEMO command line sets a string that is just implicitly added to appended
+to the kernel command line that is eventually booted we kind of want to push people actually to
+the model where they use this more often it's actually an awesome thing and I'm kind of pushing
+like trying to push all the cloud renters to adopt this as a generic way to provision data into
+VMs but anyway other topic another component is UQify it's a basically it's a Python script that
+helps you gluing together UKI so it will take system to stop kernel and I read sign it as one it
+will also do the TPM predictions of what will the PCR will look like when it booted the signs
+all that with second boot it gives you one EFI binary that you can just drop in the in the
+SP and boots up and everything's secure and wonderful then one other tool system be measured
+like much of this like all of the what I'm talking about here is actually part of system
+me because I'm system the guy system the measure is a tool you probably don't have to interface
+with it anymore because UK UK fight does that behind the back for you it's the actual engine
+that predicts the PCRs that the UKI will will result in if booted yeah I just want to mention
+that exists and yeah there's another tool called common stall as for the traditional distributions
+so that they can ship inside of a devian package or RPM a kernel and that this tool it's like
+plugin based and things that will copy the kernel into the SP and potentially it built the UKI at
+that moment right like because we want to cover a couple of different models like one model where
+the UKI is built on build servers of the OS vendor and another model more for the let's say
+democratic devian style distributions where they can do this locally so that they can use their own
+keys so yeah the kernel and styles are infrastructure to make this happen it's really nice this full
+UKI support for example for this like so if you want to do your sign your own stuff you can
+trivially do this because you can just use that and drop in your keys and Etsy and then it happens
+magically there's something I don't have that much time anymore should we switch to questions
+okay this is one of my last slides anyway assistant you part PCR log is one of the most
+recent things it's a more complete prediction engine like I already mentioned the system
+we measure tool which is able to predict the PCR measurements that a specific UKI will result in
+system dPCR log is supposed to cover all the other PCRs that they are that are firmware stuff and
+things like that system dPCR log deals with like all the other operating systems generally have this
+like Windows Chrome OS Android they nowadays have all these predictions and well depending if they
+actually care about TPMs or have some other second-hand clif thing doesn't really yeah it's all a
+little bit different rare but the ones that care about TPMs generally have this prediction engine
+where they just look at all the different things that happened during boot analyze the UEFI event
+log and try to calculate a TPM policy to lock disk secrets to our version of the tool is called
+system dPCR log it's supposed to be modular so you have again drop-in directories where
+different components of the west that will show up in the boot pass like the UKI boot loader shim
+and things like that plus components that are not even necessarily under the OS control but
+our firmware stuff can be described with little jason fragments to just say the measurements that
+I expected for each of these components there is a concept of alternatives because usually you
+don't want to lock your secrets to exactly one kernel or one boot loader version because you
+want to update them and then if that update fails you want to be able to go back and things like
+that so usually for each component you want alternatives also very well supported and
+system pcr log takes all this information explodes what all the the the pcr values could be in the
+end and then generates a TPM policy out of this that it stores in a TPM and v index and that then
+our disk encryption stuff can reference as an access policy long story short this covers like this
+basically locks down the OS against the firmware versions with all the measurements that firmware
+does that are not necessarily predictable for the OS because yeah the firmware people suck
+there's also like support of course that if we cannot predict firmware measurements we have some
+some logic there to deal with that so if you do all the combination of this then you get a super
+secure system and everything's great my recommendation is do this but these components are relatively
+independent of each other and as the things happen and different distributions started adopting
+different parts of this earlier like for example Susan nowadays adopted system to boot already but
+rel for example for the confidential computing stuff already adopted system to stop and they all
+pick different parts of this okay my time is over so this is my my summary here if you use all in
+combination everything works great but if you pick what you want you don't have to pick anything at
+all if you don't want but if you use in combination you get this full boot chain stuff everything's
+secure and relatively robust because all the update cycles are around individual files you have
+ways how to parameterize it and extend it and yeah there are a couple of more slides we don't have
+to cover them but let's move to questions
+we have five minutes for questions
+so yeah so the question was regarding whether the system D stop stuff works outside of UFI
+environment the answer is no like it uses UFI APIs and it's just UFI all of the what I was talking
+about here is more or less model after UFI system to boot system you stop absolutely only UFI but
+the further you go with the with the like carline store for example that has nothing to do with UFI
+like unless you actually use the parts with
+well I mean I know it isn't there I think there are
+sorry
+so my my suggestion would that it would be a well just just
+adopt UFI and avoid all this mess
+I don't know I think everything has problems UFI have some my general like I mean I get this all
+the time like this thing like oh we have to stick to grub because it supports all the non-UFI world
+and I say sure my recommendation would always be if you look at this stuff like there are certain
+like philosophical ideas built into this right like you have a drop-in directory you put on
+type one type this kind of stuff is entirely generic and there's like type two is not generic
+but type one is totally generic right like so my recommendation for it for that by the way is
+just use UK eyes as they are right like they they are a PE wrapper like it's a really simple
+format actually PE right like and it's just an envelope that carries sections for you
+if I think grub now this can parse that too cannot see so if grub can parse it you stupid
+bootloader should have no problem at all parsing it and then you suddenly have a universal format
+and you boot windows style PE binaries even though it's not Windows but it's I think it's
+it's the way to go like model it after UFI UFI has its words everything has its words but I think
+it's way better than than the stuff that came before for it and just yeah so my recommendation
+would always be if you can't do this stuff at least consider the ideas behind her a bit behind
+that and like drop-in directories and sing like single file updates and these kind of things and
+then try to model it afterwards and the more you can take over the easier will be your life because
+this probably will end up in all the distributions and the less differences there are the easier it
+is right so I think even grub supports type one at least on type two or something like this
+so
+so we're on purpose we wrote the spec as a generic thing both of like of all like there's a spec about
+yuki yuki i there's a spec about the bootloader spec there's a spec about the bootloader interface
+like where how how we do because we will always clear to us that not everybody's gonna do you if I
+so uh yeah we did that as a nice service to the community but the other people have to figure out
+if they actually want to adopt this it took them long enough to not adopt it so far but now things
+are changing if you want to not do you if I my recommendation would be let's yeah look at the
+specs and I'm sure like adds to shit to it like it's a spec senders like there's a getup issue
+thing and if you need something else then send an issue and like if it makes any sense at all
+we have no problem with adding that to specs very short yeah very short so all these projects are
+system
+well it depends like the specific age like so the question was if all these
+projects are under the system the umbrella so that depends right like so we we created
+like a group which you call the uapi group where we try to standardize these things right this is to
+a large degree admittedly system the adjacent people right like who like adopted a way of
+thinking like we do it but there's nothing specific in it and the specifications are on purpose
+written independently of like the word system B doesn't show up in this but like it might show up in
+the things but it's that's not the point of it right like so the code right like that's a
+different story right like we this is in the system tree right like this is developed like
+unix was developed I guess you have like this get repository and you have all these components on this
+the fact that it's in there doesn't mean you have to use them you can mix and match them like is
+mentioned like different distribution pick different things up like opens us it at sd boot first and
+not sd stop and then sd the right hand was confidential computing take sd stop but it is
+not interested in sd boot because they didn't want a boot load at all so yeah this is how it should
+be right yeah we'll give you the buffet pick what you want don't pick what you don't want I don't care
+but yeah this is ultimately it's very Linux focused various ufi focused very systemally focused but
+I think look at the specs maybe you can reuse something but yeah
+yeah I think even the uk i stuff like because we don't like you know how the firmware jumps into
+your uk i that is not defined by us that is simply an artifact of the fact that's a pe file right
+like so you can jump like any find any other way to jump into it you can even look for the Linux
+kernel in it right like that's what grub does right so it looks for the linux pe section in it ignores
+all the other stuff and if it wants to and then does the classic boot protocol that does not
+do anything like this okay but anyway yeah thank you
+you

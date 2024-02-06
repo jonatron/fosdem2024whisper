@@ -1,0 +1,310 @@
+It's time.
+So thank you very much to Johannes Bergberg.
+He will be speaking about Python 3.12 new monitoring and debugging API.
+For those who were in the previous talk, there was a brief about the profiling features.
+Johannes is a JVM developer working on profilers at SAP.
+He also writes blogs about profiling and debugging topics.
+Thank you very much.
+Thank you for introducing me.
+Before we start, I want to introduce you to the concept of debugging, because I'm sure
+nobody of you have ever debunked.
+So the first bug that's what's like found was in the 50s when they found a moth that
+was in between their relays and it makes zip and the whole system like crash because
+like in the olden days it relays.
+At SCADAISCAR once wrote, if debugging is the process of removing Zafferbacks and pro
+pro-peering must be the process of putting them in.
+As I'm sure all of you are doing lots of programming, I'm sure you're also doing lots of debugging.
+So that's what we're here.
+So consider this example program.
+It's called a counterprong.
+It just counts the lines in this example in itself and it returns zero.
+And we're like, why?
+So that's the problem because the file actually has 26 lines.
+So let's look at the code.
+I'm going to see clans of the code.
+Make this shortly so you don't see what it's about.
+But the idea is we use the debugger through this because the debugger is a great to understand
+our system.
+And the cool thing is now with the new APIs that we get in Python 3.12, writing the debugger
+is far easier and far faster as I show you in the following.
+I'm Johannes Pechberger as you already heard.
+I work at SAP machine, which is the third biggest contributor to the OpenJK, which is
+like the major Java runtime.
+And I started talking to people about Python because I also like Python.
+So it's a bit easier to VM than JVM.
+The question is now, why do we need a monitoring and debugging API?
+Because when I'm from the Java world and in Java, we haven't built in debugging API.
+So we have the ability to set breakpoints, to ask for values, to walk the stack and have
+everything.
+But in Python, does the Python interpreter know about the concept of breakpoints?
+So because I'm here, not only, but with a few here, who of you thinks that the Python
+interpreter knows about the concept of breakpoints?
+Please raise your hand.
+And two of your things.
+It doesn't know about the concept of breakpoints.
+Okay.
+It's a trick question, of course, no, because otherwise I wouldn't be asking this question.
+So it doesn't know anything about breakpoints, which is not a bad thing.
+So any ideas how we could implement it?
+So the first idea that came to my mind was like, we have this code.
+This is actually the code that was part of the code.
+So the idea was we just place in front of every line a debug statement, like a debug
+method that we define somewhere.
+The idea is simply put in the debug method, we check are we currently at a breakpoint
+in this file online, and if yes, we open some kind of debank shell.
+If you've ever used PDB before, that's essentially what, so it's the PDB shoulder, we could be
+opening.
+But the question is how did we get this file online?
+And the easy answer is we have this get frame method.
+It has an underscore, and the important thing is it has an underscore because it's kind
+of in C-Python implementation detail, which is great.
+Because it's pretty slow in PyPy.
+But we have to live with it because that's the only way we can walk the stack.
+We've seen before that we can do some EBS stuff, which is nice, but usually most profiles,
+not most debuggers, don't do it.
+So the idea is here, we have O stack, and the bottom is like the main, and then the
+count count line is code line, and then our debug method, and essentially what we do,
+we can ask get frame, the zero frame, that's the top frame, because we currently in the
+debugging method, and so we ask it for the frame one.
+And also get it from the other frames, and essentially what we can get is get information
+on like which are the local variables, which is the file name, which is the line number,
+and such, and that's quite nice because this allows us to easily implement the debugging
+shell because we can just open the shell that contains these locals.
+And so that's how we implement our first debugging method.
+And it's nice, and it works, and we can even write some basic debuggers with it.
+The problem is we want to automate this because we don't want to put this DBG statement in
+front of everything.
+So how do we do this?
+And first I'm going to tell you about the pre-3.12 way so you know the pain points of
+debugger developers here.
+The pre-3.12 way was the way of this dot set trace, which was an arcane way to do it,
+but the idea is essentially we pass it a handler and this handler is called multiple times.
+Essentially this handler gets parsed the frame type, the frame, and an event type, which
+could be like call line return or exceptional opcode, and it would be called regular time.
+So when we then register it, we register a specific handler and this handler then is
+called at every call.
+So every time the method called call lines is called, it's called, and every time then
+also a method is called line, this use here is called.
+And that's nice, but we want no more.
+We want to know also we want to get a handler on every line.
+So what we do, we can return from this handler and inner handler that's called for every line
+and this has the same signature.
+So the idea is we essentially implement our debugger here by not using like our writing
+manual here with the DBG but just setting an inner handler.
+This is called at every line.
+And that's quite nice because it works, but you might expect to show later it's quite
+slow.
+But it's okay.
+We can even go to the opcode level, to the bytecode level in here.
+But the problem is, and the question here is do we need a line event for every function?
+Because we know when we set a breakpoint somewhere, we only need to like, set a breakpoint,
+set, we only need to like check the lines there.
+But for example, consider that we have here this con-con-lines and our user decides that
+he adds a breakpoint when we're in isCodeLine.
+So it's a breakpoint also and isCodeLine and in isCodeLine decides, hey, I want to add
+a breakpoint into code con-lines.
+The problem is when we haven't passed like inner handler to the method here for con-con-lines,
+we can't enable line tracing for con-con-lines.
+So we have to enable it for every, every line of our whole application, which is kind of
+a mess.
+So this is slow.
+So there are multiple ideas how to improve this.
+And one of the best ideas, and if you're a Python developer, you should do this.
+If you're a Python core developer, is to add a new API.
+And this API is called Python, and this API is defined in the PEP669 and it's really,
+really cool.
+And the cool thing is also this PEP is written in a style that you can easily digest.
+I come from the Java world.
+This is not always the case with the Java PEP.
+So I'm with the JEP, so I'm quite happy that Python does things a little bit better.
+So the JEP is called Low Impact Monitoring for C Python and hopefully other runtimes
+will support it in the future.
+And it's here since October.
+So the idea here is that we have more fine-train support, that we learn from the lessons that
+like having to enable the line handlers for every line is probably not the best thing.
+So typically when we develop, when we use this PEP, we define some shortcuts here in
+the top.
+So we don't run to write, is this not monitoring all the time because that's where the monitoring
+functions live.
+So we call it mon and events, it's also bit long, so we call it mon not events.
+Then we have to assign it the tool ideas, tool ideas.
+So the idea is that you can have multiple tools that are registered here.
+And for each tool we register some callbacks.
+So what we do here in our example, we register a callback for our tool.
+Our tool is a debugger, they're like six possible tool ideas, a tool idea is one of them is
+a debugger, another one is a profile.
+And we register here callback for the line because we want to still have like line callbacks
+sometimes.
+And we also register a callback for the start function.
+So for the start event, when a method is called, then we have these handlers and the start
+handler is just passed like the code object.
+That's what you get when you form a method for function called f underscore code.
+And the offset word is located in a byte code and for line handler, we get the line word
+in.
+And the cool thing is here we can return from this, as you see in the bottom, the line handler
+also can return either disable or any.
+And the cool thing is when we disable, it's disabled all the time for this specific line
+and it's called for coverage.
+So we can also make coverage testing easier.
+So yes, we enable them the start events and that's fine.
+And then we run our program, we get the start event for every function that we call and
+then at every time we ask, hey, do we have a break point as an function?
+If yes, we enable the line here.
+But only specifically for this function.
+And then for every line we check it.
+The cool thing is that these line events are emitted per fret.
+So the ideas that were set, sister, etc., it was emitted like in the main fret per interpreter.
+But here it's emitted for every line in the fret that the function is currently executing.
+And this is really cool.
+And Lukas Lange wrote in a PR discussion, the biggest opportunity of PEP 6.9 isn't
+even the speed.
+It's the fact that the debugger built on top of it will automatically support all threats
+and supports threats properly.
+And with the incoming changes with PEP 703, with making the global interpreter lock option
+in Cpython, it will get far more important.
+Because with then we will probably see multi-threading Python applications and then the old approach
+is just not usable anymore.
+So the idea is that we can enable events globally and locally.
+And the sum of both is like they're enabled events per function.
+And the cool thing here is the power is in the fine-train configuration.
+So you can set events in a function f for the function f while this function is running.
+So consider this example here.
+We have a simple line handler here and you register a callback for each line.
+And then in f you decide at some point, hey, I want to set the local events.
+I want enable line events.
+And later you disable them.
+And it works.
+So here we emit hello and then we emit like, hey, we're at line 18.
+We're just like the line that prints n, then we print n.
+And that's really cool.
+That wasn't possible before.
+That's really great because this enables us to only enable line events for the functions
+that we will need them.
+And so the question is, of course, what's far as there are several methods in this PEP
+and this API.
+And what's really fast is to register callbacks.
+We can easily switch out the callbacks and get the tools so we can say, oh, please get
+the tool ID.
+What's kind of fast is that setting local events because where it does it modifies the
+bytecode to the VMS executing.
+And what's pretty slow is to use the tool ID to start the debugger here and to set the
+global events because this potentially recompars or modifies all bytecode of every function.
+So do it all the way.
+So then it's fine.
+So back to the debugger.
+We had here our start handler and our line handler.
+And they look essentially the same as before.
+The only difference is that we enable the line breakpoints when we're needed.
+So they're different than events kinds because we've seen that line events are pretty powerful
+for implementing basic debuggers.
+One of them we've seen already the start events.
+There's the regime return, yield events for everything that you do in your Python application.
+And there are also then in-signary events.
+These are events that aren't like an A that you can't enable or disable because they come
+from, they are controlled by other events.
+So for example, you have to call event that is triggered whenever you call a function
+and then we have C relighted, a C raise whenever exception is flown in C code or whenever fact
+a C function returns.
+And there are of course then also other events that are not enabled locally but only globally.
+Essentially the idea is we cannot locate them properly.
+And the cool thing here is maybe you've seen that we have a new event called stop iteration
+because we think it was in this Python version we're not using in iterators.
+When we were returning from iterator previously we wrote an exception but that's pretty slow.
+So we don't throw an exception anymore but to debug this to still notice it we have a
+new stop iteration event.
+Of course what you'll be waiting for is performance because the performance is like the thing
+that besides the threading support is pretty neat.
+So what I did I looked around and I found some people also doing some performances but
+they were using Fibonacci functions.
+Now I'm like that's a bit small, that's not representative.
+So I started looking into Python benchmarking suites and there's this pi performance benchmarking
+suite and I just hacked it.
+I just wrote random code in it because you can do some kind of monkey patching in Python
+and it's great.
+In Java we have like private functions and everything in Python you don't have to care
+and that's why you like using Python you can do things that you're not supposed to do to
+get some change results.
+So if you want I'm using Python all the time when fixing bugs in the OpenJK to write test
+suite because it's faster in Python than to do in Java so you get the OpenJK, some bugs
+were fixed because I wrote some weird Python script here.
+But essentially what I was then going to test is I wanted to check the minimal implementation
+of a debugger.
+So minimal implementation with such trace, so debugger that doesn't have any breakpoints
+here is just call handler and then an inner handler calls it every line.
+Then the minimal implementation for monitoring API wouldn't enable any line events because
+when we don't set a breakpoint we don't need to set any line events.
+So that's how we implement this but I thought like it's a bit sneaky because we're comparing
+something that triggers an event that is relying with something that only triggers an event
+every function calls are also made a third comparison with like setting all the line
+events and it turns out that's still faster which is quite nice.
+So I use this Py for matchpoint suite that's quite representable and what I found is that
+it's really, really fast.
+So the CessetRace when you run it, when you run all the five benchmarks with CessetRace
+on you have a 3.5 times larger runtime.
+That's pretty slow.
+When you're using monitoring you only have a runtime increase of like a factor of 1.2
+which is like 20% slower which is pretty, pretty awesome because this means you can debug
+all your tight loops, you can debug your whole applications without worrying about like
+debating slowing down and when you enable all line events it's still 30% faster than
+with CessetRace and people here probably like RAS.
+That's essentially all the benchmarks that are in Py performance and what you see here
+are the orange bars.
+These are the bars for the monitoring solutions and here it's just at one so if the bar is
+not visible it means you don't have any overhead in this benchmark but essentially you see
+that the blue bars for CessetRace can get high, can get up to like 10, 12 so it's really
+good.
+At least in my opinion and then when we switch over and use CessetRace monitoring with all
+line events enabled it gets worse but still we see that it's still significantly faster.
+Another question is of course is this whole thing used because it's implemented and I'm
+working in OmTek so I noted when you implement a cool feature the chances are that nobody
+will use it for like a year but here in OmTek people started, but here in CPython people
+started using it especially the vendors like PyCharm.
+So it's not yet used in PVP and they're showing the second pie but IDEs like PyCharm with their
+version 2093.3 use it and they've seen significant performance improvements.
+And there's currently a pending pull request on GitHub so if you want to help PVP implement
+it go to this pull request and try another discussion here so I would really recommend
+it's an open source project to CPython and you can make PVP better so what not to like
+is simple.
+Here's a quote from the pull request from Chen Gao who wrote this pull request and he wrote
+after this change we will have the chance to build a much faster debugger for break
+points we don't need to trigger trace functions all the time and change for a line number
+so I'll show it to you.
+The bad news is it's almost impossible to do a completely backward compatible transition
+because the mechanism is quite different.
+So there's an ongoing discussion how to do this.
+You could take part there so scan this QR code, be part of the community, give something
+back and not just use CPython.
+So because I have like tiny tiny town left I want to just show you shortly how single
+stepping works because single stepping is just break points because essentially the
+idea is here when we have always take here with the Scona and step out of this for example
+we just check for the next line where only the frame before changed like the current
+code lines changed.
+Stepping is also pretty simple we just check that only like the line number changed it's
+also nice and then check in to is we check the next time where we just put the frame
+on top.
+So that's all from me I'm part of Northern Twitter you can find my team at sub machine
+A O so if you want to use a JVM use the sub machine it's the best JVM.
+I'm contractually obliged to say this.
+We work at SAP we're one of the many cool open source projects at SAP you can follow
+me on my blog where I write on DBegging, EBPS stuff and everything else.
+So thank you for being here.
+Thank you very much Johans we have time for probably two three questions maybe.
+Does anyone we have one there?
+Thank you very much for this talk and for this pep because it actually solves a lot of
+problems I had when I started back in the days developing a tool for performance analysis
+for Python.
+However at some point choose to use the C interface of set rays and profiling and whatever
+do your does your proposal as I said is implemented already also support the C interface?
+So I have to correct I'm not I have nothing to do with the nice people who implemented
+this sorry but so please ask them they're probably in some discord somewhere I'm just
+telling you about the good news because programmers usually don't want to go to conferences and
+speak in front of people so that's why I'll be giving talks on this.
+So sadly I don't know.
+Thank you do we have any more questions to Johans?
+Can raise your hand.
+No questions apparently.
+I just want to choose this opportunity to thank Mark Andre and David also known as Flypeg
+for organizing this dev room.
+You guys did an amazing work.
+Thank you very very much.
+And thanks Johans again.

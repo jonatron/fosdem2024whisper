@@ -1,0 +1,178 @@
+Hello everyone, my name is Paweł Wietzorek.
+I work with Colabora and I've been involved in maintenance of server side components of
+Colabora's automated testing laboratory.
+Today, I would like to share with you a few lessons learned from that experience, particularly
+related to tracking laboratories performance and pushing beyond the limits of the software
+that it runs.
+We'll start with some background information.
+Next I will move to interactive approaches for tracking its performance, I mean the lab
+performance.
+After that, I'll describe a few solutions for automating that and finally I will also
+share some thoughts on data generation.
+So let's start with the reason why, I mean what brought us here today.
+Thanks to Remi's talk, we now know and have an idea of what Lava is, what it provides
+for testing automation and how it supports all these efforts.
+Some of you might also recall a talk given by my colleague Laura at last year's FOSDEM.
+Laura described in her talk how the lab at Colabora is set up, what its day-to-day maintenance
+tasks look like.
+What main challenges are while running this kind of laboratory and also shared some best
+practices.
+The key piece of information for us today is that Colabora's lab is a fairly large Lava
+instance that is continuously growing and together with high number of devices also
+comes high numbers of test job submissions to process which unsurprisingly can result
+in higher load on server side of things.
+And that in fact was our case.
+There was no need to panic though, at least not right away.
+High load means that the resources that were allocated for lab purposes are in use and
+that's what they are meant to do after all.
+Interestingly, especially high load was observed on the nodes running database processes.
+And all of that is mostly fine until the system becomes unresponsive.
+This might lead to potentially unreliable lab or even unusable for higher level test
+systems like MESA-CI or Kernel-CI on the screenshot which other Colabora's are involved in development,
+maintenance and of course usage as well.
+My first thought was to simply estimate what resources are required for day to day operations
+and simply throw them at this workload.
+This could work short term but it wouldn't really solve the problem.
+To do it the right way, a deeper understanding of the root cause for all these issues was
+needed.
+And by the way, this photo is from Polish IT Olympics where hardware component throwing
+contest is held.
+And while this is hard drive throwing contest which might not be the type of resource we
+needed, that was the initial idea.
+Thanks to RemiStock we also have rough idea of what main components for Lava are but let's
+recap them real quick.
+At the very high level Lava on the server side has two main components, a scheduler
+and a connection to the database.
+If we take a closer look, those are respectively a jungle application and by default a Postgres
+database.
+These are widely known used and mostly loved software components so we can make use of
+several already available performance tracking tools for them.
+So let's go through a few interactive or semi interactive ones.
+As tribal as it might sound, it is equally as important to start with simply enabling
+verbose logging on affected instances.
+This way we get first insights from redoing user stories based either on direct reports
+from users or maybe motomo statistics collected by recent Lava releases or maybe some logs
+from load balancer which shows us which API endpoints are mostly used by users or which
+views are most commonly requested.
+In case of Django we get a few other perks.
+It's as easy as literally flipping a switch.
+Django for database also allows to log every statement executed on the database in debug
+mode and it can be also easily extended with some additional profiling information.
+But even though there are all these perks, all this information is a post-action information.
+To collect it in a truly interactive manner, fortunately Django already has us covered
+and provides just the right tool for this purpose which is Django Debug toolbar.
+It isn't much harder to enable than just verbose logging.
+It just requires adding an additional Python package to your deployment, set internal
+IPs from which Debug toolbar would be available, confirm enabling it and you're good to go.
+Debug toolbar not only provides great and immediate feedback but also includes traces,
+some additional profiling information and it gives you all of that in an easy to use
+graphical user-friendly way.
+As you can see on the right-hand side of the screenshot you even get all the requests
+sent, the instance and all the SQL statements run.
+But even though these tools are easy to enable, it comes with some drawbacks as well.
+These tools should not be used on any user-facing instance which brings us to setting up a personal
+local lava instance just for debugging and performance tracking purposes.
+Such a local instance would often come in a clean slate state.
+So with empty database with no devices and most local instances would not be able to
+connect to physical devices, at least not in the numbers as the production instances run.
+And even though we could fake multiple devices like Remy mentioned in his talk, that wouldn't
+solve the problem of having a database pre-populated with some additional data.
+We could potentially prepare a database fixture for that purpose.
+But it might not be particularly easy to mock the entire database like you see on the
+model graph for lava server.
+It's non-trivial task especially when it comes to keeping large numbers of processed jobs
+as archives.
+But the question is do we really have to mock the database?
+It is all done locally in our private debugging and performance tracking instance.
+Maybe we don't have to create a new database but reuse a backup from staging or production
+instance that we also run.
+And as the old saying goes about two groups of people and backups, I believe we all belong
+to the group that already makes them.
+There is also an important second part of this saying to make sure that restoring your
+backup works properly as well.
+And with reusing your PGDump output as the input for your performance tests, you can
+tick off this task from your administrator tasks list.
+Also if you base your Postgres Docker images from the official one, there is a really simple
+data initialization method which requires just mounting the volume with PGDump output
+and everything else is taken care of by the INE-DB itself.
+It also supports the compression on the fly for the most popular archive formats as you
+can see on the snippet directly from the INE-DB code for Postgres.
+Since we already have this database in our local instance, it would be useful to incorporate
+even more statistics from the database itself.
+For this, we could simply use PGAdmin or even PostgresQL command line tool just to check
+the actual runtimes and other statistics with explain-analyze queries.
+This would highlight for us database operation bottlenecks.
+And this way, having the database level tool, we would also be able to run various experiments
+on the database like changes in indexes or maybe adding query planner hints.
+It almost doesn't cost us anything just running another container in our local setup or
+if PGAdmin is too much, you could also opt to use the online available graphical tool
+which would highlight the bottlenecks for you with this heat map showing you where the issue
+might lie.
+Using this database level utility completes our tool set for off interactive solutions
+and while it is really important to be able to perform all those actions, it's paramount
+to do that again sometime soon and again and again and again and that moves us to automation
+solutions.
+By now, we know what to look for or what to watch out for in our lava instances and
+from user stories or bug reports or the motomo statistics or load balancer logs I mentioned
+earlier, we know and have specific code components to track or maybe even test cases ready to
+check for that.
+But the question is how to run those test cases to get the statistically valid feedback.
+We would have to take into consideration cache warm-ups, test case calibration, preferably
+also a way to compare between benchmark runs and it would be also great if it fit well into
+the test suites that are currently used by the upstream project which by the way is based
+on PyTest.
+Fortunately, it turns out that there is a PyTest feature that provides all of that and
+even more.
+In the case of lava bottlenecks found in the collaboration instance, the next step was
+just to wrap the test cases prepared with this fixture and wrapping the key pieces of
+code allowed to have benchmarks ready to run.
+Next step, once the test suite was prepared, was to plug it into the pipeline.
+Both upstream lava project and downstream lava tree makes heavy use of GitLab CI and
+it shouldn't be surprising.
+Many projects already do the same.
+For example, DRM CI merged in kernel 6.6 release.
+So currently, job definitions for those GitLab CI pipelines above the downstream one and below
+the upstream one don't share any reusable code.
+This might be subject to change in the future.
+For now, downstream changes are made with ease of importing them later in mind.
+Moving to external definitions could make the GitLab CI pipelines a bit more complex,
+but that's something that we'll see if it brings any value in future.
+Of course, GitLab CI jobs need a run environment and to get a baseline of what should be expected
+from benchmarks run, the easy way out is having a dedicated runner that would provide most
+stable results that are not affected by, for example, other test suites run in parallel
+on the same GitLab runner.
+A good choice would be to select a machine that has similar resources to a node, which
+your lava instance is run on.
+And for proof of concept purposes, I used a small desktop computer which gave just that.
+GitLab runners are also really easy to plug into a GitLab server.
+And while we are already optimizing the pipeline, we should also take into consideration caching
+the CI data resources for benchmarks runs.
+For that, we could easily use already available upstream lava caching solution, which is based
+on specific CI images to run tests on.
+But that would also mean that production data from database we used earlier is no longer
+a valid option for us.
+And we need to revisit the lava server model, which brings us to data generation, which
+we no longer could omit.
+That brought us to creating a dummy database generator, which was focused just on a key
+few tables and relations according to Postgres planner statistics.
+It was implemented with very limited scope to only support the worst bottlenecks that
+were found in collaborators instance.
+And for that, we used standard Python tools, which were FactoryBoy and Faker.
+As a bonus addition, you might also want to ask a few questions.
+Should lava actually archive all the test jobs that are run, or maybe archiving those
+jobs can be delegated to a higher level test systems?
+Fortunately, retention mechanism is already available.
+In upstream lava, it just required enabling it in Helm charts, which is used to deploy
+lava instances for collaboration.
+To summarize all of that, I've got three final thoughts that I would like to share with you.
+Constructing in testing laboratories is not a one-time job.
+It's a process that might differ from instance to instance, depending on your specific workload.
+But it's something that I hope could be easier for you if you come across the same set of
+issues.
+It also requires frequent revisiting and adjusting according to the results you see.
+But even small changes can bring huge boosts in performance.
+But that probably is a topic for another talk.
+And that's all I have prepared for you today.
+Thanks for your attention.
+Do we have time for questions?
+If there is some question, I will be happy to answer it.

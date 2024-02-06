@@ -1,0 +1,293 @@
+Hello.
+Thanks for coming to this talk.
+My name is Babis Hallos.
+I am a software engineer with Amazon Web Services.
+I'm currently working with a team that maintains the Firecracker Virtual Machine Monitor.
+Today I will be speaking to you about Virtual Machine Snapshots.
+Essentially I'm going to be speaking more about some challenges we face when we clone
+virtual machines and then we start multiple virtual machines from that same clone.
+A problem that we call Snapshot Safety.
+I'm going to be speaking a bit about the mechanisms we have today for tackling those
+issues.
+What do we believe we need to do as a community in order to grow awareness about the issue
+and build systems that are safe in the presence of Snapshots.
+Quick sneak peek on the agenda.
+We're going to define what is a virtual machine Snapshot for us and what is problematic with
+virtual machine Snapshots and which scenarios we have problems with them.
+Then go through a bit about the mechanisms we have today for addressing those issues
+and how we are thinking about building solutions that are system wide and address the problem.
+Finally I'm going to be speaking a bit about what we're planning to do next on the area.
+Earlier this morning there was a very nice talk about virtual machine Snapshots.
+It went much more in detail what I'm going to go into but let's think for the moment
+about the virtual machine as a collection of some state and that state might be memory,
+the guest memory, architectural state of the VM.
+Then you might have some devices for doing networking and storage, etc.
+Then some host resources like whatever state the KVM in Linux is holding for us for the
+VM, maybe a top device for the networking and files that back our storage.
+For this talk, Snapshot is simply the serialization of this state at a given point in time in
+a file that we store somewhere in some storage medium.
+Then we use that Snapshot file in order to start one or more VMs, not that exact identical
+copies of the initial virtual machine.
+The morning talk spoke about various scenarios why you might want to do that.
+For example, you want to give a backup of your machine so you can go back in time in
+a previous state, etc.
+Or another scenario that you might want to do that is if you are building some sort of
+service that uses VMs to isolate workloads and you want to spawn these VMs very, very
+fastly in a state that they are ready to handle user requests, you might want to spawn a VM
+like that, bring it in a state, initialize everything, every service, a component that
+you want in order to get it ready to handle requests and take a Snapshot at that point.
+Whenever you have a new request in the future, instead of booting a machine from scratch,
+booting all the operating system, the user space, blah, blah, blah, blah, you just resume
+from a Snapshot and then you are much faster in a state where you can handle that request.
+What's wrong with that?
+Now, let's look again at the previous picture of our VM and let's imagine for a second that
+somewhere in VM memory or it doesn't have to be memory, it can be any other component
+of the VM.
+There is some piece of state, an object, some sort of state that for the purpose of the
+application that it's making use of it, it needs to be unique and or secret.
+It needs to have this property in order for the application to operate correctly or securely,
+etc.
+Now, you see where I'm going with this, once we take that Snapshot, that property of this
+state is lost.
+Here we're speaking about what sort of mechanisms, what sort of applications are having this
+problem and how we can address this exact problem.
+We are aware even today of many classes of applications that rely on this assumption
+of some part of the state being unique, secret, etc.
+For example, we can think of cryptographically secured pseudo-random number generators.
+Those are random number generators that have the property that it is very, very hard, if
+not impossible, to guess what the next byte they're going to give you is.
+Many applications, the security of many applications rely on this property.
+They have other properties as well that given knowledge of the current state of the PRNG,
+you cannot guess the previous bytes, etc.
+But for those sort of applications, imagine that one, those sort of random number generators,
+imagine that once you take the Snapshot, the VM Snapshot and you start more VMs from
+that, the state of the PRNG is being duplicated.
+So unless we do something else, unless we add more entropy, for example, in this PRNG,
+in all of the VMs that start from the same Snapshot, the next byte that is going to be
+given out from that PRNG is going to be exactly same in all of the VMs.
+Other examples of use cases that have this problem is network configuration.
+Imagine you have a VM that has some network configuration, IP addresses, MAC addresses,
+etc.
+Suddenly you Snapshot that VM and you create new VMs from that Snapshot that live in the
+same network as your seed VM.
+Suddenly they appear in the network VMs with the exact same network configuration and depending
+on your use case that might be a problem.
+So you might want to be able to do something about it once this happened.
+You might want to detect that this is happening and do something about it.
+Another class of applications that are affected by this is anything that really uses a UUID,
+a GUID.
+Many applications rely on the uniqueness of this variable, this number, in order to perform
+correctly.
+Imagine for example once you take this Snapshot of an application that has a UUID and you
+start more VMs out of it and the application that is running in this VM is using that
+number as an index in a database to modify stuff, read stuff, suddenly you have a race
+condition on the database.
+More than one entities are going to be using that same thing for accessing data.
+Any sort of use case where you rely on this thing being unique is a problem here.
+And really we do not know exactly all of the applications that use cases that have this
+problem.
+So it really depends on the application itself.
+We really need to go see whether our applications keep state that has the semantics, the semantics
+of uniqueness and secrecy.
+And if you know that you are running some workload that has this problem and you run
+in such environment, let's speak about and think of what sort of mechanisms you could
+use in order to make this use case safe.
+Okay, now that we know a bit more about the problem that we are speaking about, we are
+facing, let's see what kind of mechanisms do we have today to address it.
+Essentially the most fundamental mechanism we have today for doing that is called virtual
+machine generation ID.
+It operates as a notification mechanism for the VM after it is getting resumed from a
+snapshot about that particular fact.
+But it tells the VM, okay, now you are in a new world.
+You are not in the world that you thought you were without having rebooted.
+And in the technical aspect of it, it's an ACPI virtual device.
+It is emulated by the monitor.
+And the way it provides the notification inside the guest is via a generation ID, which is
+a 16 bytes cryptographically random number that changes every time we resume from a snapshot.
+So when you resume from the snapshot, the monitor makes sure that it changes the new
+value, it stores a new value in the generation ID, and before resuming the VCPUs of the VM,
+it injects an ACPI notification in the system.
+And once it resumes from the snapshot, resumes the VCPUs, then the guest kernel is going
+to handle that ACPI notification.
+What happens in Linux is that today the kernel is using the new generation ID as extra entropy
+for its entropy pool.
+So it's receding its entropy pool, essentially, so that it avoids the problem we were speaking
+about before about PRNGs.
+It works, apparently.
+It works fine.
+There is still a bit of a concern regarding the fact of its asynchronousity in the sense
+that there is a small race window between the moment we resume the VCPUs and the ACPI
+notification is being handled by whatever thread in the kernel handles it.
+Okay.
+Yay.
+Sorry about that.
+But at least we have something.
+Nice.
+So moving forward, recently we built in the Linux kernel, contributed a small essentially
+change that every time the generation ID changes, we emit a new event to the user space, because
+before that VM generation ID implementation did not do anything.
+It was using, since it was using the generation ID as entropy for the kernel PRNG, people
+were nervous about exporting it to the user space.
+So I said, okay, that's it.
+And in reality, the user space does not really need that 16 bytes themselves.
+It just needs a small notification.
+So there you have it.
+It got matched recently in 6.8 and it is still an asynchronous notification mechanism.
+So everything that in the user space that runs event loops, for example, can monitor
+for it and get notified about the fact that they're now in a new VM started from a snapshot.
+It is still racy, this thing has to be said.
+So if we think that we have use cases that need to get more asynchronous mechanism, more
+synchronous mechanism, we should continue doing work to build those.
+Okay, so going back to the PRNGs, mainly because they are used by security sensitive applications,
+let's see how these mechanisms can help us.
+In runtime systems that maintain their own PRNGs like JVM, we can now use the VM GenADU
+event to be notified about snapshots.
+So upon resume, the runtime would get that event, eventually would be notified and it
+would receive the PRNG as soon as possible.
+Now in other PRNGs that are implemented from libraries, within libraries, this is a bit
+more weird situation at the moment because an asynchronous mechanism like a U-event is
+not a perfect fit for the programming model.
+We will need to do something else about them.
+One idea here would be to use prediction resistance with what cryptographers call prediction resistance
+with hardware instructions.
+The idea here is simple.
+With every byte that the PRNG returns to you, you mix in some random bits that you got from
+a hardware instruction that is not affected obviously by virtual machine snapshots, so
+the problem just goes away.
+If you are able to do that, it doesn't matter if you have resumed from a snapshot.
+The state of the PRNG is always going to, including these snapshot irrelevant random
+bytes and everything is going to be fine.
+Other potential solutions, for example, in cases where you do not have these instructions
+or for whatever reason you don't want to use them, it would be to build some sort of synchronous
+APIs on top of the asynchronous VM-genade event, for example.
+But we really think that we should do something, don't go out on me again.
+We really think we should do something about the use case of these libraries.
+Okay, so let's think, now that we know what mechanism we have available, let's see if
+we can really solve the problem.
+And let's follow this example.
+It's a very simple example of a VM that has started from a snapshot.
+The hypervisor and the guest kernel support VM-genade.
+The kernel is going to use the generation ID to receive its random number generator.
+And we have a user space application that does some network communication and it wants
+to use TLS.
+And it reads some random bits from the from the view random, which is safe because of
+VM-genade in order to do some sort of communication.
+And everything works fine.
+The application creates the session key to start communicating without the world and
+everything looks fine.
+And at that point, we take a snapshot.
+Now the moment we resume the VM, the second VM from that snapshot, the session key is
+duplicated in essentially both VMs.
+So even though we have these mechanisms built in the system that give safe interfaces over
+the view random, for example, the final system is not necessarily safe.
+The same would go, for example, for GUID applications that have GUIDs, et cetera, et cetera, and
+they would need to adapt themselves.
+And it is true that the application could use the VM-genade event, but that event is
+present in the resumed snapshot, in the resumed VM.
+In the initial VM, there is not today a mechanism to do something about that.
+And again, there is some sort of race window between the event resuming the VM and the
+application being reacting to that event, which makes us think that probably there are
+things that should not ever be serialized at all.
+It would be much easier if that session key was never serialized.
+And that makes us think that VM-genade is a post-mortem mechanism.
+It is a notification in the new VMs, not the initial VM.
+And by the moment it arrives to us, sensitive information operations might be already in
+flight, and even if we handle that notification, there is nothing we can do about the things
+that are in flight.
+And that makes us think as well next that what we should probably do is control the timing
+of snapshot events.
+The moment snapshot events in the lifetime of the VM can arrive, let's say, at arbitrary
+points in time, instead we should control them.
+We should do something before we take even the snapshot and make sure that we only take
+a snapshot when the machine is in a safe state to be snapshotted.
+And once we resume, make sure that every application that needs to has adapted to the new situation
+before marking the system as ready to be operational again.
+Thinking about these things, some time ago we were speaking with system defaults and
+we thought about modeling this problem using force states, describing our systems being
+in one of force states.
+Planning is the normal state of your VM.
+Now once you want to take a snapshot, you start quiescing.
+People earlier today spoke about this as freezing, for example.
+And during that period you do things preparing yourself to be snapshotted so you cannot find
+yourself in a previous situation.
+And once you are quiesced, once everybody is ready to be snapshot, then you can take
+the snapshot and then the same.
+And on the resume path, on the resume from the snapshot path, you essentially do the
+opposite work, right?
+You start from a quiesced state, then you start inquiescing, getting ready for the new world,
+recreating your GUIDs and what not.
+And once everything is done, then you can be running again, up and running again.
+SystemD has this nice concept of inhibitors, which can essentially applications use in
+order to say, OK, don't do that.
+Don't do that transition until you are ready to, I tell you I'm ready to do so.
+For example, there are inhibitors for system CTL suspend.
+At the moment we were thinking that maybe we could use some para virtual agent to orchestrate
+everything.
+In reality, maybe system CTL suspend is all what we need and we can drive this from the
+hypervisor by sending an ACPI event.
+And going back to the previous example, how that would look like is we are in a running
+state in LVM, we have our previous application, and suddenly the control plane informs the
+PV agent that it needs to start quiescing.
+Here I say system CTL quiesce, but again, unless we find the reason why suspend should
+be different than some new sort of operation, we could even use suspend and get away with
+having to have a para virtual agent in there.
+In any case, once that happens, the application would say, OK, do not get quiesced again because
+I need to do some cleanup before you can snapshot me.
+And once the application does that, it says, OK, now I'm good to go.
+And at that point the control plane knows that, OK, we can take that snapshot.
+Now on the opposite path, the control plane would probably resume the VM from a snapshot
+and then start the unquiescing operation.
+The application might want to say, OK, wait until I know that I'm safe again because I
+want to create new random numbers.
+And I do that.
+And at that time, we are safe module of that tiny race condition in order to start getting
+random numbers again and recreate our safe and be in the state we want to be in order
+to be up and running.
+That's it.
+So yeah, we started working in adding support in Firecracker for VM GenAD.
+Up until now, we were telling people who were using the snapshot in feature in such a way
+that they should make sure that manually they would need to receive their kernels, PRNGs,
+and they use the space PRNGs after the fact.
+The other thing we want to pay attention to is working with PRNG owners in order to find
+proper ways to make their libraries not safe.
+Here we're speaking about the PRNGs that are implemented as libraries such as OpenSSL, AWS,
+and C, et cetera, et cetera.
+And start building this system we spoke about in system D, start modeling this in system
+D.
+And earlier, we had some ground work already done some time ago.
+And we hope that system D is going to be just the first one that we get this into and hopefully
+other management systems will follow.
+And that's it.
+Without that, I'd be happy to take questions.
+I just wanted to ask, you mentioned the network issues where machine comes up with the same
+back address.
+Didn't appear to address that.
+Is there a plan to take care of that situation as well?
+Or is that a problem?
+Yeah.
+The question was that we mentioned that during the presentation that there are problems with
+networking when you take snapshots and resume and whether we plan to address those at the
+future.
+Yeah.
+I think that this is part as well of the system D work that we're going to do.
+This problem essentially appears mainly when systems are in networks.
+If your VMs are not networked, there is no problem if two VMs that are not in the network
+are communicating somehow, they have the same random numbers.
+So yes, for example, something that we would like to do is to, I guess, shut down networking
+before taking a snapshot so you're sure that there are not in-flight connections and stuff
+like that.
+So I think this is going to be part of that work.
+Thank you.
+If we have to come up with a MAC address, we generally try to hash things first outside
+kind of even if we can also hash that into that element,
+it's already here.
+We have been discussing this, like, this is going to happen
+in my conference.
+We have to identify the generation ideas
+to the most obvious thing in the world,
+to add that to the hash.
+So that basically, yeah, once the generative changes
+and everything, get this into the GHD,
+it's not going to go to wherever else.
+Thank you very much.
+Thank you very much.

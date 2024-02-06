@@ -1,0 +1,567 @@
+Yeah, thank you.
+Yeah, just to introduce myself, my name is Falka Lendeker.
+As you can all see, I work for Samba since the mid-90s, last century actually, so for
+quite a while.
+And I think I don't have to introduce what Samba and SMB really are.
+They are file-serving protocols.
+And what I would like to do eventually is kill NFS.
+And I know this doesn't go down well in some communities, but this is what I'm working on
+in my spare time, when I have spare time.
+In the last few months, unfortunately, it was a bit limited, but still, some of you already
+have seen this talk at Samba XP or other conferences.
+There's a little bit of new stuff, but I think it's still interesting to see that you can
+actually serve SMB clients or Linux clients with SMB.
+So what is it all about?
+You want to share file systems, directory and files across a network.
+So you have one server where you have a directory, where you have a file system.
+And you want this to be shared across a network to possibly many, many clients.
+If you go Linux to Linux, you typically use NFS.
+And one of the reasons is it's so simple.
+What you do is you just add a line to your ETC exports.
+Maybe you have to kill or restart a demon or whatever.
+Then you issue just amount command on your client and you're done.
+That's about it.
+However, it comes with some downsides.
+First, there is essentially no real metadata or data caching in NFS.
+This means that it can regularly happen that you create a file somewhere and it doesn't really show up
+until a bit later, some on other clients.
+If you just write to directories, if you just write to files, other clients don't really see the M time
+or size updates really precisely and so on.
+So this is kind of problematic.
+Why does the mail format actually exist?
+Because locking doesn't work over NFS.
+And yes, NFSv4 has locking, NFSv3 has external protocols to do locking,
+but you can't really rely on those.
+And it's really, really complex to set up locking properly and to get failover done and so on.
+This initial very simple setup, and I love this acronym of NFS, it's just no file security.
+Because essentially what you do is you trust your clients to assign the UIDs and GIDs
+and essentially the group permissions and whatever you assign them correctly on the client.
+And there's nobody in between who actually checks.
+I know there are these days there are protocol extensions to do NFS over TLS,
+so at least transport is in a standard way protected.
+You can of course go and enable Kerberos for NFS, but this is also pretty complicated
+and we have done it in customer scenarios.
+The client at least is buggy like hell.
+And you get incompatibilities all over the place.
+You lose keys, you would, you lose anything.
+So it's really, really difficult to set up.
+As I said, clients have a very bad day when you Kerberize them.
+SMB however, it really comes from the Windows world.
+And if you look at the, there was one talk by the original SMB implementer, Barry Feigenbaum.
+Is it online available, Günther, do you know?
+So at one of the conferences that we regularly go to,
+there was actually a talk by the original inventor or developer of the SMB protocol.
+And essentially what they did is they took the MS-DOS interrupt in 21
+and put the arguments on disk and let the server take care of it.
+And this means that they have to be compatible with a lot of applications on DOS.
+And DOS means that applications like Word 5.5 or whatever believes it's alone on the machine.
+So this means you have to get locking right.
+If Word opens a file and it believes it's the only one editing that file,
+you better make sure that nobody else also edits that file simultaneously.
+So they had to get locking right from day one.
+The other one is cache coherency.
+We have protocol for this and this between Windows and Linux, this actually works.
+So if you open a file over SMB, typically what you get is a permission to cache stuff,
+to cache your updates, to cache reads and so on.
+This leads to much, much better performance.
+And if somebody else also wants to open the file, you get notified that,
+oh, no, you're not alone on the file anymore.
+Please drop all your caches.
+Please write back your caches.
+And you tell the server, hey, I'm done writing back.
+Now please let the other one in.
+And then they have to agree that they all have to write back their changes and so on,
+read new data from the server.
+And the other advantage is, one of the advantages is that SMB servers, they are everywhere.
+Every home router in Germany, the Fritz box has an SMB server in there.
+All NAS appliances have SMB, so it is everywhere.
+And you can access it from almost any place.
+Whether all the features that we are talking about here are correctly implemented everywhere,
+that's a different story.
+For example, Fritz boxes don't talk to my mobile phone properly, but that's a different story.
+But essentially, it's everywhere.
+The SMB protocol is very flexible.
+There were very, very early extensions of the SMB1 protocol.
+So like every protocol, you have a lot of requests going back and forth,
+and there is unused protocol space.
+You have whatever, a create request, a read request, and so on.
+They are numbered, and there's number space that you can take and so on.
+And this is what we did early in the, whatever, 2000s or so for the SMB1 protocol.
+There are UNIX extensions that match all the UNIX semantics in the SMB1 protocol.
+This was never transferred properly yet to the newer and now only SMB3 protocol.
+And what we are working on actually is we want to extend the SMB protocol with all the behavior that a POSIX client expects.
+How is that done?
+The first packet that is sent between client and server is called Negotiate Protocol.
+And it exactly does what it says.
+It negotiates different flavors of the protocol.
+For example, it tells, hey, I'm SMB1, I'm SMB2, I'm SMB3, and I have this and this subfeature and so on.
+I can do these capabilities and those capabilities I can't and so on.
+And essentially what Microsoft has done with the SMB3 protocol,
+they did the smart thing and made this request extensible.
+Essentially what you can do is you have this Negotiate Protocol request and you can add what I would call extended attributes to this request over the wire.
+I mean it's not an exact file system, but you can just extend the request in a standard way with a new Negotiate context.
+So you have a ton of Negotiate context that say, okay, I can do encryption this way, I can do whatever.
+And we just have an additional extended Negotiate context that says I can do POSIX in this version.
+So the client tells the server, I can do POSIX, server tells client I can't.
+The default behavior is for unknown extensions is that the server just ignores it and doesn't send a reply.
+If the server sends a reply, I know I'm talking to a Samba who is able to do all this stuff that I'm talking about here.
+File name handling. This is really painful in our case because Unix file systems are case sensitive.
+Windows file systems in particular NTFS is not case sensitive. What does it mean?
+Under Unix you can have two files, Make file and Make file, one with capital M, one with lowercase M,
+and under Windows you can't, under NTFS you can't.
+When now a Windows client comes in and says I want to create Make file,
+what you have to prove at creation time is that no other uppercase, lowercase combination of Make file exists in the file system
+to fulfill this promise that this is case insensitive.
+What do you do by default? You scan the whole directory.
+And this leads to an O to the order of N square performance behavior.
+If you just drop a million files into a directory, file number 900,000 takes a lot longer than file number 1
+because I have to scan the whole directory to prove that no other uppercase, lowercase combination exists.
+And what we can do is we can add a new create context, not only the negotiate context,
+but also the open file and create file request has these extended attributes.
+I can say that I want to open a file POSIX style by adding one of these create contexts.
+And we have defined a create context so that clients on a per request basis can say I want POSIX behavior,
+I want case sensitive behavior, I don't want file name restrictions,
+I want double quotes in a file name which Windows wouldn't allow.
+I want them. I know what I'm doing. I'm POSIX.
+So what we also need is POSIX metadata.
+If you look at the properties of Windows client on a Windows file, sorry.
+So we are here, Windows Server, I say properties.
+There's a lot of stuff. In particular, there's timestamps created.
+We have four timestamps in Windows that are roughly similar to what we have in Linux.
+We have attributes and so on. There's a lot of stuff that Windows has as metadata.
+However, the semantics are a bit different.
+In particular, they don't have a good notion of UID and GID.
+And they don't really have a good match right now for POSIX permissions.
+So some of the ones that we have in struct stat, like file size and so on,
+they are the same in Windows but in particular UID and GID, they are not.
+They are not the same at least.
+So we did. We extended the protocol.
+And if you, for example, do a stat on a file, if you ask for get file information,
+you can say I want this info level and there's a 16-bit field for info levels.
+And we just added one. We talked to Microsoft.
+Hey, get us this additional...
+Don't use this additional number that we use for POSIX information level.
+They agreed and so we have an additional field that we can use
+to fill in all this information that a client might want to use.
+However, second-last line.
+None of this is really the topic of this talk.
+It's about file types.
+If you look at the Unix file system, you have seven types of files.
+You have a normal file. You have a directory.
+What else do we have?
+We have block and character devices. We have named pipes.
+We have swim links. Oh, shock and horror.
+And we have sockets. Unix domain sockets.
+Samba can handle regular and directory files extremely well.
+Oh, there's a typo here as you find out.
+So we can handle directories and file. I mean, that's what we are made for.
+We have file servers so we better handle directories and files well.
+What do we do about the other ones?
+If you go and share ETC in Samba, sorry, share slash dev in Samba,
+something you probably shouldn't do, but if you do,
+Samba will find a lot of stuff that it can't really properly present to Windows,
+to any client.
+It will find character, block devices. It will find all sorts of stuff in slash dev.
+Or it will, if you just share a home directory, you will find sockets for
+GPG agent, SSH agent and so on.
+You will find all sorts of stuff that doesn't really fit into the file and directory schema.
+In particular, for example, you find files.
+And in previous Samba version, this used to work, that from a client you came in,
+it could open a file for writing, hoping that the server side on the Unix machine still exists,
+the server side process on the Unix machine still exists,
+and you could write into that and the server would get the data that you write into this.
+This can't be very popular because, I mean, many versions ago,
+we broke it and nobody noticed.
+Alexander is confirming.
+You're using it, Alexander?
+We have a lot of tests, but Alexander's comment was that we don't cover this,
+which means we didn't notice.
+Why didn't we know, or why did we break it?
+If you open a file for under Unix, all you can do is issue read and write syscalls.
+We don't do that in Samba anymore because whenever we get a read and write request from Windows,
+there's an offset attached to that read and write request, like in NFS.
+And we do the natural thing.
+We p-read and p-write, like what you do normally in the process where you have an offset.
+This is all from times when you couldn't really expect p-read to exist,
+but these times are long gone.
+We have some very special support for sockets.
+What's a socket?
+That's essentially a...
+It's a 5.0 on steroids.
+And what we do with sockets is we implement the Microsoft notion of RPCs.
+What is it?
+A Microsoft Windows client over SMB can open a file and transfer data over this file,
+special file, on the share IPC dollar, slash pipe, slash semr.
+What you do is you're win-redge.
+You open a file on the IPC dollar share, win-redge, Windows registry.
+You talk to the server side registry over RPC calls.
+And we implemented these days since 4.16 that our Windows registry server
+actually listens on a Unix domain socket and the SMB server connects to that Unix domain socket
+and just passes on back and forth requests.
+And so this is what I mean.
+We have limited support for sockets, but this is not what somebody would expect
+if on the client we would run a SSH8, for example, that clients connect to
+because this all needs to be done on the client side then.
+Block and character devices, I mean, we find them server side,
+but they don't make sense at all over the network.
+You don't want to whatever read and write to DevSDA over the network.
+You just don't want this.
+You could, but why?
+Enter NTFS repass points.
+There's a Wikipedia article actually on NTFS repass points.
+Repass points provide a way to extend the NTFS file system.
+A repass point contains a repass tag and data that is,
+and data that are interpreted by a file system filter driver identified by the tag.
+What does this mean?
+One use case is HSM systems, hierarchical storage management,
+where you have a huge file on NTFS that some software just pushes to tape
+and leaves a stab inside the NTFS file system that is just visible to the client as normal.
+And now when the client opens the file, the open code sees, okay,
+this stab is a repass point and the extended data that the repass point carries
+points at the place somewhere on tape.
+It's on this tape at that offset.
+And what you can do then in Windows is install a driver
+that when a client opens this file, the Windows kernel goes to the tape library
+and says, get me that file back.
+So this is software that you can install in the Windows kernel to extend NTFS semantics.
+And this is what, by the way, the NFS server uses.
+And we will see in an example of this.
+So applications can use this for arbitrary blobs.
+It's a special marker for a file, for a normal file that says, oh, I am a repass point
+and you can store stuff in there and essentially it's an extended attribute.
+When opening a file, NTFS filters can interpret the contents.
+This is what Microsoft also actually uses for sim links.
+Windows has symbolic links.
+They are stored as repass points.
+If you double click on that repass point, and I can demonstrate this here,
+I know demos never work.
+I have a file for and I will show you how I created this.
+I double click on the file for.
+Oh, okay.
+Wait, oh, I have a, as I said, I should never do.
+Ah, file for .text.
+Here it says text document, which is just a description of this is a .text file.
+I double click on this and what it says is the file cannot be accessed by the system
+because this is a repass point that happens to be named test.text or something.
+And they believe, oh, we have to open notepad, but it can't access that file.
+So the error message that you get if you double click on that file is,
+status I owe repass tag not handled.
+You have to tell the server that, oh, I want to open this special file in a special way.
+You have to set a flag.
+So a repass point, as I said above, has a so-called repass tag,
+which is a 32-bit integer.
+And if you look at the Microsoft documentation,
+Microsoft uses these repass tags and documents the use to a certain extent.
+And there's a lot of those.
+If you go here to that website, there's a ton of repass tags, reserve 0, reserve 1.
+What you see here is, I hope you can read that.
+No, you should be able to read that.
+That's HSM.
+That's HSM 2.
+And so on and so forth.
+Filter manager, repass tag, swim link.
+So this is what Microsoft defines in their spec,
+that they are using these sets of swim links.
+These sets of repass tags, and you get the integer there.
+Swim link is 0xA and then a C at the end.
+And we're using this.
+We are about to use that.
+So now we have two kinds of users of these repass tags.
+Do you remember WSL1, the version one of the Windows subsystem?
+They try to run Linux applications on Windows, and they face the same problem.
+Windows applications expect sockets and fee force and swim links to work.
+And in version one, they used NTFS actually for your home directory, for your local files.
+And what they did is, they have this repass tag address family unix.
+They use that.
+And what you will see here is, it must be somewhere.
+But if you dig a bit deeper, what they tell you is, the contents of these repass tags are not meaningful over the while.
+They were intended just for the WSL subsystem, Windows subsystem for Linux, server side.
+So they define as part of the data that is stored in this repass tag,
+hey, we have a block device, a character, a FIFO, and so on, with the obvious counterparts on Linux.
+So what they did in WSL1 is, when somebody didn't make FIFO, they created a file with a repass tag.
+And they, in the content of the repass tag, said, hey, this is a FIFO.
+None of them are actually documented.
+And because that costs so much trouble, the version two of the WSL, which I actually, is anybody using WSL?
+Some are.
+It's actually usable.
+I would say it's actually usable.
+You can't really tell the difference from a real Linux.
+At least I can't.
+I mean, if you look at Pock, of course, you will find differences.
+But for the normal day-to-day use, it actually works pretty well.
+Because what they are using, they are using a real X4 these days.
+Then there is a Windows NFS server.
+Pardon?
+Why?
+The question is why.
+I don't know.
+The Windows NFS server, this is what I'm going to present here, hopefully in demo.
+They also have the same problem.
+A client does a make link or a sim link or whatever.
+It doesn't make FIFO, and they have to store the data somewhere.
+And they define yet another set of repass points.
+And if you look here, they actually have a definition of what goes into the data, into the data field.
+Repass tag, repass length, and so on, in general.
+So they define sim link, character device, block device, and so on.
+And they actually specify what goes into the data field.
+For a sim link, the target goes in there and so on.
+And for the character device, you have two UIN32s for major and minor and so on.
+So they define what goes in there.
+I mean, you would have thought that these guys, talk to these guys, to share an implementation, but no.
+Why?
+The interesting thing is, if you look at, and I created a FIFO server side,
+and if you look at the properties of this FIFO, and you have to trust me, the one in the first row,
+can confirm that you have an L here.
+It says archive and L, L for sim link, if you look up the documentation.
+No, it's not a sim link, it's a FIFO.
+So their GUI is not really prepared for this.
+They believe, okay, all the GUI believes, all files that are repass points are sim links.
+Alexander?
+Is this client side?
+Client side? I can demonstrate that I see it.
+Because this is a local file, right?
+That's a local file that I created over NFS.
+Okay, so the NFS server created on a local file system something with this associated repass.
+Yes.
+So this directory here is local disk share.
+This is a local NTFS file.
+And what I did is I exported this via the NFS server.
+I mounted this from the client.
+And why don't I show it directly?
+I mounted it from the client, which is here.
+That's my client with a mount.
+If you look up at the top, NFS.
+And you can see in the left column here, I have sim links, I have block devices and so on.
+And I created them with normal UNIX commands over NFS.
+And this is what ended up on the NFS, on the NFS file system server side.
+Repass points.
+And so this is not too popular with Windows applications.
+So the Windows Explorer believes all files with repass points must be sim links because that's the most popular use of repass points in the Windows world.
+OK.
+So they don't look at the repass tag.
+They just see that this is repass point and it must be just one type of question.
+Yes.
+Alexander's comment was, and I will show you that in the Wireshark trace in a minute.
+There is a special flag in the metadata of the file that says I am a repass point.
+And you can of course get into the details of that repass point if you wanted to.
+But if you're an explorer, you don't care.
+You say it's a sim link.
+OK.
+Now this is a discussion.
+Do we use these guys or do we use these guys to represent or to present to the client when Samba finds a sim link?
+Samba site.
+Or for sim links, we even have three options.
+And so WSL version one has reserved repass tags.
+And if you look at one of these lists that I've shown you, you have repass tags for the individual subtypes, but they are not documented.
+They are not used anymore at all.
+You don't have any interoperability with anything else.
+We could of course use them.
+So in the case when Samba on disk finds a sim link or a block device, how do we present that?
+We have to make a choice.
+And WSL defines repass tags with undocumented comment.
+NFS only uses one repass tag.
+Pro NFS would be we have documentation available.
+And so on.
+And what we can do is we can write protocol level tests against the benchmark, which is the Windows NFS server.
+So we have ways to create these things on Windows and write just tests, which is very good.
+Also, if you now say, OK, I want to create a FIFO from my Windows client.
+That has mounted the home directory of a user on a Windows server.
+If I do that, the Windows client will create a repass tag that an NFS client talking to that same file system on the Windows server will also see as a sim link.
+Or as a FIFO, whatever.
+The same thing.
+And so this is why I would say, OK, I would like to use NFS repass tags.
+I have to talk to the CIFS kernel developers.
+I think with Linux 6.8, they went to different route.
+Andreas, do you know?
+No.
+So I think they went a different route, but we need to talk.
+Coming to sim links.
+Symbolic links in the BSD, UNIX, depending on how you look at it, are the best ideas since sliced bread, or the worst nightmare that everybody falls over security-wise.
+Even the Rust infrastructure.
+I mean, Rust being a language very security sensitive, they had their sim link race security bug.
+But we have to deal with it.
+We have to live with them.
+They are there.
+And so what do we now do when we see a sim link on the summer server side?
+Yeah, we can do that with the two ways that I presented.
+But as I said, Windows even has its own notion of sim links.
+So if you create a sim link, depending on where you come from, you get one out of three versions, three ways to represent them on an NTFS.
+And if you look at it, this Windows way of sim links, they actually work pretty well over SMB in the pure Windows world.
+For example, what you can do is you can have a sim link on a directory on an NTFS that is shared over SMB.
+And the sim link target can be backslash backslash IP address backslash share name backslash directory.
+And if you want to cut that file, or if you want to CD into that file from a Windows client, it will redirect to that server.
+So you can have cross server sim links with the Windows NTFS notion of sim links, with the pure Windows notion of sim links.
+Even better, if you try to open a sim link the Windows way, you double click on that file and under POSIX, you typically follow that sim link directory.
+If you mount that over NFS, the NFS client will have to take care of those and follow client side.
+But Windows does it a bit differently.
+When you double click on that or when you open that sim link file, they tell you, hey, you hit a sim link.
+And they will even in the error response, they will tell you, and by the way, the sim link points there.
+That saves at least one round trip, or several round tips, that if I hit a sim link, then I know where to go directly on the client side in the response.
+And Windows typically is completely path based, so if I open a Windows file, slash A slash B slash C slash D, and somewhere in the middle there's a sim link.
+They don't follow that server side, but they tell me, hey, go there, and by the way, I have passed slash A slash B already, and C was the sim link.
+So if I have a long path with many components, they tell me, okay, the third component is a sim link.
+Okay, how do we create these special files?
+Protocol-wise, there's a special flag to the open call, and we just set the contents.
+And yeah, what we can do is with Samba, what we don't want to do and what we will never do, if a Windows client comes in and creates a sim link the Windows way, we will not create a sim link server side.
+What we will do is because Windows sim links are also represented by normal files, 10 minutes left, they are represented by normal files with some special contents, with some special whatever extended data.
+We will do the same.
+So if you do a make link from Windows, then we will create such a file telling the client, hey, this is a sim link file, and the Windows client will just work as it will.
+And we will just open GIFs to the NDI interface and we will create Web notEP Things like R!!
+Or maybe Mint Speedusu advert.
+Okay, you know how much space here, I ran over the interlocking Mobile T share line for this.
+Okay, a shell.
+So what we will do for that Fashionbt is, I will use the three space walk way, and just kind of Diellow,
+And what you can see is ln minus s foo bar.
+This means I do a sim link from bar to foo, I believe.
+I always get that wrong.
+Yeah.
+So what I did is, and this is a file that actually
+lives on ntfs shared via nfs.
+And what we should see here now is that this is file bar.
+I created that.
+Now what I'm doing is I have my little user space tool,
+test start, that, and you know my password now, that I use
+always for Windows boxes.
+OK, what does this do?
+It creates a connection to that Windows server over SMB.
+And I just get all the metadata over SMB.
+And let me just TCP dump that.
+Oh, this is the wrong.
+TCP dump cannot override its own files.
+That's very strange.
+I know.
+OK, let me wire shark this.
+And what I see is a sim link.
+It's a sim link.
+What I could have done actually is to extend this command
+output with the sim link points there.
+Haven't done that yet.
+Maybe on the train back home.
+Let's look at that wire shark trace.
+Oh, TLsR.
+In the background, I have my connection for RDP running.
+SMB2.
+So here you go.
+It's a bit verbose.
+But what I want to point you at is I try to open the file
+bar, which is the sim link.
+And it says, repass tag not handled.
+Then I open the file again.
+And don't be confused by the create request.
+Create request is all catch all open file thing.
+And there I tell you, I tell the server, hey.
+I want to open this file.
+And I don't want you to interpret it.
+I don't want the HSM engine to go running.
+I just want to open the file.
+I want to open the HSM stub or the sim link as such.
+I want to see the metadata.
+I want to see the metadata.
+And it gives, OK, here you are.
+And a bit further down, what I can say is, OK,
+what I can say is, I can get the repass point data out
+of this file.
+And what I can see here is, I have, oh, this is a repass
+tag NFS.
+And by the way, this is a sim link with a target foo.
+So this is data that the NFS server gave me.
+This blob here, which is somewhere here, that was
+created by the NFS server.
+And so we can just utilize it.
+And we will utilize this.
+Before I take questions, I have one more slide that I want
+to talk about.
+Long running compute jobs.
+Very quick overview.
+If you have your HPC job farm, the one thing that gets in
+your way is all this file security.
+You want NFS, no file security, on long running compute
+jobs, because if a machine dies, it just, yeah, you
+don't want really, this is a trusted environment, and you
+just want your jobs to continue existing.
+SMB actually has secure provisions for this.
+What you can do with SMB is, you can create a machine
+account, you can give the machines a password,
+essentially something like key tab for Kerberos.
+And you can, this is standard Windows protocol.
+You can extend the connection to a share with yet another T
+con context saying, OK, dear server, I know what I'm doing.
+You trust me by my machine account.
+For this connection, please use this UID and GID to this
+share.
+This is a standard SMB protocol extension, and this is what
+needs doing before we actually can claim success and say,
+OK, we can also cover this long running compute jobs
+properly like you can with NFS or any other file sharing
+protocol.
+Not implemented yet, another server side, no client side,
+but it's there.
+Yeah.
+Mark.
+The machine account to the machine accounts
+authorized to protect any of the IDs.
+Correct.
+The comment was that SMB has a provision that you can trust a
+machine notified by the machine account database,
+whatever, you know what I mean?
+You have server side, this machine is trusted for doing
+the no file security thing.
+Send a protocol extension.
+OK, this is not really, thanks for your attention.
+Any questions?
+No questions.
+This is not good.
+Fun?
+Just an observation, the WSWSL version 1, are you really
+wanting to implement that more obscure data remaining on
+some obscure machines?
+I would suggest forget about it completely just because it's
+that.
+The comment was questioning whether we want to go the WSL1
+way with these repass.
+Talk to Steve.
+Talk to Steve, French author, main author of the ZIF client.
+I mean, it basically is him.
+Steve French and Paul Alcantara, those are the ones who I
+believe for Linux 6.8 have implemented the WSL1, here,
+this one here.
+If you look at LWN, they can now create block and character
+devices and I think they went the way with WSL1.
+But I mean, talk to Steve.
+The comment was WSL1 is the only one under Windows Server
+2019.
+There you go.
+Any other questions?
+Good job.
+You also, what?
+The question was how the current ZIFS client deals with
+these repass points.
+That's actually what is covered here.
+They start to properly implement that.
+So they already have some links.
+They have support for some links, the Windows way,
+because I mean, they are there.
+But they start to, they start working on all the other ones
+that we were talking about.
+Mark.
+It's work in progress.
+So I mean, parts already exist.
+Can you repeat the question?
+I was pointed out.
+Mark was asking about the, the, the new data, the
+data that is used in the system, and the data that is
+used in the system, and the data that is used in the
+system.
+Can you repeat the question?
+I was pointed out.
+Mark was asking about the status, what's currently
+implemented.
+It's a slow progress.
+And parts already exist.
+Other parts don't yet exist.
+So I don't know when we can actually claim that we do
+full SMB3 Unix extensions.
+I can't promise anything.
+One more, there's time up.
+I think we are pretty strict here.
+Just come to me later.

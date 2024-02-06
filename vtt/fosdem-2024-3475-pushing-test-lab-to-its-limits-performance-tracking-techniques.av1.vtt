@@ -1,0 +1,536 @@
+WEBVTT
+
+00:00.000 --> 00:10.000
+Hello everyone, my name is Paweł Wietzorek.
+
+00:10.000 --> 00:17.520
+I work with Colabora and I've been involved in maintenance of server side components of
+
+00:17.520 --> 00:20.840
+Colabora's automated testing laboratory.
+
+00:20.840 --> 00:28.320
+Today, I would like to share with you a few lessons learned from that experience, particularly
+
+00:28.320 --> 00:39.320
+related to tracking laboratories performance and pushing beyond the limits of the software
+
+00:39.320 --> 00:41.640
+that it runs.
+
+00:41.640 --> 00:45.400
+We'll start with some background information.
+
+00:45.400 --> 00:52.080
+Next I will move to interactive approaches for tracking its performance, I mean the lab
+
+00:52.080 --> 00:53.080
+performance.
+
+00:53.080 --> 00:59.680
+After that, I'll describe a few solutions for automating that and finally I will also
+
+00:59.680 --> 01:04.920
+share some thoughts on data generation.
+
+01:04.920 --> 01:12.560
+So let's start with the reason why, I mean what brought us here today.
+
+01:12.560 --> 01:20.320
+Thanks to Remi's talk, we now know and have an idea of what Lava is, what it provides
+
+01:20.320 --> 01:25.280
+for testing automation and how it supports all these efforts.
+
+01:25.280 --> 01:35.480
+Some of you might also recall a talk given by my colleague Laura at last year's FOSDEM.
+
+01:35.480 --> 01:43.360
+Laura described in her talk how the lab at Colabora is set up, what its day-to-day maintenance
+
+01:43.360 --> 01:46.640
+tasks look like.
+
+01:46.640 --> 01:54.600
+What main challenges are while running this kind of laboratory and also shared some best
+
+01:54.600 --> 01:57.400
+practices.
+
+01:57.400 --> 02:04.200
+The key piece of information for us today is that Colabora's lab is a fairly large Lava
+
+02:04.200 --> 02:13.640
+instance that is continuously growing and together with high number of devices also
+
+02:13.640 --> 02:21.400
+comes high numbers of test job submissions to process which unsurprisingly can result
+
+02:21.400 --> 02:25.560
+in higher load on server side of things.
+
+02:25.560 --> 02:29.080
+And that in fact was our case.
+
+02:29.080 --> 02:33.560
+There was no need to panic though, at least not right away.
+
+02:33.560 --> 02:40.800
+High load means that the resources that were allocated for lab purposes are in use and
+
+02:40.800 --> 02:44.400
+that's what they are meant to do after all.
+
+02:44.400 --> 02:54.240
+Interestingly, especially high load was observed on the nodes running database processes.
+
+02:54.240 --> 03:03.720
+And all of that is mostly fine until the system becomes unresponsive.
+
+03:03.720 --> 03:10.360
+This might lead to potentially unreliable lab or even unusable for higher level test
+
+03:10.360 --> 03:21.840
+systems like MESA-CI or Kernel-CI on the screenshot which other Colabora's are involved in development,
+
+03:21.840 --> 03:26.800
+maintenance and of course usage as well.
+
+03:26.800 --> 03:36.080
+My first thought was to simply estimate what resources are required for day to day operations
+
+03:36.080 --> 03:39.840
+and simply throw them at this workload.
+
+03:39.840 --> 03:46.360
+This could work short term but it wouldn't really solve the problem.
+
+03:46.360 --> 03:52.640
+To do it the right way, a deeper understanding of the root cause for all these issues was
+
+03:52.640 --> 03:53.800
+needed.
+
+03:53.800 --> 04:02.120
+And by the way, this photo is from Polish IT Olympics where hardware component throwing
+
+04:02.120 --> 04:05.600
+contest is held.
+
+04:05.600 --> 04:14.120
+And while this is hard drive throwing contest which might not be the type of resource we
+
+04:14.120 --> 04:21.320
+needed, that was the initial idea.
+
+04:21.320 --> 04:29.200
+Thanks to RemiStock we also have rough idea of what main components for Lava are but let's
+
+04:29.200 --> 04:31.280
+recap them real quick.
+
+04:31.280 --> 04:37.680
+At the very high level Lava on the server side has two main components, a scheduler
+
+04:37.680 --> 04:40.520
+and a connection to the database.
+
+04:40.520 --> 04:47.760
+If we take a closer look, those are respectively a jungle application and by default a Postgres
+
+04:47.760 --> 04:49.200
+database.
+
+04:49.200 --> 04:58.080
+These are widely known used and mostly loved software components so we can make use of
+
+04:58.080 --> 05:03.480
+several already available performance tracking tools for them.
+
+05:03.480 --> 05:09.720
+So let's go through a few interactive or semi interactive ones.
+
+05:09.720 --> 05:18.880
+As tribal as it might sound, it is equally as important to start with simply enabling
+
+05:18.880 --> 05:24.640
+verbose logging on affected instances.
+
+05:24.640 --> 05:32.480
+This way we get first insights from redoing user stories based either on direct reports
+
+05:32.480 --> 05:42.800
+from users or maybe motomo statistics collected by recent Lava releases or maybe some logs
+
+05:42.800 --> 05:51.960
+from load balancer which shows us which API endpoints are mostly used by users or which
+
+05:51.960 --> 05:58.840
+views are most commonly requested.
+
+05:58.840 --> 06:03.720
+In case of Django we get a few other perks.
+
+06:03.720 --> 06:08.040
+It's as easy as literally flipping a switch.
+
+06:08.040 --> 06:16.120
+Django for database also allows to log every statement executed on the database in debug
+
+06:16.120 --> 06:24.320
+mode and it can be also easily extended with some additional profiling information.
+
+06:24.320 --> 06:33.200
+But even though there are all these perks, all this information is a post-action information.
+
+06:33.200 --> 06:40.160
+To collect it in a truly interactive manner, fortunately Django already has us covered
+
+06:40.160 --> 06:48.480
+and provides just the right tool for this purpose which is Django Debug toolbar.
+
+06:48.480 --> 06:52.840
+It isn't much harder to enable than just verbose logging.
+
+06:52.840 --> 06:58.840
+It just requires adding an additional Python package to your deployment, set internal
+
+06:58.920 --> 07:07.560
+IPs from which Debug toolbar would be available, confirm enabling it and you're good to go.
+
+07:07.560 --> 07:15.600
+Debug toolbar not only provides great and immediate feedback but also includes traces,
+
+07:15.600 --> 07:21.680
+some additional profiling information and it gives you all of that in an easy to use
+
+07:21.680 --> 07:24.600
+graphical user-friendly way.
+
+07:24.600 --> 07:32.960
+As you can see on the right-hand side of the screenshot you even get all the requests
+
+07:32.960 --> 07:42.440
+sent, the instance and all the SQL statements run.
+
+07:42.440 --> 07:53.480
+But even though these tools are easy to enable, it comes with some drawbacks as well.
+
+07:54.480 --> 08:04.560
+These tools should not be used on any user-facing instance which brings us to setting up a personal
+
+08:04.560 --> 08:11.160
+local lava instance just for debugging and performance tracking purposes.
+
+08:11.160 --> 08:18.840
+Such a local instance would often come in a clean slate state.
+
+08:19.200 --> 08:32.800
+So with empty database with no devices and most local instances would not be able to
+
+08:32.800 --> 08:42.000
+connect to physical devices, at least not in the numbers as the production instances run.
+
+08:42.000 --> 08:51.680
+And even though we could fake multiple devices like Remy mentioned in his talk, that wouldn't
+
+08:51.680 --> 09:00.640
+solve the problem of having a database pre-populated with some additional data.
+
+09:00.640 --> 09:10.720
+We could potentially prepare a database fixture for that purpose.
+
+09:10.720 --> 09:19.640
+But it might not be particularly easy to mock the entire database like you see on the
+
+09:19.640 --> 09:25.480
+model graph for lava server.
+
+09:25.480 --> 09:32.400
+It's non-trivial task especially when it comes to keeping large numbers of processed jobs
+
+09:32.400 --> 09:34.440
+as archives.
+
+09:34.440 --> 09:40.320
+But the question is do we really have to mock the database?
+
+09:40.920 --> 09:46.920
+It is all done locally in our private debugging and performance tracking instance.
+
+09:46.920 --> 09:54.240
+Maybe we don't have to create a new database but reuse a backup from staging or production
+
+09:54.240 --> 09:58.040
+instance that we also run.
+
+09:58.040 --> 10:05.400
+And as the old saying goes about two groups of people and backups, I believe we all belong
+
+10:05.400 --> 10:09.520
+to the group that already makes them.
+
+10:09.520 --> 10:15.280
+There is also an important second part of this saying to make sure that restoring your
+
+10:15.280 --> 10:19.360
+backup works properly as well.
+
+10:19.360 --> 10:27.680
+And with reusing your PGDump output as the input for your performance tests, you can
+
+10:27.680 --> 10:36.000
+tick off this task from your administrator tasks list.
+
+10:36.640 --> 10:45.520
+Also if you base your Postgres Docker images from the official one, there is a really simple
+
+10:45.520 --> 10:54.280
+data initialization method which requires just mounting the volume with PGDump output
+
+10:54.280 --> 11:02.680
+and everything else is taken care of by the INE-DB itself.
+
+11:02.680 --> 11:08.880
+It also supports the compression on the fly for the most popular archive formats as you
+
+11:08.880 --> 11:19.360
+can see on the snippet directly from the INE-DB code for Postgres.
+
+11:19.360 --> 11:28.720
+Since we already have this database in our local instance, it would be useful to incorporate
+
+11:28.720 --> 11:36.040
+even more statistics from the database itself.
+
+11:36.040 --> 11:46.680
+For this, we could simply use PGAdmin or even PostgresQL command line tool just to check
+
+11:46.680 --> 11:54.680
+the actual runtimes and other statistics with explain-analyze queries.
+
+11:54.680 --> 12:00.560
+This would highlight for us database operation bottlenecks.
+
+12:00.560 --> 12:09.120
+And this way, having the database level tool, we would also be able to run various experiments
+
+12:09.120 --> 12:17.560
+on the database like changes in indexes or maybe adding query planner hints.
+
+12:17.560 --> 12:24.600
+It almost doesn't cost us anything just running another container in our local setup or
+
+12:25.040 --> 12:36.640
+if PGAdmin is too much, you could also opt to use the online available graphical tool
+
+12:36.640 --> 12:46.880
+which would highlight the bottlenecks for you with this heat map showing you where the issue
+
+12:46.880 --> 12:50.960
+might lie.
+
+12:50.960 --> 12:58.080
+Using this database level utility completes our tool set for off interactive solutions
+
+12:58.080 --> 13:05.760
+and while it is really important to be able to perform all those actions, it's paramount
+
+13:05.760 --> 13:14.800
+to do that again sometime soon and again and again and again and that moves us to automation
+
+13:14.800 --> 13:19.120
+solutions.
+
+13:19.120 --> 13:26.760
+By now, we know what to look for or what to watch out for in our lava instances and
+
+13:26.760 --> 13:34.840
+from user stories or bug reports or the motomo statistics or load balancer logs I mentioned
+
+13:34.840 --> 13:44.680
+earlier, we know and have specific code components to track or maybe even test cases ready to
+
+13:44.680 --> 13:46.040
+check for that.
+
+13:46.040 --> 13:56.280
+But the question is how to run those test cases to get the statistically valid feedback.
+
+13:56.280 --> 14:03.840
+We would have to take into consideration cache warm-ups, test case calibration, preferably
+
+14:03.840 --> 14:15.800
+also a way to compare between benchmark runs and it would be also great if it fit well into
+
+14:16.560 --> 14:25.320
+the test suites that are currently used by the upstream project which by the way is based
+
+14:25.320 --> 14:27.000
+on PyTest.
+
+14:27.000 --> 14:33.880
+Fortunately, it turns out that there is a PyTest feature that provides all of that and
+
+14:33.880 --> 14:35.480
+even more.
+
+14:35.480 --> 14:41.920
+In the case of lava bottlenecks found in the collaboration instance, the next step was
+
+14:41.920 --> 14:52.680
+just to wrap the test cases prepared with this fixture and wrapping the key pieces of
+
+14:52.680 --> 15:02.000
+code allowed to have benchmarks ready to run.
+
+15:02.000 --> 15:09.320
+Next step, once the test suite was prepared, was to plug it into the pipeline.
+
+15:09.320 --> 15:20.680
+Both upstream lava project and downstream lava tree makes heavy use of GitLab CI and
+
+15:20.680 --> 15:22.560
+it shouldn't be surprising.
+
+15:22.560 --> 15:24.440
+Many projects already do the same.
+
+15:24.440 --> 15:31.800
+For example, DRM CI merged in kernel 6.6 release.
+
+15:31.800 --> 15:41.040
+So currently, job definitions for those GitLab CI pipelines above the downstream one and below
+
+15:41.040 --> 15:49.560
+the upstream one don't share any reusable code.
+
+15:49.560 --> 15:54.200
+This might be subject to change in the future.
+
+15:54.200 --> 16:02.840
+For now, downstream changes are made with ease of importing them later in mind.
+
+16:02.840 --> 16:10.080
+Moving to external definitions could make the GitLab CI pipelines a bit more complex,
+
+16:10.080 --> 16:18.640
+but that's something that we'll see if it brings any value in future.
+
+16:18.640 --> 16:27.600
+Of course, GitLab CI jobs need a run environment and to get a baseline of what should be expected
+
+16:27.600 --> 16:35.320
+from benchmarks run, the easy way out is having a dedicated runner that would provide most
+
+16:35.320 --> 16:44.200
+stable results that are not affected by, for example, other test suites run in parallel
+
+16:44.200 --> 16:47.560
+on the same GitLab runner.
+
+16:47.560 --> 16:57.400
+A good choice would be to select a machine that has similar resources to a node, which
+
+16:57.400 --> 17:00.400
+your lava instance is run on.
+
+17:00.400 --> 17:12.720
+And for proof of concept purposes, I used a small desktop computer which gave just that.
+
+17:12.720 --> 17:19.320
+GitLab runners are also really easy to plug into a GitLab server.
+
+17:19.320 --> 17:26.560
+And while we are already optimizing the pipeline, we should also take into consideration caching
+
+17:26.560 --> 17:32.200
+the CI data resources for benchmarks runs.
+
+17:32.200 --> 17:38.520
+For that, we could easily use already available upstream lava caching solution, which is based
+
+17:38.520 --> 17:44.120
+on specific CI images to run tests on.
+
+17:44.120 --> 17:51.320
+But that would also mean that production data from database we used earlier is no longer
+
+17:51.320 --> 17:53.400
+a valid option for us.
+
+17:53.400 --> 18:07.600
+And we need to revisit the lava server model, which brings us to data generation, which
+
+18:07.600 --> 18:12.120
+we no longer could omit.
+
+18:12.120 --> 18:19.760
+That brought us to creating a dummy database generator, which was focused just on a key
+
+18:19.760 --> 18:27.480
+few tables and relations according to Postgres planner statistics.
+
+18:27.480 --> 18:34.120
+It was implemented with very limited scope to only support the worst bottlenecks that
+
+18:34.120 --> 18:37.320
+were found in collaborators instance.
+
+18:37.320 --> 18:45.240
+And for that, we used standard Python tools, which were FactoryBoy and Faker.
+
+18:45.240 --> 18:55.560
+As a bonus addition, you might also want to ask a few questions.
+
+18:55.560 --> 19:01.400
+Should lava actually archive all the test jobs that are run, or maybe archiving those
+
+19:01.400 --> 19:06.440
+jobs can be delegated to a higher level test systems?
+
+19:07.440 --> 19:10.440
+Fortunately, retention mechanism is already available.
+
+19:10.440 --> 19:17.880
+In upstream lava, it just required enabling it in Helm charts, which is used to deploy
+
+19:17.880 --> 19:23.240
+lava instances for collaboration.
+
+19:23.240 --> 19:31.920
+To summarize all of that, I've got three final thoughts that I would like to share with you.
+
+19:31.920 --> 19:37.520
+Constructing in testing laboratories is not a one-time job.
+
+19:37.520 --> 19:45.680
+It's a process that might differ from instance to instance, depending on your specific workload.
+
+19:45.680 --> 19:52.240
+But it's something that I hope could be easier for you if you come across the same set of
+
+19:52.240 --> 19:55.680
+issues.
+
+19:55.680 --> 20:03.800
+It also requires frequent revisiting and adjusting according to the results you see.
+
+20:03.800 --> 20:11.240
+But even small changes can bring huge boosts in performance.
+
+20:11.240 --> 20:17.320
+But that probably is a topic for another talk.
+
+20:17.320 --> 20:21.480
+And that's all I have prepared for you today.
+
+20:21.480 --> 20:22.480
+Thanks for your attention.
+
+20:22.480 --> 20:24.680
+Do we have time for questions?
+
+20:24.680 --> 20:28.680
+If there is some question, I will be happy to answer it.
+

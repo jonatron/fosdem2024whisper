@@ -1,0 +1,353 @@
+Hi, thank you for being here so early to hear about such an old protocol.
+So we're going to talk about IMAP.
+We've both started writing some IMAP libraries and we want to share experience in that.
+We've hit a few issues along the way, a few surprising things.
+Hopefully this can help you if you want to deal with IMAP as well.
+So, I'm Simon.
+I'm working on the Go libraries and he is Damien.
+Hi, I'm the main head of IWF-Code.
+Yeah.
+So the first thing you might wonder is what is IMAP useful for?
+So maybe some of you know that IMAP is used to fetch messages from a mail server.
+So if you have a mail client and a list of messages shows up, this is fetched via the IMAP protocol.
+IMAP lets you organize messages into mailboxes.
+So mailboxes is what regular people call folders.
+So inbox, archive, spam, drafts, all of these are mailboxes for IMAP.
+The main advantage on the upside of using IMAP compared to older protocols is that it's possible to synchronize from multiple clients and devices.
+So for instance, if I want to start writing a draft on my laptop and then continue later on my mobile phone and sending my mobile phone, that's possible with IMAP.
+What's the basic way you interact with IMAP?
+So it sounds pretty simple at first.
+You open a TCP connection, ideally with TLS and without start TLS.
+And then you write a command and then you get back some responses from the server.
+So it sounds simple.
+Here's a very simple example.
+Here's an example of a login command where you specify your username and your password.
+And then after that you get an OK response from the server if the password is correct and the login is correct.
+So something interesting to note before going to the next slide is that...
+I'm sorry.
+I'm going to do this, no problem.
+So something interesting to note is that there's a CMD1 right before the login command here.
+So this is what we call a tag and it's used...
+It's an arbitrary string, a sendizer client, and it's used to match up the server responses with the client's requests.
+So it's just a string echoed back by the server.
+So the client knows that the OK response is for the command, this particular login command it sent before.
+OK.
+Here's a more complicated example with a fetch command which is used to fetch messages from the server.
+So here the client sends a fetch command and asks for the message flags and message envelop.
+The envelope typically contains a subject and the recipients and stuff like this.
+And then the server sends back some replies here with responses with the first message as the flag is seen.
+So it's not unread.
+It has been marked as important.
+And then the envelope is very big, so it omitted it here.
+And the second message has no flags.
+And when the server is done sending all data, it ends with an OK response.
+Something worth noting is that here in the middle,
+you might notice that the command tag is not included here.
+There's a wild card instead.
+So this will have consequences later.
+If you ask for data, it's complicated to know if you get replies for which command it was and if it was for command at all.
+We'll see you more on this later.
+In the fetch command here at the start, you might notice the one column wild card.
+This is the way you specify which messages you want to fetch.
+And we'll see how we do this in the next slide.
+So how do we refer to a particular message?
+There are two ways.
+Both ways use a 42-bit inside integer.
+So the first way is with something called UIDs.
+UIDs are a unique ID which doesn't ever change except when it does.
+It increases when a new message is added to a mailbox.
+So if the last message in the inbox has UID 42 and you receive a new one, then it will get UID 43.
+So the second way is with message sequence numbers.
+It's an ordinal number.
+So if you use sequence number one, it means the first message in the mailbox,
+sequence number two, second email in the mailbox, and so on.
+And it goes the same way as ICOIDs, like the oldest message added to the mailbox is the first one.
+So something interesting is that the sequence number, they get reassigned by some operations.
+For instance, if a message is deleted from a mailbox, then the sequence number shifts a bit.
+So here's an example of a mailbox with three messages, one with UID 4, one with UID 6, one with UID 12.
+And if the UID 6 is removed from the mailbox, then the first message stays with UID 4.
+And the second message is none of the UID 6. It's now UID 12.
+So the meaning changes depending on the state.
+Another detail is that message data is immutable.
+So if you fetch message contents, it will never change.
+If you want to edit a message, you need to re-upload it and then delete the old one.
+So this was to refer to a single message and we can also refer to multiple messages with something called SET.
+The simplest set is just one message. So here's just sequence number one.
+Here's another example with a column. You can say messages 2 to 4 inclusive.
+You can specify multiple ranges like this, like 2 to 4 and then 6 to 10.
+And the last one is 1 to wildcard. It means 1 until the end, until the last message.
+That's it for the IMAP introduction. Now we can go into the meat of the presentation.
+Do you want the microphone?
+Is it on?
+Okay, so let's go through all these layers.
+The first layer is types.
+So what's there to tell about types? A few things.
+Probably your journey as an IMAP developer will start as either a client or a server developer.
+So it's kind of tempting to try to implement only half of the standard and to a certain amount.
+This is possible because as a client developer you can implement command serialization and response parsing only.
+And as a server developer you can implement command parsing and response serialization only.
+You can kind of pick only half of the routines that you would need.
+But the IMAP standard has quite a few of overlap between commands and responses.
+So there are many types that you need to define and many parsers that you need to define and serialize.
+So you won't end up anyway with implementing 50% of the standard but more like 70, so to say.
+So my suggestion would be to structure your code so that you can easily extend it to the other side afterwards.
+For example using a shared module.
+And if you are lucky and someone will provide the missing side to you and you have parsing and serialization handy,
+you can do kind of cool stuff because you can first generate a random message
+and then ensure that parsing and serialization is inverse to each other by doing randomized tests.
+So there's a pretty powerful kind of unit test for it.
+At least for me it helped a lot as you can see at the bottom.
+Complicated stuff. Complicated bugs.
+Yeah, perfect.
+Okay regarding syntax, oh my.
+I will quote Mark Crispin from the IMAP protocol mailing list because I think
+it's not that bad but you need to be in a certain state of mind when doing it.
+Alright, let me think now I'm a bit tired today.
+But first and foremost the formal syntax should be your holy book.
+If any part of the syntax distracts you from the formal syntax, you should ignore it in favor of the formal syntax.
+Your eyes will glaze over and your jaw will drop.
+You can start saying no, no, no.
+Just work through that stage.
+It's a steep hill to climb but once you make it to the top you will see everything with crystal clarity.
+And remember, no matter what you do, do not try to implement any command or response by looking at the examples.
+And he's what Mark said, so he's right.
+I would add that before reading the formal syntax you need to learn ABNF and I mean you need to learn it by heart
+because there are some subtle things you need to be aware of.
+And regarding lexas and parsas, I think we agreed when talking about this things.
+IMAP makes in some places the impression that there are things like tokens saying arguments invalid
+meaning that there could be some generic argument.
+I had a very hard time to figure out what should a token be.
+So there are no words on what constitutes a token and I think Simon in version one tried it and got away from this approach
+or used a different approach in version two.
+So I don't know, maybe someone has a better idea but for me you cannot lex the IMAP syntax.
+And another recommendation, even the syntax has layers.
+So first of all you have the ABNF corals that are described in the ABNF standard and referred in almost any rule.
+And then you have these IMAP strings which make everything kind of messy.
+As an example, you see this is the lock-in command, looks kind of simple.
+And then you have this innocent looking A string thingy in there which is for example here the username and the password.
+And an A string is in fact one of three types and one of two protocol flows.
+So you have A string means either an atom or a string, more or less or some IMAP quirks.
+And if it is a string it can be a quoted string or a literal.
+And literals do require special care when implemented.
+So as a simple example we will start with password.
+It uses only a very simple character set so you can just write exactly these eight bytes as an atom.
+If you have a white space in it you need to put quotes around and if you have a quote inside quotes you need to escape the quote.
+So it is similar to programming, most programming languages.
+And if you have a literal, obviously if you have a new line in there, this would be the obvious case,
+you need to use these prefix here in curled braces and then you just send exactly the bytes that made up your string after a new line.
+With a twist as we will see.
+What we will glaze over today are ambiguities and defects and I had a few discussions already about this one.
+So I would very much ask everyone if you find some defect in IMAP please report it to us.
+We really want to start a collection on all of these things.
+And one thing I finally wanted to say, I quoted Mark Crispin from this thread,
+but if you now will go to the internet you won't find it.
+So the IMAP protocol, at some point it's not available anymore due to reasons.
+So and for me the only lucky thing that happened was that someone I know, it's the maintainer of the Mealy email client,
+he had this super cool online interactive WebAssembly demo and he used the dump as test data.
+So that was the only reason I could read it.
+I guess the thing I want to say here is let's try to be aware that knowledge is disappearing
+and maybe try to resurrect the IMAP protocol mailing list because it's awesome,
+it's like a travel trove of information.
+Okay, then let's go back to framing.
+So...
+Oh, everything tanked up.
+Yeah, I'm back again.
+So we're going to continue to talk about some higher level layer.
+So flow and framing, but by flow and framing we mean how does one split the IMAP stream into separate commands and responses.
+So this is pretty simple. This seems pretty simple at first.
+Here's a simple example, similar to what we've seen.
+Log in command at first and then the server replies okay and then the client sends a select command
+and then the server replies some data and then replies okay.
+So one may think, yeah, it's pretty simple.
+You just need to split a new line and each line is a message basically.
+And then literals happened.
+So here's a slightly more complicated example where the client sends a login command, the username,
+and then the password is passed as a literal.
+So first there's a number of bytes and then the next line there's contents.
+So here what's interesting is that these two lines are a single logical message.
+The second line here sent by the client is still part of the login command.
+Another interesting thing is that in between here there's a plus sent by the server.
+This is because the server needs to acknowledge literals.
+So when the client sends the first line here, it says, hey, I want to send a literal with six bytes
+and then later the server has to reply, yeah, you can go on with this plus and then option and comment after that.
+The client needs to wait for the acknowledgement before sending the literal data.
+Okay, so that's interesting.
+Let's try to look at only one side of the connection.
+So here let's try to look at only the client side and see what happens.
+So we can still make sense of everything here, like login with the literal and the next line and no op.
+Is this valid by the way?
+This sounds a bit weird, right?
+The client sends the username and then announces the literal and then the next line here,
+it sends a completely different command.
+It's not the password or anything.
+Is this valid IMAP even?
+It turns out that yes, it's completely valid IMAP because if the server replies no to the first line the client sends,
+then it can send the literal.
+It says, I don't want your literal.
+So basically what I'm trying to say here is that it's not possible to pass IMAP just looking at one side
+because you can't make the difference between this case and this case here, whereas the server rejects the literal.
+So you need in your IMAP password to have some kind of feedback from the other side of a connection to know what happened.
+And so one may think that we don't really need to wait for the server to acknowledge the literal.
+We can just send the command and the literal in one go and forget about it.
+The server will probably reply, okay, we'll probably acknowledge the literal in any case.
+So here's an example of what could go wrong if you don't wait for the server acknowledgement.
+Maybe you have a web form on a page which lets the user save a draft in their mailbox.
+And maybe the literal contains like, may contain some text like this which are valid IMAP commands.
+So if the server happens to reject the literal, then these lines are interpreted just as regular IMAP commands by the server.
+And these lines delete everything from your mailbox.
+So that's not great.
+And this can be potentially inserted into HTML email hidden and HTML on a single line.
+And yeah, if you reply to the email, you just use everything.
+So yeah, it's pretty scary.
+So to recap everything, something I haven't mentioned is that literal can appear basically anywhere.
+We've seen in the login command, but it can happen in the search command.
+There can be many literals for a single command.
+It's limited to one.
+So literals interrupt completely the regular syntax.
+You have to pause the parser from the server side or the client side if you receive a literal.
+And then wait for the other side to reply, yeah, go on.
+And then you have to resume the parser.
+And the literal can be nested into a list or nested into something else.
+So it's kind of complicated to do, especially if you're using, for instance, a parser generator or something.
+So we can pass IMAP just by looking at the single side of the connection as we've seen.
+And it's important to wait for the server to accept literals before going on or security within.
+So another aspect of the flows we want to talk about is commands such as authenticate.
+So authenticate is a command that lets the client use Sassel authentication.
+Sassel is a binary protocol.
+And to authenticate in a modular way, you have several mechanisms.
+So here's an example of a plain mechanism, which is a simple one with username and password, but there are those as well.
+So basically the idea is that you get a binary message and code it to base64 and then send it over.
+And the interesting thing here is that, so the client says authenticate command, the server says go on,
+you can continue the authenticate command.
+And then the client sends just base64, like the, what?
+This is not a regular IMAP command.
+This is just base64.
+There's no tag.
+There's no command name.
+It's just like the base64 data as is.
+It just interrupts regular IMAP syntax with completely something else.
+And IDOL does something as well similar to this, where client sends IDOL, server says go on,
+and then client can just send the ASCII string down like the four bytes down.
+And it's not an IMAP command or anything.
+It's just like an ASCII string.
+Start CLS and compress are kind of similar in the way that when you start these commands,
+it interrupts a regular IMAP stream and wraps it up with CLS or compression mechanism.
+So these are fun to implement as well.
+So in summary, for the flow section, IMAP demands you to conflate your passing with business logic
+with higher level details.
+So you cannot have a pure password in its own little module isolated from everything else.
+You need to wire it up with the rest of the IMAP library.
+It's kind of special in this regard compared to other processes.
+Okay, now on to operations and semantics.
+So let's talk about fetching messages again.
+There are multiple things you can request from the server to fetch messages.
+So basic example, the envelope we've already seen.
+Body structure is if you request the MIME structure of a message with a tree of nested parts.
+If you have attachments for example.
+And then to fetch the message body, you can use body square brackets.
+If you just request body square brackets like this example, you get a full message body.
+So here's an example, very simple message with two header lines and then a simple text.
+So yeah, if you fetch the body square bracket, you get everything.
+If you want to fetch only the header, you can use body square brackets header.
+And then you get only the first two lines.
+And you can request only the text of the message.
+So the howdy part here with the text modifier.
+But you can do more complicated stuff as well.
+Oh my.
+Yeah, maybe I'll go very fast on this one.
+You can fetch particular header fields.
+You can fetch sections, bytes, substrings of the results.
+You can fetch, if you have a multi-part message, we have an example with two parts.
+So the main part, the first sub part, the second sub part with an attachment.
+Then you can fetch only the first part here.
+So the counter disposition in line one.
+Or you can, here this one is interesting because it returns nothing.
+A header actually doesn't work in nested parts.
+You have to use a special keyword called mine for some reason.
+And then if you have a message attached to a message, then you have a section of the RFC
+dedicated to this particular use case.
+Like something everybody does every day, I think.
+Messages into messages, like Russian dolls.
+The last thing I want to talk about is unilateral server data.
+That's another simple example of a fetch command where you want to fetch the body of message one.
+And then the server replies, yeah, here's the body of message one.
+So everything's fine.
+Let's say another client happens to mark the first message as important.
+So the way this works in IMAAP is that the next time you execute a command,
+then the server replies here in the middle.
+Hey, by the way, the flags of the message one have changed.
+Even if you didn't ask for it, just before completing the command, it sends this data.
+So what happens if another client changes the flags of message one
+and you happen to send a fetch command right after this happened?
+Then you get something like this where the server replies first the body of the first message.
+Like hello world, like before.
+And then you get something interesting where you get another fetch item for the same message,
+but something you didn't ask for at all.
+So...
+Yep.
+So it's not possible to think of IMAAP as you request some data and you get back some data.
+It doesn't really work like this.
+You can think of it as you request some data and then the server pushes some data into you
+whether you want it or not, and you have to deal with it.
+And as a client, if you ignore all but the last reply from the server
+for the fetch message you asked for, then you won't get the body here.
+So it's something to look out for.
+Okay, last topic, extensions.
+These are a bit interesting.
+In GoaMAV1, I tried to implement extensions as a very modular thing, which you can plug.
+But extensions turn out to be more like amendments.
+Like fundamentally alters IMAAP syntax, flows, operations, everything we've talked about.
+Idle and compress are examples that add completely new flows.
+So Idle switches to a completely different mode than you need to send a downed SQL string to switch back.
+And compress, yeah, just wraps the connection with something else.
+And then you have another kind of extension like extended list,
+which modifies an existing list command and adds some arguments in the middle
+to add more options for the clients.
+The search extension for extended search, it changes how the reply looks like.
+So you send a regular search command and then you get some completely different kind of reply.
+And then the literal plus extension completely changes how literals work.
+You get a new syntax that you need to pass.
+So yeah, this doesn't work at all if you try to implement it as a modular thing.
+IMAAP is completely mononit, if you want to implement extensions that implement everything in the same repository.
+It will help a lot.
+All right, that's about it. Unfortunately, we don't have time to talk about everything we wanted,
+but it should be a good start, I hope at least. Any questions?
+Thank you very much first.
+I see a first arm.
+Yeah, quite immune. It really helps you at the time.
+Hello. Thanks for the talk and thanks for the library too.
+I think we're using it quite a lot.
+Thanks for the talk and thanks for the library.
+Oh, okay.
+Yeah, yeah. My question is like, you said like, sometimes you get responses from the server.
+You're not even asked for, does the server also send without asking?
+Does the server also send data without asking?
+So it kind of.
+I mean, if you, it will only send data right before it, right after it, sorry, let's go from the start again.
+It will not send data on its own if you don't send any command.
+You have to send a command and then you reply to the command and then add its own unilateral responses to it,
+which can be a bit arbitrary. Like it can be anything, really.
+It's usually at the end of the, just before the okay response, you get some extra data and you have to somehow maybe distinguish it from the regular data.
+But yeah, it doesn't really work in practice.
+I was glad to have you.
+Yep. Oh, yeah, yeah, yeah.
+I just added that on a little bit.
+So the IMAP standard is quite specific regarding and it says you need to be able to receive any response at any time.
+So it's quite, it has in the standard, but us doing practical things.
+The thing we learned is that you should not trust anything that's in the standard and to the best of my knowledge, most servers don't.
+So you have, there are exceptions, for example, by, by respond, by untact, like when the server do a shutdown.
+Yeah, as answered, maybe if you can explain a bit more, but to the best of our knowledge, most people doesn't do it because at least when we tested some clients, many clients,
+and I mean, I mean, like the most of the clients, they crashed when we sent this.
+So I think there's a reason why it's not so common in the real world.
+Okay.
+Okay. Just wanted to say that if you consider the client server interaction more like that the client told the view about the server and then the server updates the view whenever you send a command, then it starts to make a bit more sense.
+Yep. But it can be hard to architecture a client with, yeah, against this IMAP concept.
+Like sometimes you don't want this kind of thing.
+But it's good.
+But yeah, it's a good mindset for sure. Yeah.
+All right. Any, any.
+Is the only, having regarding IMAP as a cash fill protocol where the client has a view and the server fills in the client's view is the only way to write an IMAP client that will preserve your sanity over years.
+If you try to, if you try to act as though this were a web server, you will have and this works over the years.
+Each new server will surprise you in some way. Painful. Don't ask me.
+Well, your code is.
+All right. Thank you very much. And thanks again to the two presenters and we come to the next talk.

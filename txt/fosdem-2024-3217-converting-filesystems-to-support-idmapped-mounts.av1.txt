@@ -1,0 +1,762 @@
+Hello, my name is Alex, I work for Fogunonical.
+I have a pleasure to work on Lexi project
+and do a lot of container stuff in the kernel
+and user space.
+We have been working on that new stuff
+about ADMapetMal and support for some file systems
+together with Stefan and with Christian.
+So today I'm gonna talk about
+the problems that we faced when we started
+to actually look into the network based file systems
+and how to support ADMapetMal for them
+because it's kinda hard sometimes.
+First of all, I'm not sure that everyone knows
+everything about that stuff, so I want to give some intro
+about how it works currently.
+And yeah, if anyone, if anybody there,
+we were listening to our previous talk
+about isolated user space stuff,
+please forget that for the next 30 minutes
+because that's a new feature.
+But this stuff is about stable API that we have
+in the kernel since I guess 5.11 or something.
+So that's more about supporting more file systems.
+So we don't do these isolated user space stuff in here.
+First of all, we need to understand that we have three
+types of ID mappings in the kernel.
+First one is the callers ID mapping,
+which effectively taken from the user namespace
+and from the current user namespace.
+User namespace attached, you can get the pointer
+to user namespace from the struct cred
+and you can get the pointer to struct cred
+from the task struct.
+Right, so if you're calling any kind of syscall
+in Linux kernel, you get a current task
+and so you can get a current user namespace.
+So we have a macro in the kernel to get that.
+And even if you're not doing any kind of container stuff,
+even if you're not using user namespaces,
+you're always invisibly using that
+because you're using the default mapping,
+which looks like zero zero in this big number,
+which is effectively the largest unsigned integer.
+And what does this means?
+The first number is the user ID inside user namespace.
+Second number is the user ID outside of the user namespace
+and effectively the length of this mapping.
+So this mapping is the identity mapping,
+which means that we effectively map zero to zero,
+one to one and so forth.
+Next thing that we have when we are working
+with any kind of EFS stuff is the file systems ID mapping.
+It's also represented as the user namespace
+because it's the thing that we are attaching
+to the super block of the file system.
+So when you're creating a new mount,
+let's say for example, for X4 file system,
+you have a block device, you're creating a new mount
+and if it is the first mount for this file system,
+not a bind mount, I mean,
+then the super block gets allocated
+and on the super block structure,
+we have a field called SC user NS
+and this field gets filled with the current user NS.
+So when you do a mount,
+it takes the current user namespace from your current task
+and puts that into the super block.
+And that's the file systems ID mapping,
+which means that if you're, let's say,
+inside the container with some user namespace
+and you do a mount, so your super block
+will get this user namespace effectively
+from your containers user namespace.
+And that's a pretty old stuff actually
+because I believe that it was from the beginning
+of the when the user namespace
+is very introduced many years ago.
+And third thing about we are talking today
+is the mounts ID mapping.
+Mounts ID mapping is the concept
+a little bit more high level
+because instead of being attached to the super block,
+we have the mount, we have the ID mappings
+attached to the mount.
+So it means that you can, for example,
+create X for file system on top of some block device,
+then do a bind mount and you can do this bind mount
+with some ID mapping attached to it.
+And once you get any kind of IO
+through this ID mapit mount,
+you will get some extra translate,
+UIDJ ID translation layer inside the VFS,
+inside the generic VFS code.
+And then this, all of that goes through the file system
+in mapping and then all of that gets written to the disk.
+So that's how it works.
+So important to mention that all the time
+when you're interacting with the kernel
+from the user space and if you use any kind of C-scores
+like start get UID, get sock opt for instance
+with the option so peer create
+which allows you to get the PID and UIDJ ID
+of the peer socket,
+you will get these values mapped
+in accordance with your current user space.
+So the callers ID mapping always get,
+always taken into account everywhere in the kernel.
+And for example, if you, so yeah,
+that's effectively all the examples
+and also we have the same in proc PID status file
+and all that stuff.
+So let's take a look what happens
+when you for example, take the get UID C-score
+which is probably the simplest one.
+Inside the kernel we have a few helpers
+to convert between the user space,
+user ID that we can work with inside the user space
+and with the internal representation of user ID
+inside the kernel because inside the kernel
+we have two types, UID T and K UID T.
+UID T is the user space one effectively
+because it's just a 32 bit thing.
+And K UID T is also 32 bit thing,
+it's the same in size,
+usually they contain the same value
+but K UID T is the value that represents the user ID
+always in the initial user space.
+Which means that for example,
+if you are inside the container with user name space,
+you have the, let's say user ID inside the container zero
+and if you have the corresponding user ID on the host,
+let's say 1000, then K UID will have the value 1000 always.
+But once you call the get UID C-score
+from the context of the process of the task
+that runs inside the container, inside this user name space,
+this function called from K UID Monct will be called.
+And the first argument of this function
+is the current user name space
+which effectively the time thing
+that represents the UID mapping.
+And second argument is the current UID
+which will be the K UID T value which is equal to 1000.
+And this function called from K UID Monct
+will try to effectively remap this host visible value 1000
+to the appropriate value inside this specific user name space.
+It will be zero in our case
+because as I have explained in this case,
+let's say we have like mapping of zero inside the container
+to 1000 on the host.
+And so you will get the zero finally, yeah?
+And this function has a pair function called from K UID.
+And the difference between these two functions
+is that from K UID is like more like internal one.
+If we fail to represent the internal K UID
+in terms of some user name space UID range,
+the from K UID function returns minus one
+which means that something terribly wrong.
+We can't really represent that ID inside
+this user name space which is possible.
+For example, if you have the username space
+with that maps only like 1000 to zero
+and if you have the user ID let's say 2000 on the host
+you can't really represent that
+is any reasonable value inside, right?
+And if you call the from K UID it will return minus one.
+But function from K UID month it does the trick.
+If the from K UID returns minus one,
+it takes the overflow UID and returns that.
+That explains why we have these interesting stuff
+with like if you have the,
+if you try to access the, for example,
+the container file system from the host
+or that has another ID mapping
+and you will see this strange nobody user.
+That's because this function is used everywhere
+because we can't really give the user space
+with this minus one.
+We always, the user space always expects us
+to give the normal user ID, reasonable user ID.
+And also we have a helper called make K UID
+which effectively does the opposite thing.
+It takes the user space UID
+and creates the internal representation of it
+for the kernel.
+The same, we need to give,
+plug the current user space, current ID mapping
+to this helper and give the user space value.
+And that's what happens inside the set UID cisco.
+If you plug the let's say value zero,
+let's say one inside the user space to that cisco.
+Inside the container it will go like
+make K UID current user space one.
+It will go to the UID map
+and it will try to find that okay,
+this one is for what?
+And if it fails to do that, then okay,
+we get gain well.
+And so the set UID will not allow us to set this UID
+because it's not mapped.
+But if you have a mapping like zero, 1002
+which means that you have mapped zero and one,
+then they succeed because the end K UID
+for that thing will be 1001 on the kernel
+and everywhere it will be represented like that.
+But once you, until you do the get UID
+or something like that.
+For file systems, what we have for file systems?
+For file systems we have,
+it's about super block ID mapping, right?
+We have two important helpers.
+One helper effectively takes the I node
+and tries to get the user space visible UID
+so the normal UID.
+This function called I UID read,
+but in fact it called on the right path.
+There is no mistake, that's perfectly fine
+because we are reading the I UID value from the I node.
+That's why it read because we read this value from I node.
+But of course it's called on the right path
+because when the file system driver wants to write
+the UID on disk or let's say send it over the wire,
+in that for file systems like this.
+We need to call this to get properly mapped
+to remapped user ID that we can then send over the wire,
+put on the disk and forget.
+And we have a second helper called the I UID write
+which does the opposite.
+It takes the I node, it takes the user space visible,
+normal classical UID that we supposed to work with
+and does the same as we have seen in the set UID system.
+It calls the helper called make I UID,
+but instead of taking the current username space,
+it takes the username space from super block.
+And second argument is the value.
+So let's say if you create a file on the file system
+at first from the user ID like one,
+so you will get that.
+Like it will take the value one and plug in there and so.
+This K UID will be written into the I node I UID field.
+And finally we're getting to the point
+when we can take a look on the whole picture
+like how it works together with the amounts ID mapping.
+Okay, imagine that we have the caller UID 1000.
+And this caller wants to create the file
+on the ID mapped mount.
+And we have these three ID mappings in place.
+We have the caller's ID mapping which is okay,
+which is something that we have been discussing right now.
+We have file system in mapping which is the,
+in this specific example,
+which is the identity ID mapping
+that does the zero maps zero to zero one to one,
+two to two and so on.
+And we have a new thing, amounts ID mapping,
+which maps effectively zero to 10,000
+and has the length 10,000.
+So we have like 10,000 UIDs mapped with this shift.
+So the second thing is that effectively the shift value.
+So the zero goes to 10,000, one to go to 10,000, one and so.
+And what will happen in the kernel in this case
+once we try to create the file?
+First of all, we will create the internal representation
+for the user ID 1000, which will be 11,000, right?
+Small remark is that effectively in the kernel,
+to be honest, we all the time work only
+with this KUID thing.
+So it means that technically,
+when you calling the file system,
+CIS calls like let's say open with OcreateFlock,
+the first step is not gonna happen
+because we already have these values on the struct cred,
+but it's easier to think about it like that
+just to understand how much different mappings
+we have in this place, right?
+And second thing is that we need to,
+we need to apply this new concept, mount id mapping, right?
+We need to take the mounted mapping
+and perform effectively the reverse operation.
+We call the front KUID,
+we take the value that we've got
+from the collars ID mapping,
+and then we do this mapping in accordance with this
+this definition that we have.
+In this case, we are mapping the KUID 11,000, remap it,
+and what we get, we get 1000, right?
+Which is obvious.
+And then once we want to create the file on the disk,
+we need to get the IUIDT back, right?
+So we need to go through the file systems ID mapping
+which is attached to the super block
+to get the IUID that will be written on the disk.
+And so in our case, fortunately,
+we have the identity file system ID mapping
+which means that okay, we have user ID 1000,
+it goes to 1000, that's all.
+But let's think about another example,
+if we have the, for example, mapping like U0 K1000,
+in this case, we can remap that value, right?
+Because if it goes like U0 K1000, we fail
+because this U1000 is not in the range of this mapping,
+but for the second one, U1000 K0, we can remap
+because the corresponding user ID will be zero,
+but in first place, we can't.
+And what happens if the VFS generic code realizes
+that it cannot remap the value?
+It will give you the E overflow error.
+So that's the reason why you can get E overflow error
+when you're working with ID mapping, not only.
+Even if you're not using ID mapping,
+if you're using just normal mouse,
+what you're trying to, for example,
+to write to this mount from the another user space
+with another color ID mapping which is incompatible
+in terms of ranges of user IDs
+with this mount file systems in mapping,
+you can get this E overflow error.
+So that's the really complicated behavior,
+but that's how it works.
+We have no alternatives, actually, right?
+So you can create ID mapping mounts
+using these effectively two options.
+We already have the new feature
+that allows you to use the classical
+util Linux mount utility to create ID mapping mount,
+but in most distros, I don't think
+that it actually works right now
+because it's too recent, it's like one year
+or something like that.
+So I'm always using the Christian utility
+for to create ID mapping mounts.
+And internally, it just uses the syscall called mount setutter
+to set the ID mapping on the mount.
+And so you can, you always need to specify
+this attribute with the username space file descriptor.
+So we're always getting the, at least these days,
+we're always getting the IUID mappings
+and GUID mappings from the username space
+because username space, we have the way
+to actually set user ID mappings and JD mappings
+to the user space, from user space using the proc files,
+right, that's the reason.
+So currently we have support for all of these file systems,
+but if you take a look on the list closer,
+you will notice that most of them are local ones,
+so it's like the X4, better FS, XFS and so on.
+And recently we have been working
+with Christian and Stefan on the CIF support.
+Christian did the major work a few years ago,
+created the first implementation of that,
+but unfortunately it get lost in discussions
+and it wasn't merged, so I asked the permission
+to continue work on that because it was kind of important
+for our containers applications.
+And I get some rebate stuff and also we decided
+to use a little bit another approach to make it work.
+I will explain that a little bit later.
+So starting from 6.7 you can use the ID map mounts
+which is CIFFS, and yeah, CIFFS is the only
+network file system in this list, so.
+How to port the file system?
+The very naive way to do that is to just go
+through the file systems code, find all the places
+where we have like no M&T map,
+which means that this file system id mapping
+is not defined, so there is no id mapping.
+Replace it with the id map identifier,
+which is passed almost to all the VFS API functions
+from the generic VFS code.
+And then also replace the current FSUID,
+which gives you the KUID from the current user.
+And with the mapped FSUID, which does the same,
+but takes into account the id mapping.
+And also raise the FSUID map flag
+on the file systems definition.
+But no, that's not that simple because you need
+to be really, really careful with that stuff,
+otherwise you can really break things
+and or even open to some vulnerabilities
+or something like that.
+So the reason for that is that, okay,
+I would suggest that if you want to try
+to try and porting some file system to support
+id mapping, especially the network one,
+you need to go through the code of X4
+as a really, really good example
+because X4 file system is like very complex one.
+It has many features.
+For example, you can do the overlay FFS on top of,
+and use the X4 as a one of the layers for overlay FFS.
+And for example, the rename callback on the X4 supports
+really interesting rename mode called rename whiteout,
+which effectively when you rename the file,
+usually it disappears on the previous place
+and appears on the new place, right?
+But in this case, on the old place
+where a file supposed to disappear,
+it creates the so-called whiteout thing.
+So this is effectively the share character device
+with the major and minor numbers zero.
+And that mode is enabled only when you call the rename
+from the overlay FFS.
+And I guess that only for that reason,
+this rename callback and VFS takes the id mapping
+as an argument because in all the other file systems
+where we have no support for that,
+we can't really use this id mapping in any case
+because we don't need one.
+Yeah, also you need to pay attention in the getutter
+because getutter what it does,
+it's effectively what is getting called
+in the file system driver when you call the statistical
+because getutter reads the attributes,
+fills the case, utter structure in the kernel
+with all the data like size, like user ID,
+JD stuff and all that.
+And you will definitely need to take id mapping
+into account in this place to get proper user IDs
+and JDs reported to the user space, right?
+Also there is a permission callback
+which effectively does all the permission checking
+unique spike in the kernel.
+So you need to also properly pass the id mapping in there.
+If you use, if the file system that you want to convert
+uses the generic permission helper,
+then you just need to pass the id mapping,
+check that everything really works
+and that's pretty much all.
+But sometimes it's not the case
+because some file systems will see that later,
+use really, really weird machinery to check the permissions.
+And also get ACL stuff and that's pretty much all
+for read code pass, but for write pass,
+the most important pieces is the,
+obviously the places where are we creating the new inodes,
+right?
+So that's the MK node, sim link,
+MK dear, atomic open and create.
+So we need to take into ID mapping into account
+in all of these places
+because we actually write the UIDs and JIDs.
+That's it.
+And set other which is getting code from,
+for example, challenges call, right?
+So you need to, as the challenges call takes the user IDs
+and JIDs from the user space,
+you need to properly remap them and write to the attributes.
+So that's, so for local file systems, as I said,
+you really need to take the X4 or better first or something,
+just carefully read the code.
+Be absolutely sure that you understand how it works
+and then go for the other philosophy that you want to support.
+Which problems we can have and we really have.
+First of all, some file systems,
+especially in Torque Ones, they,
+obviously in Torque Ones,
+they do the permission checking on the server side,
+which is really bad because what we want
+is to ID map it, map it mounts,
+is the local feature of Linux kernel.
+We don't want to tell the file systems remote server
+to be aware about that we have this crazy,
+interesting Linux specific stuff
+because the theoretically user may be
+from another operating system, right?
+So if we want to, if the file system does some UID,
+JID based permission checks on the server side,
+it means that we need to extend the on wire protocol,
+pass all of this ID map stuff over the network,
+write some logic in there, so that's not work usually.
+Effectively for a few file system,
+which is not the network one,
+but it almost the same as network ones, right?
+Because you have the user space demon,
+you have the kernel, kernel is effectively the client,
+and user space demon is effectively the file system,
+and the client, the kernel just takes the information
+from Cisco, does something with that information,
+produces the request, send it over the fuse device,
+and the user space read that,
+and so if we want to do all the permission checks
+on the user space side,
+and if you want to support ID map it mounts,
+we need to pass these ID mappings over the,
+so we need to extend the protocol that we use
+between the user space and kernel space for fuse, right?
+Also some file systems,
+it's also about fuse effectively,
+some file systems can do,
+some can allow you to completely disable
+the standard permission hook permissions,
+so effectively implemented almost like an empty thing,
+that just allows everything,
+and then do all the permission checks
+on the level of the I know operations,
+and the problem is that,
+I can remember that I have seen that
+in the while I was working on Ceph,
+is that in Ceph it's possible to set the configuration
+based on the path to the file,
+and specify the user IDs and JDs
+that actually allowed to read the sub directory,
+it means that you have the combination
+of permissions checking on the Linux kernel side,
+then you have some permission checking on the kernel side,
+on the server side, I'm sorry,
+which is the remote server with another kernel,
+which does not know anything about this stuff, right?
+And they do checks almost everywhere, even for lookup,
+and why it's bad for lookup?
+First of all, because lookup,
+I know the operation does not have ID mapp argument,
+and it's not obvious why it doesn't have,
+but the reason for that is that the usually lookup operation
+is getting called from the slow lookup pass
+in the kernel, right?
+If you have the pre-cached to dentaries for some pass,
+then we won't go to this lookup callback,
+instead we will just take the dentary,
+and it means that if you have the permission checks
+inside the lookup, then everything will depend on that,
+if you have this dentary already or not.
+So if you have not, then you go to the lookup,
+then you do the permission checks.
+If you have this dentary cached already for some reason,
+for example, if this dentary was accessed
+from another mount with another user,
+then these permission checks won't happen really,
+that's bad, right?
+That's why we want to have all the checks
+in one place, ideally, for this stuff.
+And of course, some of you can say that,
+okay, in this case we can do some permission checks
+and derevalidate helper, which is always getting called,
+yeah, to derevalidate, but not,
+because we don't want to do that, I guess.
+So, yeah, and also, third case that I've almost forgotten
+about is that some file systems has the local feature,
+really, really close ideologically
+that what we have in Linux,
+that does some UID-JD mappings
+on the level of the file system itself.
+And that's also a problem because I personally
+don't understand how to combine all of that together
+to make it work properly.
+Yeah, in third case, what I have found is that
+we have the combination, effectively,
+of the classical permission checks
+and the server side checks.
+Speaking honestly, we decided to forget about that
+because we just decided that if someone uses
+the IDMAPitMounds, we clearly say that, okay,
+you don't want to use the server side permission checks
+in this case, just disable that, just trust the kernel,
+just trust the client because,
+Ceph really trusts the client.
+If you have the key to interact with the MDS server,
+you can do anything.
+So there is no real reason to do some additional checks
+because you can, if you have the user ID checks
+on the server side and if you have a client,
+this client can give you any UID, right?
+So it makes no sense to check that
+because this information is not like,
+trustworthy so.
+So in third case, we have this lookup problem
+which is okay because it's only actual for this case
+when you have some additional setup,
+some additional configuration.
+And the third one is that for some reason,
+most, I guess historically, is that
+Ceph uses current FSUID everywhere
+to get the current user ID.
+Yeah, thanks.
+To get the current user ID, but what we want usually,
+we want usually to take the credential structure
+from the file because when you open,
+when you are opening the file descriptor,
+the credential structure from your current task
+gets stashed to the struct file structure.
+And then we expect that if you do, for example,
+the right syscall or itsyscall on this file descriptor,
+then everything, all the permission checks will be done
+in the relevant to this credential structure
+that we have on the file.
+And you may ask me why it's so important.
+It's important if you want to pass the file descriptor
+over the Unix socket or if you, for example,
+opening the file descriptor while you are privileged,
+but then you do some capabilities, drop things,
+or set your idea or something,
+and you lose your privilege effectively,
+privileges effectively, and so that can be a problem.
+But I was, to be honest, I decided not to send fixes
+for that because I don't want to break any real
+user space application.
+I don't know, maybe someone relies on that.
+So that's technically not ideally correct,
+but you will see.
+So, yeah, I effectively covered that.
+Yeah, what we decided to do,
+we just ignored these problems
+with the server side permission checks
+because we can't really do anything with that.
+And we were asked by the CFFS folks,
+CFFS maintainers, thanks, by the way, thanks to them
+for help, for reviews, to Viennkischenkartus,
+Huboli for helping with that
+because they were reviewing that stuff,
+especially the user space one,
+because I was forced to extend the on-wire CFFS protocol
+and add some extra UID and JID fields
+for the Inode creation operations.
+And of course, all of that was done
+in the backward, forward, anyhow compatible way,
+not to break anything.
+Yep, and what we are doing right now,
+we're currently working on Fuse,
+I have already sent a series of patches
+that enables support for Fuse.
+Unfortunately, only for the mode
+when we have the default permission set,
+because as I said, if you have the Fuse mount
+without this flag called default permissions,
+then effectively the permission callback
+is almost empty, it just allows everything.
+And in this case, Fuse file system expects
+that the user space will do all the permission checks
+in the user space, which is a problem
+because we can't handle that properly.
+And also, obviously Fuse protocol
+that between the user space and kernel play
+was extended to send these UIDs and JIDs
+over the wire, let's say.
+Yep, also in addition to this series,
+I wanted to be absolutely sure
+that this really works properly,
+so I have taken the three not random,
+really not random file systems.
+Overlay Fuse Fuse just as a good and relatively simple example
+for this specific case, it's not simple at all.
+Overlay Fuse Fuse,
+SEPA Fuse Fuse because I was already familiar
+with Fuse a little bit while I was working with the,
+so and GlusterFS, which is the new one.
+For GlusterFS, it's not an ideal implementation
+because I found, I unexpectedly found that GlusterFS
+also likes to do all the permission checks by default
+in the user space.
+And so that, a bit painful,
+but I found some special configuration option
+that allows to disable that
+and enable the default permission thing
+for that file system and it allows us to make it work.
+So to do, in our plan to go further with the Fuse series
+to make it fully like tested covered
+to be absolutely sure that everything is fine,
+then we want to convert the nine PFS and virtualFS,
+which can be useful if you do some nesting stuff
+like virtual machine with some shared director
+from the host and then the container inside, for example,
+which is not a rare case.
+And yeah, that's all.
+Questions?
+Thank you.
+Hello, thank you for your talk.
+Is there any caveats with ID mappings
+and interaction with Alasams?
+So like if you're doing some checks in Alasams,
+like what kind of UI did we get there?
+Because I was confused.
+That's a good question to be honest,
+because all of these ID mappings works
+is done by Christian, thanks to him,
+because he did all of these great API in the kernel,
+all of these preparation stuff.
+I mean that our isolated user space work
+and how we managed to make it work with the file systems
+is all, it became so small in terms of lines of code
+that were modified just because Christian did all
+of these crazy complex hard stuff in the kernel
+a few years ago, because he effectively provided us
+with the two functions in the kernel
+that we can patch easily, relatively easily.
+And so we get the ID mappings supported
+for some like new crazy case, right?
+And to be honest, I don't know much about Alasams,
+so I guess that it should be integrated.
+So when I did the original work,
+I went through all of the Alasams.
+And so for example, Alasams like SA Linux
+don't fuck with UIDs and GIDs,
+don't care about this at all.
+So most of these Alasam functions don't get past the path
+or UID and GID value at all.
+The only hooks are relevant,
+like security file open and so on.
+And then it's mostly Tomoyo and possibly some app armor stuff
+and they are all patched to take the ID mapping
+into account, although one caveat is I once tried to do
+some additional fixes inside of Tomoyo itself
+because it kind of does weird stuff,
+but the maintainer said, no, we don't care.
+I mostly care about like BPF Alasam
+because the hook doesn't get the UID,
+but like you can extract it from something.
+Oh yeah, they are aware of that.
+I talked to them.
+So yeah, well, for example, if you do a BPF Alasam
+and in hooks like security file open,
+you get the relevant ID mapping provided.
+And in other hooks where you only have the inode,
+yeah, then you don't have access,
+but that's also for example, not feasible.
+Like no, there is no security hook in lookup,
+but there is certainly locations where we have security hooks
+where you, for example, in the dentry cache,
+where you don't have any of that information available
+and it's impossible to make that work.
+Like you mentioned the lookup stuff,
+the lookup stuff itself, like it was two reasons
+why we didn't do it this way.
+First of all, because in lookup you initialize an inode
+and that always needs to be take the global UID
+and GID into account, the one that you see everywhere.
+Otherwise you end up with inode aliases in a way
+because if you can't cache an inode per mount,
+that's the one thing.
+And the other thing that lookup is called deep
+from within the dentry cache,
+which would have meant then suddenly you would have like,
+have to pass mount information more or less
+because it's mount information through the dentry cache.
+It doesn't make any sense.
+Also L would have killed me.
+But I mean, that's another thing
+why in these locations we don't want to have this.
+But for example, BPF Alasams,
+if they need that sort of information in specific hooks
+and is doable, then we can easily extend the hooks.
+Like I don't have a problem with this,
+like sort of more of a LSM question
+if they're ready to do this.
+It's, I think for most LASMs hooks,
+it simply hasn't been done because the LASMs
+that didn't implement that this specific hook
+didn't want this information.
+So it didn't make sense to provide it.
+If you have an LASM that wants this information,
+it's easy to extend it.
+Well, I think the other point is the LASMs
+should use the code behind the way
+because it seems this one is not the LASM.
+I think it's a little faster.
+And for always tricky when you provide a policy
+from users based on the current idea,
+you don't need to translate it to the LASM.
+Question?
+Yeah, you mentioned an FS real quick.
+How does it work with an FS?
+If I remember correctly,
+there's an upcall through the Linux Curing, right?
+So you get the translated.

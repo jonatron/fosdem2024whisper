@@ -1,0 +1,881 @@
+WEBVTT
+
+00:00.000 --> 00:12.000
+Hello.
+
+00:12.000 --> 00:15.640
+Thanks for coming to this talk.
+
+00:15.640 --> 00:17.200
+My name is Babis Hallos.
+
+00:17.200 --> 00:20.120
+I am a software engineer with Amazon Web Services.
+
+00:20.120 --> 00:26.800
+I'm currently working with a team that maintains the Firecracker Virtual Machine Monitor.
+
+00:26.800 --> 00:31.400
+Today I will be speaking to you about Virtual Machine Snapshots.
+
+00:31.400 --> 00:38.640
+Essentially I'm going to be speaking more about some challenges we face when we clone
+
+00:38.640 --> 00:43.600
+virtual machines and then we start multiple virtual machines from that same clone.
+
+00:43.600 --> 00:46.720
+A problem that we call Snapshot Safety.
+
+00:46.720 --> 00:51.840
+I'm going to be speaking a bit about the mechanisms we have today for tackling those
+
+00:51.840 --> 00:54.120
+issues.
+
+00:54.120 --> 00:58.680
+What do we believe we need to do as a community in order to grow awareness about the issue
+
+00:58.680 --> 01:05.200
+and build systems that are safe in the presence of Snapshots.
+
+01:05.200 --> 01:07.280
+Quick sneak peek on the agenda.
+
+01:07.280 --> 01:13.880
+We're going to define what is a virtual machine Snapshot for us and what is problematic with
+
+01:13.880 --> 01:17.680
+virtual machine Snapshots and which scenarios we have problems with them.
+
+01:17.680 --> 01:26.000
+Then go through a bit about the mechanisms we have today for addressing those issues
+
+01:26.000 --> 01:33.400
+and how we are thinking about building solutions that are system wide and address the problem.
+
+01:33.400 --> 01:40.520
+Finally I'm going to be speaking a bit about what we're planning to do next on the area.
+
+01:40.520 --> 01:46.240
+Earlier this morning there was a very nice talk about virtual machine Snapshots.
+
+01:46.240 --> 01:54.920
+It went much more in detail what I'm going to go into but let's think for the moment
+
+01:54.920 --> 02:01.480
+about the virtual machine as a collection of some state and that state might be memory,
+
+02:01.480 --> 02:05.840
+the guest memory, architectural state of the VM.
+
+02:05.840 --> 02:11.240
+Then you might have some devices for doing networking and storage, etc.
+
+02:11.240 --> 02:17.520
+Then some host resources like whatever state the KVM in Linux is holding for us for the
+
+02:17.520 --> 02:26.880
+VM, maybe a top device for the networking and files that back our storage.
+
+02:26.880 --> 02:34.480
+For this talk, Snapshot is simply the serialization of this state at a given point in time in
+
+02:34.480 --> 02:40.360
+a file that we store somewhere in some storage medium.
+
+02:40.360 --> 02:48.720
+Then we use that Snapshot file in order to start one or more VMs, not that exact identical
+
+02:48.720 --> 02:54.280
+copies of the initial virtual machine.
+
+02:54.280 --> 02:58.360
+The morning talk spoke about various scenarios why you might want to do that.
+
+02:58.360 --> 03:04.240
+For example, you want to give a backup of your machine so you can go back in time in
+
+03:04.240 --> 03:07.160
+a previous state, etc.
+
+03:07.160 --> 03:11.880
+Or another scenario that you might want to do that is if you are building some sort of
+
+03:11.880 --> 03:18.880
+service that uses VMs to isolate workloads and you want to spawn these VMs very, very
+
+03:18.880 --> 03:25.600
+fastly in a state that they are ready to handle user requests, you might want to spawn a VM
+
+03:25.600 --> 03:30.200
+like that, bring it in a state, initialize everything, every service, a component that
+
+03:30.200 --> 03:35.480
+you want in order to get it ready to handle requests and take a Snapshot at that point.
+
+03:35.480 --> 03:40.720
+Whenever you have a new request in the future, instead of booting a machine from scratch,
+
+03:40.720 --> 03:45.960
+booting all the operating system, the user space, blah, blah, blah, blah, you just resume
+
+03:45.960 --> 03:55.360
+from a Snapshot and then you are much faster in a state where you can handle that request.
+
+03:55.360 --> 03:57.440
+What's wrong with that?
+
+03:58.440 --> 04:04.080
+Now, let's look again at the previous picture of our VM and let's imagine for a second that
+
+04:04.080 --> 04:09.000
+somewhere in VM memory or it doesn't have to be memory, it can be any other component
+
+04:09.000 --> 04:10.000
+of the VM.
+
+04:10.000 --> 04:17.560
+There is some piece of state, an object, some sort of state that for the purpose of the
+
+04:17.560 --> 04:24.400
+application that it's making use of it, it needs to be unique and or secret.
+
+04:24.520 --> 04:30.520
+It needs to have this property in order for the application to operate correctly or securely,
+
+04:30.520 --> 04:31.520
+etc.
+
+04:31.520 --> 04:37.080
+Now, you see where I'm going with this, once we take that Snapshot, that property of this
+
+04:37.080 --> 04:38.080
+state is lost.
+
+04:38.080 --> 04:46.080
+Here we're speaking about what sort of mechanisms, what sort of applications are having this
+
+04:46.080 --> 04:51.640
+problem and how we can address this exact problem.
+
+04:51.680 --> 04:56.200
+We are aware even today of many classes of applications that rely on this assumption
+
+04:56.200 --> 05:02.760
+of some part of the state being unique, secret, etc.
+
+05:02.760 --> 05:10.160
+For example, we can think of cryptographically secured pseudo-random number generators.
+
+05:10.160 --> 05:17.480
+Those are random number generators that have the property that it is very, very hard, if
+
+05:17.480 --> 05:23.400
+not impossible, to guess what the next byte they're going to give you is.
+
+05:23.400 --> 05:27.200
+Many applications, the security of many applications rely on this property.
+
+05:27.200 --> 05:31.960
+They have other properties as well that given knowledge of the current state of the PRNG,
+
+05:31.960 --> 05:36.320
+you cannot guess the previous bytes, etc.
+
+05:36.320 --> 05:41.760
+But for those sort of applications, imagine that one, those sort of random number generators,
+
+05:41.760 --> 05:47.040
+imagine that once you take the Snapshot, the VM Snapshot and you start more VMs from
+
+05:47.040 --> 05:52.280
+that, the state of the PRNG is being duplicated.
+
+05:52.280 --> 05:58.520
+So unless we do something else, unless we add more entropy, for example, in this PRNG,
+
+05:58.520 --> 06:02.000
+in all of the VMs that start from the same Snapshot, the next byte that is going to be
+
+06:02.000 --> 06:08.960
+given out from that PRNG is going to be exactly same in all of the VMs.
+
+06:08.960 --> 06:16.280
+Other examples of use cases that have this problem is network configuration.
+
+06:16.280 --> 06:20.520
+Imagine you have a VM that has some network configuration, IP addresses, MAC addresses,
+
+06:20.520 --> 06:21.520
+etc.
+
+06:21.520 --> 06:26.960
+Suddenly you Snapshot that VM and you create new VMs from that Snapshot that live in the
+
+06:26.960 --> 06:30.200
+same network as your seed VM.
+
+06:30.200 --> 06:34.440
+Suddenly they appear in the network VMs with the exact same network configuration and depending
+
+06:34.440 --> 06:36.960
+on your use case that might be a problem.
+
+06:36.960 --> 06:41.960
+So you might want to be able to do something about it once this happened.
+
+06:41.960 --> 06:46.920
+You might want to detect that this is happening and do something about it.
+
+06:46.920 --> 06:53.600
+Another class of applications that are affected by this is anything that really uses a UUID,
+
+06:53.600 --> 06:55.440
+a GUID.
+
+06:55.440 --> 07:01.040
+Many applications rely on the uniqueness of this variable, this number, in order to perform
+
+07:01.040 --> 07:02.040
+correctly.
+
+07:02.040 --> 07:07.400
+Imagine for example once you take this Snapshot of an application that has a UUID and you
+
+07:07.400 --> 07:13.360
+start more VMs out of it and the application that is running in this VM is using that
+
+07:13.360 --> 07:18.240
+number as an index in a database to modify stuff, read stuff, suddenly you have a race
+
+07:18.240 --> 07:20.000
+condition on the database.
+
+07:20.000 --> 07:25.040
+More than one entities are going to be using that same thing for accessing data.
+
+07:26.040 --> 07:33.400
+Any sort of use case where you rely on this thing being unique is a problem here.
+
+07:33.400 --> 07:39.680
+And really we do not know exactly all of the applications that use cases that have this
+
+07:39.680 --> 07:40.680
+problem.
+
+07:40.680 --> 07:44.720
+So it really depends on the application itself.
+
+07:44.720 --> 07:51.560
+We really need to go see whether our applications keep state that has the semantics, the semantics
+
+07:51.560 --> 07:53.800
+of uniqueness and secrecy.
+
+07:53.800 --> 07:57.000
+And if you know that you are running some workload that has this problem and you run
+
+07:57.000 --> 08:04.280
+in such environment, let's speak about and think of what sort of mechanisms you could
+
+08:04.280 --> 08:09.080
+use in order to make this use case safe.
+
+08:09.080 --> 08:16.360
+Okay, now that we know a bit more about the problem that we are speaking about, we are
+
+08:16.440 --> 08:22.680
+facing, let's see what kind of mechanisms do we have today to address it.
+
+08:22.680 --> 08:28.280
+Essentially the most fundamental mechanism we have today for doing that is called virtual
+
+08:28.280 --> 08:32.440
+machine generation ID.
+
+08:32.440 --> 08:37.120
+It operates as a notification mechanism for the VM after it is getting resumed from a
+
+08:37.120 --> 08:40.160
+snapshot about that particular fact.
+
+08:40.160 --> 08:44.480
+But it tells the VM, okay, now you are in a new world.
+
+08:44.480 --> 08:52.400
+You are not in the world that you thought you were without having rebooted.
+
+08:52.400 --> 08:57.160
+And in the technical aspect of it, it's an ACPI virtual device.
+
+08:57.160 --> 09:00.840
+It is emulated by the monitor.
+
+09:00.840 --> 09:07.160
+And the way it provides the notification inside the guest is via a generation ID, which is
+
+09:07.160 --> 09:16.280
+a 16 bytes cryptographically random number that changes every time we resume from a snapshot.
+
+09:16.280 --> 09:22.560
+So when you resume from the snapshot, the monitor makes sure that it changes the new
+
+09:22.560 --> 09:30.800
+value, it stores a new value in the generation ID, and before resuming the VCPUs of the VM,
+
+09:30.920 --> 09:35.560
+it injects an ACPI notification in the system.
+
+09:35.560 --> 09:44.560
+And once it resumes from the snapshot, resumes the VCPUs, then the guest kernel is going
+
+09:44.560 --> 09:47.080
+to handle that ACPI notification.
+
+09:47.080 --> 09:55.280
+What happens in Linux is that today the kernel is using the new generation ID as extra entropy
+
+09:55.280 --> 09:58.760
+for its entropy pool.
+
+09:58.760 --> 10:03.560
+So it's receding its entropy pool, essentially, so that it avoids the problem we were speaking
+
+10:03.560 --> 10:08.480
+about before about PRNGs.
+
+10:08.480 --> 10:11.480
+It works, apparently.
+
+10:11.480 --> 10:12.480
+It works fine.
+
+10:12.480 --> 10:19.320
+There is still a bit of a concern regarding the fact of its asynchronousity in the sense
+
+10:19.320 --> 10:26.880
+that there is a small race window between the moment we resume the VCPUs and the ACPI
+
+10:26.880 --> 10:33.880
+notification is being handled by whatever thread in the kernel handles it.
+
+10:56.880 --> 11:03.880
+Okay.
+
+11:03.880 --> 11:06.880
+Yay.
+
+11:06.880 --> 11:12.680
+Sorry about that.
+
+11:12.680 --> 11:16.880
+But at least we have something.
+
+11:16.880 --> 11:19.560
+Nice.
+
+11:19.560 --> 11:29.120
+So moving forward, recently we built in the Linux kernel, contributed a small essentially
+
+11:29.120 --> 11:37.480
+change that every time the generation ID changes, we emit a new event to the user space, because
+
+11:37.480 --> 11:41.880
+before that VM generation ID implementation did not do anything.
+
+11:41.880 --> 11:50.720
+It was using, since it was using the generation ID as entropy for the kernel PRNG, people
+
+11:50.720 --> 11:53.920
+were nervous about exporting it to the user space.
+
+11:53.920 --> 11:57.560
+So I said, okay, that's it.
+
+11:57.560 --> 12:03.360
+And in reality, the user space does not really need that 16 bytes themselves.
+
+12:03.360 --> 12:04.920
+It just needs a small notification.
+
+12:04.920 --> 12:07.480
+So there you have it.
+
+12:07.480 --> 12:12.880
+It got matched recently in 6.8 and it is still an asynchronous notification mechanism.
+
+12:12.880 --> 12:20.280
+So everything that in the user space that runs event loops, for example, can monitor
+
+12:20.280 --> 12:31.560
+for it and get notified about the fact that they're now in a new VM started from a snapshot.
+
+12:31.560 --> 12:33.960
+It is still racy, this thing has to be said.
+
+12:33.960 --> 12:40.080
+So if we think that we have use cases that need to get more asynchronous mechanism, more
+
+12:40.080 --> 12:45.320
+synchronous mechanism, we should continue doing work to build those.
+
+12:45.320 --> 12:56.280
+Okay, so going back to the PRNGs, mainly because they are used by security sensitive applications,
+
+12:56.280 --> 13:00.280
+let's see how these mechanisms can help us.
+
+13:00.280 --> 13:08.400
+In runtime systems that maintain their own PRNGs like JVM, we can now use the VM GenADU
+
+13:08.400 --> 13:11.800
+event to be notified about snapshots.
+
+13:11.800 --> 13:18.920
+So upon resume, the runtime would get that event, eventually would be notified and it
+
+13:18.920 --> 13:24.400
+would receive the PRNG as soon as possible.
+
+13:24.400 --> 13:33.560
+Now in other PRNGs that are implemented from libraries, within libraries, this is a bit
+
+13:33.560 --> 13:39.800
+more weird situation at the moment because an asynchronous mechanism like a U-event is
+
+13:39.800 --> 13:42.720
+not a perfect fit for the programming model.
+
+13:42.720 --> 13:46.720
+We will need to do something else about them.
+
+13:46.720 --> 13:53.480
+One idea here would be to use prediction resistance with what cryptographers call prediction resistance
+
+13:53.480 --> 13:55.280
+with hardware instructions.
+
+13:55.280 --> 13:57.080
+The idea here is simple.
+
+13:57.080 --> 14:03.640
+With every byte that the PRNG returns to you, you mix in some random bits that you got from
+
+14:03.640 --> 14:09.600
+a hardware instruction that is not affected obviously by virtual machine snapshots, so
+
+14:09.600 --> 14:11.240
+the problem just goes away.
+
+14:11.240 --> 14:16.440
+If you are able to do that, it doesn't matter if you have resumed from a snapshot.
+
+14:16.440 --> 14:21.880
+The state of the PRNG is always going to, including these snapshot irrelevant random
+
+14:21.880 --> 14:24.920
+bytes and everything is going to be fine.
+
+14:24.920 --> 14:30.480
+Other potential solutions, for example, in cases where you do not have these instructions
+
+14:30.480 --> 14:36.920
+or for whatever reason you don't want to use them, it would be to build some sort of synchronous
+
+14:36.920 --> 14:42.600
+APIs on top of the asynchronous VM-genade event, for example.
+
+14:42.600 --> 14:49.520
+But we really think that we should do something, don't go out on me again.
+
+14:49.560 --> 14:55.360
+We really think we should do something about the use case of these libraries.
+
+14:55.360 --> 15:04.840
+Okay, so let's think, now that we know what mechanism we have available, let's see if
+
+15:04.840 --> 15:08.280
+we can really solve the problem.
+
+15:08.280 --> 15:09.840
+And let's follow this example.
+
+15:09.840 --> 15:18.120
+It's a very simple example of a VM that has started from a snapshot.
+
+15:18.120 --> 15:22.080
+The hypervisor and the guest kernel support VM-genade.
+
+15:22.080 --> 15:27.160
+The kernel is going to use the generation ID to receive its random number generator.
+
+15:27.160 --> 15:33.480
+And we have a user space application that does some network communication and it wants
+
+15:33.480 --> 15:35.200
+to use TLS.
+
+15:35.200 --> 15:40.600
+And it reads some random bits from the from the view random, which is safe because of
+
+15:40.600 --> 15:44.880
+VM-genade in order to do some sort of communication.
+
+15:44.880 --> 15:45.880
+And everything works fine.
+
+15:45.920 --> 15:49.480
+The application creates the session key to start communicating without the world and
+
+15:49.480 --> 15:50.480
+everything looks fine.
+
+15:50.480 --> 15:55.640
+And at that point, we take a snapshot.
+
+15:55.640 --> 16:03.320
+Now the moment we resume the VM, the second VM from that snapshot, the session key is
+
+16:03.320 --> 16:05.840
+duplicated in essentially both VMs.
+
+16:05.840 --> 16:14.360
+So even though we have these mechanisms built in the system that give safe interfaces over
+
+16:14.360 --> 16:20.280
+the view random, for example, the final system is not necessarily safe.
+
+16:20.280 --> 16:25.560
+The same would go, for example, for GUID applications that have GUIDs, et cetera, et cetera, and
+
+16:25.560 --> 16:27.720
+they would need to adapt themselves.
+
+16:27.720 --> 16:35.080
+And it is true that the application could use the VM-genade event, but that event is
+
+16:35.080 --> 16:39.440
+present in the resumed snapshot, in the resumed VM.
+
+16:39.440 --> 16:45.240
+In the initial VM, there is not today a mechanism to do something about that.
+
+16:45.240 --> 16:53.800
+And again, there is some sort of race window between the event resuming the VM and the
+
+16:53.800 --> 16:59.160
+application being reacting to that event, which makes us think that probably there are
+
+16:59.160 --> 17:02.840
+things that should not ever be serialized at all.
+
+17:02.840 --> 17:08.280
+It would be much easier if that session key was never serialized.
+
+17:09.120 --> 17:15.200
+And that makes us think that VM-genade is a post-mortem mechanism.
+
+17:15.200 --> 17:18.960
+It is a notification in the new VMs, not the initial VM.
+
+17:18.960 --> 17:24.360
+And by the moment it arrives to us, sensitive information operations might be already in
+
+17:24.360 --> 17:28.360
+flight, and even if we handle that notification, there is nothing we can do about the things
+
+17:28.360 --> 17:31.280
+that are in flight.
+
+17:31.280 --> 17:37.240
+And that makes us think as well next that what we should probably do is control the timing
+
+17:37.240 --> 17:39.000
+of snapshot events.
+
+17:39.000 --> 17:44.960
+The moment snapshot events in the lifetime of the VM can arrive, let's say, at arbitrary
+
+17:44.960 --> 17:48.920
+points in time, instead we should control them.
+
+17:48.920 --> 17:53.600
+We should do something before we take even the snapshot and make sure that we only take
+
+17:53.600 --> 17:58.480
+a snapshot when the machine is in a safe state to be snapshotted.
+
+17:58.480 --> 18:05.640
+And once we resume, make sure that every application that needs to has adapted to the new situation
+
+18:05.640 --> 18:14.880
+before marking the system as ready to be operational again.
+
+18:14.880 --> 18:20.640
+Thinking about these things, some time ago we were speaking with system defaults and
+
+18:20.640 --> 18:29.960
+we thought about modeling this problem using force states, describing our systems being
+
+18:29.960 --> 18:32.240
+in one of force states.
+
+18:32.240 --> 18:36.280
+Planning is the normal state of your VM.
+
+18:36.280 --> 18:40.560
+Now once you want to take a snapshot, you start quiescing.
+
+18:40.560 --> 18:44.920
+People earlier today spoke about this as freezing, for example.
+
+18:44.920 --> 18:49.760
+And during that period you do things preparing yourself to be snapshotted so you cannot find
+
+18:49.760 --> 18:54.000
+yourself in a previous situation.
+
+18:54.000 --> 18:59.320
+And once you are quiesced, once everybody is ready to be snapshot, then you can take
+
+18:59.320 --> 19:01.280
+the snapshot and then the same.
+
+19:01.280 --> 19:05.240
+And on the resume path, on the resume from the snapshot path, you essentially do the
+
+19:05.240 --> 19:06.600
+opposite work, right?
+
+19:06.600 --> 19:11.880
+You start from a quiesced state, then you start inquiescing, getting ready for the new world,
+
+19:11.880 --> 19:14.800
+recreating your GUIDs and what not.
+
+19:14.800 --> 19:23.320
+And once everything is done, then you can be running again, up and running again.
+
+19:23.320 --> 19:30.000
+SystemD has this nice concept of inhibitors, which can essentially applications use in
+
+19:30.000 --> 19:32.240
+order to say, OK, don't do that.
+
+19:32.240 --> 19:38.240
+Don't do that transition until you are ready to, I tell you I'm ready to do so.
+
+19:38.240 --> 19:45.000
+For example, there are inhibitors for system CTL suspend.
+
+19:45.000 --> 19:48.800
+At the moment we were thinking that maybe we could use some para virtual agent to orchestrate
+
+19:48.800 --> 19:49.920
+everything.
+
+19:49.920 --> 19:58.200
+In reality, maybe system CTL suspend is all what we need and we can drive this from the
+
+19:58.200 --> 20:03.920
+hypervisor by sending an ACPI event.
+
+20:03.920 --> 20:10.480
+And going back to the previous example, how that would look like is we are in a running
+
+20:10.480 --> 20:19.400
+state in LVM, we have our previous application, and suddenly the control plane informs the
+
+20:19.400 --> 20:23.120
+PV agent that it needs to start quiescing.
+
+20:23.120 --> 20:29.280
+Here I say system CTL quiesce, but again, unless we find the reason why suspend should
+
+20:29.280 --> 20:36.520
+be different than some new sort of operation, we could even use suspend and get away with
+
+20:36.520 --> 20:40.040
+having to have a para virtual agent in there.
+
+20:40.040 --> 20:45.800
+In any case, once that happens, the application would say, OK, do not get quiesced again because
+
+20:45.800 --> 20:50.800
+I need to do some cleanup before you can snapshot me.
+
+20:50.800 --> 20:56.360
+And once the application does that, it says, OK, now I'm good to go.
+
+20:56.360 --> 21:02.720
+And at that point the control plane knows that, OK, we can take that snapshot.
+
+21:02.720 --> 21:10.760
+Now on the opposite path, the control plane would probably resume the VM from a snapshot
+
+21:10.760 --> 21:18.360
+and then start the unquiescing operation.
+
+21:18.640 --> 21:23.880
+The application might want to say, OK, wait until I know that I'm safe again because I
+
+21:23.880 --> 21:26.280
+want to create new random numbers.
+
+21:26.280 --> 21:27.920
+And I do that.
+
+21:27.920 --> 21:35.760
+And at that time, we are safe module of that tiny race condition in order to start getting
+
+21:35.760 --> 21:43.720
+random numbers again and recreate our safe and be in the state we want to be in order
+
+21:43.720 --> 21:46.920
+to be up and running.
+
+21:47.480 --> 21:50.000
+That's it.
+
+21:50.000 --> 22:00.520
+So yeah, we started working in adding support in Firecracker for VM GenAD.
+
+22:00.520 --> 22:07.200
+Up until now, we were telling people who were using the snapshot in feature in such a way
+
+22:07.200 --> 22:13.600
+that they should make sure that manually they would need to receive their kernels, PRNGs,
+
+22:13.600 --> 22:18.720
+and they use the space PRNGs after the fact.
+
+22:18.720 --> 22:23.520
+The other thing we want to pay attention to is working with PRNG owners in order to find
+
+22:23.520 --> 22:26.160
+proper ways to make their libraries not safe.
+
+22:26.160 --> 22:32.600
+Here we're speaking about the PRNGs that are implemented as libraries such as OpenSSL, AWS,
+
+22:32.600 --> 22:34.720
+and C, et cetera, et cetera.
+
+22:34.720 --> 22:42.320
+And start building this system we spoke about in system D, start modeling this in system
+
+22:42.320 --> 22:43.320
+D.
+
+22:43.320 --> 22:48.840
+And earlier, we had some ground work already done some time ago.
+
+22:48.840 --> 22:55.960
+And we hope that system D is going to be just the first one that we get this into and hopefully
+
+22:55.960 --> 22:59.440
+other management systems will follow.
+
+22:59.440 --> 23:00.440
+And that's it.
+
+23:00.440 --> 23:03.440
+Without that, I'd be happy to take questions.
+
+23:03.440 --> 23:17.400
+I just wanted to ask, you mentioned the network issues where machine comes up with the same
+
+23:17.400 --> 23:18.400
+back address.
+
+23:18.400 --> 23:19.400
+Didn't appear to address that.
+
+23:19.400 --> 23:24.400
+Is there a plan to take care of that situation as well?
+
+23:24.400 --> 23:26.400
+Or is that a problem?
+
+23:26.400 --> 23:27.400
+Yeah.
+
+23:27.400 --> 23:33.200
+The question was that we mentioned that during the presentation that there are problems with
+
+23:33.200 --> 23:39.760
+networking when you take snapshots and resume and whether we plan to address those at the
+
+23:39.760 --> 23:40.760
+future.
+
+23:40.760 --> 23:41.760
+Yeah.
+
+23:41.760 --> 23:46.920
+I think that this is part as well of the system D work that we're going to do.
+
+23:46.920 --> 23:52.520
+This problem essentially appears mainly when systems are in networks.
+
+23:52.520 --> 23:57.840
+If your VMs are not networked, there is no problem if two VMs that are not in the network
+
+23:57.840 --> 24:03.880
+are communicating somehow, they have the same random numbers.
+
+24:03.880 --> 24:09.600
+So yes, for example, something that we would like to do is to, I guess, shut down networking
+
+24:09.600 --> 24:13.600
+before taking a snapshot so you're sure that there are not in-flight connections and stuff
+
+24:13.600 --> 24:14.600
+like that.
+
+24:14.600 --> 24:16.600
+So I think this is going to be part of that work.
+
+24:16.600 --> 24:17.600
+Thank you.
+
+24:18.280 --> 24:40.820
+If we have to come up with a MAC address, we generally try to hash things first outside
+
+24:40.820 --> 24:43.820
+kind of even if we can also hash that into that element,
+
+24:43.820 --> 24:44.820
+it's already here.
+
+24:44.820 --> 24:46.820
+We have been discussing this, like, this is going to happen
+
+24:46.820 --> 24:47.820
+in my conference.
+
+24:47.820 --> 24:50.820
+We have to identify the generation ideas
+
+24:50.820 --> 24:52.820
+to the most obvious thing in the world,
+
+24:52.820 --> 24:53.820
+to add that to the hash.
+
+24:53.820 --> 24:56.820
+So that basically, yeah, once the generative changes
+
+24:56.820 --> 24:59.820
+and everything, get this into the GHD,
+
+24:59.820 --> 25:01.820
+it's not going to go to wherever else.
+
+25:01.820 --> 25:03.820
+Thank you very much.
+
+25:03.820 --> 25:05.820
+Thank you very much.
+

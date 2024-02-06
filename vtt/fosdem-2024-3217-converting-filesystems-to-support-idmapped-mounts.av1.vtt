@@ -1,0 +1,2288 @@
+WEBVTT
+
+00:00.000 --> 00:05.000
+Hello, my name is Alex, I work for Fogunonical.
+
+00:08.680 --> 00:11.520
+I have a pleasure to work on Lexi project
+
+00:11.520 --> 00:14.920
+and do a lot of container stuff in the kernel
+
+00:14.920 --> 00:15.980
+and user space.
+
+00:16.880 --> 00:19.400
+We have been working on that new stuff
+
+00:19.400 --> 00:21.960
+about ADMapetMal and support for some file systems
+
+00:21.960 --> 00:25.480
+together with Stefan and with Christian.
+
+00:25.480 --> 00:28.040
+So today I'm gonna talk about
+
+00:29.040 --> 00:32.280
+the problems that we faced when we started
+
+00:32.280 --> 00:35.400
+to actually look into the network based file systems
+
+00:35.400 --> 00:37.240
+and how to support ADMapetMal for them
+
+00:37.240 --> 00:40.280
+because it's kinda hard sometimes.
+
+00:42.960 --> 00:46.320
+First of all, I'm not sure that everyone knows
+
+00:46.320 --> 00:49.560
+everything about that stuff, so I want to give some intro
+
+00:49.560 --> 00:51.680
+about how it works currently.
+
+00:51.680 --> 00:56.680
+And yeah, if anyone, if anybody there,
+
+00:56.800 --> 00:58.320
+we were listening to our previous talk
+
+00:58.320 --> 00:59.960
+about isolated user space stuff,
+
+00:59.960 --> 01:01.600
+please forget that for the next 30 minutes
+
+01:01.600 --> 01:04.440
+because that's a new feature.
+
+01:04.440 --> 01:07.440
+But this stuff is about stable API that we have
+
+01:07.440 --> 01:11.720
+in the kernel since I guess 5.11 or something.
+
+01:11.720 --> 01:16.720
+So that's more about supporting more file systems.
+
+01:16.800 --> 01:20.560
+So we don't do these isolated user space stuff in here.
+
+01:21.520 --> 01:24.360
+First of all, we need to understand that we have three
+
+01:24.400 --> 01:27.040
+types of ID mappings in the kernel.
+
+01:27.040 --> 01:30.040
+First one is the callers ID mapping,
+
+01:30.040 --> 01:35.040
+which effectively taken from the user namespace
+
+01:35.160 --> 01:36.880
+and from the current user namespace.
+
+01:36.880 --> 01:39.880
+User namespace attached, you can get the pointer
+
+01:39.880 --> 01:42.160
+to user namespace from the struct cred
+
+01:42.160 --> 01:44.480
+and you can get the pointer to struct cred
+
+01:44.480 --> 01:46.200
+from the task struct.
+
+01:46.200 --> 01:49.840
+Right, so if you're calling any kind of syscall
+
+01:49.840 --> 01:53.120
+in Linux kernel, you get a current task
+
+01:53.120 --> 01:55.360
+and so you can get a current user namespace.
+
+01:55.360 --> 01:57.800
+So we have a macro in the kernel to get that.
+
+01:57.800 --> 02:02.800
+And even if you're not doing any kind of container stuff,
+
+02:02.840 --> 02:05.000
+even if you're not using user namespaces,
+
+02:05.000 --> 02:08.280
+you're always invisibly using that
+
+02:08.280 --> 02:10.680
+because you're using the default mapping,
+
+02:10.680 --> 02:13.480
+which looks like zero zero in this big number,
+
+02:13.480 --> 02:17.400
+which is effectively the largest unsigned integer.
+
+02:18.440 --> 02:19.840
+And what does this means?
+
+02:19.840 --> 02:24.040
+The first number is the user ID inside user namespace.
+
+02:24.040 --> 02:29.040
+Second number is the user ID outside of the user namespace
+
+02:29.040 --> 02:31.560
+and effectively the length of this mapping.
+
+02:31.560 --> 02:34.160
+So this mapping is the identity mapping,
+
+02:34.160 --> 02:36.840
+which means that we effectively map zero to zero,
+
+02:36.840 --> 02:38.320
+one to one and so forth.
+
+02:39.800 --> 02:42.480
+Next thing that we have when we are working
+
+02:42.480 --> 02:45.560
+with any kind of EFS stuff is the file systems ID mapping.
+
+02:46.560 --> 02:50.840
+It's also represented as the user namespace
+
+02:50.840 --> 02:54.120
+because it's the thing that we are attaching
+
+02:54.120 --> 02:55.720
+to the super block of the file system.
+
+02:55.720 --> 02:58.440
+So when you're creating a new mount,
+
+03:00.480 --> 03:02.960
+let's say for example, for X4 file system,
+
+03:02.960 --> 03:05.480
+you have a block device, you're creating a new mount
+
+03:05.480 --> 03:09.640
+and if it is the first mount for this file system,
+
+03:09.640 --> 03:11.160
+not a bind mount, I mean,
+
+03:11.160 --> 03:14.120
+then the super block gets allocated
+
+03:14.120 --> 03:15.920
+and on the super block structure,
+
+03:15.920 --> 03:18.600
+we have a field called SC user NS
+
+03:18.600 --> 03:22.000
+and this field gets filled with the current user NS.
+
+03:22.000 --> 03:23.560
+So when you do a mount,
+
+03:23.560 --> 03:27.080
+it takes the current user namespace from your current task
+
+03:27.080 --> 03:29.480
+and puts that into the super block.
+
+03:29.480 --> 03:31.680
+And that's the file systems ID mapping,
+
+03:31.680 --> 03:33.440
+which means that if you're, let's say,
+
+03:33.440 --> 03:36.200
+inside the container with some user namespace
+
+03:36.200 --> 03:38.320
+and you do a mount, so your super block
+
+03:38.320 --> 03:41.000
+will get this user namespace effectively
+
+03:41.000 --> 03:43.280
+from your containers user namespace.
+
+03:43.280 --> 03:45.680
+And that's a pretty old stuff actually
+
+03:45.680 --> 03:48.080
+because I believe that it was from the beginning
+
+03:48.080 --> 03:49.600
+of the when the user namespace
+
+03:49.600 --> 03:51.720
+is very introduced many years ago.
+
+03:51.720 --> 03:54.760
+And third thing about we are talking today
+
+03:54.760 --> 03:56.520
+is the mounts ID mapping.
+
+03:56.520 --> 03:58.840
+Mounts ID mapping is the concept
+
+03:58.840 --> 04:00.600
+a little bit more high level
+
+04:00.600 --> 04:04.000
+because instead of being attached to the super block,
+
+04:04.000 --> 04:07.640
+we have the mount, we have the ID mappings
+
+04:07.640 --> 04:09.520
+attached to the mount.
+
+04:09.520 --> 04:11.240
+So it means that you can, for example,
+
+04:11.240 --> 04:15.760
+create X for file system on top of some block device,
+
+04:15.760 --> 04:19.120
+then do a bind mount and you can do this bind mount
+
+04:19.120 --> 04:21.440
+with some ID mapping attached to it.
+
+04:21.440 --> 04:23.480
+And once you get any kind of IO
+
+04:23.480 --> 04:26.320
+through this ID mapit mount,
+
+04:26.320 --> 04:28.400
+you will get some extra translate,
+
+04:28.400 --> 04:31.280
+UIDJ ID translation layer inside the VFS,
+
+04:31.280 --> 04:33.240
+inside the generic VFS code.
+
+04:33.240 --> 04:36.840
+And then this, all of that goes through the file system
+
+04:36.840 --> 04:40.160
+in mapping and then all of that gets written to the disk.
+
+04:40.200 --> 04:41.520
+So that's how it works.
+
+04:44.080 --> 04:48.680
+So important to mention that all the time
+
+04:48.680 --> 04:52.600
+when you're interacting with the kernel
+
+04:52.600 --> 04:55.800
+from the user space and if you use any kind of C-scores
+
+04:55.800 --> 04:59.240
+like start get UID, get sock opt for instance
+
+04:59.240 --> 05:01.360
+with the option so peer create
+
+05:01.360 --> 05:05.640
+which allows you to get the PID and UIDJ ID
+
+05:05.640 --> 05:07.560
+of the peer socket,
+
+05:08.560 --> 05:13.040
+you will get these values mapped
+
+05:13.040 --> 05:17.040
+in accordance with your current user space.
+
+05:17.040 --> 05:19.640
+So the callers ID mapping always get,
+
+05:19.640 --> 05:23.520
+always taken into account everywhere in the kernel.
+
+05:23.520 --> 05:26.560
+And for example, if you, so yeah,
+
+05:26.560 --> 05:28.480
+that's effectively all the examples
+
+05:28.480 --> 05:31.080
+and also we have the same in proc PID status file
+
+05:31.080 --> 05:32.400
+and all that stuff.
+
+05:32.400 --> 05:36.840
+So let's take a look what happens
+
+05:36.920 --> 05:39.640
+when you for example, take the get UID C-score
+
+05:39.640 --> 05:42.360
+which is probably the simplest one.
+
+05:42.360 --> 05:44.640
+Inside the kernel we have a few helpers
+
+05:44.640 --> 05:49.400
+to convert between the user space,
+
+05:49.400 --> 05:53.560
+user ID that we can work with inside the user space
+
+05:53.560 --> 05:56.120
+and with the internal representation of user ID
+
+05:56.120 --> 05:58.200
+inside the kernel because inside the kernel
+
+05:58.200 --> 06:03.200
+we have two types, UID T and K UID T.
+
+06:03.240 --> 06:05.480
+UID T is the user space one effectively
+
+06:05.480 --> 06:08.520
+because it's just a 32 bit thing.
+
+06:09.600 --> 06:14.600
+And K UID T is also 32 bit thing,
+
+06:14.680 --> 06:16.680
+it's the same in size,
+
+06:16.680 --> 06:18.160
+usually they contain the same value
+
+06:18.160 --> 06:23.160
+but K UID T is the value that represents the user ID
+
+06:24.480 --> 06:27.420
+always in the initial user space.
+
+06:27.420 --> 06:28.560
+Which means that for example,
+
+06:28.560 --> 06:32.080
+if you are inside the container with user name space,
+
+06:32.080 --> 06:35.440
+you have the, let's say user ID inside the container zero
+
+06:35.600 --> 06:38.760
+and if you have the corresponding user ID on the host,
+
+06:38.760 --> 06:43.760
+let's say 1000, then K UID will have the value 1000 always.
+
+06:45.000 --> 06:47.600
+But once you call the get UID C-score
+
+06:47.600 --> 06:51.080
+from the context of the process of the task
+
+06:51.080 --> 06:54.960
+that runs inside the container, inside this user name space,
+
+06:54.960 --> 06:59.120
+this function called from K UID Monct will be called.
+
+06:59.120 --> 07:01.500
+And the first argument of this function
+
+07:01.500 --> 07:04.120
+is the current user name space
+
+07:04.160 --> 07:06.360
+which effectively the time thing
+
+07:06.360 --> 07:08.720
+that represents the UID mapping.
+
+07:08.720 --> 07:10.920
+And second argument is the current UID
+
+07:10.920 --> 07:15.480
+which will be the K UID T value which is equal to 1000.
+
+07:15.480 --> 07:18.720
+And this function called from K UID Monct
+
+07:18.720 --> 07:23.720
+will try to effectively remap this host visible value 1000
+
+07:24.520 --> 07:28.680
+to the appropriate value inside this specific user name space.
+
+07:28.680 --> 07:30.320
+It will be zero in our case
+
+07:30.320 --> 07:32.960
+because as I have explained in this case,
+
+07:32.960 --> 07:36.680
+let's say we have like mapping of zero inside the container
+
+07:36.680 --> 07:37.840
+to 1000 on the host.
+
+07:37.840 --> 07:41.840
+And so you will get the zero finally, yeah?
+
+07:41.840 --> 07:46.840
+And this function has a pair function called from K UID.
+
+07:47.880 --> 07:50.400
+And the difference between these two functions
+
+07:50.400 --> 07:53.840
+is that from K UID is like more like internal one.
+
+07:53.840 --> 07:58.720
+If we fail to represent the internal K UID
+
+07:58.720 --> 08:02.240
+in terms of some user name space UID range,
+
+08:03.080 --> 08:05.640
+the from K UID function returns minus one
+
+08:05.640 --> 08:07.840
+which means that something terribly wrong.
+
+08:07.840 --> 08:09.720
+We can't really represent that ID inside
+
+08:09.720 --> 08:11.840
+this user name space which is possible.
+
+08:11.840 --> 08:14.400
+For example, if you have the username space
+
+08:14.400 --> 08:18.400
+with that maps only like 1000 to zero
+
+08:18.400 --> 08:21.240
+and if you have the user ID let's say 2000 on the host
+
+08:21.240 --> 08:22.920
+you can't really represent that
+
+08:22.920 --> 08:25.120
+is any reasonable value inside, right?
+
+08:25.120 --> 08:28.160
+And if you call the from K UID it will return minus one.
+
+08:28.160 --> 08:33.160
+But function from K UID month it does the trick.
+
+08:33.200 --> 08:36.200
+If the from K UID returns minus one,
+
+08:36.200 --> 08:40.480
+it takes the overflow UID and returns that.
+
+08:40.480 --> 08:44.080
+That explains why we have these interesting stuff
+
+08:44.080 --> 08:46.680
+with like if you have the,
+
+08:46.680 --> 08:49.160
+if you try to access the, for example,
+
+08:49.160 --> 08:51.400
+the container file system from the host
+
+08:51.400 --> 08:54.040
+or that has another ID mapping
+
+08:54.040 --> 08:57.360
+and you will see this strange nobody user.
+
+08:57.400 --> 09:00.080
+That's because this function is used everywhere
+
+09:00.080 --> 09:03.320
+because we can't really give the user space
+
+09:03.320 --> 09:04.800
+with this minus one.
+
+09:04.800 --> 09:08.160
+We always, the user space always expects us
+
+09:08.160 --> 09:11.960
+to give the normal user ID, reasonable user ID.
+
+09:11.960 --> 09:15.760
+And also we have a helper called make K UID
+
+09:15.760 --> 09:18.200
+which effectively does the opposite thing.
+
+09:18.200 --> 09:20.120
+It takes the user space UID
+
+09:20.120 --> 09:23.240
+and creates the internal representation of it
+
+09:23.240 --> 09:24.920
+for the kernel.
+
+09:25.920 --> 09:30.080
+The same, we need to give,
+
+09:30.080 --> 09:32.760
+plug the current user space, current ID mapping
+
+09:32.760 --> 09:35.880
+to this helper and give the user space value.
+
+09:35.880 --> 09:39.760
+And that's what happens inside the set UID cisco.
+
+09:39.760 --> 09:42.880
+If you plug the let's say value zero,
+
+09:42.880 --> 09:46.760
+let's say one inside the user space to that cisco.
+
+09:46.760 --> 09:48.680
+Inside the container it will go like
+
+09:48.680 --> 09:52.520
+make K UID current user space one.
+
+09:52.520 --> 09:54.360
+It will go to the UID map
+
+09:54.360 --> 09:56.120
+and it will try to find that okay,
+
+09:56.120 --> 09:58.680
+this one is for what?
+
+09:58.680 --> 10:00.600
+And if it fails to do that, then okay,
+
+10:00.600 --> 10:02.120
+we get gain well.
+
+10:02.120 --> 10:04.880
+And so the set UID will not allow us to set this UID
+
+10:04.880 --> 10:07.720
+because it's not mapped.
+
+10:07.720 --> 10:12.400
+But if you have a mapping like zero, 1002
+
+10:12.400 --> 10:15.260
+which means that you have mapped zero and one,
+
+10:15.260 --> 10:19.040
+then they succeed because the end K UID
+
+10:19.040 --> 10:22.680
+for that thing will be 1001 on the kernel
+
+10:22.680 --> 10:26.400
+and everywhere it will be represented like that.
+
+10:26.400 --> 10:29.800
+But once you, until you do the get UID
+
+10:29.800 --> 10:30.840
+or something like that.
+
+10:33.760 --> 10:36.560
+For file systems, what we have for file systems?
+
+10:36.560 --> 10:38.520
+For file systems we have,
+
+10:38.520 --> 10:41.360
+it's about super block ID mapping, right?
+
+10:41.360 --> 10:43.640
+We have two important helpers.
+
+10:43.640 --> 10:47.680
+One helper effectively takes the I node
+
+10:47.680 --> 10:52.680
+and tries to get the user space visible UID
+
+10:54.400 --> 10:55.840
+so the normal UID.
+
+10:55.840 --> 10:58.000
+This function called I UID read,
+
+10:58.000 --> 11:00.600
+but in fact it called on the right path.
+
+11:00.600 --> 11:02.720
+There is no mistake, that's perfectly fine
+
+11:02.720 --> 11:06.680
+because we are reading the I UID value from the I node.
+
+11:06.680 --> 11:10.400
+That's why it read because we read this value from I node.
+
+11:10.400 --> 11:12.280
+But of course it's called on the right path
+
+11:12.280 --> 11:14.640
+because when the file system driver wants to write
+
+11:14.640 --> 11:17.640
+the UID on disk or let's say send it over the wire,
+
+11:17.640 --> 11:19.720
+in that for file systems like this.
+
+11:19.720 --> 11:22.560
+We need to call this to get properly mapped
+
+11:22.560 --> 11:26.080
+to remapped user ID that we can then send over the wire,
+
+11:26.080 --> 11:27.600
+put on the disk and forget.
+
+11:28.680 --> 11:33.280
+And we have a second helper called the I UID write
+
+11:33.280 --> 11:34.680
+which does the opposite.
+
+11:34.680 --> 11:39.320
+It takes the I node, it takes the user space visible,
+
+11:39.320 --> 11:43.120
+normal classical UID that we supposed to work with
+
+11:43.120 --> 11:46.600
+and does the same as we have seen in the set UID system.
+
+11:46.600 --> 11:51.600
+It calls the helper called make I UID,
+
+11:51.920 --> 11:54.760
+but instead of taking the current username space,
+
+11:54.760 --> 11:57.760
+it takes the username space from super block.
+
+11:58.840 --> 12:01.440
+And second argument is the value.
+
+12:01.440 --> 12:05.480
+So let's say if you create a file on the file system
+
+12:05.480 --> 12:10.480
+at first from the user ID like one,
+
+12:10.840 --> 12:11.800
+so you will get that.
+
+12:11.800 --> 12:16.800
+Like it will take the value one and plug in there and so.
+
+12:18.960 --> 12:22.740
+This K UID will be written into the I node I UID field.
+
+12:24.080 --> 12:28.280
+And finally we're getting to the point
+
+12:28.280 --> 12:31.880
+when we can take a look on the whole picture
+
+12:31.880 --> 12:36.880
+like how it works together with the amounts ID mapping.
+
+12:37.760 --> 12:42.760
+Okay, imagine that we have the caller UID 1000.
+
+12:44.240 --> 12:47.000
+And this caller wants to create the file
+
+12:47.000 --> 12:48.800
+on the ID mapped mount.
+
+12:49.760 --> 12:54.240
+And we have these three ID mappings in place.
+
+12:54.240 --> 12:57.360
+We have the caller's ID mapping which is okay,
+
+12:57.360 --> 13:00.440
+which is something that we have been discussing right now.
+
+13:00.440 --> 13:03.360
+We have file system in mapping which is the,
+
+13:03.360 --> 13:04.480
+in this specific example,
+
+13:04.480 --> 13:06.280
+which is the identity ID mapping
+
+13:06.280 --> 13:09.680
+that does the zero maps zero to zero one to one,
+
+13:09.680 --> 13:11.440
+two to two and so on.
+
+13:11.440 --> 13:15.240
+And we have a new thing, amounts ID mapping,
+
+13:15.240 --> 13:19.940
+which maps effectively zero to 10,000
+
+13:19.940 --> 13:22.480
+and has the length 10,000.
+
+13:22.480 --> 13:26.600
+So we have like 10,000 UIDs mapped with this shift.
+
+13:26.600 --> 13:29.480
+So the second thing is that effectively the shift value.
+
+13:29.480 --> 13:33.160
+So the zero goes to 10,000, one to go to 10,000, one and so.
+
+13:33.920 --> 13:38.520
+And what will happen in the kernel in this case
+
+13:38.520 --> 13:41.200
+once we try to create the file?
+
+13:41.200 --> 13:46.120
+First of all, we will create the internal representation
+
+13:46.120 --> 13:51.120
+for the user ID 1000, which will be 11,000, right?
+
+13:55.040 --> 13:57.800
+Small remark is that effectively in the kernel,
+
+13:57.800 --> 13:59.920
+to be honest, we all the time work only
+
+13:59.920 --> 14:01.320
+with this KUID thing.
+
+14:01.320 --> 14:03.760
+So it means that technically,
+
+14:03.760 --> 14:05.440
+when you calling the file system,
+
+14:05.440 --> 14:08.240
+CIS calls like let's say open with OcreateFlock,
+
+14:09.400 --> 14:11.720
+the first step is not gonna happen
+
+14:11.720 --> 14:16.160
+because we already have these values on the struct cred,
+
+14:16.160 --> 14:20.440
+but it's easier to think about it like that
+
+14:20.440 --> 14:23.520
+just to understand how much different mappings
+
+14:23.520 --> 14:26.400
+we have in this place, right?
+
+14:26.400 --> 14:30.240
+And second thing is that we need to,
+
+14:30.240 --> 14:34.520
+we need to apply this new concept, mount id mapping, right?
+
+14:34.520 --> 14:36.520
+We need to take the mounted mapping
+
+14:36.520 --> 14:40.120
+and perform effectively the reverse operation.
+
+14:40.120 --> 14:42.080
+We call the front KUID,
+
+14:42.080 --> 14:44.480
+we take the value that we've got
+
+14:44.480 --> 14:46.560
+from the collars ID mapping,
+
+14:46.560 --> 14:49.800
+and then we do this mapping in accordance with this
+
+14:51.840 --> 14:53.920
+this definition that we have.
+
+14:53.920 --> 14:58.920
+In this case, we are mapping the KUID 11,000, remap it,
+
+14:59.920 --> 15:03.440
+and what we get, we get 1000, right?
+
+15:03.440 --> 15:04.800
+Which is obvious.
+
+15:04.800 --> 15:09.800
+And then once we want to create the file on the disk,
+
+15:11.040 --> 15:15.120
+we need to get the IUIDT back, right?
+
+15:15.120 --> 15:17.760
+So we need to go through the file systems ID mapping
+
+15:17.760 --> 15:20.600
+which is attached to the super block
+
+15:20.600 --> 15:23.680
+to get the IUID that will be written on the disk.
+
+15:23.680 --> 15:26.400
+And so in our case, fortunately,
+
+15:26.400 --> 15:29.720
+we have the identity file system ID mapping
+
+15:29.720 --> 15:34.000
+which means that okay, we have user ID 1000,
+
+15:34.000 --> 15:36.400
+it goes to 1000, that's all.
+
+15:36.400 --> 15:39.480
+But let's think about another example,
+
+15:39.480 --> 15:44.480
+if we have the, for example, mapping like U0 K1000,
+
+15:46.840 --> 15:51.840
+in this case, we can remap that value, right?
+
+15:52.840 --> 15:57.840
+Because if it goes like U0 K1000, we fail
+
+15:58.800 --> 16:03.600
+because this U1000 is not in the range of this mapping,
+
+16:03.600 --> 16:08.120
+but for the second one, U1000 K0, we can remap
+
+16:08.120 --> 16:11.160
+because the corresponding user ID will be zero,
+
+16:11.160 --> 16:13.000
+but in first place, we can't.
+
+16:13.000 --> 16:17.680
+And what happens if the VFS generic code realizes
+
+16:17.680 --> 16:20.320
+that it cannot remap the value?
+
+16:20.320 --> 16:23.600
+It will give you the E overflow error.
+
+16:23.600 --> 16:26.840
+So that's the reason why you can get E overflow error
+
+16:26.840 --> 16:29.840
+when you're working with ID mapping, not only.
+
+16:31.200 --> 16:33.080
+Even if you're not using ID mapping,
+
+16:33.080 --> 16:34.520
+if you're using just normal mouse,
+
+16:34.520 --> 16:35.920
+what you're trying to, for example,
+
+16:35.920 --> 16:39.280
+to write to this mount from the another user space
+
+16:39.280 --> 16:42.640
+with another color ID mapping which is incompatible
+
+16:42.640 --> 16:44.480
+in terms of ranges of user IDs
+
+16:44.480 --> 16:48.400
+with this mount file systems in mapping,
+
+16:48.400 --> 16:50.640
+you can get this E overflow error.
+
+16:50.640 --> 16:53.320
+So that's the really complicated behavior,
+
+16:53.320 --> 16:54.920
+but that's how it works.
+
+16:56.280 --> 16:58.840
+We have no alternatives, actually, right?
+
+17:00.400 --> 17:03.480
+So you can create ID mapping mounts
+
+17:03.480 --> 17:05.880
+using these effectively two options.
+
+17:08.440 --> 17:12.560
+We already have the new feature
+
+17:12.560 --> 17:14.720
+that allows you to use the classical
+
+17:14.720 --> 17:18.920
+util Linux mount utility to create ID mapping mount,
+
+17:18.920 --> 17:20.880
+but in most distros, I don't think
+
+17:20.880 --> 17:22.680
+that it actually works right now
+
+17:22.680 --> 17:26.120
+because it's too recent, it's like one year
+
+17:26.120 --> 17:28.240
+or something like that.
+
+17:28.240 --> 17:31.600
+So I'm always using the Christian utility
+
+17:31.600 --> 17:33.640
+for to create ID mapping mounts.
+
+17:35.040 --> 17:40.040
+And internally, it just uses the syscall called mount setutter
+
+17:40.680 --> 17:43.160
+to set the ID mapping on the mount.
+
+17:43.160 --> 17:48.000
+And so you can, you always need to specify
+
+17:48.000 --> 17:51.280
+this attribute with the username space file descriptor.
+
+17:51.280 --> 17:54.520
+So we're always getting the, at least these days,
+
+17:54.520 --> 17:57.160
+we're always getting the IUID mappings
+
+17:57.160 --> 17:59.360
+and GUID mappings from the username space
+
+17:59.360 --> 18:02.840
+because username space, we have the way
+
+18:02.840 --> 18:06.400
+to actually set user ID mappings and JD mappings
+
+18:06.400 --> 18:09.880
+to the user space, from user space using the proc files,
+
+18:09.880 --> 18:11.720
+right, that's the reason.
+
+18:13.400 --> 18:18.360
+So currently we have support for all of these file systems,
+
+18:18.360 --> 18:21.560
+but if you take a look on the list closer,
+
+18:21.560 --> 18:24.680
+you will notice that most of them are local ones,
+
+18:24.680 --> 18:28.920
+so it's like the X4, better FS, XFS and so on.
+
+18:28.920 --> 18:31.240
+And recently we have been working
+
+18:31.240 --> 18:34.880
+with Christian and Stefan on the CIF support.
+
+18:34.880 --> 18:38.520
+Christian did the major work a few years ago,
+
+18:40.080 --> 18:41.840
+created the first implementation of that,
+
+18:41.840 --> 18:46.600
+but unfortunately it get lost in discussions
+
+18:46.600 --> 18:49.680
+and it wasn't merged, so I asked the permission
+
+18:49.680 --> 18:52.400
+to continue work on that because it was kind of important
+
+18:52.400 --> 18:55.160
+for our containers applications.
+
+18:55.160 --> 18:59.320
+And I get some rebate stuff and also we decided
+
+18:59.320 --> 19:03.240
+to use a little bit another approach to make it work.
+
+19:03.240 --> 19:05.200
+I will explain that a little bit later.
+
+19:05.200 --> 19:09.600
+So starting from 6.7 you can use the ID map mounts
+
+19:09.640 --> 19:14.600
+which is CIFFS, and yeah, CIFFS is the only
+
+19:14.600 --> 19:17.480
+network file system in this list, so.
+
+19:19.480 --> 19:21.120
+How to port the file system?
+
+19:21.120 --> 19:24.760
+The very naive way to do that is to just go
+
+19:24.760 --> 19:26.920
+through the file systems code, find all the places
+
+19:26.920 --> 19:29.160
+where we have like no M&T map,
+
+19:29.160 --> 19:31.760
+which means that this file system id mapping
+
+19:31.760 --> 19:34.320
+is not defined, so there is no id mapping.
+
+19:34.320 --> 19:36.600
+Replace it with the id map identifier,
+
+19:36.600 --> 19:41.600
+which is passed almost to all the VFS API functions
+
+19:43.360 --> 19:46.080
+from the generic VFS code.
+
+19:46.080 --> 19:49.360
+And then also replace the current FSUID,
+
+19:49.360 --> 19:52.880
+which gives you the KUID from the current user.
+
+19:52.880 --> 19:57.280
+And with the mapped FSUID, which does the same,
+
+19:57.280 --> 20:00.040
+but takes into account the id mapping.
+
+20:00.040 --> 20:03.160
+And also raise the FSUID map flag
+
+20:03.160 --> 20:05.600
+on the file systems definition.
+
+20:05.600 --> 20:08.600
+But no, that's not that simple because you need
+
+20:08.600 --> 20:10.200
+to be really, really careful with that stuff,
+
+20:10.200 --> 20:13.320
+otherwise you can really break things
+
+20:13.320 --> 20:16.120
+and or even open to some vulnerabilities
+
+20:16.120 --> 20:17.120
+or something like that.
+
+20:18.720 --> 20:21.160
+So the reason for that is that, okay,
+
+20:21.160 --> 20:24.120
+I would suggest that if you want to try
+
+20:24.120 --> 20:27.000
+to try and porting some file system to support
+
+20:27.000 --> 20:29.560
+id mapping, especially the network one,
+
+20:29.560 --> 20:33.400
+you need to go through the code of X4
+
+20:33.400 --> 20:35.080
+as a really, really good example
+
+20:35.080 --> 20:38.960
+because X4 file system is like very complex one.
+
+20:38.960 --> 20:40.400
+It has many features.
+
+20:40.400 --> 20:45.400
+For example, you can do the overlay FFS on top of,
+
+20:46.240 --> 20:51.080
+and use the X4 as a one of the layers for overlay FFS.
+
+20:51.080 --> 20:55.720
+And for example, the rename callback on the X4 supports
+
+20:55.720 --> 21:00.720
+really interesting rename mode called rename whiteout,
+
+21:01.000 --> 21:03.760
+which effectively when you rename the file,
+
+21:03.760 --> 21:08.240
+usually it disappears on the previous place
+
+21:08.240 --> 21:10.040
+and appears on the new place, right?
+
+21:10.040 --> 21:13.120
+But in this case, on the old place
+
+21:13.120 --> 21:15.920
+where a file supposed to disappear,
+
+21:15.920 --> 21:18.240
+it creates the so-called whiteout thing.
+
+21:18.240 --> 21:20.120
+So this is effectively the share character device
+
+21:20.120 --> 21:22.960
+with the major and minor numbers zero.
+
+21:22.960 --> 21:27.960
+And that mode is enabled only when you call the rename
+
+21:27.960 --> 21:29.440
+from the overlay FFS.
+
+21:29.480 --> 21:33.840
+And I guess that only for that reason,
+
+21:33.840 --> 21:37.880
+this rename callback and VFS takes the id mapping
+
+21:37.880 --> 21:41.640
+as an argument because in all the other file systems
+
+21:41.640 --> 21:43.560
+where we have no support for that,
+
+21:45.920 --> 21:48.480
+we can't really use this id mapping in any case
+
+21:48.480 --> 21:50.080
+because we don't need one.
+
+21:51.560 --> 21:56.560
+Yeah, also you need to pay attention in the getutter
+
+21:57.400 --> 21:58.880
+because getutter what it does,
+
+21:58.880 --> 22:01.800
+it's effectively what is getting called
+
+22:01.800 --> 22:04.600
+in the file system driver when you call the statistical
+
+22:05.560 --> 22:07.560
+because getutter reads the attributes,
+
+22:07.560 --> 22:10.720
+fills the case, utter structure in the kernel
+
+22:10.720 --> 22:13.440
+with all the data like size, like user ID,
+
+22:13.440 --> 22:15.400
+JD stuff and all that.
+
+22:15.400 --> 22:19.560
+And you will definitely need to take id mapping
+
+22:19.560 --> 22:23.320
+into account in this place to get proper user IDs
+
+22:23.320 --> 22:25.840
+and JDs reported to the user space, right?
+
+22:26.720 --> 22:29.160
+Also there is a permission callback
+
+22:29.160 --> 22:32.600
+which effectively does all the permission checking
+
+22:32.600 --> 22:34.680
+unique spike in the kernel.
+
+22:34.680 --> 22:39.240
+So you need to also properly pass the id mapping in there.
+
+22:39.240 --> 22:43.360
+If you use, if the file system that you want to convert
+
+22:43.360 --> 22:46.400
+uses the generic permission helper,
+
+22:46.400 --> 22:48.760
+then you just need to pass the id mapping,
+
+22:48.760 --> 22:50.080
+check that everything really works
+
+22:50.080 --> 22:51.800
+and that's pretty much all.
+
+22:51.800 --> 22:53.240
+But sometimes it's not the case
+
+22:53.240 --> 22:56.240
+because some file systems will see that later,
+
+22:56.240 --> 22:59.720
+use really, really weird machinery to check the permissions.
+
+22:59.720 --> 23:03.920
+And also get ACL stuff and that's pretty much all
+
+23:03.920 --> 23:07.920
+for read code pass, but for write pass,
+
+23:07.920 --> 23:10.880
+the most important pieces is the,
+
+23:10.880 --> 23:13.960
+obviously the places where are we creating the new inodes,
+
+23:13.960 --> 23:14.800
+right?
+
+23:14.800 --> 23:17.480
+So that's the MK node, sim link,
+
+23:17.480 --> 23:20.200
+MK dear, atomic open and create.
+
+23:20.200 --> 23:23.400
+So we need to take into ID mapping into account
+
+23:23.400 --> 23:24.400
+in all of these places
+
+23:24.400 --> 23:27.280
+because we actually write the UIDs and JIDs.
+
+23:27.280 --> 23:28.280
+That's it.
+
+23:28.280 --> 23:32.480
+And set other which is getting code from,
+
+23:32.480 --> 23:34.360
+for example, challenges call, right?
+
+23:34.360 --> 23:39.280
+So you need to, as the challenges call takes the user IDs
+
+23:39.280 --> 23:40.600
+and JIDs from the user space,
+
+23:40.600 --> 23:44.040
+you need to properly remap them and write to the attributes.
+
+23:44.040 --> 23:49.040
+So that's, so for local file systems, as I said,
+
+23:50.000 --> 23:53.600
+you really need to take the X4 or better first or something,
+
+23:53.600 --> 23:55.600
+just carefully read the code.
+
+23:55.600 --> 23:57.680
+Be absolutely sure that you understand how it works
+
+23:57.680 --> 24:01.800
+and then go for the other philosophy that you want to support.
+
+24:03.080 --> 24:06.920
+Which problems we can have and we really have.
+
+24:08.080 --> 24:10.360
+First of all, some file systems,
+
+24:10.360 --> 24:12.000
+especially in Torque Ones, they,
+
+24:13.600 --> 24:14.680
+obviously in Torque Ones,
+
+24:14.680 --> 24:19.280
+they do the permission checking on the server side,
+
+24:19.280 --> 24:23.200
+which is really bad because what we want
+
+24:23.200 --> 24:26.000
+is to ID map it, map it mounts,
+
+24:26.000 --> 24:29.040
+is the local feature of Linux kernel.
+
+24:29.040 --> 24:33.520
+We don't want to tell the file systems remote server
+
+24:33.520 --> 24:36.400
+to be aware about that we have this crazy,
+
+24:36.400 --> 24:38.720
+interesting Linux specific stuff
+
+24:38.720 --> 24:40.800
+because the theoretically user may be
+
+24:40.800 --> 24:42.720
+from another operating system, right?
+
+24:42.720 --> 24:47.720
+So if we want to, if the file system does some UID,
+
+24:47.720 --> 24:50.280
+JID based permission checks on the server side,
+
+24:50.280 --> 24:53.120
+it means that we need to extend the on wire protocol,
+
+24:54.040 --> 24:57.240
+pass all of this ID map stuff over the network,
+
+24:57.240 --> 25:01.080
+write some logic in there, so that's not work usually.
+
+25:02.920 --> 25:04.720
+Effectively for a few file system,
+
+25:04.720 --> 25:06.200
+which is not the network one,
+
+25:06.200 --> 25:09.200
+but it almost the same as network ones, right?
+
+25:09.200 --> 25:10.960
+Because you have the user space demon,
+
+25:10.960 --> 25:13.960
+you have the kernel, kernel is effectively the client,
+
+25:13.960 --> 25:16.560
+and user space demon is effectively the file system,
+
+25:16.560 --> 25:20.480
+and the client, the kernel just takes the information
+
+25:20.480 --> 25:24.520
+from Cisco, does something with that information,
+
+25:24.520 --> 25:27.760
+produces the request, send it over the fuse device,
+
+25:27.760 --> 25:29.240
+and the user space read that,
+
+25:29.240 --> 25:32.440
+and so if we want to do all the permission checks
+
+25:32.440 --> 25:34.000
+on the user space side,
+
+25:34.000 --> 25:35.880
+and if you want to support ID map it mounts,
+
+25:35.880 --> 25:39.880
+we need to pass these ID mappings over the,
+
+25:39.880 --> 25:43.920
+so we need to extend the protocol that we use
+
+25:43.920 --> 25:47.320
+between the user space and kernel space for fuse, right?
+
+25:48.320 --> 25:52.120
+Also some file systems,
+
+25:52.120 --> 25:53.680
+it's also about fuse effectively,
+
+25:53.680 --> 25:55.840
+some file systems can do,
+
+25:55.840 --> 26:00.000
+some can allow you to completely disable
+
+26:00.000 --> 26:03.880
+the standard permission hook permissions,
+
+26:03.880 --> 26:06.880
+so effectively implemented almost like an empty thing,
+
+26:06.880 --> 26:08.680
+that just allows everything,
+
+26:08.680 --> 26:11.800
+and then do all the permission checks
+
+26:11.800 --> 26:14.520
+on the level of the I know operations,
+
+26:14.520 --> 26:16.640
+and the problem is that,
+
+26:16.640 --> 26:18.000
+I can remember that I have seen that
+
+26:18.000 --> 26:20.360
+in the while I was working on Ceph,
+
+26:20.360 --> 26:25.360
+is that in Ceph it's possible to set the configuration
+
+26:26.880 --> 26:28.920
+based on the path to the file,
+
+26:28.920 --> 26:31.080
+and specify the user IDs and JDs
+
+26:31.080 --> 26:34.400
+that actually allowed to read the sub directory,
+
+26:34.400 --> 26:36.680
+it means that you have the combination
+
+26:36.680 --> 26:39.480
+of permissions checking on the Linux kernel side,
+
+26:39.480 --> 26:43.200
+then you have some permission checking on the kernel side,
+
+26:43.680 --> 26:45.200
+on the server side, I'm sorry,
+
+26:45.200 --> 26:47.960
+which is the remote server with another kernel,
+
+26:47.960 --> 26:52.960
+which does not know anything about this stuff, right?
+
+26:53.280 --> 26:58.280
+And they do checks almost everywhere, even for lookup,
+
+26:59.560 --> 27:01.800
+and why it's bad for lookup?
+
+27:01.800 --> 27:03.800
+First of all, because lookup,
+
+27:03.800 --> 27:08.800
+I know the operation does not have ID mapp argument,
+
+27:09.040 --> 27:12.360
+and it's not obvious why it doesn't have,
+
+27:12.360 --> 27:16.560
+but the reason for that is that the usually lookup operation
+
+27:16.560 --> 27:20.600
+is getting called from the slow lookup pass
+
+27:20.600 --> 27:22.360
+in the kernel, right?
+
+27:22.360 --> 27:26.680
+If you have the pre-cached to dentaries for some pass,
+
+27:26.680 --> 27:30.520
+then we won't go to this lookup callback,
+
+27:30.520 --> 27:33.200
+instead we will just take the dentary,
+
+27:33.200 --> 27:37.160
+and it means that if you have the permission checks
+
+27:37.160 --> 27:41.920
+inside the lookup, then everything will depend on that,
+
+27:41.920 --> 27:46.760
+if you have this dentary already or not.
+
+27:46.760 --> 27:49.120
+So if you have not, then you go to the lookup,
+
+27:49.120 --> 27:50.400
+then you do the permission checks.
+
+27:50.400 --> 27:53.680
+If you have this dentary cached already for some reason,
+
+27:53.680 --> 27:55.600
+for example, if this dentary was accessed
+
+27:55.600 --> 27:57.920
+from another mount with another user,
+
+27:57.920 --> 28:01.720
+then these permission checks won't happen really,
+
+28:01.720 --> 28:04.000
+that's bad, right?
+
+28:04.000 --> 28:07.200
+That's why we want to have all the checks
+
+28:08.140 --> 28:11.440
+in one place, ideally, for this stuff.
+
+28:11.440 --> 28:14.160
+And of course, some of you can say that,
+
+28:14.160 --> 28:17.120
+okay, in this case we can do some permission checks
+
+28:17.120 --> 28:21.080
+and derevalidate helper, which is always getting called,
+
+28:21.080 --> 28:23.120
+yeah, to derevalidate, but not,
+
+28:23.120 --> 28:26.080
+because we don't want to do that, I guess.
+
+28:28.520 --> 28:33.520
+So, yeah, and also, third case that I've almost forgotten
+
+28:33.720 --> 28:37.520
+about is that some file systems has the local feature,
+
+28:37.520 --> 28:39.440
+really, really close ideologically
+
+28:39.440 --> 28:41.040
+that what we have in Linux,
+
+28:41.960 --> 28:44.380
+that does some UID-JD mappings
+
+28:44.380 --> 28:47.000
+on the level of the file system itself.
+
+28:47.000 --> 28:49.720
+And that's also a problem because I personally
+
+28:49.720 --> 28:52.480
+don't understand how to combine all of that together
+
+28:52.480 --> 28:53.860
+to make it work properly.
+
+28:55.040 --> 28:59.540
+Yeah, in third case, what I have found is that
+
+29:01.040 --> 29:02.600
+we have the combination, effectively,
+
+29:02.600 --> 29:04.360
+of the classical permission checks
+
+29:04.360 --> 29:06.520
+and the server side checks.
+
+29:06.600 --> 29:11.200
+Speaking honestly, we decided to forget about that
+
+29:11.200 --> 29:14.800
+because we just decided that if someone uses
+
+29:14.800 --> 29:18.640
+the IDMAPitMounds, we clearly say that, okay,
+
+29:19.480 --> 29:22.360
+you don't want to use the server side permission checks
+
+29:22.360 --> 29:26.080
+in this case, just disable that, just trust the kernel,
+
+29:26.080 --> 29:27.720
+just trust the client because,
+
+29:27.720 --> 29:30.360
+Ceph really trusts the client.
+
+29:30.360 --> 29:34.800
+If you have the key to interact with the MDS server,
+
+29:34.800 --> 29:36.040
+you can do anything.
+
+29:36.040 --> 29:40.240
+So there is no real reason to do some additional checks
+
+29:40.240 --> 29:43.240
+because you can, if you have the user ID checks
+
+29:43.240 --> 29:45.320
+on the server side and if you have a client,
+
+29:45.320 --> 29:48.040
+this client can give you any UID, right?
+
+29:48.040 --> 29:49.880
+So it makes no sense to check that
+
+29:49.880 --> 29:52.320
+because this information is not like,
+
+29:52.320 --> 29:53.280
+trustworthy so.
+
+29:55.760 --> 29:59.120
+So in third case, we have this lookup problem
+
+29:59.120 --> 30:02.600
+which is okay because it's only actual for this case
+
+30:02.640 --> 30:05.480
+when you have some additional setup,
+
+30:05.480 --> 30:07.480
+some additional configuration.
+
+30:07.480 --> 30:10.800
+And the third one is that for some reason,
+
+30:10.800 --> 30:13.600
+most, I guess historically, is that
+
+30:15.800 --> 30:20.800
+Ceph uses current FSUID everywhere
+
+30:21.520 --> 30:23.120
+to get the current user ID.
+
+30:24.480 --> 30:25.400
+Yeah, thanks.
+
+30:27.320 --> 30:31.640
+To get the current user ID, but what we want usually,
+
+30:31.640 --> 30:33.760
+we want usually to take the credential structure
+
+30:33.760 --> 30:36.400
+from the file because when you open,
+
+30:36.400 --> 30:38.920
+when you are opening the file descriptor,
+
+30:38.920 --> 30:41.640
+the credential structure from your current task
+
+30:41.640 --> 30:45.880
+gets stashed to the struct file structure.
+
+30:45.880 --> 30:48.120
+And then we expect that if you do, for example,
+
+30:48.120 --> 30:52.160
+the right syscall or itsyscall on this file descriptor,
+
+30:52.160 --> 30:54.840
+then everything, all the permission checks will be done
+
+30:54.840 --> 30:59.320
+in the relevant to this credential structure
+
+30:59.320 --> 31:01.160
+that we have on the file.
+
+31:01.160 --> 31:03.320
+And you may ask me why it's so important.
+
+31:03.320 --> 31:05.960
+It's important if you want to pass the file descriptor
+
+31:05.960 --> 31:08.920
+over the Unix socket or if you, for example,
+
+31:08.920 --> 31:12.160
+opening the file descriptor while you are privileged,
+
+31:12.160 --> 31:15.240
+but then you do some capabilities, drop things,
+
+31:15.240 --> 31:16.640
+or set your idea or something,
+
+31:16.640 --> 31:19.680
+and you lose your privilege effectively,
+
+31:19.680 --> 31:23.840
+privileges effectively, and so that can be a problem.
+
+31:23.840 --> 31:27.840
+But I was, to be honest, I decided not to send fixes
+
+31:27.840 --> 31:32.400
+for that because I don't want to break any real
+
+31:32.400 --> 31:33.240
+user space application.
+
+31:33.240 --> 31:35.560
+I don't know, maybe someone relies on that.
+
+31:35.560 --> 31:40.000
+So that's technically not ideally correct,
+
+31:40.000 --> 31:42.000
+but you will see.
+
+31:43.160 --> 31:48.160
+So, yeah, I effectively covered that.
+
+31:48.640 --> 31:50.840
+Yeah, what we decided to do,
+
+31:50.840 --> 31:54.840
+we just ignored these problems
+
+31:54.840 --> 31:56.640
+with the server side permission checks
+
+31:56.640 --> 32:01.440
+because we can't really do anything with that.
+
+32:01.440 --> 32:06.440
+And we were asked by the CFFS folks,
+
+32:08.280 --> 32:11.880
+CFFS maintainers, thanks, by the way, thanks to them
+
+32:11.880 --> 32:14.200
+for help, for reviews, to Viennkischenkartus,
+
+32:14.200 --> 32:16.320
+Huboli for helping with that
+
+32:16.320 --> 32:18.160
+because they were reviewing that stuff,
+
+32:18.160 --> 32:20.440
+especially the user space one,
+
+32:20.440 --> 32:25.120
+because I was forced to extend the on-wire CFFS protocol
+
+32:25.120 --> 32:27.720
+and add some extra UID and JID fields
+
+32:27.720 --> 32:32.720
+for the Inode creation operations.
+
+32:33.160 --> 32:35.200
+And of course, all of that was done
+
+32:35.200 --> 32:38.880
+in the backward, forward, anyhow compatible way,
+
+32:38.880 --> 32:40.080
+not to break anything.
+
+32:41.960 --> 32:46.200
+Yep, and what we are doing right now,
+
+32:46.200 --> 32:47.760
+we're currently working on Fuse,
+
+32:47.760 --> 32:51.440
+I have already sent a series of patches
+
+32:51.440 --> 32:55.840
+that enables support for Fuse.
+
+32:55.840 --> 32:58.040
+Unfortunately, only for the mode
+
+32:58.040 --> 32:59.960
+when we have the default permission set,
+
+32:59.960 --> 33:03.440
+because as I said, if you have the Fuse mount
+
+33:03.440 --> 33:06.420
+without this flag called default permissions,
+
+33:06.420 --> 33:08.600
+then effectively the permission callback
+
+33:09.640 --> 33:12.360
+is almost empty, it just allows everything.
+
+33:12.360 --> 33:16.080
+And in this case, Fuse file system expects
+
+33:16.080 --> 33:19.400
+that the user space will do all the permission checks
+
+33:19.400 --> 33:21.280
+in the user space, which is a problem
+
+33:21.280 --> 33:24.840
+because we can't handle that properly.
+
+33:24.840 --> 33:28.760
+And also, obviously Fuse protocol
+
+33:28.760 --> 33:31.560
+that between the user space and kernel play
+
+33:31.560 --> 33:34.760
+was extended to send these UIDs and JIDs
+
+33:34.760 --> 33:37.960
+over the wire, let's say.
+
+33:39.400 --> 33:43.000
+Yep, also in addition to this series,
+
+33:43.000 --> 33:44.800
+I wanted to be absolutely sure
+
+33:44.800 --> 33:46.600
+that this really works properly,
+
+33:46.600 --> 33:49.280
+so I have taken the three not random,
+
+33:49.280 --> 33:51.120
+really not random file systems.
+
+33:51.120 --> 33:54.520
+Overlay Fuse Fuse just as a good and relatively simple example
+
+33:54.520 --> 33:58.200
+for this specific case, it's not simple at all.
+
+33:58.200 --> 34:00.040
+Overlay Fuse Fuse,
+
+34:00.040 --> 34:02.640
+SEPA Fuse Fuse because I was already familiar
+
+34:02.640 --> 34:05.760
+with Fuse a little bit while I was working with the,
+
+34:06.680 --> 34:10.200
+so and GlusterFS, which is the new one.
+
+34:10.200 --> 34:13.520
+For GlusterFS, it's not an ideal implementation
+
+34:13.520 --> 34:18.520
+because I found, I unexpectedly found that GlusterFS
+
+34:18.520 --> 34:22.360
+also likes to do all the permission checks by default
+
+34:22.360 --> 34:23.640
+in the user space.
+
+34:23.640 --> 34:26.160
+And so that, a bit painful,
+
+34:26.160 --> 34:29.640
+but I found some special configuration option
+
+34:29.640 --> 34:30.840
+that allows to disable that
+
+34:30.840 --> 34:33.240
+and enable the default permission thing
+
+34:33.240 --> 34:37.840
+for that file system and it allows us to make it work.
+
+34:39.720 --> 34:44.720
+So to do, in our plan to go further with the Fuse series
+
+34:45.720 --> 34:48.680
+to make it fully like tested covered
+
+34:48.680 --> 34:52.200
+to be absolutely sure that everything is fine,
+
+34:52.200 --> 34:56.880
+then we want to convert the nine PFS and virtualFS,
+
+34:56.880 --> 34:59.600
+which can be useful if you do some nesting stuff
+
+34:59.600 --> 35:01.840
+like virtual machine with some shared director
+
+35:01.840 --> 35:05.120
+from the host and then the container inside, for example,
+
+35:05.120 --> 35:08.040
+which is not a rare case.
+
+35:08.040 --> 35:10.560
+And yeah, that's all.
+
+35:12.000 --> 35:12.840
+Questions?
+
+35:12.840 --> 35:13.680
+Thank you.
+
+35:29.120 --> 35:30.920
+Hello, thank you for your talk.
+
+35:32.360 --> 35:35.120
+Is there any caveats with ID mappings
+
+35:35.120 --> 35:37.760
+and interaction with Alasams?
+
+35:37.760 --> 35:42.000
+So like if you're doing some checks in Alasams,
+
+35:42.080 --> 35:44.800
+like what kind of UI did we get there?
+
+35:44.800 --> 35:46.960
+Because I was confused.
+
+35:46.960 --> 35:49.360
+That's a good question to be honest,
+
+35:49.360 --> 35:53.240
+because all of these ID mappings works
+
+35:53.240 --> 35:55.200
+is done by Christian, thanks to him,
+
+35:55.200 --> 35:59.200
+because he did all of these great API in the kernel,
+
+35:59.200 --> 36:01.520
+all of these preparation stuff.
+
+36:01.520 --> 36:05.000
+I mean that our isolated user space work
+
+36:05.000 --> 36:08.680
+and how we managed to make it work with the file systems
+
+36:08.680 --> 36:13.680
+is all, it became so small in terms of lines of code
+
+36:13.760 --> 36:17.160
+that were modified just because Christian did all
+
+36:17.160 --> 36:20.480
+of these crazy complex hard stuff in the kernel
+
+36:20.480 --> 36:24.280
+a few years ago, because he effectively provided us
+
+36:24.280 --> 36:26.720
+with the two functions in the kernel
+
+36:26.720 --> 36:30.640
+that we can patch easily, relatively easily.
+
+36:30.640 --> 36:34.520
+And so we get the ID mappings supported
+
+36:34.520 --> 36:37.960
+for some like new crazy case, right?
+
+36:37.960 --> 36:41.960
+And to be honest, I don't know much about Alasams,
+
+36:41.960 --> 36:44.600
+so I guess that it should be integrated.
+
+36:44.600 --> 36:46.960
+So when I did the original work,
+
+36:46.960 --> 36:48.440
+I went through all of the Alasams.
+
+36:48.440 --> 36:52.960
+And so for example, Alasams like SA Linux
+
+36:52.960 --> 36:55.360
+don't fuck with UIDs and GIDs,
+
+36:55.360 --> 36:57.400
+don't care about this at all.
+
+36:57.400 --> 37:02.200
+So most of these Alasam functions don't get past the path
+
+37:02.200 --> 37:04.080
+or UID and GID value at all.
+
+37:04.080 --> 37:06.000
+The only hooks are relevant,
+
+37:06.000 --> 37:07.680
+like security file open and so on.
+
+37:07.800 --> 37:12.800
+And then it's mostly Tomoyo and possibly some app armor stuff
+
+37:13.800 --> 37:16.000
+and they are all patched to take the ID mapping
+
+37:16.000 --> 37:21.000
+into account, although one caveat is I once tried to do
+
+37:22.440 --> 37:25.440
+some additional fixes inside of Tomoyo itself
+
+37:25.440 --> 37:28.320
+because it kind of does weird stuff,
+
+37:28.320 --> 37:31.120
+but the maintainer said, no, we don't care.
+
+37:31.120 --> 37:33.480
+I mostly care about like BPF Alasam
+
+37:33.480 --> 37:36.200
+because the hook doesn't get the UID,
+
+37:36.200 --> 37:38.560
+but like you can extract it from something.
+
+37:38.560 --> 37:41.960
+Oh yeah, they are aware of that.
+
+37:41.960 --> 37:44.440
+I talked to them.
+
+37:44.440 --> 37:48.120
+So yeah, well, for example, if you do a BPF Alasam
+
+37:48.120 --> 37:50.760
+and in hooks like security file open,
+
+37:50.760 --> 37:53.720
+you get the relevant ID mapping provided.
+
+37:53.720 --> 37:56.680
+And in other hooks where you only have the inode,
+
+37:56.680 --> 37:58.280
+yeah, then you don't have access,
+
+37:58.280 --> 38:01.480
+but that's also for example, not feasible.
+
+38:01.480 --> 38:04.560
+Like no, there is no security hook in lookup,
+
+38:04.560 --> 38:08.040
+but there is certainly locations where we have security hooks
+
+38:08.040 --> 38:10.080
+where you, for example, in the dentry cache,
+
+38:10.080 --> 38:12.600
+where you don't have any of that information available
+
+38:12.600 --> 38:14.120
+and it's impossible to make that work.
+
+38:14.120 --> 38:15.960
+Like you mentioned the lookup stuff,
+
+38:15.960 --> 38:18.240
+the lookup stuff itself, like it was two reasons
+
+38:18.240 --> 38:19.320
+why we didn't do it this way.
+
+38:19.320 --> 38:23.000
+First of all, because in lookup you initialize an inode
+
+38:23.000 --> 38:25.760
+and that always needs to be take the global UID
+
+38:25.760 --> 38:28.400
+and GID into account, the one that you see everywhere.
+
+38:28.400 --> 38:31.440
+Otherwise you end up with inode aliases in a way
+
+38:31.440 --> 38:35.960
+because if you can't cache an inode per mount,
+
+38:35.960 --> 38:36.800
+that's the one thing.
+
+38:36.800 --> 38:38.560
+And the other thing that lookup is called deep
+
+38:38.560 --> 38:40.040
+from within the dentry cache,
+
+38:40.040 --> 38:42.320
+which would have meant then suddenly you would have like,
+
+38:42.320 --> 38:45.880
+have to pass mount information more or less
+
+38:45.880 --> 38:48.000
+because it's mount information through the dentry cache.
+
+38:48.000 --> 38:49.160
+It doesn't make any sense.
+
+38:49.160 --> 38:50.640
+Also L would have killed me.
+
+38:50.640 --> 38:53.280
+But I mean, that's another thing
+
+38:53.280 --> 38:55.960
+why in these locations we don't want to have this.
+
+38:57.960 --> 39:00.320
+But for example, BPF Alasams,
+
+39:01.200 --> 39:04.760
+if they need that sort of information in specific hooks
+
+39:04.760 --> 39:07.200
+and is doable, then we can easily extend the hooks.
+
+39:07.200 --> 39:08.520
+Like I don't have a problem with this,
+
+39:08.520 --> 39:11.200
+like sort of more of a LSM question
+
+39:11.200 --> 39:12.240
+if they're ready to do this.
+
+39:12.240 --> 39:14.040
+It's, I think for most LASMs hooks,
+
+39:14.040 --> 39:17.360
+it simply hasn't been done because the LASMs
+
+39:17.360 --> 39:19.880
+that didn't implement that this specific hook
+
+39:19.880 --> 39:21.080
+didn't want this information.
+
+39:21.080 --> 39:22.520
+So it didn't make sense to provide it.
+
+39:22.520 --> 39:25.400
+If you have an LASM that wants this information,
+
+39:25.400 --> 39:26.680
+it's easy to extend it.
+
+39:27.560 --> 39:29.480
+Well, I think the other point is the LASMs
+
+39:29.480 --> 39:31.160
+should use the code behind the way
+
+39:31.160 --> 39:34.320
+because it seems this one is not the LASM.
+
+39:34.320 --> 39:37.160
+I think it's a little faster.
+
+39:37.160 --> 39:39.480
+And for always tricky when you provide a policy
+
+39:39.480 --> 39:41.840
+from users based on the current idea,
+
+39:41.840 --> 39:44.320
+you don't need to translate it to the LASM.
+
+39:44.320 --> 39:45.160
+Question?
+
+39:53.320 --> 39:55.600
+Yeah, you mentioned an FS real quick.
+
+39:56.560 --> 39:59.400
+How does it work with an FS?
+
+39:59.400 --> 40:00.240
+If I remember correctly,
+
+40:00.240 --> 40:03.200
+there's an upcall through the Linux Curing, right?
+
+40:03.200 --> 40:05.080
+So you get the translated.
+

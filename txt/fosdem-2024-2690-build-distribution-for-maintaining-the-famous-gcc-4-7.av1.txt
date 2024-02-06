@@ -1,0 +1,245 @@
+That's great to see so many people interested in GCC from more than 10 years ago.
+Okay, let's get started.
+So we are taking a step in time by more than 10 years, I think.
+Yes, almost, yeah.
+Okay, so Oliver Reiche is going to talk about the maintenance of GCC 4.7 and the reason for that is that GCC 4.7 has a special property which I'm sure you will talk about quickly.
+Exactly. So, hello everybody, my name is Oliver Reiche. I'm working for the Huawei Research Center in Munich.
+And yeah, I would like to talk about a built distribution for maintaining the famous GCC 4.7.
+So, and I would like to start with dissecting the title a little bit.
+So, first of all, what is the famous GCC 4.7 and what is it famous for?
+And then also talk a little bit about what do we mean by the term built distribution?
+Then I will show a little bit of patches that we applied to that GCC version and show a little bit about a bootstrap process before I wrap up the talk.
+All right, so GCC 4.7. Well, there is a movement that's called bootstrapable builds and this movement strives for building all software from source.
+And of course, you have to start somewhere. So, in practice, you usually start with a minimal set of binaries that you need to start the bootstrap process.
+And then at some point you bootstrap your C compiler and at some point you want now to bootstrap your C++ compiler and then you might ask yourself, how do I build a C++ compiler without a C++ compiler?
+Because most modern C++ compilers are actually written in C++.
+So, this is exactly where GCC 4.7 comes into play.
+It's a key role for the bootstrapable builds movement because it's the last GCC version that can only be compiled, that can be compiled with only a C compiler.
+So, if you want to enter the realm of C++ and everything that is beyond in this bootstrapping process, you will need this version of GCC.
+So, and it's also about software preservation because, yeah, it's a quite old code base.
+It does not run out of the box with modern compilers. It does not run out of the box of modern systems.
+Modern systems and modern compilers use by default usually the C11 standard.
+Also, this code base has some issues with that and GCC 4.7 does not build reproducibly in all scenarios.
+I will come to that a little later.
+So, the next thing is from the title, build distribution.
+I mean, this is like a very fuzzy task that we term that we invented.
+So, what do we mean by that?
+So, we have actually a project that's called Bootstrapable Toolchain.
+There's a little bit of advertisement here on the right side.
+You can build this project using our very own open source build system that's called JustBuild.
+And if you use this project, you can Bootstrap the latest compilers and latest build tools with it.
+And all you need, of course, our build system and reduced binary seed.
+We need the core utility being installed. We need a POSIX compliant shell and some C compiler with a working C standard library.
+So, even the tiny CC will work.
+And what we do is all of those two chains here are actually built from source.
+So, we didn't reinvent the wheel. We used the existing build descriptions for GCC Make or CMake for Clang.
+And our build system basically takes care of orchestrating the build and calling those foreign build systems.
+And yeah, you might have noticed, Make and CMake are not part of our initial binary seed.
+So, we have to Bootstrap those first.
+This is also what our build system takes care of in this project.
+And so, what we do basically is we do on-demand Bootstrap of all the necessary tools during this process to make sure that we have everything that we need in the next steps to do Bootstrapping of the next tool chains.
+And by doing so, we basically unfold the minimal Linux distribution on the fly that is barely enough to just build the tool chains that we are actually interested in.
+And yeah, this minimal Linux distribution is what we're referring to as the build distribution.
+All right, next I would like to talk a little bit about what patches did we apply to patch up GCC 4.7.
+Well, most of them are actually maintenance patches and backports.
+So, from newer GCC versions, so in the square brackets you see the GCC versions where we backported those commits from.
+So, in the PDF those are clickable links, brings you directly to GitHub.
+And yeah, just to mention a few, so the largest commit was the general Muzzle support.
+And yeah, this is just an example here.
+Of course, the commit is much longer.
+This introduced the entire macro infrastructure that is actually necessary for GCC to work with Muzzle.
+Another interesting commit was the actual linker support for Muzzle.
+So, it adds this magic string here which is the hard coded path where GCC expects the program interpreter to be located.
+But much more interestingly though is how did we patch up reproducibility for GCC 4.7.
+Well, if you use our build system or any other modern build system as a build orchestrator, they usually build in isolation.
+So, all of the stuff that runs in the action, so the make command, the make binary, everything that is needed to get the job done,
+is actually located in an isolated directory.
+It could be a temporary directory at a seemingly random path.
+It could also be located in the user's home directory.
+And there's a problem, for instance, yeah, those two binaries you heard about it today already,
+and CC1, the C compiler, and CC1 plus the C plus plus compiler, they contain checksums.
+And those checksums are computed from many things,
+and parts of that are the path of the linker that was actually used.
+And because we built in isolation, the linker is also located in this temporary isolated directory,
+and that path is seemingly random and finds its way in the final checksum.
+And the other problem is that the relevant object files for linking those binaries are also hashed to compute this checksum.
+And well, the object files contain debug information and therefore also contain somehow the build directory.
+So, we needed to patch that as well in order to compute a reproducible checksum
+that is independent of the build directory.
+So, which is actually fairly simple.
+So, we just made sure that the linker, we know the linker, we control the linker,
+so it's actually not necessary to hash the full path.
+So, we just stripped the path by some constants and replace it with some constant string.
+And of course, we copy the objects that are relevant during the process to some temporary directories,
+stripped them from any debug information using strip for target, of course,
+and then use those hashed those to compute the final checksum.
+So, at the end what we get, we still have a meaningful checksum that somehow represents how those binaries were built,
+while still being reproducible in the sense of being independent of the build directory.
+And all of those patches that I just showed will then be automatically applied during our bootstrap process.
+So, what is the process? How does it look like?
+So, we have actually multiple stages to, until we end up with the modern compilers that we actually want to build,
+because of time limitations I will only go into details of the very first stage.
+So, we start off with just having core utils, a shell and some C compiler.
+And the very first thing that we do is we bootstrap certain parts of busybox,
+because it includes very important tools that the auto tools and the auto config scripts later will need.
+And we only restrict to those very specific parts.
+So, grab find, say it for instance, and of course we need patch for patching GCC later.
+And with those tools at hand now, we can now bootstrap make.
+Make can be built with make, of course, but they also have a bootstrap path.
+Luckily for us, there's a shell script and with a little bit of magic,
+we end up getting the make binary and now we have make build system available.
+And then together with those tools and the make build system,
+we can bootstrap the archiver from the bin utils sources and then we also have an archiver available for producing static libraries.
+Okay, now we can do the first real build.
+So, we can build with those at hand, we can now build latest bin utils,
+the normal way it's meant to be built, configure and make, and then we can patch GCC and build GCC.
+If you're interested in running this on your machine, it should work on any x86-64-bit Linux system.
+You only have to install just build, clone this project and run this command.
+It should give you a working GCC 4.7 installation.
+Okay, so let me wrap up the talk.
+So, we tested that on many systems.
+It should work on any x86-64-bit Linux system.
+We also tried to test it on very different systems like NixOS,
+where actually everything is located at some custom path.
+We also tried very reduced images that only contain a tiny cc and a muslin libc.
+And with our project and together with our own build system,
+you can easily integrate, if you have a C++ project and use our build system,
+you can easily import this tool chain into your project.
+And then you can make the tool chain a committed dependency to your project,
+which has several advantages.
+Of course, it's easier to set up for the user.
+He doesn't need to have a certain C++ compiler installed.
+You can just clone your project, run build,
+and then the first thing that happens is the tool chain is being built.
+And don't worry about compile times.
+Of course, bootstrapping the tool chain takes a while,
+but this only needs to be done once.
+So the next time you build the tool chain is like a static part of your dependency chain
+that doesn't change, so it will come from cache.
+Of course, if the tool chain is committed to your project's history,
+also git bisects are easier.
+And we can even show, if you do it right,
+that you can predict the binary hashes of the binaries that your project produces.
+Because you have a very confined tool chain,
+you know exactly what the output should be.
+If you use the Moodle, Lib C, stripping, everything using static linking.
+We have a demo application showcasing that.
+We can predict binary hashes for this project
+that should run on every x86-64-bit lingo system.
+All right.
+Last thing, I would like to encourage everyone who's interested in that
+to just install just build and try those commands yourself.
+It will take about 30 minutes.
+If it doesn't work on your machine, please let us know,
+because this is super valuable information for us to make this process even more stable.
+All right. That's all.
+Thank you very much.
+Thank you.
+And we will allow for maybe three minutes of Q&A because we started late.
+And actually, I want to start with one question from the Matrix online channel
+because give them a chance to answer some of the questions.
+So Ismail Luceno asks if there is any collaboration with OpenBSD
+because they have been maintaining their own fork also of GCC 4.7, I guess,
+because of the C++.
+Okay. No, there's no collaboration.
+So the question was, is there any collaboration with OpenBSD?
+Yeah, very good.
+Okay.
+Because they maintain their own fork of GCC 4.7.
+No, there is not.
+This is actually a good question.
+I haven't heard about that before.
+So this is already valuable input for us.
+Okay.
+Got a question?
+Is this partly in the timing for things like bootstrapping for trusting trust at a time?
+What were your tries to avoid the possibility of your compiler to be supported?
+I didn't recognize it.
+Trusting?
+Trusting trusts, can you enrich your model to remember
+and then you should think of where you could support the compiler,
+you could insert an actor, compile it in such a way that you compile a source code
+and then recompile itself as high an actor and define the ring, but not present in the source code?
+Okay.
+Okay.
+It's pretty hard to repeat that question for me.
+I may be just in paraphrase.
+Yeah.
+Okay.
+So to ensure the question was whether this is security related.
+Yes, in some extent it is security related.
+So one idea is to have the possibility, if you build reproducibly in a way that you can say,
+okay, this source code compiles to this binary and will have this hash,
+pretty much independently of the system you're building on,
+of course there are some restrictions,
+that gives the opportunity to say, well, we can basically prove that this binary originates
+from that source code and that source code alone.
+That is actually also one of the motivations.
+Yes.
+It looks like typed up.
+How we got?
+One more question.
+One more.
+Do we have the next speaker in the room?
+Our guy finding.
+So, yeah.
+I was surprised that it's machine dependent.
+I wonder why different architectures aren't easily done.
+So the question was why it is machine dependent and different architectures weren't done.
+The reason is just we were focusing on x86, 64-bit Linux
+because it's the most widespread right now.
+And it's also quite of work to patching GCC up to make that happen.
+So we basically just not had the time to look into other architectures.
+But we already have it on our to-do list.
+We want to at least support ARM 64-bit.
+And then let's see where we come from there.
+All right.
+I guess we have to go.
+Yeah, then.
+So at the end of this process you get C++ compiler,
+but it is an older C++ compiler.
+Yes.
+I was just wondering like how many stepping stones are there to get to the latest?
+All right.
+So the question was that after the bootstrap process of stage zero,
+we just have GCC 4.7.
+This is a quite old compiler and what other steps are necessary to reach modern compilers.
+This is a very good question.
+Yes.
+So modern compilers usually need C++ 11 support.
+GCC 4.7 does not have that.
+And so the next stage, so stage one is actually bootstrapping GCC 10.2,
+which is to my knowledge the first one almost completely supporting C++ 11.
+4.8?
+Is it all right?
+Okay.
+So current GCC can still be bootstrapped with GCC 4.8.
+Oh, okay.
+Okay.
+But not that clear.
+Okay, but we definitely need one more step.
+And yeah, we got that covered currently with GCC 10.2 is the step stage one.
+And then from there we can go on.
+So don't need more than one step after 10 years.
+So is that okay?
+Yeah, exactly.
+Yeah.
+And I guess the advantage of picking a later GCC version is that we don't have as much
+patching for new back ends and configurations,
+and stuff like that because that's then all.
+And it looks shiny new.
+And it's still maintained, GCC 10.2.
+Yeah, and you would help these main things.
+You're the next.
+Okay.
+I hope that'll be the end.
+I'm sorry.
+Okay.
+Thank you, Arvid.
+Thank you, Arvid.
+Could you help me with this?
+Yeah.
+I'll cut it off.
+I'll see you there.
+Thanks.
+Thanks.
