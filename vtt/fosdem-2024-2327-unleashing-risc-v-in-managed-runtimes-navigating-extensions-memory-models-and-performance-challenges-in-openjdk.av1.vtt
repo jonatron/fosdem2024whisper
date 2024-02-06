@@ -1,0 +1,1226 @@
+WEBVTT
+
+00:00.000 --> 00:14.360
+Hello, my name is, does this work?
+
+00:14.360 --> 00:15.360
+Or?
+
+00:15.360 --> 00:16.760
+It's green, it's good.
+
+00:16.760 --> 00:17.760
+It's green, it's good.
+
+00:17.760 --> 00:25.440
+Yeah, my name is Robin N. I work at Reavals with RISC 5 and I'm mostly working on the
+
+00:25.760 --> 00:26.760
+OpenJDK.
+
+00:26.760 --> 00:32.920
+So I'll talk about some of the experience with the OpenJDK.
+
+00:32.920 --> 00:37.800
+And unfortunately for me, I can't lie too much because I see some experienced OpenJDK
+
+00:37.800 --> 00:39.800
+people in the crowd here.
+
+00:39.800 --> 00:43.520
+So we'll see if they correct me.
+
+00:43.520 --> 00:50.320
+So yeah, this is basically what I'm going to talk about, the OpenJDK, the JIT, which
+
+00:50.320 --> 00:54.560
+is kind of important for a new architecture.
+
+00:54.560 --> 01:00.880
+We're going to mention the trampoline lines as Mambo.
+
+01:00.880 --> 01:02.920
+We have some cross-modifying code.
+
+01:02.920 --> 01:10.560
+We talk about all the extensions we have, a bit about sign extensions.
+
+01:10.560 --> 01:15.440
+And I was going to talk something about canonical NANDs, but I think Ludovic made a good job
+
+01:15.440 --> 01:21.280
+of it, so I might just skim that through.
+
+01:21.280 --> 01:28.960
+So I'm not sure how much anyone knows about the OpenJDK, but it's a huge C++ code base
+
+01:28.960 --> 01:36.840
+with inline assembly and there is a lot of C++ code which is architecture specific, since
+
+01:36.840 --> 01:41.320
+we have different ABI's on different architectures.
+
+01:41.320 --> 01:47.000
+So the C++ code needs to know what's ABI for these architectures.
+
+01:47.000 --> 01:54.640
+We have a template interpreter, which means we basically have assembly snippets implemented
+
+01:54.640 --> 02:00.640
+for each thing we want to interpret, which jump to each other, so it's not a C and a
+
+02:00.640 --> 02:02.680
+switch statement.
+
+02:02.680 --> 02:07.080
+We have two compilers, C1 and C2.
+
+02:07.080 --> 02:11.960
+One is very fast and one is a bit slower.
+
+02:11.960 --> 02:18.960
+The first one is usually compiled with profiling, so we keep profiling the interpreter, we
+
+02:18.960 --> 02:24.920
+keep profiling when we compile with C1, then we compile with C2 and we drop the profiling
+
+02:24.920 --> 02:34.280
+because the profiling eats from your performance.
+
+02:34.280 --> 02:41.440
+And we also generate the template interpreter is actually generated during startup, because
+
+02:41.440 --> 02:47.600
+we customize it because you might use a GC which requires some specific load barriers
+
+02:47.600 --> 02:53.720
+and stuff, so we generate the code for the interpreter and we generate a bunch of other
+
+02:53.720 --> 02:54.720
+code.
+
+02:54.720 --> 03:01.720
+Like we have a lot of assembly which is glue between like the runtime, the compiler, the
+
+03:01.720 --> 03:02.720
+interpreter.
+
+03:02.720 --> 03:16.880
+So, the risk five port, it's fully functional, all great.
+
+03:16.880 --> 03:24.040
+Well, we are missing some optimizations and when we say fully functional, we mean with
+
+03:24.040 --> 03:25.600
+limited tested.
+
+03:25.600 --> 03:32.200
+We are done, have done, as Ludovic have talked about, testing is a pain as we have small
+
+03:32.200 --> 03:39.720
+boards, we have QEMO and OpenUDK have a lot of tests.
+
+03:39.720 --> 03:43.880
+We have tests that can run for like a week, just one test.
+
+03:43.880 --> 03:48.640
+If you take that and try to run it in QEMO, it will take forever.
+
+03:48.640 --> 03:58.960
+So, we have JDK 21 and 17, we are working on the 11 to get the port done for 11.
+
+03:58.960 --> 04:05.920
+I wouldn't recommend JDK 11, I would recommend at least 17, because it's much faster, it's
+
+04:05.920 --> 04:10.280
+better and you also get a GC.
+
+04:10.280 --> 04:19.040
+Yeah, the other platforms since like x86 have had like 25 years of optimization and our
+
+04:19.040 --> 04:24.840
+report is like, I don't know, four years, so we are missing like at least 20 years of
+
+04:24.840 --> 04:32.520
+optimization in the codebase.
+
+04:32.520 --> 04:36.160
+So just in time compilation, why?
+
+04:36.160 --> 04:42.520
+Yeah, of course the obvious reason is because we want to be right once run anywhere, but
+
+04:42.520 --> 04:45.880
+we also have some other things in the OpenJDK going on.
+
+04:45.880 --> 04:52.040
+We have a dynamic class hierarchy, as we can do class loading or we always do class loading,
+
+04:52.040 --> 04:58.160
+otherwise we wouldn't get any classes, which means that the hierarchy is changing.
+
+04:58.160 --> 05:04.920
+So it's not such a good idea to try to pre-compile because at any given time your class hierarchy
+
+05:04.920 --> 05:07.720
+might be different.
+
+05:07.720 --> 05:13.680
+So even if you did pre-compile, since mostly everything is virtual, it's virtual by default,
+
+05:13.680 --> 05:18.880
+you would just do just virtual calls all over the place.
+
+05:18.880 --> 05:21.240
+So that would be slow.
+
+05:21.240 --> 05:27.360
+So but with YIT and profiling, we can avoid virtual calls and we can speculate a bit about
+
+05:27.360 --> 05:37.400
+the class hierarchy.
+
+05:37.400 --> 05:38.400
+When do we compile?
+
+05:38.400 --> 05:40.960
+Yeah, we compile hot methods.
+
+05:40.960 --> 05:48.360
+And as I said, first we compile with C1, we keep profiling, then we can compile with C2.
+
+05:48.360 --> 05:54.280
+So what we do is kind of a speculative compilation, which means that if we see you have never
+
+05:54.280 --> 06:00.000
+executed this branch in your method, we may choose to remove that branch and put in a
+
+06:00.000 --> 06:01.200
+trap instead.
+
+06:01.200 --> 06:07.600
+So if you actually want to run that piece of code in that branch, instead we trap, the
+
+06:07.600 --> 06:12.160
+optimized will go to the interpreter.
+
+06:12.160 --> 06:14.920
+And we can do the speculation based on the profiling.
+
+06:14.920 --> 06:21.720
+So if you have a hash table and you put cars in it, you call hash code, we can and I can
+
+06:21.720 --> 06:26.400
+guess that this call to hash code will be on the car.
+
+06:26.400 --> 06:32.320
+So we don't need to do the Vtable lookup, we can instead guess that you're putting cars
+
+06:32.320 --> 06:36.400
+here so we call hash code for car.
+
+06:36.400 --> 06:40.440
+And until we get proven otherwise.
+
+06:40.440 --> 06:50.080
+Yeah, so we also need to do some cross modifying code.
+
+06:50.080 --> 06:55.040
+So when we're kept compiling something, compiling is a bit expensive.
+
+06:55.040 --> 07:04.080
+So if we can just change the code instead and update whatever was what was missing, so
+
+07:04.080 --> 07:15.280
+we don't have to deoptimize and recompile, we will do that instead.
+
+07:15.280 --> 07:21.480
+So I'm jumping directly to talk about a jittered call site.
+
+07:21.480 --> 07:29.000
+So when the jitter lays out a call site, we have two instructions, jump and link, jump
+
+07:29.000 --> 07:31.840
+and link register.
+
+07:31.840 --> 07:39.520
+And when we lay out the call site, since we have a dynamic class hierarchy, I forgot to
+
+07:39.520 --> 07:44.280
+say that on the first page, but classes are loaded on first use, which means the compiler
+
+07:44.280 --> 07:49.440
+is not allowed to load classes, it has to be used by the program.
+
+07:49.440 --> 07:55.200
+So when we lay out a call site, we might not know where we're going to call because we
+
+07:55.200 --> 07:57.480
+don't want to do a resolve.
+
+07:57.480 --> 08:02.480
+Because resolving the call site might mean we need to load classes.
+
+08:02.480 --> 08:08.760
+So when we lay out certain kinds of call sites, we need a full range of that call site, which
+
+08:08.760 --> 08:15.840
+means we have two options, we can either load the address or we can materialize the address.
+
+08:15.840 --> 08:18.800
+Materializing requires a bunch of instructions.
+
+08:18.800 --> 08:25.120
+I think the example here is just materializing six bytes or something, maybe someone that
+
+08:25.120 --> 08:30.000
+is fluent in assembly can tell me.
+
+08:30.000 --> 08:38.640
+Yeah, the reason why normally you would maybe do a table look up here, but we wanted to
+
+08:38.640 --> 08:47.080
+actually lay out a direct call as we can without any loading of data and stuff like that.
+
+08:47.080 --> 08:51.360
+So that's why the call site looks like this.
+
+08:51.360 --> 08:56.840
+And for the full picture, it actually looks even like this.
+
+08:56.840 --> 09:05.120
+So we actually lay out a smaller call site in the code, which calls a trampoline, which
+
+09:05.120 --> 09:11.080
+will load the address, which is just under the jump and link in the trampoline, and then
+
+09:11.080 --> 09:18.800
+we will end up at a destination.
+
+09:18.800 --> 09:29.320
+But as I said, a dynamic call site can be unresolved, which means when we get the code,
+
+09:29.320 --> 09:34.400
+we actually just point the trampoline to a resolve stub.
+
+09:34.400 --> 09:42.160
+So the first thread that actually executes this, we'll need to resolve this call, whatever
+
+09:42.160 --> 09:43.160
+it's going.
+
+09:43.160 --> 09:52.080
+So if this was the, if a is the car.hashcode, when we lay out the code, we don't know this,
+
+09:52.080 --> 10:03.720
+we need to resolve this and figure out that this is the receiver of the call.
+
+10:03.720 --> 10:08.120
+So then we have cross modifying code.
+
+10:08.120 --> 10:10.320
+What is cross modifying code?
+
+10:10.320 --> 10:15.560
+It's that one core is writing the instruction or changing the instruction stream, and we
+
+10:15.560 --> 10:20.920
+have another core executing the instruction stream.
+
+10:20.920 --> 10:28.840
+It's a bit complicated, of course, but OpenJDK does it a lot too.
+
+10:28.840 --> 10:33.680
+Avoid recompilation is basically the thing we want to avoid, because especially during
+
+10:33.680 --> 10:38.880
+startup when your class graph is changing all the time because you keep loading classes,
+
+10:38.880 --> 10:43.360
+if we compile something that looks hot, we don't want to remove it directly and recompile
+
+10:43.360 --> 10:45.720
+and remove it and recompile.
+
+10:45.720 --> 10:53.440
+Instead we can do the speculative compilation and layout code and fix it a bit later.
+
+10:53.440 --> 11:03.320
+So you can talk about two types of cross modifying code synchronous, which is basically you're
+
+11:03.320 --> 11:08.640
+waiting for the other CPU to fix the instruction stream ahead of you.
+
+11:08.640 --> 11:15.960
+And here's an example with the modifying processor do a store to the instruction stream, then
+
+11:15.960 --> 11:18.080
+release the guard.
+
+11:18.080 --> 11:20.920
+The executing processor waits on the guard.
+
+11:20.920 --> 11:25.600
+When it gets released, it picks up the new instructions.
+
+11:25.600 --> 11:32.440
+It's not that easy, but pick up the new instruction is not just a simple thing, but I'll get to
+
+11:33.360 --> 11:40.080
+and then you have the asynchronous cross modification where we just store something directly in the
+
+11:40.080 --> 11:41.720
+instruction stream.
+
+11:41.720 --> 11:46.800
+Executing processor might see the new or the old instruction.
+
+11:46.800 --> 11:47.800
+We don't know.
+
+11:47.800 --> 11:51.720
+We need to handle both.
+
+11:51.720 --> 11:55.760
+So back to our example here.
+
+11:55.760 --> 12:01.160
+So one Fred calls to resolve.
+
+12:01.160 --> 12:07.520
+After you have resolved the know who's the receiver of this call, it will patch the
+
+12:07.520 --> 12:11.560
+eight byte address stored in the trampoline.
+
+12:11.560 --> 12:16.920
+So anyone else that does this call will reach a.
+
+12:16.920 --> 12:25.680
+But we still allow friends to see the old destination, which means that both of the
+
+12:26.600 --> 12:29.560
+old trampoline and the new trampoline is valid.
+
+12:29.560 --> 12:33.400
+Since if you see the old one, you will hit the resolve stub.
+
+12:33.400 --> 12:38.040
+You will see that this quality is already patched by someone else and you will just
+
+12:38.040 --> 12:43.800
+go back and re execute it and then you will pick up the new destination, which is a.
+
+12:43.800 --> 12:52.240
+Yeah, so point to so when the executing Fred actually sees the new instruction stream
+
+12:53.240 --> 12:59.760
+in especially in the said Jai said Jai the extension for cross modifying code.
+
+12:59.760 --> 13:02.520
+We talk about point of unification.
+
+13:02.520 --> 13:10.360
+So that means that modifying processor and executing processor agree on the global state.
+
+13:10.360 --> 13:12.880
+So I'll use the terminal leave from that extension.
+
+13:12.880 --> 13:16.680
+I'll mention it more later.
+
+13:16.680 --> 13:18.400
+So we have patched the trampoline.
+
+13:18.400 --> 13:19.400
+Well, good.
+
+13:19.400 --> 13:20.400
+No.
+
+13:21.400 --> 13:28.920
+So someone loads a B, which is also of a type.
+
+13:28.920 --> 13:32.920
+So we have a new receiver here and we actually need the V table look up.
+
+13:32.920 --> 13:38.240
+So we need to patch trampoline once more and add.
+
+13:38.240 --> 13:44.720
+A V table look up before we can land on a because it could have been a B.
+
+13:44.720 --> 13:49.000
+So the trampoline is not patched just one time.
+
+13:49.000 --> 13:51.000
+It can be patched.
+
+13:51.000 --> 13:57.520
+Well, I think at most two times, but yeah.
+
+13:57.520 --> 14:01.840
+And in this case, all three.
+
+14:01.840 --> 14:08.240
+Ways of calling is that is alive at the same time because you can still see the so one
+
+14:08.240 --> 14:12.160
+Fred lagging behind can still see this resolve.
+
+14:12.160 --> 14:17.560
+Someone else might see this jump and someone might see the V table.
+
+14:17.560 --> 14:23.200
+We allow all three to be OK at the same time.
+
+14:23.200 --> 14:29.280
+We do this, but we have a small piece of code in a which verify when you did the jump to
+
+14:29.280 --> 14:35.240
+a you had the right receiver as your intended target.
+
+14:35.240 --> 14:37.880
+But that becomes really complicated.
+
+14:37.880 --> 14:45.680
+The main point of the slide is to show that we need to be able to patch the whole site
+
+14:45.680 --> 14:54.240
+multiple times.
+
+14:54.240 --> 14:59.560
+So what we're doing here is actually not cross modifying code on risk five as we have
+
+14:59.560 --> 15:07.000
+a the as we do an LD on the eight bite address and we do actually a store of eight bite address.
+
+15:07.000 --> 15:10.120
+It happens to be in the.
+
+15:10.120 --> 15:14.640
+Just below the instruction stream, but it's actually not read as an instruction as we
+
+15:14.640 --> 15:15.840
+do an LD on it.
+
+15:15.840 --> 15:21.040
+So in this case, we're actually not doing cross modifying code since we load the address
+
+15:21.040 --> 15:28.800
+with an LD.
+
+15:28.800 --> 15:31.280
+So but.
+
+15:31.280 --> 15:34.360
+There's still some problems with this.
+
+15:34.360 --> 15:41.480
+First of all, as the the address is just below the addresses, your pipeline might try to
+
+15:41.480 --> 15:46.120
+decode the constant as instructions.
+
+15:46.120 --> 15:51.720
+You also have the problem with reading from the same cash line that you're executing.
+
+15:51.720 --> 15:53.360
+Some process might not like that.
+
+15:53.360 --> 16:01.080
+So you have the same cash line in I and D.
+
+16:01.080 --> 16:06.800
+And we also have the overhead of the jump from a to trampoline.
+
+16:06.800 --> 16:11.920
+So what we are suggesting suggested in on risk five.
+
+16:11.920 --> 16:16.760
+Yeah, and I can also mention as we need this place, atomic or patchable, that's why we
+
+16:16.760 --> 16:27.280
+can't use the ally since it's seven instructions and we can only patch one instruction atomically.
+
+16:27.280 --> 16:33.240
+So for this case, we're suggesting that we actually do the load directly at the call
+
+16:33.240 --> 16:40.280
+site in a and we only have the address as a piece of metadata instead of a full trampoline,
+
+16:40.280 --> 16:42.720
+which means we get rid of one jump.
+
+16:42.720 --> 16:46.680
+We put the address on a separate cash line.
+
+16:46.680 --> 16:57.240
+So it should be faster on any risk processor.
+
+16:58.200 --> 17:03.600
+This is just the general philosophy of open JDK, meaning that in hot pass, we don't have
+
+17:03.600 --> 17:04.880
+any synchronization.
+
+17:04.880 --> 17:11.920
+We allow execution of stale instructions because like you know, if you have your ISB instruction
+
+17:11.920 --> 17:14.240
+on a arch, it's really expensive.
+
+17:14.240 --> 17:20.280
+We cannot have that in hot path since we try to compete with C++.
+
+17:20.280 --> 17:25.160
+So in slope of we try to reach point of unification.
+
+17:25.160 --> 17:31.280
+If you're on AR64, that means that there's probably an ISB instruction in your slope
+
+17:31.280 --> 17:32.280
+off.
+
+17:32.280 --> 17:39.520
+Yeah, and there's a list of other examples of cross modifying code.
+
+17:39.520 --> 17:41.320
+JIT itself is cross modifying.
+
+17:41.320 --> 17:43.720
+It's compiled by one thread.
+
+17:43.720 --> 17:48.360
+Pointer is installed by one thread and another thread is picking that pointer up and jumping
+
+17:48.360 --> 17:49.960
+to the JIT code.
+
+17:49.960 --> 17:54.000
+So that in itself is cross modifying code.
+
+17:54.000 --> 18:00.400
+The third in this solution is when you do a field access.
+
+18:00.400 --> 18:05.200
+The class for the field access is not yet loaded, so we don't know the offset for the
+
+18:05.200 --> 18:06.200
+field.
+
+18:06.200 --> 18:10.240
+So we basically say, oh, you need to fill in the offset here.
+
+18:10.240 --> 18:14.040
+So the first thread that hits this path needs to load the class.
+
+18:14.040 --> 18:19.600
+If it's not loaded, figure out the offset, patch the code.
+
+18:19.600 --> 18:26.480
+And then you have different barriers for the method because they can get invalidated.
+
+18:26.480 --> 18:28.480
+We might need to update the method.
+
+18:28.480 --> 18:36.720
+So we have guards and barriers to protect the method.
+
+18:36.720 --> 18:42.080
+We can have addresses of objects directly into the code stream.
+
+18:42.080 --> 18:48.360
+So when the GCMOS an object, we need to change the immediate for that object that was moved.
+
+18:48.360 --> 18:52.040
+We can have GC barriers as immediate values.
+
+18:52.040 --> 18:57.280
+So when the GC changes color, we might need to update the load barrier to reflect the
+
+18:57.280 --> 19:00.360
+color change.
+
+19:00.360 --> 19:08.520
+Yeah, point of unification.
+
+19:08.520 --> 19:15.280
+So if you're running your AR64, that usually means you're doing an ISB.
+
+19:15.280 --> 19:17.840
+We don't have that.
+
+19:17.840 --> 19:24.920
+What we have is something about fence.i, which is not so good.
+
+19:24.920 --> 19:28.200
+What we're doing today is something really crazy.
+
+19:28.200 --> 19:33.840
+For every write we do in a page that is from the JIT, meaning we think we're doing cross-modifying
+
+19:33.840 --> 19:41.480
+code even though my first example was not, we're doing RISC-5 flash iCache, which means
+
+19:41.480 --> 19:47.800
+the kernel will do an IPI on all CPUs and emit fence.i.
+
+19:47.800 --> 19:55.400
+So every write we do, this is really expensive as from the last page, if we put in like GC
+
+19:55.400 --> 20:01.720
+barriers, which need to shift color for every load of object in the instruction stream,
+
+20:01.720 --> 20:08.080
+meaning that we might change 10 places in one method to reflect the change in GC color.
+
+20:08.080 --> 20:14.480
+So there will be 10 writes just in this method and that will cause 10 IPIs.
+
+20:14.960 --> 20:18.720
+That means that every write we reach point of unification.
+
+20:18.720 --> 20:26.920
+So it's working really well with cross-modifying code RISC-5 with OpenJK at the moment, since
+
+20:26.920 --> 20:32.160
+we actually don't have any races basically, since we do the IPI on every write.
+
+20:32.160 --> 20:38.320
+So I see in like a really small board it costs a half a percent of performance.
+
+20:38.320 --> 20:48.920
+On a large real CPU server class, maybe 2-3 percent of performance decreased due to all
+
+20:48.920 --> 20:53.200
+the IPIs all the time.
+
+20:53.200 --> 21:01.240
+Yeah, point of unification, the modifier needs to make the stores visible and executioner
+
+21:01.240 --> 21:07.920
+needs to make sure the instruction stream is invalidated and so he picks up the new instruction.
+
+21:09.120 --> 21:16.720
+But we still think we can do a bit better with what we have, since fens.i is an
+
+21:16.720 --> 21:23.760
+unprivileged instruction, we can actually emit it ourselves in the slow path.
+
+21:23.760 --> 21:29.720
+So we don't need to do the IPI, but we need help with context switches.
+
+21:29.720 --> 21:34.040
+So you're on your heart to use RISC-5 terminology.
+
+21:34.080 --> 21:40.880
+You emit your fens.i and think you have invalidated your instruction stream, but the kernel moves
+
+21:40.880 --> 21:42.800
+you to another heart.
+
+21:42.800 --> 21:48.800
+So if the kernel moves you, the kernel would need to emit the fens.i so you know that on
+
+21:48.800 --> 21:54.760
+that whole heart also the instruction stream is invalidated.
+
+21:54.760 --> 22:03.760
+And what it's going to save us, we hope, is the ZJID extension for IDI.
+
+22:03.760 --> 22:06.120
+ID synchronization.
+
+22:06.120 --> 22:12.880
+So instead of fens.i we would get an import i, but more importantly we will get a limit
+
+22:12.880 --> 22:15.280
+on the instruction fetching.
+
+22:15.280 --> 22:22.400
+So ARCH allows out of order fetching, which is problematic for us.
+
+22:22.400 --> 22:30.000
+So if you have a call, when you do an A, Y, P, C, jump and link, even though if you
+
+22:30.000 --> 22:35.840
+not bit out by first not being out the jump and link, and then you not about the A, Y,
+
+22:35.840 --> 22:41.920
+P, C, the iFetch could fetch the jump and link before the A, Y, P, C.
+
+22:41.920 --> 22:49.480
+So it reads the A, Y, P, C before you not that then it reads a not from the A, Y, P, C, then
+
+22:49.480 --> 22:50.640
+you're toast.
+
+22:50.640 --> 22:57.280
+So ZJID will specify how the iFetching will work, what we can overwrite without tearing
+
+22:57.280 --> 22:59.880
+instructions apart and stuff like that.
+
+22:59.880 --> 23:12.720
+So we're hoping we get that in place well this year.
+
+23:12.720 --> 23:14.720
+How long have we been going?
+
+23:14.720 --> 23:18.680
+Okay, that's fine.
+
+23:18.680 --> 23:23.360
+Yeah, that brings me to extensions.
+
+23:23.360 --> 23:25.760
+We have a bunch of extensions.
+
+23:26.600 --> 23:32.680
+When I looked, maybe this is totally wrong, but I found 60 ratified, which adds instruction
+
+23:32.680 --> 23:35.320
+for RV64.
+
+23:35.320 --> 23:45.000
+That's 450 base instructions, and I found 45 unratified adding another 400 base instructions.
+
+23:45.000 --> 23:54.000
+As an example, I took this fall I was looking at the CRC32 a bit.
+
+23:54.000 --> 24:01.560
+So OpenJDK have an implementation of it in Java, works fine, but you probably want to
+
+24:01.560 --> 24:05.280
+have an intrinsic for it to make it faster.
+
+24:05.280 --> 24:12.480
+So then you can make your table look up intrinsic with the base ISA, which is the standard CRC32
+
+24:12.480 --> 24:13.980
+intrinsic.
+
+24:13.980 --> 24:19.000
+But you can also use Kerala's multiplication to do even faster intrinsic.
+
+24:19.000 --> 24:27.600
+Then you have your scalar Kerala's multiplication in the CBC extension, but you also have Kerala's
+
+24:27.600 --> 24:29.840
+multiplication in vector.
+
+24:29.840 --> 24:37.760
+So there's a possibility to have four implementations of the same CRC32 algorithm, one in Java,
+
+24:37.760 --> 24:50.440
+one for base ISA, one for CBC, one for vector, which is too much.
+
+24:50.440 --> 24:54.600
+Also at least I'm getting really annoyed with the architecture description through your
+
+24:54.600 --> 24:56.600
+compiler.
+
+24:56.600 --> 25:00.080
+And this is just the first of four lines.
+
+25:00.080 --> 25:05.440
+So if you have a server class CPU, I'm not sure how long that can get.
+
+25:05.440 --> 25:11.000
+So as Ludwig was talking about profiles, we're hoping that we get nice profiles.
+
+25:11.000 --> 25:20.280
+Right now RV823 is perhaps the one that looks best.
+
+25:20.280 --> 25:27.960
+And for the JIT, you need to add an option for every one of these.
+
+25:27.960 --> 25:30.920
+But we have HVPROB, so we can get it automatically.
+
+25:30.920 --> 25:39.040
+But there is like, you get an extension, you add an option, then you get HVPROB.
+
+25:39.040 --> 25:47.040
+So make sure you have like, so basically you need a 6.9 kernel or something to make everything
+
+25:47.040 --> 25:48.040
+work nice.
+
+25:48.040 --> 25:50.960
+6.8 maybe is the next one.
+
+25:50.960 --> 25:58.120
+So I recommend using 6.8, which is released in, I don't know, because otherwise you need
+
+25:58.120 --> 26:05.280
+to add all the options on the command line.
+
+26:05.280 --> 26:10.480
+This brings me to the next problematic things.
+
+26:10.480 --> 26:18.000
+We have some major extensions like do your CPU allow misaligned access?
+
+26:18.000 --> 26:22.800
+Do you have vector, what are your memory model?
+
+26:22.800 --> 26:24.600
+We allow to turn off.
+
+26:24.600 --> 26:30.760
+Yeah, so the JIT, since we do this cross modifying code and stuff, we're really sensitive to
+
+26:30.760 --> 26:31.920
+code layout.
+
+26:31.920 --> 26:36.960
+So if we change anything with code layout, we would like to test it.
+
+26:36.960 --> 26:44.520
+Since you have so many options that changes the code layout from the JIT, we have so many
+
+26:44.520 --> 26:50.200
+combinations that we would like to test, but we only have basic boards in QEMO.
+
+26:51.120 --> 26:59.120
+That makes it really hard to guarantee that your combination will work fine, because I
+
+26:59.120 --> 27:06.920
+guess everyone is testing a combination which will be something for the CPU they are intending.
+
+27:06.920 --> 27:16.320
+So I think there's a lot of combinations which are not tested much at all.
+
+27:16.440 --> 27:19.440
+We also have the compressed.
+
+27:19.440 --> 27:21.360
+Yeah, we have an option for it.
+
+27:21.360 --> 27:23.240
+You can turn it on and off.
+
+27:23.240 --> 27:30.720
+We have an assembler that just changes the instruction for you if you want.
+
+27:30.720 --> 27:36.280
+Since we're sensitive to code size, some parts are fixed size, so just to make it easy for
+
+27:36.280 --> 27:42.840
+us, we turn off compressed in certain parts, because we want it to be at a certain alignment
+
+27:42.880 --> 27:49.000
+or certain address.
+
+27:49.000 --> 27:54.800
+We see 5-10% code size reduction.
+
+27:54.800 --> 28:01.720
+One thing we can do is, since you know the compressed just have 4 bits for the registers,
+
+28:01.720 --> 28:05.800
+we don't consider that, so we just use registers.
+
+28:05.800 --> 28:08.320
+For example, we have the heat base.
+
+28:08.320 --> 28:14.840
+If you have compressed points for your object, we have a base for it, which means every time
+
+28:14.840 --> 28:18.320
+you load an object, we need to materialize the full address.
+
+28:18.320 --> 28:23.800
+That one is in X27, which means we never can use compressed for that.
+
+28:23.800 --> 28:30.960
+So if we were to put heat base in another register, like X14, then we could use compressed
+
+28:30.960 --> 28:31.960
+more.
+
+28:36.800 --> 28:43.240
+Next, which Ludovic touched on, about memory models.
+
+28:43.240 --> 28:47.280
+We have your weak and your strong model.
+
+28:47.280 --> 28:51.160
+In OpenJDK, we're often dealing with free models.
+
+28:51.160 --> 28:57.480
+We have the hotspot memory model, which is from the 90s, I think.
+
+28:57.480 --> 29:02.280
+So it predates C++ and C11.
+
+29:02.280 --> 29:06.160
+Then you have your Java memory model.
+
+29:06.160 --> 29:10.160
+Then you have your C++ memory model.
+
+29:10.160 --> 29:16.080
+Since we have two hardware memory models, we get a lot of mapping around that.
+
+29:16.080 --> 29:20.880
+So we basically have six combinations here.
+
+29:20.880 --> 29:25.680
+And that also, extension, increase the complexity.
+
+29:25.680 --> 29:31.440
+Because then you have like SACAS, which introduce the CAS, which means we need the CAS for the
+
+29:31.440 --> 29:33.920
+memory model also.
+
+29:33.920 --> 29:42.760
+So yeah, again, if we're going to test all combinations, it will be really costly.
+
+29:52.760 --> 29:55.200
+Yeah, sign extension.
+
+29:55.200 --> 29:59.680
+Maybe it's just me, but I'm not a friend with it.
+
+29:59.680 --> 30:06.560
+So sign extension is when you have a word and you need to enlarge it.
+
+30:06.560 --> 30:10.000
+Oh, yeah, I only have a few minutes.
+
+30:10.000 --> 30:12.000
+So that's good.
+
+30:12.000 --> 30:14.320
+So you want to enlarge it to a word.
+
+30:14.320 --> 30:16.560
+You need to replicate the sign bit.
+
+30:16.560 --> 30:21.600
+So we present the sign as of the word when we treat it as a double word.
+
+30:21.600 --> 30:27.800
+And we do this because some of the instructions use the full register, branch and or, for
+
+30:27.800 --> 30:32.120
+example.
+
+30:32.120 --> 30:35.440
+So this is all fine when you let the compiler do the work.
+
+30:35.440 --> 30:42.560
+But as we have so much assembly and we do, yeah, type less passing, we have templates
+
+30:42.560 --> 30:44.280
+with inline assembly.
+
+30:44.280 --> 30:49.680
+So you get a type T and then you're supposed to put in your inline assembly.
+
+30:49.680 --> 30:55.360
+And we have type aliasing, meaning we have one type and we access it through a pointer
+
+30:55.360 --> 30:58.240
+to a different type.
+
+30:58.240 --> 31:04.040
+So when you write all this, you need to think about both like the short representation
+
+31:04.040 --> 31:09.840
+of your word, but you also need to think about the word as a eight bite.
+
+31:09.840 --> 31:15.660
+So I get confused and suddenly my branches go somewhere else because I forgot sign extension.
+
+31:15.660 --> 31:21.600
+So I'm not a fan of it.
+
+31:22.280 --> 31:25.880
+Yeah.
+
+31:25.880 --> 31:26.880
+And sign extension.
+
+31:26.880 --> 31:31.520
+I don't have much to say more than what Ludovic said.
+
+31:31.520 --> 31:33.640
+I had a, this is one example.
+
+31:33.640 --> 31:44.000
+If you're writing Java code, if you use this method, you will be surprised because if you
+
+31:44.000 --> 31:50.480
+have a negative NAND and you ask this guy, you don't know what the bit will be.
+
+31:50.480 --> 31:53.880
+It depends on the instruction and stuff.
+
+31:53.880 --> 32:01.040
+And the C++ version is even more complicated because compiler may choose to evaluate that
+
+32:01.040 --> 32:06.960
+at compile time, which means you get whatever the compiler think design flag should be.
+
+32:06.960 --> 32:10.080
+If you execute it in runtime, then it depends on the instructions.
+
+32:10.080 --> 32:19.920
+So if you see anyone using such one functions and they don't consider not the number then
+
+32:20.840 --> 32:25.680
+there might be a bug.
+
+32:25.680 --> 32:31.680
+So sorry, one too many.
+
+32:31.680 --> 32:39.080
+So yeah, I personally like RWA 23, but of course want said JID.
+
+32:39.080 --> 32:44.200
+So we can formalize the cross modifying code.
+
+32:44.200 --> 32:51.840
+And also like some of the more atomic extensions, I think SACAS is just optional in RWA 23.
+
+32:51.840 --> 32:55.080
+I would like it mandatory.
+
+32:55.080 --> 33:01.160
+And also would like one more instruction to materialize a 64 bit immediate.
+
+33:01.160 --> 33:02.480
+So that will help.
+
+33:02.480 --> 33:06.920
+So we don't, because the load we're doing in the trampoline, even though we remove the
+
+33:06.920 --> 33:13.360
+trampoline, we're doing a load, which means we can have cache missers, which means that
+
+33:13.440 --> 33:15.760
+the call can be really expensive.
+
+33:15.760 --> 33:22.280
+And all additional loads we need to do for the JIT itself or for the JIT code, its memory
+
+33:22.280 --> 33:23.280
+bandwidth.
+
+33:23.280 --> 33:30.360
+So when you're competing with other platforms, which can materialize a large enough immediate
+
+33:30.360 --> 33:37.920
+and have it atomically patchable, it's hard to compete when we can't do that in those
+
+33:37.920 --> 33:39.200
+cases.
+
+33:39.200 --> 33:51.840
+So I guess the road to one instruction to materialize a 64 bit will be long.
+
+33:51.840 --> 33:52.840
+Thank you.
+
+33:52.840 --> 33:53.840
+Yes.
+
+33:53.840 --> 33:54.840
+Two questions.
+
+33:54.840 --> 34:07.360
+First of all, is there a limited interface to send more dense ice through the UTI?
+
+34:07.360 --> 34:19.880
+You can use it with the, for the IPI, you can use the G-Lib C, cache flash, eye cache.
+
+34:19.880 --> 34:28.880
+So there is a G-Lib C function you can call, which do this is call for you and fixes it.
+
+34:28.880 --> 34:35.880
+Yeah, so that's, I can't remember if you changed that or we're using G-Lib C wrapper.
+
+34:35.880 --> 34:38.680
+So there's a G-Lib C wrapper over this is called.
+
+34:38.680 --> 34:51.320
+So you can just say, I want to flash eye cache.
+
+34:51.320 --> 34:53.320
+I can't hear.
+
+34:53.320 --> 34:54.320
+Yeah.
+
+34:54.320 --> 35:05.080
+I haven't given it much thought.
+
+35:05.080 --> 35:07.080
+So I'm not a big fan of compressed.
+
+35:07.080 --> 35:09.240
+So I don't mind what we're doing now.
+
+35:09.240 --> 35:16.560
+It's just that there might be, so from what I've seen, it's the smaller board which gains
+
+35:16.560 --> 35:19.480
+performance from compressed.
+
+35:19.480 --> 35:25.240
+The big out of order CPUs we're waiting for, we don't think there will be much difference.
+
+35:25.240 --> 35:29.240
+So we haven't spent time on it.
+
+35:29.240 --> 35:36.240
+I forgot to repeat the question.
+
+35:36.240 --> 35:49.240
+Yeah, sure.
+
+35:49.240 --> 35:56.240
+So I'm not sure if you're going to be able to measure the code size decreased, but were
+
+35:56.240 --> 35:57.240
+you actually able to measure any sort of performance?
+
+35:57.240 --> 36:04.320
+Using the Vision 5.2, I've seen some performance improvement, but that's an in-order, simpler
+
+36:04.320 --> 36:05.320
+CPU.
+
+36:05.320 --> 36:10.720
+So yes, on Vision 5.2, I see some performance improvements when using compressed.
+
+36:10.720 --> 36:11.720
+Yes.
+
+36:11.720 --> 36:12.880
+And you're using the Vision 5.2?
+
+36:12.880 --> 36:14.800
+I have one at home.
+
+36:14.920 --> 36:20.960
+We have many boards, but I have that one I have sitting next to my desk, so I often use
+
+36:20.960 --> 36:21.960
+it.
+
+36:21.960 --> 36:22.960
+So yeah.
+
+36:22.960 --> 36:27.960
+Well done.
+
+36:27.960 --> 36:33.480
+No corrections from the GD code.
+

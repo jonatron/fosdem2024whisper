@@ -1,0 +1,343 @@
+Real-time processing.
+A very brief background.
+So I'm Sylvain, Fox 4 Golf Kilo Radio,
+this is my amateur radio call sign.
+Very briefly about myself, for those who don't know me yet.
+I'm the founder of a small company in France, doing SDR.
+The name is SDR Technologies.
+I'm the most important here to introduce the story about GPU,
+and it is the next lines.
+So I was working for ONERA, the French Aerospace and, well, military,
+I would say affiliated to the Ministry of Defense Research Lab.
+And that explains how this started, and I will come back to this in a slide.
+So very briefly, the outline of the talk will be that I will explain the motivation
+and then try to explain the approach I took when I tested this GPU
+and why it came, why I had the idea to use this for DDC.
+And you will see, and I tried to take a few minutes to explain the background,
+not of the code, because it's on GitHub and you can read it,
+and I'm quite sure you will improve it a lot, no doubt.
+But just to explain for those who are not yet, who are not familiar with GPU,
+and why it can be useful, and what kind of things you can do with it
+as long as you take the time to write code in this.
+So very briefly, the story started a while ago when I was working at ONERA
+where we have radars, and I just took some pictures that you may have seen already.
+One is the Nostradamus, it's an HF over the horizon radar,
+and the other one is Grav, very famous.
+So these two radars were designed and operated in not my team
+because I was not leading the team, but in the team I was working in.
+One of the key problems here is that you have a lot of channels.
+One antenna is one channel,
+means that you gather a huge amount of data.
+And one of the key problems is how do you process this data in real time.
+And at that time, in my, don't remember exactly the year,
+NVIDIA released the Tegrar K1, which was very small stuff,
+but looking promising, sorry, in particular for embedded systems.
+So my boss said, can you have a look at this
+and tell us if that can bring anything to the game.
+And just to make also the story very short, the answer was yes, it's useful,
+and that made my decision to leave the research team and found my company.
+So yes, the quick answer is yes, it works.
+Okay, so now let's go back to more serious things.
+This is from the leaflet, I would say, from the Tegrar K1 at that time.
+They were promising something like 326 gigaflops, oh, five watts, 99 euros for the deathboard.
+You say, who? Does this really work?
+And that was the idea.
+That was the idea was to test this if that can be used for software-defined radio.
+I'm assuming here that most of you have a very brief and very quick idea of what a GPU is,
+so I will just take a few seconds to explain.
+I'm just realizing that if I move to the screen, nobody will see from the remote, I guess.
+Yeah, okay, I'll try. Sorry.
+So just to explain the model, this architecture has two things inside.
+You have the ARM ARM processor, this GPU, this is the four cores, this one,
+and you have the CUDA cores, 192 cores next to it.
+And the good thing is that they share the same memory.
+Okay, if you have a PC, you have your core, whatever you want,
+and in one of the slots you have the GPU cards,
+and they have to transmit, they have to share data through the PCI bus.
+In this one, it's a bus, it's kind of PCI bus,
+but you will see that the performances are much more interesting.
+The second thing is that one core does one symbol operation at a time.
+So in this very simple example, I'm adding AC is equal to A plus B,
+and the code is just saying for each CPU, each CUDA core, take A, take B,
+make the sum, and store in C. That's pretty simple.
+So the key point here is that there are three things.
+One is push the data, the second is push the code, then run the code,
+and fetch the results.
+Keep in mind that you have to push the data, and this costs a lot, of course.
+So coming back to our SDR and DSP, what are the things that may need power?
+Well, just examples.
+The one I will elaborate this morning is the DDC, digital down converter,
+but you have many others, like I have not yet, and I will not describe this morning,
+I have not yet investigated so much.
+Feel free to take a seat, no worries.
+Interpolation, decimation, clock recovery, synchronization, pattern detection, and so on and so on.
+One of the key issues here is that some algorithms are extremely difficult to run in parallel
+while others, it's much simpler.
+And some of them just don't work in parallel easily.
+So in this example, let's focus on something simple, which is multiband DDC.
+So we'll assume that we have a white band signal coming from a white band SDR, whatever it is.
+I took DHF example.
+So here, for example, we have a receiver that is transferring to the memory.
+To the stuff, the device, a 50 mega samples per second bandwidth.
+And we want to extract from this small subbands.
+OK, so I took examples of DHF bands, one at 7 megs, another one at 14 megs, and so on.
+That's just examples.
+The core thing is how do we extract the subbands from the single white band signal?
+So for one channel, it's pretty easy.
+And that's the classical stuff.
+This is a DDC.
+So you basically translate the frequency and then you make some low pass filtering.
+And then you throw away all the samples you don't need.
+That's very classical.
+I have not invented anything here.
+And I guess you all know by heart what is a low pass filter, but just take a few seconds to remind how it works.
+On one hand, you have the input, the samples coming from the SDR.
+On the other hand, you have the filter you want to apply for the low pass filtering.
+And you make a convolution, basically some modifications and additions, and you retrieve the output.
+OK.
+Now let's look a bit more in my example.
+How many taps do we really have?
+So for this example, let's assume that we have a 50 megahertz, so 50 mega samples per second bandwidth incoming.
+And we want three kilohertz just to extract the audio.
+This is a fully digital system.
+So at the end, we want audio, plain old voice, someone speaking.
+And we assume that three kilohertz is enough.
+There's a lot of different approaches to estimate exactly, to estimate as accurately as possible the number of taps we need.
+I saw many, I tried to find an example.
+I saw plenty and pages from you, Marcus.
+Many of, I was going to copy and paste some of yours to avoid questions.
+No, I'm joking, of course.
+Well, there's many ways to estimate the number of taps.
+And one of the approaches is this, I don't remember, yes, the Iris approximation, sorry.
+And so if you do the calculation, you arrive at 50,500 taps.
+OK.
+50,500, so what?
+So what?
+Now let's go back to this stuff.
+So to do the convolution with 50,500 taps here, you need to do this 50,500 times for each sample.
+It means that to get one value out of the FIR filter, the Lopez filter, you need to take 50,500 inputs, 50,500 coefficients, do the multiplications, do the sum.
+And you have one sample.
+And you have to do this for every incoming sample.
+That begins to be a huge amount of processing.
+Of course, if you have, you have all experienced many low cost SDR applications running on low cost PCs and they do this in real time.
+So how do they do it?
+Of course, there are tricks.
+One of the most, the easiest one is to divide by two instead of going straight from 50 megs to 3 kilohertz, which is nice, but probably not the best one.
+You do this step by step by dividing by two.
+So you take the first band, apply a half band filter, so you have less, you have the half of samples and you repeat this several times.
+That's very interesting because each time you remove a lot of samples and if you do this clearly, you can have 50% of the coefficients that are zero if you compute the fear in a good way.
+So that removes you a lot of computation.
+Of course, yes, but this is not ideal because you will hardly be able to reuse the computation you've made for the other channels.
+You will reduce a lot the throughput, the number of calculations you need for one of the channels, but then the next one you will want to reuse some of the calculation you've made and that's not easy.
+So at the end, this doesn't work so good.
+So, so can this stuff help?
+So I just put two examples here.
+On the top you have the Jetson XAVNX.
+I know that in an open source conference promoting a brand like NVDA is probably not the best idea, but just to make the story short, I have no sponsoring from NVDA.
+Okay, so just to be figures and facts, the first one is the XAVNX, so it's roughly 500 euros, roughly.
+And this one has 384 cores and the next in line is the NVDA 800, which is not the same price, 20,000 roughly, and has 6,912 cores.
+Okay, the interesting thing is the two FFT benchmarks are put below it.
+So if you look at the Jetson XAVNX to perform an FFT of, sorry, I'll say it this way, 2 power 19, which is quite a lot.
+So it's 310 microseconds.
+That's quite a lot.
+But of course, if you look at the most expensive one, you have 170 microseconds for 2 power 23, which is a huge FFT.
+A huge FFT.
+You can do this with an FPGA, but to get those size, it's becoming fun and extremely tricky to do it.
+Okay, so and for the XAVNX, you see that if you go up to the power of 2 at the power of 23, it's 7 milliseconds.
+That's a huge number.
+It's quite fast.
+So how can we use this?
+Of course, if you look back to your DSP lessons, that's pretty simple, in fact.
+A convolution can be, I mean, applying an FIR to a signal is just making a convolution.
+And the convolution, you can use the FFT.
+That's pretty simple.
+I mean, that's pretty known.
+You take the input signal, you do the FFT, you take your filter, you do the FFT here, and then you make a product of the two vectors.
+There is a bug.
+It's FFT minus 1.
+There is a bug here.
+Inverse FFT.
+And you get your output.
+So basically, you do FFT, FFT multiplication, inverse FFT, and you have your output.
+That is for one single block.
+Okay?
+That's quite good.
+It works well.
+But this is for a steady signal, not a stream.
+So if you want to do this for a stream, there is an improved version of this algorithm, which is called the overlap save or overlap hat.
+I use the overlap save, which is basically sliding a window, sliding blocks,
+moving the input, doing the computation, and so on and so on and repeat this.
+The key point here is that you use always the same filter.
+So you can compute the FFT of the filter once and keep it.
+And the input, you will see, can be reused several times.
+So basically, if you do this in the GPU, the performances are quite interesting.
+And this is what I did.
+And this is what I'm going to show you here.
+So the idea is, this is the architecture of the code I'm proposing.
+You receive the samples from the SDR.
+You do a first FFT.
+So you push the samples into the GPU RAM.
+Okay?
+Then your code does a first FFT or the incoming block.
+You assume that you've done previously at the init the FFT for the several filters you want to apply.
+So here in this example, I have two.
+You do the connexer product, modifications for both FFT, the reverse FFT, and the decimation.
+And you're done.
+There is one trick.
+I will come back to it in a few slides.
+So basically, it means that, sorry, if I go back to this slide, excuse me,
+you do this FFT in fact only once.
+You reuse it for the different channels you want.
+You have done the FFT for the filters once.
+So in practice for each new incoming block of samples, you have to do one FFT here, modifications, FFT minus one, and decimation.
+And that can be quite fast.
+All this doesn't need data to move from the GPU memory to the main CPU memory.
+But that's quite fast in fact.
+Then one trick and why I have ended with using the CUDA and proprietary API and the NVDA stuff.
+I've heard from guys in this room that you can now do this in OpenCL.
+I have not tested, to be honest.
+One of the trick is that if you don't pay attention to the scheduling,
+the different channels will be the different codes will run in series, in sequence, FFT and so on and so on.
+So you will have to wait for the last block of sequence of operations to be finished before you can retrieve all the samples.
+And you wait, you may end up waiting quite a lot.
+But if you use this trick just to compile option, switch, then the scheduling inside the GPU is different.
+And then everything run in parallel.
+And the difference is quite large, quite big, to be honest.
+The difference is much faster this way.
+One last thing is that if we only do what I proposed, then you miss the frequency shifting.
+There is a problem, the output frequency is not a good one.
+So you need to apply the NCO to shift in frequency the signal.
+And of course it's much more efficient to do this at the end because you have less samples.
+So it's much faster.
+You do the shifts at the very end and you just use the fact that you have some aliasing.
+So the code compensates for the aliasing and that's the frequency shift at the very end.
+Just look at the code.
+That's easier this way.
+So what am I proposing this morning?
+So you have in GitHub a lib, an example.
+That's a code that is quite old from me, but it works.
+And the key thing is that you have to allocate maximum number of channels you will use in the beginning,
+basically because it will allocate in the GPU the RAM for the different operations.
+Then the code is thread safe.
+That is to say that you can add, remove, shift, replace, change the number of channels you use,
+the size of the channels and so on in real time.
+This is CUDA based.
+I know that maybe OpenCL could do something that I have not tested.
+And I have only tested this with NVDA GPUs.
+So just to give an example of what you can get with this.
+So I just benchmarked this with two different architectures, the one I had,
+but I'm sure that I will receive tons of PR to add new figures in the tables on GitHub for sure.
+So practically speaking on my machine at home, it's a well,
+average PC with a GT RTX 2060 with one single channel.
+So throughput is just a bench test code where it's just pushing data to the GPU,
+making the computation and retrieving the samples.
+So with one channel, it's roughly 600 mega-samples per second.
+With two channels, 530.
+OK.
+Just as a baseline for comparison with the Jetson XADI-NX,
+depending on the FST size, that changes quite a lot.
+And you can reach up to 156 mega-samples per second with two channels.
+One channel, sorry.
+And 117 with two channels.
+The filters were 7200 taps.
+Excuse me, that's average.
+You can change this in the code.
+I'm checking the time because I know Mark will kick me out soon.
+So just to come to the, just one of the interesting things is that
+if you look at the figures here, you see that the GPU is roughly 80% used.
+The PCI is 36%.
+So there's room for improvements.
+And if you look at the CPU, one core is 100% and the others are relaxed.
+So it means that maybe there's room for much faster, in fact,
+because we are far from overloading the machine.
+And in fact, if you look in detail, where is the bottleneck?
+It appears that the bottleneck is the memory copy.
+The synchronization between copying the memory from host to device,
+wasting for the threads to start, waiting for the kernels to stop.
+All this synchronization takes a lot of time.
+And if you start to plot this in time,
+NVGA comes with the tool.
+I don't remember the name, where you can see the different threads
+in time, how they work.
+And you clearly see that there's, the bottlenecks come from the synchronization
+from the host and so there's room for improvement, for sure.
+So if you want to tune this, you will see that the, of course,
+the size of the FFT used has a strong impact on the performances.
+But that really depends on the performances of the GPU you're using.
+As I said, moving the data from host to GPU is extremely expensive.
+In the example I was doing, copy from host to device in complex float,
+I could use complex ints, raw data from the SDR,
+and there is in the code one example where you can convert the ints 16 to float
+directly, so it's cheaper.
+I mean, the amount of data you would copy from the host to the device is much smaller.
+And I was using LibUSB in real life.
+I mean, not in the example, but in real life.
+So it's also very expensive.
+LibUSB is far from optimized, from optimal, I would say, more than optimized.
+And of course, one of the important things is that the CPU, as it's not,
+well, that's the different cores of room for other things.
+It means that you can do other tasks like paint and eye spectrum on the screen,
+like send emails, like listen to music, whatever you want.
+I think that's all thoughts.
+Thank you very much.
+I didn't want to spend too much time.
+And I'll be happy to reply to questions if you have any.
+Thank you very much.
+Yes.
+Yes, please.
+You said you did the frequency shift at the very end after this,
+and is it possible to already do at least a significant part of the frequency shift
+by just offsetting the FFTs?
+That's what I do.
+I rotate the FFT.
+I rotate, yes.
+But then you have a reminder, because if you do this,
+you have the shift you perform is an integral fraction of the incoming.
+So you need a post fine tune.
+And that's exactly this.
+Yeah, you're right.
+That's what I'm doing.
+Yes?
+You didn't see an IIR, FIR, or CIC filter?
+Just FIR.
+Yeah, because it's just FFT and Chronicle products.
+That was the simplest approach.
+Thank you.
+Yeah?
+Was there any attempt to match this into the radio?
+Not yet, to be honest.
+I'm not good enough in the radio.
+I had a discussion with Jean-Michel, a side discussion,
+and there's a plan to do it.
+The point, I mean, I was not able to do it for them.
+I don't have enough practice in C-Blocks, so I said,
+OK, let's do this with the guys who know.
+So we will come with a proposal.
+Yes, that's the idea.
+Typically, the idea would be to have something, if we can do it,
+that would permit to have messages to change, to add, and remove channels,
+or tune the channels in radio directly.
+Because one of the points is that you need to allocate
+to define how many channels you want to use.
+So depending on the applications, you might need different numbers
+of channels.
+That's why I wasn't able to do it.
+Any other question?
+From the audience?
+Yes?
+Just a small question.
+You used a single precision floating point.
+Very good question, in fact.
+Single except this one, the frequency shift.
+Because in CUDA, the sine and cost functions are nightmare.
+They produce a lot of noise.
+So in the code, it's written, double precision, don't touch this.
+Because otherwise, the noise is going up very quickly.
+Anything else?
+OK, thank you very much.
+So there's more folks pressing in.
+So if I can ask you to give a little bit more space.
+You didn't need to kick me out.
+That's quite fine.
+Bonjour.
+Thank you.

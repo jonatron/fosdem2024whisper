@@ -1,0 +1,247 @@
+All right, so yeah, what's possible in observability when we have frame pointers is kind of the
+talk.
+But let's start out with like a kind of like actual use case of observability, right?
+So we have these workloads.
+We can like graph the CPU cores and we can see some things happening and we might be
+wondering what's actually happening at these spikes, right?
+And we can use profiling, I guess, to figure out what happens at these individual spikes
+just to like understand, okay, like in this scenario this was happening in another scenario
+or like at another time something else happened.
+We can like get profiles manually and compare them or we do something called continuous
+profiling where we just like all the time over time, yeah, profile, hopefully a little
+overhead we can even do it in production or not hopefully, but it's a reality.
+We can do it in production, right?
+So we can then store all of these profiles and over time kind of like ask questions when
+we want to in retrospect and we don't have to worry about missing data points and we
+have kind of the security or yeah, the ease of use that we can just click on some spike
+and then get a frame graph or in this case an icicle graph because it's like top down
+and not the other way around.
+We call it icicle graphs and you can see all the stack traces and you can like instrument
+very nicely, introspect what's happening and I don't have a slide for this but we can also
+kind of like this flame graphs and then we can see in like red where things got worse
+and in green usually where things gotten better and it's pretty obvious most of the time if
+you have such a big spike like that's right the point where we need to look in such a
+flame graph and where we need to like check out what's happening in the code.
+So yeah, that's kind of a pretty good use case for observability, right?
+But yeah, what our frame point is but before we come to that quick introduction I'm Matthias
+Läuwe, I'm a senior software engineer at Polar Signals, I work on Parker which is like
+the open source project doing a bunch of these things but I also work on Thanos, Prometheus
+and lots of other open source monitoring projects.
+Yeah and hey everyone, I'm John Seger, I'm VP of Engineering at Canonical, I have a kind
+of interesting journey to open source but at the moment I am leading the development
+of Juju and a whole suite of kind of enterprise apps which we call Charm so if you want to
+get access to like the best Postgres on your infrastructure or the best MySQL or the Grafana
+stack or Parker or you want to build an identity stack with ORI and with OpenFGA and products
+like that, that's kind of the effort that I'm leading.
+The orchestrator is called Juju, it's been around a really long time, Charm's all written
+in Python and we're kind of building out a big catalogue of operators that allow you
+to not just deploy those things but actually compose them all together and integrate them
+in a really common way irrespective of whether your infrastructure happens to be bare metal
+or Kubernetes or VMs or on EC2 or on Azure or some combination of the whole lot so that's
+kind of what I'm up to at the moment.
+Awesome, yeah and I'm looking forward to hearing more from you but before I do that, let's
+talk about profiling again or like what profiling data is made up of and you can see these
+like points in time just T1, T2, T3, at some point in time, we basically want to look at
+the current stack trace or what the program state looks like and we can see that like
+at T1 we had ABCD, at T2 we had ABCNE so slightly different and then at T3 we had the same thing
+again so kind of like just for the sake of the demo or the example, one was like executed
+twice so maybe it was like executed 20 milliseconds in total and the other one 10 milliseconds
+so we kind of like count how often we see these stacks and then kind of can make assumption
+on how much it is running and this is kind of like a sampled profiling profiler, it basically
+only like every so often looks at these stack traces but over time we can really nicely
+like see the big picture of things happening.
+The good thing is because it's only happening so often the overhead is pretty low which
+again I touched on earlier for our use case figuring out what's going on, it's pretty nice
+due to being pretty low overhead.
+So how do we get to these stack traces, how can we see these stacks that we then get all
+the memory addresses for and then we can like nicely format them using the function names
+for example in the icicle graphs.
+So the best case and that's kind of the whole point of the talk right are frame pointers
+and frame pointers looking at this bit of C code it's hopefully not too daunting in
+a monitoring observability room but we can see we have the main function at the bottom
+and that calls a function and so on the functions call each other and then at the very top it
+just goes into an endless loop.
+And kind of the important part in all of this is looking at the assembly on the right hand
+side we can see that okay I omitted like the main function and the a1 but then we can see
+b1 and we can see that at the very beginning we are pushing and moving some registers around
+and those are actually the instructions to push the frame pointer onto the stack and
+then we are calling the next function right and the pushing of the registers so that we
+know once the next function is done executing we can come back to exactly that previous
+function and continue executing.
+The one thing I want to mention here is in the past there were a couple of discussions
+about the overhead of using frame pointer so we have the push and move instructions
+and then once the function is done it needs to pop that frame pointer so there were a
+couple of extra assembly steps involved especially on 30 bit systems it wasn't great performance
+wise but I think unless you are a really really special case it should be fine for almost
+all workloads even in production and that's kind of the point of this so basically our
+binary on the left hand side we can see our set up frame pointer so that's kind of the
+first instruction that our assembly is executing it is putting the frame pointer onto the stack
+before then going and doing the actual call to the next function right and before doing
+that we have to add the return address to our stack so that once the function that we
+are calling is done we know where to continue in our current function right so we need to
+know where like this other code we need to execute after calling the function we are
+calling right now where we need to continue so that's why we have the return address
+and we then actually do the function preamble and we run that function and eventually we
+return the function we are at the pointer that then actually tells us where to go back
+to right so the function that we called eventually returns and we want to go back to the original
+function however we are then executing after that function call right so previously we
+were can you see my mouse no we were over here and now we returned like one step and
+after that right because we don't want to call that function again going into an endless
+loop we want to continue afterwards however we want to know what called us right so basically
+what we want to do is whenever we have a stack we want to know which function called us and
+do that all the way such that we eventually end up in the main function and we know all
+the functions that we see that we have on the stack up to the point where we are now
+basically that's kind of like working the stack here and the really really cool thing
+is we can do this in ebpf so I don't know how many attend the previous talk ebpf kind
+of a hot topic right now for us it's really really cool because what we can do is write
+a small program in a C dialect and then get that through the verifier and compile it into
+ebpf code and then load that into the Linux corner and the way it works is then we actually
+don't use syscalls like the slide originally says but what we then do is like tell the
+Linux corner to every so often run this snippet of ebpf code and what we do is do the same
+things like stack unwinding that you are stack walking that I told you about like two slides
+ago so essentially what we do is we start or we start in ebpf we get kind of the context
+we get the current stack pointer and we look at the leaf of the stack so like kind of the
+very top like the currently executed function and we can then use that to essentially read
+that instruction pointer and from there get the frame pointer and the special occasion
+here is the instruction pointer has to be the return address minus one because of the
+thing I just told you about two slides ago right so basically that's how we can then
+know where we were called from and we do that all the time up until at the end we do that
+we get an instruction pointer or that zero so this one then means basically we reach
+the end of the stack and we know we can terminate or we reach the end of that stack trace.
+In between for profiling you can see over here we do something with the stack with the
+frame and what we actually do is we kind of like just get the memory address of that executed
+function and we basically have an array of all the frames that were executed at the end
+and have the memory addresses and those memory addresses we can then use to get the function
+names for that function. So having frame pointers in ebpf makes regular profiling
+super easy and we can then do profiling super simple we don't have to worry about like special
+compiler configurations because we can just assume that frame pointers are here for us
+to then basically use them to figure out the entire stack of the currently executing function.
+There are ways to do exactly that without frame pointers and shout out I think it was
+in this very room one year ago there was a talk by Javier and by Charlie who were talking
+about stack unwinding without frame pointers using Dwarf I highly recommend it it's really
+really interesting but yeah something for another time and then obviously not only like
+the profiling use case but if we have frame pointers in the executables in those executing
+stacks we can also use all the other debugging tools right not only for profiling we can
+use the bcc tools bpf trace perf etc and they also have the kind of same benefits.
+So essentially what that means is that the possibilities really become a lot more broad
+and open or like we can do a lot more things because we only have these like two memory
+reads and for example in bpf trace we can use the like one liner here to essentially
+also build a really simple but working profiler that uses the use stack to get the user space
+stack unwinding and count how often it sees things and that's super cheap then but also
+like the go execution trace actually traces everything that's happening and because unwinding
+is so has so little overhead we can also do things like that and once we have profiles
+continue and kind of like the performance aspect we can do something called profile guided
+optimizations and just making profiling so cheap that's something where I think a lot
+of innovation is also going to happen in the future and some outlook like some super new
+papers the context sensitive sample based profile guided optimization so something we
+are super excited about because yeah it will allow a lot more things to happen as well
+but maybe another Boston talk is going to happen about that in a year or two so bringing
+frame pointer to the masses I'm super excited to have John talk.
+Hey all right so I'm here to tell you about now we've seen all of the cool stuff you can
+do when you have frame pointers how we at Canonical are going to make this available
+to all of you much more easily and so if you didn't see this on an outside our blog a couple
+of months ago we have decided that from 2404 LTS we're going to enable frame pointers for
+the entire Ubuntu archive on 64 bit platforms.
+The caveat on 64 bit is because back in the day 32 bit CPUs obviously had far fewer registers
+and so sacrificing a register to hold the frame pointer came with a much higher performance
+overhead in reality these days with 64 bit you're looking at on average kind of less
+than 1% unless you're in a very specific group so if you're doing like turbo pants on head
+HPC stuff or high frequency trading or real time things where kind of that like 1% could
+really really matter perhaps this isn't for you and we can make exceptions in the archive
+for those packages but in general for 2404 you can expect to see frame pointers for the
+entire archive through main and universe etc.
+This is pretty exciting because the LTS I probably need to tell you is going to be installed
+on many many millions of machines right and then supported for at least 10 years by Canonical
+so this is going to make a big impact for people who need these things.
+This stuff is often already enabled by the hyperscalers so people like Amazon, people
+like Netflix, people like Microsoft are already doing this in production and now you kind
+of get it for free as well just by using Ubuntu.
+So I mentioned there will be some you know pretty much negligible barely noticeable for
+nearly all use case performance impact we're kind of willing to wear that because what
+it actually enables in the medium term is for us to do a lot of work on our distribution
+right so we're in the process now of running benchmarks on a kind of pre frame pointer
+Ubuntu and a post frame pointer Ubuntu ready for the release and that will hopefully help
+as I identify any outliers so if we hit certain packages where we feel like the performance
+hit is too much then we will disable it for the first release for 24.04 or we will try
+and work out what other optimizations we might make to that package to make it work better
+with the frame pointers enabled.
+So this will really really help I think downstreams to enable or to gain the benefit of frame
+pointers and optimize their own workloads.
+If you are someone who just uses Ubuntu as a platform and you build your own code and
+let's say you use Python or you use go or use no JS or whatever suddenly those big holes
+in your frame graph graphs are just going to disappear when you move to 24.04 without
+you having to do anything.
+This is really just the start which when I make 24.04 a really focused release on kind
+of performance engineering and performance itself so what does that actually mean having
+the frame pointers is one thing but you also need the tooling to actually utilize the frame
+pointers and kind of inspect the stack and the folks at PoloSignals with Parker are one
+part of that but we are also looking to include tools like BPF Trace and SysStat and the Perf
+Tools on Stable by default in Ubuntu.
+Not in every single image so those of you that are about to screen map me because you
+use the minimal image or you ship 100,000 container images a month and you don't want
+to ship BPF Trace and all of them don't panic we are essentially going to enable all of
+these tools by default anywhere where we ship a kernel.
+So a Ubuntu server image, a full size server image that doesn't include lexd images, it
+doesn't include OCI images but if you install Ubuntu on a server or in a VM you will have
+BPF Trace by default, you will have SysStat by default.
+Essentially a huge majority of the tools that Brendan Gregg describes as crisis tools will
+be there by default and the reason that is super important is because if your system
+is in crisis it doesn't matter whether the tools are in the archive.
+If your system is right on the edge and then you hit the system with a whole bunch of network
+IO and disk IO to go and get a package from the archives it is potentially going to put
+that system over the edge.
+It may not even work in production, the system may not have access to the package archives
+and so you just need those tools to be there and we are going to make sure that happens.
+For places where we don't ship a kernel all of these tools will get wrapped up in a new
+meta package so if you do want it in your lexd containers, if you do want it in your
+container images, in your debug images then you will just be able to see it really really
+easily with a single meta package.
+We are looking at what other compiler optimizations we can make across the archive as well so
+this might look like rolling out GCC03 for a huge part of the archive, we are not going
+to do that in one big bang go because there are some trade offs there and we are also
+looking at essentially not maintaining a low latency kernel and a generic kernel and just
+shipping the low latency package by default.
+None of these are firm, 100% definitely going to happen in 24.04, these are the goals we
+are working towards before the release in April.
+Finally, some of you may have seen we have been doing some work on working out how to
+get Ubuntu and the archive to take advantage of the newer instruction sets, AMD64 v3, AMD64
+v4, v5.
+We actually have a build of the entire archive that uses AMD64 v3, you can get it in a PPA
+and test it in benchmark, it is faster like TLDR but we need to do a bunch of upstream
+working apps to work out how we can essentially kind of multiplex that right so that you
+still just go ubuntu.com slash download, download an AMD64 ISO and it does the right
+thing without you having a massive long list of different instruction sets to choose from
+for AMD64 so that work is coming but probably won't land for 24.04.
+We also continue to introduce new patches into things like GNOME, we are still trying
+to get the GNOME triple buffering stuff landed ready for 24.04 which gives a much smoother
+experience on the desktop as well.
+This runs really from Ubuntu server right up through to Ubuntu desktop and these tools
+will be available to desktop users too.
+You as a developer on Ubuntu should have access to the same debugging tools that you find in
+your production workloads in our opinion.
+On a side note, we are trying to do this at a really big scale at Canonical, we are hiring
+practice leads that will sit in a central team to build processes and tools and essentially
+give advice across our 40 or so products and we are also hiring dedicated performance
+engineers for every single team whether that team be doing Go, Python, NodeJSC or whatever.
+If you are interested in that talk to me afterwards, check out Canonical.com slash careers, there
+is a couple of Canonical folks in here as well who you can talk to.
+If performance is your thing and you want to come and make use of frame pointers and
+make Ubuntu blazing fast then that is always an option to you.
+Finally, from my side, we have done a bit of work with Polar Signals, they have been
+helping us along this way.
+We have snap packages and charms available for Parker both for the agent and the server.
+On any Ubuntu machine you can see this in a cloud in it file with a single line.
+You can snap and store the Parker agent, give it a single config with a token and start continuous
+profiling out into Polar Signals cloud or you can host this over infrastructure yourself
+on machines, on Kubernetes, on containers, whatever it is with Juju.
+We will continue to make improvements to that over time.
+It is a super easy way to get hold of this nice continuous profiling hotness in Ubuntu.
+That is it, get in touch.
+Thank you very much for that.
+Looking forward to the Ubuntu release.
+Are there any questions?
+Questions anyone?
+Once, twice, nobody?
+Okay, then thanks again and next up we have QuickWit I think in 20 minutes.
+Thank you, bye.
+Cheers.

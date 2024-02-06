@@ -1,0 +1,210 @@
+Hi everyone.
+So I will present IROGAM which is a multi-region IMAB server.
+And so the goal of this talk is to discuss about this multi-region thing.
+But before starting some context, so my name is Quentin and I have a PhD in distributed
+systems and this talk will be a lot about distributed systems because that's something
+I know.
+And I try to work as much as I can for a collective.
+It's called Duffler and we try to build a low-tech, etic internet and if you want to
+know more about the things we are doing, there was a talk yesterday about garage where the
+infrastructure, the self-hosted, geo-distributed infrastructure we have is presented.
+And IROGAM is part of the strategy and the project of this collective and also a very
+nice thing.
+It is supported by an internet and they are very nice.
+I have to mention it.
+So first the problem we want to solve and I like to say that with emails we want to make
+other people available when it would be as always impossible due to distance.
+We can achieve this goal only if the underlying system is working.
+And so this talk will be about distributed systems but also about availability and reliability.
+And so I have three main ideas that frame the decisions when developing IROGAM.
+So the first is that we should not trust the cloud and hosting providers not only because
+they can fail and when they fail your service is not working.
+And the second aspect is that we think there is some space when it comes to IMAP server
+designs to study and to try new design, new trade-off.
+So there is no perfect solution.
+We don't have a magic solution but we can try new ways and new designs.
+And the third part I will try to convince you that this new design can work in the real
+life.
+So first don't trust your provider.
+So generally when you have the title of this talk is multi-region.
+I think the first part is to define what is a region when you talk about a cloud or
+hosting provider.
+So it's the Google Cloud Platform Region Paris.
+So its name is Europe West 9 and it's made of three data centers.
+And last April the whole region, so the three data centers, was unavailable for three weeks.
+Not totally but the outage lasted for three weeks in some part and it was due to a fire
+in one data center.
+And due to some tight interconnection between the other data centers and many software,
+the other data center were unable to work not due to hardware failure but due to software
+problem.
+So three weeks without emails you can imagine that it could be very hard when you use it
+for very important stuff like I don't know paying tax and seeking for a new job and so
+on and so forth.
+So the idea, it's not new, is that you should move to reliability first design.
+You should think reliability in your service and not rely only on your server.
+I'm sorry, the book is named Cloud Native Patterns but we could have named it Distributed
+Native Patterns and it's the same example with the region in, this time it's Amazon
+in the US and we see that, so the author of the book, Today's Three Services, Netflix,
+IMDB and Nest and only Netflix took the effort to deploy in a multi region and there was
+only one that were still working when the US, this one region was not available.
+I think it's the secret source of Google when it comes to Gmail or when it comes to Google
+search.
+It works despite data center failure, despite multi region failure because they are designing
+their service as reliability first.
+So it's easy to say that we should design our services as reliability first but in fact
+it's hard, like many things and something which makes it hard is that when you are in
+the same region, latency are very low, like one or two milliseconds but when you consider
+multi region deployment, I have made a test so between Paris and Warsaw in Poland and
+we jump to 30 or 40 milliseconds.
+It's not a lot but when you have distributed protocols, often this latency is amplified
+and there is such example in yesterday's presentation too.
+So we know that it's hard but it's even harder in the context of the email systems and the
+Apache Jambs documentation summarizes it very well.
+So the hard problem is, yes well done, the hard problem is about the monotony QID generation.
+If you are at the beginning of the dev room, UID in emails have been explained and so they
+say you have basically two solutions.
+Either you choose to doing weak consistency and so you risk data loss or you choose strong
+consistency and strong consistency is very sensitive to latency so it will be very slow.
+So currently the answer of the Apache Jambs developer is you should not deploy Apache
+Jambs or the cat-sandwrap part in a multiple data center setup.
+You should pay for consulting.
+Okay.
+So if we make a wider review of the existing work, maybe I have missed something and let
+me know, but you have some leader follower design which are for example, Cyrus or Dof
+Cut and you have some consensus or total order based design like Stalvart, IMAB, Gmail, Apache
+Jambs, Wilder, and so on.
+So this consensus or total order is often outsourced to the database.
+So for example, FoundationDB, Cassandra, lightweight transactions or MongoDB.
+There was also a research project named Pluto and they tried to design a mailbox server on
+a serial DT design.
+So it was very, it works very well in a multi-region setup but they have an incomplete implementation
+because they do not support the monotonic ID.
+They only support sequence identifiers.
+So yes, it's interesting if we don't implement the whole IMAB protocol, we can do multi-region
+way more easily.
+So our solution was, we wanted to implement the full IMAB protocol and so it's a trade-off.
+It's not a magical solution but we decided to live with conflicts.
+So in fact, in IMAB you can have conflicts as long as you detect it and you change a
+value that is named the UID validity.
+So it's not free, it has a don't sign, sorry, it will trigger a full expensive resynchronization
+for the clients.
+So for example, we see two processes, so you can imagine that's two IROGAM processes
+and at the end for UID4, the two processes assign the same UID for different emails and
+when the other one learns it, there is a conflict.
+And so in our implementation, assigning a UID is a log and we have an event log that
+is not totally ordered but only causally ordered and we have a proven algorithm to solve conflict
+and compute a new UID validity.
+Also there is a proof in our documentation, if you want to read it or to review it, we
+are interested and we try to be as clever as possible when we synchronize this event
+log to reduce the conflict window.
+And so you might say we are cheating because we are changing the problem.
+We don't try to have monotonic UID but we try this time to handle correctly conflicts.
+And yes, it's true but I have two arguments.
+Often people are tweaking raft and they are doing bad things.
+And I have two examples when in Kubernetes, an issue that has been opened like six years
+ago and it's still open because they are violating some invariance due to a caching of raft for
+performance reasons and another one is the post-mortem of GitHub where they also use
+raft which is a strong consistent algorithm.
+And they say that and they show that they have done some optimizations that break some
+invariance of the protocol.
+And you can reduce the risk of conflicts as much as you can.
+So the most important was to have the correct solutions.
+And so if you want you can put a multiplexer in front of a irogram and redirect all the
+same user to the same server and so you will reduce even more the risk of having a conflict.
+So talk is cheap, show me the mail server.
+So I will be quick on this part but I've tried the deployment in France, in Netherlands,
+in Poland.
+And so you have some screen shot and you can check the IP address.
+There are some IMAG server listening on.
+And on each region, this is the deployment.
+This is connected to post-fix through the LMTP protocol.
+We have implemented in irogram.
+And irogram is a state-less software and so all the data managed by Garage which is in
+fact doing the magic behind the scene with is a geo distributed design.
+Yes.
+And I have a demo.
+So I will try to show you.
+So I'm just using something like NetCAD to connect and show you that there is an irogram
+server listening behind the domain name.
+And after that, I have configured this iMAG server on my phone.
+And you can see that I have a mailbox.
+And now there is a Gmail.
+It's the Gmail web UI and I will send an email to this server, to this multi-region server.
+And so the email is sent and now we will wait until it's received both on the phone and
+the computer behind.
+And that's it.
+So that's the conclusion.
+So we started with three ideas.
+And so this is the answer.
+So irogram is designed from the ground up for reliability.
+So it was the most important thing to us.
+And we decided to tolerate UID conflicts instead of trying to be to enforce monotonic UIDs.
+And so we tried to handle them correctly and minimize them.
+And finally, we want to prove that irogram already works in real environments.
+But irogram is still a technological preview.
+And it's not yet deployed in production.
+So be very careful when using it.
+Don't use it for real workloads.
+No, I think during this year we will deploy it on infrastructure for real users.
+And that's one of the future work we will do as much user testing as we can because we
+don't want to lose important information for people.
+And we also plan to implement KALDAV and CARDAV.
+And maybe in the end, envision irogram as a group.
+And something that's so important is performance measurements and improvements.
+And I can say that many design choices we have done will result in the fact that irogram
+might use a bit more CPU or memory than your regular email server.
+And you have to take also into account this fact.
+So thanks for listening and I cannot start questions if you want.
+Thank you very much.
+I see one question over there.
+Gentlemen in red.
+So first, thank you very much for this design.
+I've been working on distributed email for quite a bit.
+And UID generation is part of the story.
+What is your approach with keeping the IMAP session synchronized, especially the modification
+sequence to UID mapping, IMAP ideally, and other things like that with such design?
+OK.
+So we are handling the synchronization, the rest of the synchronization in the IMAP protocol.
+So we have a view and ways that we are maintaining.
+And so as I've said, we have an event log.
+And each irogram server sessions are watching the event log that is stored in garage.
+And so when there is a change, we compute the difference.
+All right.
+Further questions?
+Last call?
+OK.
+So.
+Ah, there's one.
+Can you say it just again shortly?
+What is garage exactly in a few words?
+Can you say a bit about this?
+So we say that garage is a distributed data store.
+So there is one API that is S3, which we call often object storage.
+So it's like a file system, but with way, way, way less features.
+So it makes possible to have efficient distributed deployments.
+And garage is inspired by a research paper entitled Dynamo by Amazon.
+And it's a design of a key value store.
+And garage has a second API, which is named K2V, which is very similar to also Raya KV.
+If you know Bashow, it was a company and they don't exist anymore.
+So garage is really about replicating your data and making them available.
+And you have this API about object storage, but we have this key value API.
+And so it's really the foundation of your data layer.
+And that's a new way, I think.
+And that's what we wanted to prove with Irogan.
+But we can design applications a bit different and use not only for
+a garage for binary blobs, but also for that lightweight database used.
+So I think I understood from the website that you also encrypt data addressed.
+But you haven't mentioned that at all.
+Yes.
+You're doing it, right?
+Yes, we are doing it.
+It's in the code and it's a choice.
+Maybe we are keeping it for the next year, probably.
+But sure, yes, in garage, all data is encrypted with a key that is derived from
+your password.
+And so when the data that are stored in garage are always encrypted.
+And the data is in plain text only in the Irogan process memory.
+But it's not really ready.
+We have to find as many things, but we have many ideas about that.
+All right, thank you very much again.
+And I think we will head over to already mentioned Apache James.

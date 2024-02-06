@@ -1,0 +1,599 @@
+WEBVTT
+
+00:00.000 --> 00:11.640
+Hello, everyone. Welcome to the virtualization dev room. My name is Vitaly. I normally work
+
+00:11.640 --> 00:19.020
+for Red Hat and you can see me being active in KVM community as well as taking care of
+
+00:19.020 --> 00:26.840
+Linux on all types of third party hypervisors and public clouds. And today I wanted to talk
+
+00:26.840 --> 00:35.680
+about bringing basically general purpose Linux distributions to the newly introduced VM type
+
+00:35.680 --> 00:44.000
+on public clouds, which is a confidential virtual machines. So if you haven't been living in a
+
+00:44.000 --> 00:49.120
+cave with no internet over the last couple years, which I wouldn't blame you because the world is
+
+00:49.120 --> 00:56.360
+a crazy place to be in now, but you may have noticed that some hyperscalers were announcing
+
+00:56.360 --> 01:05.920
+or releasing their confidential VM instance types or features. I'm not here to advertise any of
+
+01:05.920 --> 01:14.480
+them, but just for the reference, Google probably was the first with their plain AMD serve option in
+
+01:14.480 --> 01:23.480
+2020. And now they even have a seven SNP in public review as of like last week or the week before.
+
+01:24.440 --> 01:33.920
+Microsoft Asia, they were refers to commercialize seven SNP offering AMD seven SNP and they
+
+01:33.920 --> 01:44.280
+GA in 2022. You probably see they now have Intel TDX option available in public review and Amazon
+
+01:44.720 --> 01:54.480
+offers seven SNP feature in GA. So it sounds confidential, so it must be good, right? Because
+
+01:54.480 --> 02:02.120
+we all like when our data is confidential. But what does it actually give us? Like at least like
+
+02:02.120 --> 02:10.680
+these technologies, what are they about? Like this are like both like AMD serve and all its
+
+02:11.320 --> 02:20.360
+variants and Intel TDX, they are CPU technologies. So first thing they give you is memory encryption.
+
+02:20.360 --> 02:31.600
+So your VMs memory cannot be read by your hypervisor or other guests. Second, which is important
+
+02:31.600 --> 02:36.520
+and which wasn't in like first implementation like plain serve is that your CPU status encrypted
+
+02:36.560 --> 02:42.200
+because normally hypervisor can see for example your registers where your VM is executed and if it
+
+02:42.200 --> 02:49.600
+can stop you every cycle can certainly read your data. And the last which is also important is
+
+02:49.600 --> 02:56.400
+that memory integrity guarantees are provided to you because even when your memory is encrypted,
+
+02:56.400 --> 03:03.280
+the hypervisor which is like malicious or compromised can do like an esthetic try to for
+
+03:03.320 --> 03:08.480
+example swap to memory pages. They will remain encrypted but your guest will access the wrong
+
+03:08.480 --> 03:15.800
+one, right? And it can probably mount an attack using this technique. So this all sounds great,
+
+03:15.800 --> 03:24.000
+but when we talk about confidentiality normally we say like confidentiality must be achieved in
+
+03:24.000 --> 03:31.720
+runtime at rest and it transits, right? Like very generic and all these things which I just described,
+
+03:31.840 --> 03:39.520
+they give you confidentiality at runtime, right? So what about the rest, right?
+
+03:39.520 --> 03:46.240
+Concentrality of the data in transit is not really specific to CVM because we were doing this for
+
+03:46.240 --> 03:52.920
+years, right? We know that internet is not safe place, right? So we need to encrypt our data when
+
+03:52.920 --> 04:00.600
+we send it through public channels and not only public channels, but what about storage, right?
+
+04:00.640 --> 04:09.600
+How do we ensure that the storage of the VM is also confidential because even if you have something
+
+04:09.600 --> 04:18.360
+which is confidential in memory, you will eventually need to write it to disk and do other
+
+04:18.360 --> 04:24.680
+things like you will need to read your operating system from the disk. So you need some guarantees
+
+04:24.720 --> 04:31.520
+there. The last thing I wanted to mention is that these confidential VM technologies, they don't
+
+04:31.520 --> 04:37.720
+give you any additional guarantees when you're already within the VM. So if you have an application
+
+04:37.720 --> 04:43.160
+which is attacked there, right? Nothing's gonna save you, right? The hypervisor cannot see your
+
+04:43.160 --> 04:49.480
+data, but everything which is within the VM can normally see the data. That's how it works, right?
+
+04:49.520 --> 04:55.520
+We want to put general purpose operating systems there. So yes, let's discuss a little bit about
+
+04:55.520 --> 05:03.760
+this protecting data trust because it seems that hardware technologies don't give us this, right?
+
+05:03.760 --> 05:11.920
+So first is that you want to protect at the guest level. If some cloud tells you, oh, but we are
+
+05:11.920 --> 05:17.240
+encrypting our disks, right? Like you don't need to worry. Yes, but then you have the key, right? If
+
+05:17.280 --> 05:24.800
+you can encrypt and decrypt it for me like in a transparent way, so then it's not confidential from
+
+05:24.800 --> 05:32.200
+this perspective. So you need to do it from the guest. And the thing is you need to somehow
+
+05:32.200 --> 05:40.080
+protect the operating system itself and not only data you care about because first you have some
+
+05:40.080 --> 05:46.320
+data which is really sensitive. Like think SSH host keys, right? If somebody can read it from your
+
+05:46.400 --> 05:53.760
+VM, he can impersonate himself and pretend that he's you, you know? You don't want this. Second,
+
+05:53.760 --> 06:01.120
+you have, you will say, oh, I'm running like a general purpose operating system there. It's
+
+06:01.120 --> 06:07.760
+open source. Why would I need to protect it? You don't probably need to protect it from arbitrary
+
+06:07.760 --> 06:13.760
+like reading from the host, but you still need to protect it from writing because a malicious host
+
+06:13.800 --> 06:19.080
+can try to mount an attack by modifying something in the operating system. Think about swapping
+
+06:19.080 --> 06:28.040
+SSHD binary with something, you know? How would you notice, right? You won't. And good thing is that
+
+06:28.040 --> 06:37.320
+we have some technologies in Linux already for years which are mature like locks or things like
+
+06:37.360 --> 06:45.840
+the invariative or integrity protection which you can use because even when you store your
+
+06:45.840 --> 06:52.880
+like encryption key something or like integrity hash in memory, it is protected from the host
+
+06:52.880 --> 06:58.920
+because remember your memory is encrypted, the host cannot read it. The thing is the guest needs to
+
+06:58.960 --> 07:09.000
+somehow get this key, right, when it starts and where would it get it from? So, yes, let's take a look
+
+07:09.000 --> 07:19.720
+at like how Linux normally boots and what we, how we can implement say like full disk encryption
+
+07:19.720 --> 07:27.040
+or something, right? You start booting from firmware, normally everything is UFI now and all
+
+07:27.080 --> 07:33.840
+these confidential instances, they are UFI. So, there is some firmware which comes from
+
+07:33.840 --> 07:40.680
+CloudVendor, but that's like another story. Why would you trust this firmware? You probably
+
+07:40.680 --> 07:49.520
+shouldn't, but anyway. So, then you will always have some unencrypted part, right? Because the
+
+07:49.520 --> 07:54.040
+firmware cannot jump in the encrypted part without knowing the key, right? You want to do
+
+07:54.360 --> 08:02.080
+decryption yourself, you don't want to afloat this job to someone else. So, you will always have
+
+08:02.080 --> 08:10.560
+something like bootloader, kernel, initramafas stored there in clear. Yes, you may say that we
+
+08:10.560 --> 08:16.920
+can actually do encryption at bootloader level, which is true, but then we are complicating the
+
+08:16.920 --> 08:22.240
+bootloader like a lot and the only one which does it probably is grub and nobody likes it.
+
+08:22.800 --> 08:29.200
+No, I mean, no, but it becomes, it's all like a operating system with all the complexity and
+
+08:29.200 --> 08:34.000
+everything and you don't really want that for your bootloader. You want it to be really small if
+
+08:35.760 --> 08:41.600
+present, maybe even you don't want to have a bootloader at all for confidential case. So,
+
+08:41.600 --> 08:47.920
+and then you will jump into this, you know, encrypted part, you will somehow get the key and
+
+08:48.000 --> 08:55.200
+then we'll decrypt it. So, that's how it's going to work. So, yeah, how can you provide the key to
+
+08:55.200 --> 09:01.720
+the VM? You cannot do it manually. For example, like grub, you can type it on your console. You
+
+09:01.720 --> 09:06.320
+cannot do it on a cloud because you don't trust the console. The console is an emulated device
+
+09:06.320 --> 09:12.960
+there, right? If you type your password there, the cloud will know the password, right? So,
+
+09:12.960 --> 09:20.400
+you're not going to do that and you will need to provide it like in an automated fashion, but you
+
+09:20.400 --> 09:24.080
+can only do that.
+
+09:42.960 --> 09:44.480
+you
+
+10:12.960 --> 10:14.480
+you
+
+10:42.960 --> 10:44.480
+you
+
+11:12.960 --> 11:13.520
+you
+
+11:21.680 --> 11:27.920
+So, they were suggesting if you want to have a virtual TPM device, you run a separate domain
+
+11:27.920 --> 11:33.840
+like another virtual machine which will have this like TPM device. It's really hard to implement
+
+11:33.840 --> 11:40.480
+and this like 1.5, I think, TDA specification they've added partitioning, which is somewhat
+
+11:40.480 --> 11:48.160
+similar to trust levels and I think that that's what clouds are going to use. Although,
+
+11:49.840 --> 11:56.800
+you don't know, thumb clouds may actually implement an emulated device on the host. Just
+
+11:56.800 --> 12:03.520
+for example, like you do with QEMU and SWTPM, right? You can run it as a process on the host.
+
+12:03.760 --> 12:11.040
+And not all of these solutions will give you a confidentiality. For example, the one which runs
+
+12:11.040 --> 12:19.520
+on the host obviously won't. Then there are two types of TPMs normally, stateful and stateless.
+
+12:19.520 --> 12:25.520
+Stateful is a TPM which has its state, right? And every time you run it, for example, think about
+
+12:25.520 --> 12:31.520
+it this way. It has a private key and it never changes, right? So, it's generated once when your
+
+12:31.520 --> 12:37.360
+VM is created and then every time it's loaded, you can use it for like encrypting, decrypting,
+
+12:37.360 --> 12:45.360
+something. Stateless TPM is just firmware which will generate a new key every time it boots.
+
+12:46.480 --> 12:58.080
+So, how can we use this? Let's first talk about stateful TPM. Like all these
+
+12:59.040 --> 13:07.520
+hyperscalers, they give you some sort of a stateful TPM. The question is where is the state stored,
+
+13:07.520 --> 13:13.920
+right? Because you can turn off your VM, turn it on back. So, the state needs to be saved somewhere.
+
+13:13.920 --> 13:19.520
+And it's not part of your like encrypted truth volume or anything. It's somewhere else, right?
+
+13:19.600 --> 13:32.240
+So far, again, like not an advertisement but publicly only Azure proves that this state is kept
+
+13:32.880 --> 13:37.840
+securely, that there is some attestation going on under the hood when this TPM loads,
+
+13:39.360 --> 13:47.840
+which protects it from the underlying hosts. You can't say much about other implementations,
+
+13:47.840 --> 13:53.760
+like because no such claims were made. So, you know,
+
+13:56.800 --> 14:03.600
+you don't know whether you can use it to isolate from your host or not, right? What's good about
+
+14:03.600 --> 14:12.720
+stateful TPM is that you can implement root volume like pre-encryption, right? There is a device
+
+14:12.720 --> 14:17.840
+which has like private key so it can decrypt something. So, you can take your root volume
+
+14:17.840 --> 14:25.040
+and encrypt it and upload it in an encrypted state there. And that's something which, for example,
+
+14:25.040 --> 14:34.800
+like Azure confidential decryption is doing. In theory, we don't need to pre-encrypt. We can
+
+14:34.800 --> 14:41.360
+probably do something like self-encryption. And there are such ideas floating in the air that
+
+14:41.360 --> 14:47.520
+we will start with this general-purpose Linux distro, right? Do some integrity checking. And on
+
+14:47.520 --> 14:52.800
+the first boot, you will encrypt your root volume and seal the key to the TPM. But I haven't seen
+
+14:52.800 --> 14:58.240
+such implementation yet. It's probably possible, but it's kind of hard because you need to prove
+
+14:58.240 --> 15:02.240
+that the environment where you were doing the initial encryption is saying that it was really
+
+15:02.240 --> 15:08.480
+a confidential VM doing an initial encryption. Otherwise, someone can try doing it at some other
+
+15:08.480 --> 15:19.120
+place and attack your VM. So, stateless TPM. Currently, I only know about Azure TDX which
+
+15:19.120 --> 15:28.800
+publicly offers this option. But what's good about stateless TPM is that it's just a program.
+
+15:28.800 --> 15:33.840
+You know, it's just part of the firmware. So, you can take this initial launch measurements
+
+15:33.840 --> 15:38.960
+and attest it. It never changes, right? You don't need to attest the state of the VTPM. It's going to
+
+15:38.960 --> 15:49.200
+get generated every time, right? Which is good. Think is that, again, like as I said, currently,
+
+15:49.200 --> 16:02.320
+you will have to trust your cloud provider with the provided VTPM. And yeah, there is no anything
+
+16:02.320 --> 16:11.600
+like bring your own firmware in public clouds. You can still use it for volume disc encryption
+
+16:11.600 --> 16:17.440
+if you want to use TPM, but you will probably have to do some attestation and then inject some
+
+16:17.440 --> 16:27.200
+intermediary key. And also, there is nothing like this in standard Linux tools, anything.
+
+16:27.280 --> 16:34.160
+Like you can, like just encrypting root volume to TPM is something which is like generally
+
+16:34.160 --> 16:41.200
+supported by SystemD or Clevis or other solutions. But something which would do like attestation to
+
+16:41.200 --> 16:50.000
+remote server and then bring the key is just non-existing. Second, yes, what do you do with
+
+16:50.000 --> 16:55.920
+the VTPM if the cloud provider is not telling you that its state is isolated from the host?
+
+16:56.880 --> 17:05.040
+Or doesn't tell you how it's implemented, actually. And the thing is you cannot use it, right? You
+
+17:05.040 --> 17:11.120
+probably cannot even use it for things like PCR measurements because if it's an emulated device,
+
+17:11.120 --> 17:17.360
+it can certainly get messed with, you know, and then you will see different measurements. So,
+
+17:17.360 --> 17:25.120
+the only thing you can do in this case is try ignoring this thing completely and rely on
+
+17:25.200 --> 17:34.560
+architectural attestation, something, registers which both Sev and TDX give you. The thing is,
+
+17:34.560 --> 17:39.760
+again, that our standard Linux tools for like volume encrypting, something,
+
+17:41.520 --> 17:49.280
+they don't know anything about this currently, right? So, you will have to, you know, come up with
+
+17:49.280 --> 17:56.800
+a solution for attestation and delivering like root volume key password or something there. And
+
+17:58.160 --> 18:07.120
+it's not done yet. So, just a few words about this unencrypted part, right, which I told you that
+
+18:07.120 --> 18:12.000
+will always be there, right? Even if you do like full disk encryption, which you call full, it's
+
+18:12.000 --> 18:19.120
+not going to be full because you want to load like kernel and something. So, how can you prove that
+
+18:19.280 --> 18:27.760
+these things are good? So, normally, we have two technologies which have been used. One is called
+
+18:27.760 --> 18:31.920
+secure boot, the other called like measure boot. Secure boot without a space, measured boot with
+
+18:31.920 --> 18:42.480
+a space, nobody knows why. Anyway, so secure boot proves that all loaded EFI binaries are signed
+
+18:42.480 --> 18:49.120
+by a trusted party and measured boot basically measures every important fact about the boot,
+
+18:49.120 --> 18:55.440
+like binary certificates, which signed binaries, there has to be something in special registers of
+
+18:56.000 --> 19:04.400
+TPM devices. And we need to check basically everything which is being loaded. And as I told
+
+19:04.400 --> 19:10.000
+you, like normally, again, for general purpose Linux distro, you will end up with like a kernel,
+
+19:10.000 --> 19:19.040
+initramafas, kernel command line being available in clear, not encrypted because, yes. And to protect
+
+19:19.040 --> 19:24.480
+these things, there was a concept called unified kernel image introduced, which is a very simple
+
+19:24.480 --> 19:31.440
+thing. It just you take all these artifacts like kernel, initramafas, command line, sign them together
+
+19:31.440 --> 19:39.760
+and make it like a UFI binary like which is extracting itself and launches the kernel after that.
+
+19:40.640 --> 19:49.360
+So the implications are, of course, of this like it's more secure, but it's less convenient to use.
+
+19:51.840 --> 19:59.280
+The initramafas becomes static and generated when we build UKI. And normally for a general
+
+19:59.280 --> 20:07.600
+purpose Linux distro, we want our vendors, yes, to build UKI. You want just like install an RPM,
+
+20:07.600 --> 20:14.000
+you get a UKI. You don't want to build it yourself. Otherwise, you will have to get your keys provisioned
+
+20:14.000 --> 20:21.440
+in the firmware. And not all clouds allow that, right? They may have like a vendor certificate
+
+20:21.440 --> 20:26.800
+there in UFI by default. It may not give you an option to put your own there. So you will get like
+
+20:26.800 --> 20:33.280
+a static initramafas which may or may not be a problem. Of course, you have less demands for
+
+20:33.280 --> 20:40.880
+initramafas which is on public clouds. And like you don't need to do network boot something there
+
+20:40.880 --> 20:50.880
+normally. But it's still limited. There is a system extension feature in system D which can be used to
+
+20:52.720 --> 21:00.000
+with limitations to do initramafas extension. Emanuele is going to give a talk like in an hour
+
+21:00.000 --> 21:06.960
+after me about extending UKI is going to cover this topic, how this can be done. So the other
+
+21:06.960 --> 21:13.600
+limitation is kernel command line becomes static, right? So this becomes one size fits all, right?
+
+21:13.600 --> 21:19.360
+When we build as a vendor like Fedora, we build Fedora UKI, we need to hard code kernel command
+
+21:19.360 --> 21:24.800
+line. You cannot pass like root equals UID anymore. So you need to rely on something like
+
+21:25.680 --> 21:33.520
+auto discover or something. And again, we just got an extension mechanism which is called like
+
+21:33.520 --> 21:42.720
+signed extensions. You place basically a UFI binary stub in ESP and get your kernel command line
+
+21:42.720 --> 21:49.600
+extended. This is already like publicly released in system D but these tools are still adopting
+
+21:49.600 --> 21:55.440
+this. I haven't seen like a fully working solution yet. But we're actively working on it in Fedora.
+
+21:59.520 --> 22:05.200
+Last but not least is how do you boot your UKI, right? So
+
+22:09.840 --> 22:16.720
+it is UFI binary. So it must pass secure boot checks. So it must be signed.
+
+22:16.720 --> 22:27.120
+And you can boot it either directly from firmware or you can, for example, boot it from
+
+22:27.680 --> 22:32.000
+shim if you want to have shim for some reason. For example, if the cloud provider does not allow
+
+22:32.000 --> 22:40.320
+you to have your vendor certificate in the secure boot DB. But you will still have to manage your
+
+22:40.320 --> 22:44.640
+UFI variables because there is nothing like boot menu there if you are booting directly from
+
+22:44.640 --> 22:53.920
+firmware, right? In Fedora, we have a package called UKI direct now which can manage it for you
+
+22:53.920 --> 22:59.200
+like automatically. We do things like AB booting. For example, when you install a new UKI, it's
+
+22:59.200 --> 23:03.280
+going to be tried once. If it boots, it becomes the default. If it doesn't boot, you will rework
+
+23:03.280 --> 23:08.640
+back after the reboot to the old UKI. Because otherwise, if it doesn't boot, you are like
+
+23:08.640 --> 23:13.280
+screwed completely. You won't be able, even able to access your encrypted root volume.
+
+23:14.800 --> 23:25.680
+Yes, so if we speak about stateless TPM where we don't really need to trust the provider,
+
+23:25.680 --> 23:32.720
+the cloud provider doing attestation of VTPM state under the hood, then we will need
+
+23:33.680 --> 23:45.200
+an attestation server and client. And again, there are some offerings say in the proprietary world
+
+23:45.200 --> 23:54.720
+like Intel was advertised as project ember. But there is nothing which you can use today
+
+23:54.720 --> 24:03.600
+in the open source world. There are attempts to implement this in confidential containers project.
+
+24:04.400 --> 24:10.000
+There is this thing called KBS which is both like a protocol and an implementation of this
+
+24:10.560 --> 24:18.880
+key broker server. But again, like we will need something in the standard tools to do attestation.
+
+24:19.360 --> 24:24.800
+We are yet to figure out how to tell this thing which server to attest to.
+
+24:28.080 --> 24:38.800
+Yes, so we talked a little bit about encryption as I said that for root volume, you need to at least
+
+24:38.800 --> 24:50.880
+ensure that it wasn't tampered with. And for that you can probably use integrity checking. But then
+
+24:50.880 --> 24:59.760
+problems are very similar there because now instead of the password, you will have to somehow convey
+
+24:59.840 --> 25:12.160
+the right hash ID to use for the checked part. Right? Yeah, so I'm a little bit out of time here.
+
+25:13.040 --> 25:26.720
+But yes, you will still need to use all the technologies which I described for encryption.
+
+25:26.720 --> 25:32.320
+You will have to ensure the integrity of this non-encrypted, non-verified part because UKI is
+
+25:32.320 --> 25:40.560
+still going to be on ESP which is like VFAT, you cannot attach anything there. Right? Okay, so
+
+25:42.480 --> 25:50.000
+just a few words. Even if you have your VM which started and checked, yes,
+
+25:51.040 --> 25:56.320
+everything, you need to verify that you are basically connecting to the VM you expect because
+
+25:56.400 --> 26:00.800
+think about host starting your VM somewhere and then starting another one which is completely
+
+26:00.800 --> 26:05.760
+encrypted and was like host and you know, oil miners there are changed. How would you know that
+
+26:05.760 --> 26:11.360
+you are connecting your VM? So you probably need runtime attestation and clouds are offering you
+
+26:11.360 --> 26:18.320
+something but there is also no open source, something standard for that. Okay, I'll skip to
+
+26:18.960 --> 26:22.880
+the last and the most important slide. Thank you very much for listening.
+
+26:27.040 --> 26:34.480
+You probably don't really have time for questions but I can take as many as I can before dying
+
+26:35.120 --> 26:38.480
+in the hallway. Yeah, so thank you.
+

@@ -1,0 +1,287 @@
+So, hello everyone.
+I'm Pavel.
+I'm very excited to be here and I will speak about Prometheus and OpenTelemetry and especially
+how we can use OpenTelemetry project to scrape Prometheus metrics and what are the challenges
+with this setup.
+Quickly about myself, I'm Pavel, software engineer at Red Hat.
+I mainly work in the distributed tracing space.
+I'm contributor maintainer of the OpenTelemetry operator, Grafana tempo operator and the
+Yeager project.
+If you would like to reach out to me, you can do that on the Twitter, on the CNCF Slack.
+So, today I would like to do some introduction into metrics ecosystem so we better understand
+what are the projects we can use and then talk about the differences in Prometheus and OpenTelemetry
+from the data model perspective, how they do things.
+Then we'll talk about what Prometheus components we can find in OpenTelemetry project, both
+from the API SDK perspective and in the collector.
+The second half will be a live demo.
+We will deploy very simple Golang application instrumented with Prometheus client and we
+will gather those metrics with OpenTelemetry collector.
+All right, so why are we actually here?
+We are here because the ecosystem for collecting metrics is fragmented.
+There are different projects that provide different capabilities.
+So, there is a storage, some projects that can store metrics, some projects that can
+only define protocol for something metric data and some projects that can be used only
+as an API SDK, something that developers use.
+Prometheus sits in between, so it provides kind of end-to-end framework for collecting,
+sending, storing, visualizing and alerting on metrics.
+Prometheus is very well-adopted, it's very robust and people know how to use it.
+On the other hand, there is OpenTelemetry project, which is kind of new and for metrics,
+it provides kind of more limited set of capabilities compared to Prometheus.
+People still want to use OpenTelemetry for collecting metrics because they can use it
+as well for collecting other signals like traces, logs and it's better integrates with
+third-party vendors, your SaaS observability solutions.
+So the overlap, there is in the API and SDK, Prometheus has clients, OpenTelemetry has
+an API and SDK and then there is a protocol.
+Prometheus has its own metrics protocol and OpenTelemetry has OTLP protocol.
+On top of that, in OpenTelemetry there is collector, which competes with Prometheus agent.
+Agent doesn't store metrics, it can just scrape them and send them to Prometheus via OTLP,
+not OTLP, but Prometheus remote write.
+What I would like to highlight is that OpenTelemetry as well has the auto-instrumentation libraries,
+which are not present in Prometheus.
+I think it's a great innovation in open source because those libraries, as we saw in the previous
+talk, they help you to very quickly instrument your application without any code changes
+and a recompilation.
+So I think it lowers the bar of adoption of telemetry in your organization.
+So that's the ecosystem.
+Then we should think about how we can use these systems together because we want to
+combine feature set that they offer to us.
+So let's take a look before we go into the demo, what are the differences in Prometheus
+and OpenTelemetry.
+First of all, the most obvious one is how the protocol works.
+The Prometheus will pull the metrics from your process and OpenTelemetry, you have to
+push the metrics into the collector.
+It's not big of deal.
+Some protocol might be better for some use cases.
+So for instance, the push might be better if you have short-lived processes and you
+need to quickly offload the data before the process shuts down.
+On the other hand, pool works very well in Kubernetes.
+I don't think that's kind of a blocker when using these two systems together.
+However, the second point, the data temporality, I think it's kind of a big deal.
+The Prometheus uses cumulative temporality, which means that the last observation contains
+the previous observations.
+So if you have a counter in Prometheus, it will contain the sum, the aggregation of all
+the previous values.
+In OpenTelemetry, we can use as well cumulative temporality, but we can as well use delta
+temporality, which means that the observations that are sent over the wire will be just deltas.
+So if people are coming to this room, it will just send one, one, or maybe two if two people
+entered at the same time.
+And Prometheus cannot ingest delta temporality metrics as far as I know.
+So that's a problem.
+The second difference, or the third difference, is the histograms, or the exponential histograms.
+As far as I did the research, I think they are almost compatible.
+However, in the OpenTelemetry, the histogram as well contains min and max values.
+So in Prometheus, you can potentially lose some precision of what was observed.
+The next difference is the resource attributes.
+In OpenTelemetry, when you collect data, there is a resource object that contains information
+about the process that is sending the data, which is a pot.
+It contains pot label, deployment label, replic acid label, node label, and all those things.
+In Prometheus, the concept doesn't exist.
+All the labels go to the metric usually.
+There is a workaround to put these labels into the target info metric and then do the
+joint.
+However, it kind of complicates the user experience because you need to do additional
+join when querying the data.
+The next difference is float versus int.
+Prometheus uses floats, and OpenTelemetry can use float and int.
+I don't think it's a blocker because with float you can represent very well all the
+metrics.
+And last major difference is the character set that the system supports for metric names
+and label names.
+In OpenTelemetry, we can use UTF-8 in Prometheus, only a limited set of characters.
+So what happens is that when you are sending hotel labels, they will get corrected to the
+form that Prometheus can ingest.
+So if there are dots, they will be substituted to underscores, for instance.
+So as I said, I was working in the distributed tracing space for a long time and I started
+doing some metrics.
+And when I did this research, I was even wondering if these systems work, right?
+Because there is kind of a lot of things that can go wrong.
+And I think the delta temporality might be the biggest one.
+So I started looking into how can I solve this problem.
+And in the OpenTelemetry SDKs, the OTLP exporter that exports OTLP data, it can be configured
+to translate delta temporality metrics to cumulative with this environment variable
+that you can see on the slides.
+And then as well, you can set it to delta if your metric system supports delta or to
+love memory, which will use even more delta.
+You may as well ask the question like why we have two temporalities, right?
+There is a cumulative and delta.
+And as far as I understand, the delta temporality can be more resource efficient when you are
+instrumenting your process because the SDK doesn't have to track the summary, right?
+They will just quickly send the deltas to the collector or process that is collecting
+the data and doesn't have to do that processing that the cumulative metric store is doing.
+Okay.
+And then the temporality, okay, it's a problem.
+And then in the Prometheus exporter in OpenTelemetry ecosystem, it will do some delta to cumulative
+temporality translation for you.
+However, if you are using Prometheus exporter in the hotel SDKs, they will most likely drop
+delta metrics.
+So that's something to watch for.
+Okay.
+So what are the Prometheus components in hotel ecosystem?
+In the SDKs, as I mentioned, there is Prometheus exporter.
+However, if your metrics are delta temporality, they will most likely be dropped.
+As far as I was going through the code and looking at the exporter implementation, maybe
+it's not the case in every language, but I was looking, I think, at Golang and Java
+and that's what I saw.
+In the OpenTelemetry collector, there are three components.
+There is Prometheus receiver that we will see in a demo.
+Then there is Prometheus exporter that will try to handle temporality correctly.
+And then there is remote write, which will most likely drop your delta temporality metrics.
+Okay.
+So let's try what I prepared.
+It's a very simple hello world style application written in Golang, instrumented with Prometheus
+client.
+And then we will have an OpenTelemetry collector with Prometheus receiver scraping those metrics
+and exposing the same metrics on the collector slash metrics endpoint through Prometheus exporter.
+So we have receiver and exporter.
+And addition to that, we will print the metrics into the standard output of the collector.
+And we will compare if they're correctly propagated.
+So let me jump back to my console.
+I guess it's too small.
+I'm not sure I can change the color.
+It's better.
+Okay.
+So just for reference, this is the app.
+It's just main class.
+Using Prometheus client defines a gauge for tracking the version.
+There is a counter for counting requests and histogram for counting the request duration
+and some HTTP endpoints.
+So the app is running.
+I will just forward the endpoints and refresh the make request.
+It's a hello world, nothing special.
+We're going to see the metrics.
+We get a histogram counter and gauge and not many labels.
+As a next step, we're going to deploy the collector, which is again a very simple setup.
+We are deploying a deployment.
+And then we have a Prometheus receiver with a static configuration.
+So in a collector config, you can have multiple receivers of the same type.
+So I have two Prometheus receivers.
+One is called static, one is SD.
+We're going to use the static which will scrape the Prometheus example app service.
+And as you can see, this config is very similar to what you see in Prometheus.
+So you can potentially copy paste your Prometheus config into the collector config for Prometheus
+receiver and it should work.
+And last step, what we're going to do, we're going to enable the receiver in the metrics
+pipeline to make it active.
+And now I'm going to deploy it.
+As you can see, the collector is up and running.
+And I will pour forward again the metrics end points now of the collector.
+And we see kind of the same metrics, right?
+Here's 18, here's 19 because the Prometheus scraped end points with increased the counter.
+And what has changed are the labels, right?
+Now I see the instance label, which is the service name and the job which I defined in
+the collector config called app job.
+And then, yeah, we see the same metrics, the histogram, the version counter and the
+direct-quist counter.
+Okay, as a next step, we're going to make it a bit more automated.
+We're going to use the Prometheus service discovery in the second receiver.
+So we need to define the Prometheus as the config.
+And in this case, we're going to scrape all the pots that have the label that our app
+is using.
+Our pot defines this label.
+So we're going to enable it by just, you know, overriding the name of this receiver.
+It's the same functionality that Prometheus supports, right?
+I'm just using it in the open telemetry collector.
+It should restart.
+It's up and running.
+We're going to forward.
+And now, again, the same metrics.
+What has changed are the labels.
+The instance is the pot, right?
+Which makes more sense if we are configuring the service discovery for pots.
+The job name changed to Kubernetes.
+This is what we defined.
+In addition to that, now we get the target info, which defines the additional labels
+the receiver discovered.
+So here I see the namespace, the node name, the pod name.
+I think it's readable.
+And so what I can do right now, I can write Prometheus query that will do joint and get
+all these labels associated to the metric.
+Or in the collector, I could write a configuration that will put these labels from the target
+info into the metric labels directly, which will simplify the query.
+However, it will create more time series in Prometheus.
+Okay.
+And as the last step, we're going to use the pod monitor for the pod that we deployed.
+And we're going to use collector to get this pod monitor, configure the receiver, and scrape
+the metrics.
+So the way how it works in OpenTenometry operator, we have additional components called target
+allocator.
+And when you enable it, it will watch all the pod and service monitors in your cluster.
+And it can watch a subset of it.
+It depends on the label selector.
+It will get the scrape targets and then distribute those targets across collectors that you deploy.
+So if you deploy 50 collectors, it will distribute the scrape targets into those 50 collectors
+so that all the collectors get the same load.
+How does it work?
+The operator will deploy the target allocator and collector, will change the Prometheus receiver
+config with the target allocator service name.
+And then collector will connect to the target allocator to get its targets.
+Okay.
+So we're going to just enable the target allocator.
+For that, we need to change the deployment node to stateful set.
+Enable the target allocator.
+And now we don't have to do any config in the receiver.
+We can just leave this empty, the scrape config empty as an empty array.
+However, we need to change the Prometheus to, we need to just define a single Prometheus
+receiver because the operator will change.
+There is a convention that operator will find this receiver and change its configuration.
+Okay.
+Apply the manifest.
+And yeah, it's crashing.
+It's a demo.
+But it's just waiting for the target allocator to be running and then it will start properly.
+Sometimes it just takes some time.
+Okay.
+It's up and running.
+Now, if I refresh the same metrics endpoint from the collector, I see labels again they
+changed because now the instance is again the pod IP.
+The job name is what the Prometheus receiver uses by default.
+And then there's labels like namespace, pod directly on the metric.
+However, the target info should as well contain the metadata from Kubernetes, like what is
+the pod name, what is the namespace name and so on.
+Okay.
+So what we saw is that the Prometheus receiver works pretty well.
+We can use it to scrape Prometheus metrics.
+There shouldn't be an issue and it's as well using the Prometheus configuration.
+So if you are familiar with Prometheus, we can just directly copy paste the config into
+AutoCollector.
+However, what we haven't seen is if the process is instrumented with Auto SDK, then the Delta
+temporality metrics will most likely be dropped if you are using Prometheus receiver.
+However, if you are using OTLP exporter from the SDK and we set the temporality correctly
+to cumulative, then those metrics will be correctly propagated to the collector and
+then to Prometheus.
+So be careful with the Delta temporality.
+The Auto SDK should use the cumulative temporality by default.
+So that shouldn't be an issue.
+But if you are using something custom, then be careful with those metrics using Delta.
+So to wrap up, we saw the Prometheus receiver.
+It essentially contains the Prometheus configuration.
+However, the dollar signs in the AutoConfig, they are substituted to environment variables.
+So you need to escape them with two dollar signs.
+That's one difference.
+In the open telemetry ecosystem or in open telemetry collector and operator, there is
+no support for probe and scrape configs.
+And in the service and pod monitors in the AutoOperator, we don't support TLS.
+There are limitations.
+So where do we want to go with Prometheus and open telemetry?
+The Prometheus is planning 3.0 release.
+They want to improve the OTLP ingestion endpoint.
+So you can now ingest OTLP metrics into Prometheus, which is great.
+However, if you are using Delta temporality, those metrics will be dropped and they want
+to improve the support for it along other features.
+So yeah, feel free to help us to build this thing, to be more robust.
+On the open telemetry ecosystem, there is kind of two projects where you could contribute
+to improve Prometheus support.
+In the collector, there is the Prometheus receiver that we saw, Prometheus exporter
+and remote write.
+There is a lot of issues on the GitHub where you can help.
+And on the operator, sorry, we are planning the next CRD version.
+We want Alpha 2.
+And we want to create a dedicated target allocator CRD that will expose more Prometheus config.
+It's as well something that we are working on and we are very happy to accept your contributions.
+Okay, and this is all that I prepared for today.
+Thank you.
+Do we have any questions?
+No questions?
+Going longs?
+Okay.
+Thank you once again.

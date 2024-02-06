@@ -1,0 +1,247 @@
+Okay, thank you. Good morning, good afternoon. Thank you for having me. My name is Luca.
+By day I work as a software engineer in the Linux systems group in Microsoft in the Azure
+organization where I manage the Azure Linux OS that runs on the infrastructure there.
+By night I'm involved in various open source projects. I'm an assistant demantainer,
+a debian developer, a DPDK LTS maintainer, a bunch of other stuff that I consistently
+forget about. Now, if you read the title of this talk, you might think, hang on, was that
+really intended to be that provocative? And the answer is yes, yes it was. This is my
+yearly talk to make new friends. But of course I tried to mean it in a positive way. So I
+want to provoke some thoughts and discussions, see what we can do about this that I consider
+a problem and that I think we are in a good place to start fixing. But first, even though
+everybody lives and breathes secure boot, some background, if you're not aware, if you work
+on bootloader, so boot system, you already know all of this, but just one slide. So in
+the beginning we had BIOS, everything was great. The security model was low as if. In
+the 2000s we got Ufi. So Intel, Microsoft, a bunch of other people got together and created
+this new protocol for firmers. And it actually has a security model, which is nice. Now,
+it gets a lot of mud thrown at it. Every time there's a bug in the news like the logo face
+stuff, people are going, oh, why do we need secure boot? It's always broken anyway. Well,
+having a security model doesn't mean that everything is perfect or never breaks. It's
+software. It runs on computers. Of course it breaks. The point is that we have a process
+to deal with it and we have a natural security model to follow. So the way it works is that
+there's a chain of trust that starts in hardware. So for example, Intel boot guard. So the
+hardware verifies the trust in the firmware. The firmware verifies the bootloader, the
+bootloader verifies the kernel. The set of keys and certificates used are stored in the
+firmware. I won't go into details in that because it's not too important for this. This
+is generally called secure boot in a nutshell. Now, this in the 2010s, thanks to the work
+of a lot of people, like the government and many others, Linux joined the party finally.
+We were shut out of that ecosystem for a while and by default, distribution couldn't boot
+on new hardware. You had to go and fiddle with the buyers on this secure boot. This
+changed in the 2010s. So we have Shim, Grab 2 and the kernel lockdown stack and distribution
+can work again by default. They are signed with the U-featured party CA. You get your
+Shim signed by Microsoft and then you sign your second stage bootloader like Grab or
+System Eboot with your distribution key. And then we have this patch set in the kernel
+that was called secure level in the beginning when it was out of three. Then it was merged as
+the lockdown LSM later that basically tries to protect the kernel and the firmware and the
+hardware before the Xeboot service is called. Xeboot services is an API call in the U-fe
+interface and when that happens, a bunch of things get locked down. You cannot change secure
+viable anymore. The firmware goes away and a bunch of other things. It's very important to protect
+the system before that. So this is what this ecosystem tries to protect. Secure level also
+tries or lockdown tries to separate UAD0 from ring zero. So the theory is if you are root,
+you shouldn't be able to change the hardware or the kernel memory outside of what should be allowed.
+So this is not perfect. It went a very long way and it fixes a lot of problems. It's not perfect.
+Of course, it's softer. It's never perfect. But yes, the idea is we have this boundary between UAD0
+and ring zero. And this has been working for 10 years or so. It's great. We moved, we have no
+trust whatsoever to having trust until the point we start the user space.
+And that's great. But other operating systems are way far ahead. My course is way far ahead.
+Android is way far ahead. Windows is way far ahead. We do nothing for user space so far. But in the
+past couple of years, we've been talking a lot about how to fix this and things are starting to
+happen. So this is the next level. We'll have a unified kernel image. And by the way,
+Renard had a talk this morning about UKIs and I think he might have mentioned before as well
+in the previous talk. I could not get him because the room was full. But we've been talking about
+this stuff for a while and there were at least three or four talks talking about these things. So
+you might have already heard about these concepts and we'll repeat them again in a different context
+here. So what we are trying to do is extend that level of trust and security and authentication
+to user space. For example, the E30 right now on any generous distribution just sits on the
+boot partition on the ESP and anybody can offline or even online that has write access that can
+inject anything. And they're just built locally. They're unverified. You add a backdoor to the
+prompt that asks for your locks encryption password and you wouldn't have any idea because it's
+completely unchecked and untrusted and verified. Unified kernel images try to fix this. The unit
+RD is part of the PE binary that gets signed so that the shim or the firmware verifies it before
+loading so that we can extend the chain of trust a little bit further into user space. At least the
+first part of user space, the unit RD. But that's not enough. We want to go further because once you
+go to your root file system for the unit RD, well, that also is unverified. Now, Wacuzov is working on
+the IP, Intervity Policy Enforcement or Execution or something like that. It's a new LSM that basically
+allows you to write a policy that says any binary that runs on my system in user space must come
+from a DM Verity volume that is signed by a key trusted by the kernel. DM Verity is a
+mercury system to do online verification of block devices as they are loaded and opened.
+It's a very, very nice interface that has been available in the kernel for 10 years or so. And
+with IP, we can use this to move the chain of trust into the full user space. So now all the code
+that runs is fully verified with a chain of trust that goes back to the hardware. With discover of
+these images, we can also protect further payloads, so containers, end-spon containers, portable
+services and other things that are attached to the OS. If you're running a read-only system, you need
+some way to attach new applications there, of course. And with DDIs, you can further extend the chain
+of trust again in the same way for those payloads as well. So we put all of this together when we
+have the shim and lockdown stuff for the boot process and then UKIs for the InterD, IP and
+DDIs for user space. We have a very nice system that chains back to the hardware and implements
+a full root of trust. And that's very nice, except for the kernel command line. This is just stored
+as a plain text file in system debut type 1 BLS. So it's a type of boot images supported by system
+debut or in grab as well. It's just plain text file. If you have root access, you can write whatever
+you want there. If you don't, it checks, that just gets out there and run. It also can be edited on
+the fly if you have access to the keyboard, which probably is fine on a laptop, because if you have
+access to the laptop, you're probably the owner. But if you're on a server, owner of VM, or a
+confidential VM, that's kind of bad, especially for the Taster computing case, because the serial
+console is just a device owned by the supervisor, which is outside your PCB. So why is this a problem?
+Because it has become kind of a kitchen sink. Just for the kernel alone, there's that document
+there, which is very nice and documents a lot of options available. It's 7,000 lines long,
+and itself says this is not a complete list. So we don't even have one list that says, okay,
+this is everything you can do with this untrusted, unverified interface for your machine,
+which is not ideal. Also, I checked, I'm not a kernel developer, but I checked as far as I can
+see, the very first parsing of the kernel command line happens in the kernel's EFI stub
+before Exiboot services. Remember I said before Exiboot services is a very important point
+in the boot process that before that you want to protect your system. You'll be really careful
+about what happens and what is allowed to run and execute and change the flow of execution.
+Now, you can use the kernel command line to configure the kernel to do things like
+disable a Cerenox, disable IP. I talked about a moment before about IP. You can disable all
+these security components using the kernel command line. And it's not just the kernel that you
+configure. It's called the kernel command line, but it's just a command line. You configure everything
+and anything in user space. Everybody sees it by default. It's approximately aligned. It's there.
+Everybody has their own parsers. The custom written to parse it and read it, and it's used for
+absolutely everything. And again, this is bad for confidential computing. The Cereconsole is
+outside of the TCP. So this is a difficult problem. Now, of course, there are historical reasons for
+this. It's super convenient. It's amazing. You have a problem. You just press E to edit a debug,
+and then you can get some debug logs if your machine doesn't boot. That's amazing. That is super useful.
+But I think we're getting close to the point where we need to make decisions and whether we
+want to allow this always or in some cases or disable it completely in some other cases,
+because it is the last bit missing, as far as I can tell, in the security story of the boot
+process on Linux. So for system reboot, we have decided to stop allowing editing the command line
+and supplying untrusted sources of input to it when you boot UKIs. You cannot do that. And we made
+a lot of friends with that decision, I can tell you. So the problem is, of course, the flexibility
+is gone. Can we get it back? What are the use cases? So one of the main ones, the root FS auto
+discovery. In this case, you would do root equal, devs, da1, or whatever. Now you probably may be
+using a UGID to identify the disk so it doesn't switch partition. You don't lose booting.
+We have something called the discover partition specification system that is supported by our
+tools. So basically, the very quick resystem reboot tells the intrad where your root is. It
+automatically finds it based on UID set on the partition. So this use case is very well covered
+now. I already mentioned UKI, that we mentioned very frequently as FOS, so I go very quickly through
+this. You can add a command line to the UKI when you build it. It's very easy with UQFI,
+our tool to build UKIs. But of course, it's one entry. It's a fixed entry. The UKI is meant to be
+shipped by the OS vendor, and that is very not flexible, of course, because the OS vendor doesn't
+know what you need to have on your OS to make it work. Now we have a future plan. We'll get to this
+this year, but you'll be able to actually specify multiple options. For example, your OS vendor
+will be able to say, I have my kernel command line, which is the default one, and then one that has
+debug, and another one that has factory reset, so that you have multiple options. And in your
+boot menu from system reboot, you can select a non-default one if so you wish. This is very
+hard to list, and I get Leonard to implement that very soon, but he hasn't done that yet.
+The other thing we have, so system is tab is the small UFI stub that is embedded in the UKI,
+the first bit that gets loaded. So we added this thing this year called addons. Again, they can
+be built by UKFI, and what they are is they're just PE binaries, so they are signed, so the firmware
+verifies them using the secure boot certificates before loading them, but they don't have code.
+There's just a kernel command line configuration. So you can use this, and system is tab, we
+automatically load them if it finds them. Again, through the firmware, so verified and signed and
+trusted, and then you can use that for extending the kernel command line that was in the UKI,
+and that is fixed. This is really meant for platform owners. So for example, if you want to set crash
+kernel equals some amount of memory, that's probably the same across your whole fleet, at least for
+the same devices, so you can use the same addon everywhere to set these cases. Again, we want to
+add selection to, right now every addon will be used. We want to add a menu to let you select
+which one you want a boot in case that is needed, but we don't have that yet. It's again on the
+to-do list. Next thing we have extended extension images. This can be used to extend the IninterD.
+So you can drop them in the ESP, they are the invertees, so again they get verified by the kernel,
+and given the IninterD 2 is fixed, we can use this to extend the IninterD with additional code
+or configuration. It can be used for both configuration, overlay none ETC or code overlay none
+USR. Again, we don't have any way to select which one you want. We just pick every one,
+every extension image that we find in the ESP. And also you can embed them in the IninterD if you
+want and extend the router fast with this, or download them at running time to extend the
+router fast when it's read only. Finally, this is my favorite one, and I think this should give us
+enough flexibility that we can start to talk about actually disabling this stuff by default.
+So credentials are a very simple concept that we added to system this some years ago. They are just
+key value pairs. The key difference is that they are scoped by default. They are only visible by
+user space and only by services they opt into them by key. So in your service you say load
+credential key. If you have a credential for you name it there and it will be loaded. Everybody else
+will not see the content because they can be encrypted. And we are, I think we have that already,
+if not it will be ready very soon. You can encrypt them ahead of time if you know the TPM's
+public certificate for the SRK. You can encrypt them ahead of time for any machine.
+And they are decrypted only when the service starts and reads them. And only in the namespace
+view of the service. So they are fully isolated. Nothing else outside of it can see the credential.
+And you can drop them in the SP again in a per image or global directories. Again we don't have
+selection. Everything that is found in this location is picked up. And we are starting to add
+support to every system component and outside of it to use credentials to configure things that used
+to be configured with the Cora command line. So your networking can be configured credential. Your
+users, your autologin, your root password and a bunch of other things can all be, which you need to
+start. Like literally hundreds of things can be configured using credentials. I have a pull request
+open. Hopefully, as soon as I figure out the TPM measurement story, but we will also allow you to
+create new credentials from the boot menu. Like when you have a system boot with type one or
+grab two, you can edit the Cora command line. You'll be able to on the boot menu to just type
+credential and then a name and then a value. It will be passed to by system D and added to the
+interface so that it can be used. So I think this is very powerful. It's something that should give us
+all the flexibility, most of the flexibility that we need. Maybe. Is that enough? We have GPTO to
+discover for your root for a system. UKIs, add-ons, extension images, credential. Is this enough to
+cover all the use cases that we need in the 90% or maybe 95%? Of course, there will also be a case
+where you have to go put your hands on a machine that is completely broken. What you do in the case
+is you disable security. You break glass. You take your node offline. If it's a server, you take
+production workers away, you debug it. You disable security and then you can do whatever you want.
+Let's say 1% of the cases. Are we there yet for the 95%? That is an open question. I hope we can
+have some discussions about this. We also have a Secure Boot 2.0 comment. We are starting to think
+about it. Should this say something about what is allowed or not allowed to do to the kernel before
+execute services? It's kind of an important topic. Should it be a specification or should it not?
+Now, as reviewers and maintainers of your space components, I think it is time that we start to
+say, hey, if you're adding a new option via the kernel command line for my user space program,
+please at least also add a credential to it so that we can use both at the very least.
+And is this a full term? Most likely, but we still try because we are trying to push the envelope a
+bit forward every time and hopefully we'll get somewhere. So I think that's it and we have
+three minutes for questions. Oh, thank you. I was fast. Questions?
+Please. So you said about selecting crude partition, there was this discoverable
+partition specification. How you handle multiple installations of the same distribution like
+free fedora installations on the same disk? So the way this works is that system disk...
+Sorry, repeat the question for the microphone. If you have multiple partitions, multiple
+distributions, and start at the same time, how do you find out automatically what their
+disk is? The basic stuff is that the way system deboot system disk actually finds it is that
+it tells the initardivia EFI runtime variable which disk the ESP that was used to find the
+system deboot or the UKI was on. So you get the root of the disk. And then the auto generator there
+takes the disk and only look at that. So if you are installing with multiple disks,
+then we select the right disk like that. If you have multiple root partitions on the same disk
+as well, then I have no idea how we do that. I think we recommend to use different volumes for
+that. I think there's some way to do it. I don't remember to be honest. I need to look at the generator.
+There you go. So use a different UKI for the different root of FES basically.
+Yeah. Or again, with the credentials, we support credentials then for the auto generator yet?
+So we should add that. So that's probably a good way we could configure with the credential. But
+this is made so that by default you find the right thing for the simplest case. And then of
+course you need configuration for the complex one. If you use the same disk for multiple root
+file systems, well then you need to tell which one to pick. And that's one way. And I think we
+it is configurable and we should have credentials support for that. So you drop in a credential
+and then you decide which one to use. Yes. But it's a good question.
+That's a BTFS question. How to deal with starting from difference of volume on
+butterfests? I have no clue. I don't use butterfests, but the meta people here do. Do you have any
+other? I don't remember. Right. So yeah, it's not supported right now in the specification, but
+there was a buzzer, I think. Patches welcome. As usual. Yes. Yes. Anything else? Please.
+So the question was, can we use the auto generator when we create the UKI? The answer is yes,
+because then you would use the kind of command line. But if you are generating UKIs locally,
+our idea is that the UKI is generated on a server somewhere by your vendor. So I wouldn't work in
+that case. You could create a credential when you install it, for example, to tell it actually going
+and figure it out from that idea. But yeah, if we do support building UKIs locally, we have
+kernel installed plugins for that. It does work. And yes, you could do it that way.
+Yes. Yes. That could work if you're building locally. Yes. Sorry, that was according to the
+UUID in the UKI itself. And again, yes, it can work if you're building it locally.
+Yes. Anything else? Yes.
+And no, it is not a workaround for broken EFI variables. We added this so that we could configure
+autologene in VMs. I think that was the first time we added this back then. But this is a way to,
+again, the main use case was to be able to have secrets that are encrypted against the TPM
+and are not visible by default. So the services don't have to implement encrypted and decrypting
+all the stuff because that is hairy, especially against the TPM. That was the main use case,
+to have this as sealed stuff that is only visible by the service in its main space only when it
+runs. That was the main use case because normally a lot of times you configure secrets by environment
+variables and things like that. And of course, that is bad because environment variables are
+inherited now on the process tree. And you don't want your secrets to leak down to all your child
+processes. So this is one of the reasons we added the credential concept. Yes. So another question
+for credentials. What is the scope of credentials you load from this ESP? Is it the whole EUNITRD
+you can see it or some? The worry, so again, they are obtained. So sorry, yes. What is the scope
+of credentials loaded from the ESP? Does the whole EUNITRD see them? Yes, if they obtain. So your
+EUNITRD is trusted and verified and signed. So you build a configuration, you say service,
+full and bar can load this credential. Service, ABC, don't. So only full and bar that have opted
+in will see that and it will be decrypted for them. But yes, anything in the EUNITRD can obtain and
+I think we transition them across as well to the full OS. So they will be available also for
+services running from the after EUNITRD to full OS transition.
+Yes, credentials are awesome. You should check them out.
+They all, by the way, the slides are online and all these things are links to the actual
+documentation. Anything else? I think we have two minutes.
+I have a pretty dumb question, but let's say I want to put an RO on the kernel
+and online. I do that with the prediction. No, because that is for the, depends. Is that for
+the kernel or, oh, sorry, sorry. If you want, if you want to put RO on the kernel command line,
+would you do that on using a credential? Depends who's reading that. Is that for the kernel or
+is that for a user space in EUNITRD setting up your root file system? It depends on the case.
+If it is for your kernel, well, probably you want that in the UKI itself,
+because it's something you want your image to run in that configuration state, so you put that in
+the UKI itself. If you want that to only for certain cases, then maybe you can use addons
+and only deploy that on the machines that use the same image, but with a different configuration.
+So the answer, yes, it depends. There's many ways to do that and depends who's reading it and what
+the use case is and if you want that to be the default or the non-default on whatever else.
+I think we have, okay. Thank you.

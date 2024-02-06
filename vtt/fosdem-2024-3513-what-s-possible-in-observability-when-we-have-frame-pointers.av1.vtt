@@ -1,0 +1,743 @@
+WEBVTT
+
+00:00.000 --> 00:10.740
+All right, so yeah, what's possible in observability when we have frame pointers is kind of the
+
+00:10.740 --> 00:12.440
+talk.
+
+00:12.440 --> 00:18.800
+But let's start out with like a kind of like actual use case of observability, right?
+
+00:18.800 --> 00:21.040
+So we have these workloads.
+
+00:21.040 --> 00:27.680
+We can like graph the CPU cores and we can see some things happening and we might be
+
+00:27.680 --> 00:31.480
+wondering what's actually happening at these spikes, right?
+
+00:31.480 --> 00:37.760
+And we can use profiling, I guess, to figure out what happens at these individual spikes
+
+00:37.760 --> 00:43.240
+just to like understand, okay, like in this scenario this was happening in another scenario
+
+00:43.240 --> 00:46.000
+or like at another time something else happened.
+
+00:46.000 --> 00:51.920
+We can like get profiles manually and compare them or we do something called continuous
+
+00:51.920 --> 00:59.320
+profiling where we just like all the time over time, yeah, profile, hopefully a little
+
+00:59.320 --> 01:04.040
+overhead we can even do it in production or not hopefully, but it's a reality.
+
+01:04.040 --> 01:05.720
+We can do it in production, right?
+
+01:05.720 --> 01:13.480
+So we can then store all of these profiles and over time kind of like ask questions when
+
+01:13.480 --> 01:19.680
+we want to in retrospect and we don't have to worry about missing data points and we
+
+01:19.680 --> 01:27.080
+have kind of the security or yeah, the ease of use that we can just click on some spike
+
+01:27.080 --> 01:33.440
+and then get a frame graph or in this case an icicle graph because it's like top down
+
+01:33.440 --> 01:35.000
+and not the other way around.
+
+01:35.000 --> 01:41.040
+We call it icicle graphs and you can see all the stack traces and you can like instrument
+
+01:41.040 --> 01:47.120
+very nicely, introspect what's happening and I don't have a slide for this but we can also
+
+01:47.160 --> 01:51.640
+kind of like this flame graphs and then we can see in like red where things got worse
+
+01:51.640 --> 01:56.920
+and in green usually where things gotten better and it's pretty obvious most of the time if
+
+01:56.920 --> 02:01.000
+you have such a big spike like that's right the point where we need to look in such a
+
+02:01.000 --> 02:05.560
+flame graph and where we need to like check out what's happening in the code.
+
+02:05.560 --> 02:10.560
+So yeah, that's kind of a pretty good use case for observability, right?
+
+02:10.560 --> 02:15.040
+But yeah, what our frame point is but before we come to that quick introduction I'm Matthias
+
+02:15.080 --> 02:19.600
+Läuwe, I'm a senior software engineer at Polar Signals, I work on Parker which is like
+
+02:19.600 --> 02:23.760
+the open source project doing a bunch of these things but I also work on Thanos, Prometheus
+
+02:23.760 --> 02:27.800
+and lots of other open source monitoring projects.
+
+02:27.800 --> 02:32.200
+Yeah and hey everyone, I'm John Seger, I'm VP of Engineering at Canonical, I have a kind
+
+02:32.200 --> 02:35.360
+of interesting journey to open source but at the moment I am leading the development
+
+02:35.360 --> 02:40.200
+of Juju and a whole suite of kind of enterprise apps which we call Charm so if you want to
+
+02:40.200 --> 02:44.960
+get access to like the best Postgres on your infrastructure or the best MySQL or the Grafana
+
+02:45.000 --> 02:49.880
+stack or Parker or you want to build an identity stack with ORI and with OpenFGA and products
+
+02:49.880 --> 02:53.480
+like that, that's kind of the effort that I'm leading.
+
+02:53.480 --> 02:56.600
+The orchestrator is called Juju, it's been around a really long time, Charm's all written
+
+02:56.600 --> 03:00.160
+in Python and we're kind of building out a big catalogue of operators that allow you
+
+03:00.160 --> 03:04.760
+to not just deploy those things but actually compose them all together and integrate them
+
+03:04.760 --> 03:08.920
+in a really common way irrespective of whether your infrastructure happens to be bare metal
+
+03:08.960 --> 03:15.440
+or Kubernetes or VMs or on EC2 or on Azure or some combination of the whole lot so that's
+
+03:15.440 --> 03:17.600
+kind of what I'm up to at the moment.
+
+03:17.600 --> 03:22.240
+Awesome, yeah and I'm looking forward to hearing more from you but before I do that, let's
+
+03:22.240 --> 03:28.120
+talk about profiling again or like what profiling data is made up of and you can see these
+
+03:28.120 --> 03:36.120
+like points in time just T1, T2, T3, at some point in time, we basically want to look at
+
+03:36.640 --> 03:41.800
+the current stack trace or what the program state looks like and we can see that like
+
+03:41.800 --> 03:48.800
+at T1 we had ABCD, at T2 we had ABCNE so slightly different and then at T3 we had the same thing
+
+03:50.280 --> 03:55.640
+again so kind of like just for the sake of the demo or the example, one was like executed
+
+03:55.640 --> 04:00.080
+twice so maybe it was like executed 20 milliseconds in total and the other one 10 milliseconds
+
+04:00.160 --> 04:06.400
+so we kind of like count how often we see these stacks and then kind of can make assumption
+
+04:06.400 --> 04:13.400
+on how much it is running and this is kind of like a sampled profiling profiler, it basically
+
+04:14.040 --> 04:19.760
+only like every so often looks at these stack traces but over time we can really nicely
+
+04:19.760 --> 04:23.240
+like see the big picture of things happening.
+
+04:23.240 --> 04:27.160
+The good thing is because it's only happening so often the overhead is pretty low which
+
+04:27.240 --> 04:33.800
+again I touched on earlier for our use case figuring out what's going on, it's pretty nice
+
+04:33.800 --> 04:37.000
+due to being pretty low overhead.
+
+04:37.000 --> 04:42.920
+So how do we get to these stack traces, how can we see these stacks that we then get all
+
+04:42.920 --> 04:48.480
+the memory addresses for and then we can like nicely format them using the function names
+
+04:48.480 --> 04:50.600
+for example in the icicle graphs.
+
+04:50.640 --> 04:57.440
+So the best case and that's kind of the whole point of the talk right are frame pointers
+
+04:57.440 --> 05:04.440
+and frame pointers looking at this bit of C code it's hopefully not too daunting in
+
+05:05.000 --> 05:09.320
+a monitoring observability room but we can see we have the main function at the bottom
+
+05:09.320 --> 05:14.960
+and that calls a function and so on the functions call each other and then at the very top it
+
+05:15.000 --> 05:17.400
+just goes into an endless loop.
+
+05:17.400 --> 05:22.960
+And kind of the important part in all of this is looking at the assembly on the right hand
+
+05:22.960 --> 05:29.960
+side we can see that okay I omitted like the main function and the a1 but then we can see
+
+05:29.960 --> 05:36.720
+b1 and we can see that at the very beginning we are pushing and moving some registers around
+
+05:36.720 --> 05:41.680
+and those are actually the instructions to push the frame pointer onto the stack and
+
+05:41.680 --> 05:48.560
+then we are calling the next function right and the pushing of the registers so that we
+
+05:48.560 --> 05:55.560
+know once the next function is done executing we can come back to exactly that previous
+
+05:55.680 --> 06:01.000
+function and continue executing.
+
+06:01.000 --> 06:07.200
+The one thing I want to mention here is in the past there were a couple of discussions
+
+06:07.200 --> 06:12.720
+about the overhead of using frame pointer so we have the push and move instructions
+
+06:12.720 --> 06:18.480
+and then once the function is done it needs to pop that frame pointer so there were a
+
+06:18.480 --> 06:25.480
+couple of extra assembly steps involved especially on 30 bit systems it wasn't great performance
+
+06:25.760 --> 06:31.040
+wise but I think unless you are a really really special case it should be fine for almost
+
+06:31.040 --> 06:36.200
+all workloads even in production and that's kind of the point of this so basically our
+
+06:36.200 --> 06:42.640
+binary on the left hand side we can see our set up frame pointer so that's kind of the
+
+06:42.640 --> 06:49.120
+first instruction that our assembly is executing it is putting the frame pointer onto the stack
+
+06:49.120 --> 06:56.120
+before then going and doing the actual call to the next function right and before doing
+
+06:56.200 --> 07:01.880
+that we have to add the return address to our stack so that once the function that we
+
+07:01.920 --> 07:08.200
+are calling is done we know where to continue in our current function right so we need to
+
+07:08.200 --> 07:13.360
+know where like this other code we need to execute after calling the function we are
+
+07:13.360 --> 07:20.360
+calling right now where we need to continue so that's why we have the return address
+
+07:20.600 --> 07:27.600
+and we then actually do the function preamble and we run that function and eventually we
+
+07:27.600 --> 07:34.600
+return the function we are at the pointer that then actually tells us where to go back
+
+07:34.600 --> 07:41.600
+to right so the function that we called eventually returns and we want to go back to the original
+
+07:41.760 --> 07:48.760
+function however we are then executing after that function call right so previously we
+
+07:48.960 --> 07:55.960
+were can you see my mouse no we were over here and now we returned like one step and
+
+07:57.680 --> 08:01.880
+after that right because we don't want to call that function again going into an endless
+
+08:01.880 --> 08:08.880
+loop we want to continue afterwards however we want to know what called us right so basically
+
+08:09.680 --> 08:15.880
+what we want to do is whenever we have a stack we want to know which function called us and
+
+08:15.880 --> 08:20.880
+do that all the way such that we eventually end up in the main function and we know all
+
+08:20.880 --> 08:27.880
+the functions that we see that we have on the stack up to the point where we are now
+
+08:28.160 --> 08:33.360
+basically that's kind of like working the stack here and the really really cool thing
+
+08:33.360 --> 08:40.360
+is we can do this in ebpf so I don't know how many attend the previous talk ebpf kind
+
+08:41.000 --> 08:45.880
+of a hot topic right now for us it's really really cool because what we can do is write
+
+08:45.880 --> 08:52.880
+a small program in a C dialect and then get that through the verifier and compile it into
+
+08:53.640 --> 09:00.640
+ebpf code and then load that into the Linux corner and the way it works is then we actually
+
+09:01.040 --> 09:07.000
+don't use syscalls like the slide originally says but what we then do is like tell the
+
+09:07.000 --> 09:14.000
+Linux corner to every so often run this snippet of ebpf code and what we do is do the same
+
+09:15.880 --> 09:22.880
+things like stack unwinding that you are stack walking that I told you about like two slides
+
+09:23.280 --> 09:29.640
+ago so essentially what we do is we start or we start in ebpf we get kind of the context
+
+09:29.640 --> 09:35.120
+we get the current stack pointer and we look at the leaf of the stack so like kind of the
+
+09:35.120 --> 09:42.120
+very top like the currently executed function and we can then use that to essentially read
+
+09:43.120 --> 09:50.120
+that instruction pointer and from there get the frame pointer and the special occasion
+
+09:52.240 --> 09:58.240
+here is the instruction pointer has to be the return address minus one because of the
+
+09:58.240 --> 10:04.600
+thing I just told you about two slides ago right so basically that's how we can then
+
+10:04.600 --> 10:11.600
+know where we were called from and we do that all the time up until at the end we do that
+
+10:12.200 --> 10:19.200
+we get an instruction pointer or that zero so this one then means basically we reach
+
+10:19.280 --> 10:26.280
+the end of the stack and we know we can terminate or we reach the end of that stack trace.
+
+10:26.480 --> 10:33.480
+In between for profiling you can see over here we do something with the stack with the
+
+10:34.520 --> 10:39.840
+frame and what we actually do is we kind of like just get the memory address of that executed
+
+10:39.840 --> 10:46.480
+function and we basically have an array of all the frames that were executed at the end
+
+10:46.480 --> 10:52.840
+and have the memory addresses and those memory addresses we can then use to get the function
+
+10:52.840 --> 10:59.840
+names for that function. So having frame pointers in ebpf makes regular profiling
+
+11:00.080 --> 11:07.080
+super easy and we can then do profiling super simple we don't have to worry about like special
+
+11:08.000 --> 11:15.000
+compiler configurations because we can just assume that frame pointers are here for us
+
+11:15.000 --> 11:22.000
+to then basically use them to figure out the entire stack of the currently executing function.
+
+11:23.560 --> 11:29.240
+There are ways to do exactly that without frame pointers and shout out I think it was
+
+11:29.240 --> 11:35.560
+in this very room one year ago there was a talk by Javier and by Charlie who were talking
+
+11:35.560 --> 11:41.880
+about stack unwinding without frame pointers using Dwarf I highly recommend it it's really
+
+11:41.880 --> 11:48.040
+really interesting but yeah something for another time and then obviously not only like
+
+11:48.040 --> 11:53.720
+the profiling use case but if we have frame pointers in the executables in those executing
+
+11:53.720 --> 11:58.200
+stacks we can also use all the other debugging tools right not only for profiling we can
+
+11:58.200 --> 12:04.960
+use the bcc tools bpf trace perf etc and they also have the kind of same benefits.
+
+12:05.000 --> 12:12.000
+So essentially what that means is that the possibilities really become a lot more broad
+
+12:12.320 --> 12:17.280
+and open or like we can do a lot more things because we only have these like two memory
+
+12:17.280 --> 12:24.280
+reads and for example in bpf trace we can use the like one liner here to essentially
+
+12:25.280 --> 12:32.280
+also build a really simple but working profiler that uses the use stack to get the user space
+
+12:33.280 --> 12:40.280
+stack unwinding and count how often it sees things and that's super cheap then but also
+
+12:40.280 --> 12:45.680
+like the go execution trace actually traces everything that's happening and because unwinding
+
+12:45.680 --> 12:52.200
+is so has so little overhead we can also do things like that and once we have profiles
+
+12:52.200 --> 12:56.760
+continue and kind of like the performance aspect we can do something called profile guided
+
+12:56.760 --> 13:03.760
+optimizations and just making profiling so cheap that's something where I think a lot
+
+13:04.280 --> 13:09.880
+of innovation is also going to happen in the future and some outlook like some super new
+
+13:09.880 --> 13:16.880
+papers the context sensitive sample based profile guided optimization so something we
+
+13:17.160 --> 13:24.160
+are super excited about because yeah it will allow a lot more things to happen as well
+
+13:24.320 --> 13:29.880
+but maybe another Boston talk is going to happen about that in a year or two so bringing
+
+13:29.880 --> 13:32.880
+frame pointer to the masses I'm super excited to have John talk.
+
+13:32.880 --> 13:37.480
+Hey all right so I'm here to tell you about now we've seen all of the cool stuff you can
+
+13:37.480 --> 13:41.880
+do when you have frame pointers how we at Canonical are going to make this available
+
+13:41.880 --> 13:47.080
+to all of you much more easily and so if you didn't see this on an outside our blog a couple
+
+13:47.080 --> 13:52.000
+of months ago we have decided that from 2404 LTS we're going to enable frame pointers for
+
+13:52.000 --> 13:55.400
+the entire Ubuntu archive on 64 bit platforms.
+
+13:55.400 --> 14:01.120
+The caveat on 64 bit is because back in the day 32 bit CPUs obviously had far fewer registers
+
+14:01.120 --> 14:05.160
+and so sacrificing a register to hold the frame pointer came with a much higher performance
+
+14:05.160 --> 14:09.560
+overhead in reality these days with 64 bit you're looking at on average kind of less
+
+14:09.560 --> 14:14.680
+than 1% unless you're in a very specific group so if you're doing like turbo pants on head
+
+14:14.680 --> 14:20.120
+HPC stuff or high frequency trading or real time things where kind of that like 1% could
+
+14:20.120 --> 14:23.680
+really really matter perhaps this isn't for you and we can make exceptions in the archive
+
+14:23.680 --> 14:27.800
+for those packages but in general for 2404 you can expect to see frame pointers for the
+
+14:27.800 --> 14:31.560
+entire archive through main and universe etc.
+
+14:31.560 --> 14:34.360
+This is pretty exciting because the LTS I probably need to tell you is going to be installed
+
+14:34.360 --> 14:40.000
+on many many millions of machines right and then supported for at least 10 years by Canonical
+
+14:40.000 --> 14:43.600
+so this is going to make a big impact for people who need these things.
+
+14:43.600 --> 14:47.360
+This stuff is often already enabled by the hyperscalers so people like Amazon, people
+
+14:47.400 --> 14:50.440
+like Netflix, people like Microsoft are already doing this in production and now you kind
+
+14:50.440 --> 14:54.040
+of get it for free as well just by using Ubuntu.
+
+14:54.040 --> 14:58.440
+So I mentioned there will be some you know pretty much negligible barely noticeable for
+
+14:58.440 --> 15:02.160
+nearly all use case performance impact we're kind of willing to wear that because what
+
+15:02.160 --> 15:05.760
+it actually enables in the medium term is for us to do a lot of work on our distribution
+
+15:05.760 --> 15:10.120
+right so we're in the process now of running benchmarks on a kind of pre frame pointer
+
+15:10.120 --> 15:14.000
+Ubuntu and a post frame pointer Ubuntu ready for the release and that will hopefully help
+
+15:14.040 --> 15:18.960
+as I identify any outliers so if we hit certain packages where we feel like the performance
+
+15:18.960 --> 15:23.200
+hit is too much then we will disable it for the first release for 24.04 or we will try
+
+15:23.200 --> 15:27.520
+and work out what other optimizations we might make to that package to make it work better
+
+15:27.520 --> 15:30.440
+with the frame pointers enabled.
+
+15:30.440 --> 15:36.120
+So this will really really help I think downstreams to enable or to gain the benefit of frame
+
+15:36.120 --> 15:37.880
+pointers and optimize their own workloads.
+
+15:37.880 --> 15:41.600
+If you are someone who just uses Ubuntu as a platform and you build your own code and
+
+15:41.680 --> 15:47.000
+let's say you use Python or you use go or use no JS or whatever suddenly those big holes
+
+15:47.000 --> 15:50.400
+in your frame graph graphs are just going to disappear when you move to 24.04 without
+
+15:50.400 --> 15:53.560
+you having to do anything.
+
+15:53.560 --> 15:57.280
+This is really just the start which when I make 24.04 a really focused release on kind
+
+15:57.280 --> 16:01.360
+of performance engineering and performance itself so what does that actually mean having
+
+16:01.360 --> 16:04.800
+the frame pointers is one thing but you also need the tooling to actually utilize the frame
+
+16:04.800 --> 16:08.960
+pointers and kind of inspect the stack and the folks at PoloSignals with Parker are one
+
+16:09.040 --> 16:14.400
+part of that but we are also looking to include tools like BPF Trace and SysStat and the Perf
+
+16:14.400 --> 16:17.480
+Tools on Stable by default in Ubuntu.
+
+16:17.480 --> 16:20.640
+Not in every single image so those of you that are about to screen map me because you
+
+16:20.640 --> 16:24.320
+use the minimal image or you ship 100,000 container images a month and you don't want
+
+16:24.320 --> 16:29.040
+to ship BPF Trace and all of them don't panic we are essentially going to enable all of
+
+16:29.040 --> 16:32.080
+these tools by default anywhere where we ship a kernel.
+
+16:32.080 --> 16:35.840
+So a Ubuntu server image, a full size server image that doesn't include lexd images, it
+
+16:35.920 --> 16:40.560
+doesn't include OCI images but if you install Ubuntu on a server or in a VM you will have
+
+16:40.560 --> 16:44.000
+BPF Trace by default, you will have SysStat by default.
+
+16:44.000 --> 16:48.280
+Essentially a huge majority of the tools that Brendan Gregg describes as crisis tools will
+
+16:48.280 --> 16:52.280
+be there by default and the reason that is super important is because if your system
+
+16:52.280 --> 16:55.680
+is in crisis it doesn't matter whether the tools are in the archive.
+
+16:55.680 --> 16:59.200
+If your system is right on the edge and then you hit the system with a whole bunch of network
+
+16:59.200 --> 17:03.280
+IO and disk IO to go and get a package from the archives it is potentially going to put
+
+17:03.280 --> 17:04.280
+that system over the edge.
+
+17:04.280 --> 17:09.040
+It may not even work in production, the system may not have access to the package archives
+
+17:09.040 --> 17:12.520
+and so you just need those tools to be there and we are going to make sure that happens.
+
+17:12.520 --> 17:15.600
+For places where we don't ship a kernel all of these tools will get wrapped up in a new
+
+17:15.600 --> 17:19.240
+meta package so if you do want it in your lexd containers, if you do want it in your
+
+17:19.240 --> 17:22.360
+container images, in your debug images then you will just be able to see it really really
+
+17:22.360 --> 17:25.040
+easily with a single meta package.
+
+17:25.040 --> 17:28.800
+We are looking at what other compiler optimizations we can make across the archive as well so
+
+17:28.800 --> 17:32.920
+this might look like rolling out GCC03 for a huge part of the archive, we are not going
+
+17:32.960 --> 17:37.960
+to do that in one big bang go because there are some trade offs there and we are also
+
+17:37.960 --> 17:42.560
+looking at essentially not maintaining a low latency kernel and a generic kernel and just
+
+17:42.560 --> 17:45.320
+shipping the low latency package by default.
+
+17:45.320 --> 17:49.200
+None of these are firm, 100% definitely going to happen in 24.04, these are the goals we
+
+17:49.200 --> 17:51.680
+are working towards before the release in April.
+
+17:51.680 --> 17:55.680
+Finally, some of you may have seen we have been doing some work on working out how to
+
+17:55.680 --> 18:02.520
+get Ubuntu and the archive to take advantage of the newer instruction sets, AMD64 v3, AMD64
+
+18:02.920 --> 18:04.480
+v4, v5.
+
+18:04.480 --> 18:09.040
+We actually have a build of the entire archive that uses AMD64 v3, you can get it in a PPA
+
+18:09.040 --> 18:13.680
+and test it in benchmark, it is faster like TLDR but we need to do a bunch of upstream
+
+18:13.680 --> 18:17.280
+working apps to work out how we can essentially kind of multiplex that right so that you
+
+18:17.280 --> 18:22.520
+still just go ubuntu.com slash download, download an AMD64 ISO and it does the right
+
+18:22.520 --> 18:27.200
+thing without you having a massive long list of different instruction sets to choose from
+
+18:27.200 --> 18:31.960
+for AMD64 so that work is coming but probably won't land for 24.04.
+
+18:32.000 --> 18:36.200
+We also continue to introduce new patches into things like GNOME, we are still trying
+
+18:36.200 --> 18:41.080
+to get the GNOME triple buffering stuff landed ready for 24.04 which gives a much smoother
+
+18:41.080 --> 18:43.240
+experience on the desktop as well.
+
+18:43.240 --> 18:47.080
+This runs really from Ubuntu server right up through to Ubuntu desktop and these tools
+
+18:47.080 --> 18:49.040
+will be available to desktop users too.
+
+18:49.040 --> 18:52.920
+You as a developer on Ubuntu should have access to the same debugging tools that you find in
+
+18:52.920 --> 18:57.120
+your production workloads in our opinion.
+
+18:57.120 --> 19:00.480
+On a side note, we are trying to do this at a really big scale at Canonical, we are hiring
+
+19:00.520 --> 19:04.520
+practice leads that will sit in a central team to build processes and tools and essentially
+
+19:04.520 --> 19:08.640
+give advice across our 40 or so products and we are also hiring dedicated performance
+
+19:08.640 --> 19:14.360
+engineers for every single team whether that team be doing Go, Python, NodeJSC or whatever.
+
+19:14.360 --> 19:18.480
+If you are interested in that talk to me afterwards, check out Canonical.com slash careers, there
+
+19:18.480 --> 19:21.040
+is a couple of Canonical folks in here as well who you can talk to.
+
+19:21.040 --> 19:23.720
+If performance is your thing and you want to come and make use of frame pointers and
+
+19:23.720 --> 19:29.160
+make Ubuntu blazing fast then that is always an option to you.
+
+19:29.240 --> 19:32.840
+Finally, from my side, we have done a bit of work with Polar Signals, they have been
+
+19:32.840 --> 19:34.320
+helping us along this way.
+
+19:34.320 --> 19:38.680
+We have snap packages and charms available for Parker both for the agent and the server.
+
+19:38.680 --> 19:42.760
+On any Ubuntu machine you can see this in a cloud in it file with a single line.
+
+19:42.760 --> 19:46.720
+You can snap and store the Parker agent, give it a single config with a token and start continuous
+
+19:46.720 --> 19:51.600
+profiling out into Polar Signals cloud or you can host this over infrastructure yourself
+
+19:51.600 --> 19:55.720
+on machines, on Kubernetes, on containers, whatever it is with Juju.
+
+19:55.720 --> 19:58.640
+We will continue to make improvements to that over time.
+
+19:58.680 --> 20:05.160
+It is a super easy way to get hold of this nice continuous profiling hotness in Ubuntu.
+
+20:05.160 --> 20:07.160
+That is it, get in touch.
+
+20:15.680 --> 20:17.760
+Thank you very much for that.
+
+20:17.760 --> 20:20.000
+Looking forward to the Ubuntu release.
+
+20:20.000 --> 20:25.520
+Are there any questions?
+
+20:25.520 --> 20:26.520
+Questions anyone?
+
+20:27.520 --> 20:32.520
+Once, twice, nobody?
+
+20:32.520 --> 20:40.520
+Okay, then thanks again and next up we have QuickWit I think in 20 minutes.
+
+20:40.520 --> 20:41.520
+Thank you, bye.
+
+20:41.520 --> 20:42.520
+Cheers.
+

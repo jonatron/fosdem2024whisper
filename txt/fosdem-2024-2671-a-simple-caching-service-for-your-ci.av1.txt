@@ -1,0 +1,139 @@
+So, hello everyone. So, as I said, my name is Remedio Raffa, I'm a principal tech lead
+at Lino. I've been working on Open Source Project for a long time now, and I've been
+at FOSDEM for many years now, it's not my first FOSDEM presentation. So, I've been working
+on VLC media player on V8, Javascript Engine, and I joined Lino some years ago working on
+Lava and on Automation and CI in general. So, today I wanted to speak a bit about a
+really tiny project that I created some years ago, which is called Keyscash. And in order
+to present it, I have to explain why we are using Keyscash in Lino. So, at Lino we contribute
+a lot to the Linux channel, and not only by developing new stuff, drivers, and a lot
+of different things, but we also contribute a lot by testing the Linux channel. We have
+a project called LKFT, Linux channel functional testing project. That is, if you go to the
+website, it's written that the goal is to improve the Linux channel quality on the ARM
+architecture, because we are now mainly about ARM, but not only. By performing regression
+testing and reporting on seleting Linux channel branches on the Android command channel in
+real time. Okay. That's what is written on the website. More or less, it's a project
+led by Leno. It's an automated system to build and test a set of Linux channel trees.
+We mainly care about LTS, obviously, mainline and next. And by contract, we have to provide
+a report in 48 hours. So, it's quite tight between an RC on an LTS trees. In 48 hours,
+we have to provide an SLA. We have to provide a report, all right. So, if you look back
+at 2023, we built and tested 396 different RCs, so only LTS channels. As we also care
+about mainline and next, we built 2,443 different channel commits. That's 1.1 million builds.
+So, 1.1 million channels were built by the system by LKFT. And we ran 297 million tests
+just in one year. And if you look at the Android parts, Android command channel, that's 580
+million tests. The tests are running both on virtual machines, so QMU and FVP. We have
+a specific system where we can instantiate in the cloud many machines for running QMU
+and FVP. That's a stock suite service that we created. We will not speak about it today.
+And we also have a physical lab. So, with physical devices in Cambridge, that is managed by a
+tool called Lava. That's a tool that I'm running inside in Salinaro. So, if you look at the
+LKFT, really simplified architecture because obviously it's way more complex than that.
+So, as I said, we care about LTS trees, mainline and next. So, we have GitLab repository that
+are just mirroring the different trees that we care about. And when there is changes,
+GitLab will pull it and we create a GitLab pipeline. The GitLab pipeline will send a set of
+instructions to our cloud service for building, called text build, that will run the builds.
+So, it will scale from zero machine to 5,000 machine in some seconds, do the builds, shut
+down the machine and then send the artifacts to an S3 like storage. So, the artifact will
+be the kernel, the TTB, the root file system, the modules, etc. And then these artifacts
+will be pulled by our lab in Cambridge to be tested on real devices. So, in the lab
+in Cambridge, we have some hundreds of boards, Raspberry Pi, Dragon boards, IKs, X15, etc.
+A lot of different boards. And at the same time, they will all pull the artifacts, deploy
+them on the hardware, depending on what kind of hardware you have, run the test and then
+report back. And obviously, everything will run in parallel and don't leave from the same
+storage. So, our CI system, as I said, will build and test artifacts, L, DTB, RAM, these
+modules, etc. And for each kernel, DTB and root file system, they will use multiple times
+because when we have one commit from the kernel, we'll build it for multiple architectures.
+We'll build it for x86, ARMv7, ARMv8, ARMv9, PPC, SH4, MIPS, etc. Then for each architecture,
+we'll have multiple configurations. I want to build with some virtio-specific configuration.
+I want to build in debug in release, etc. And then for each configuration, for each commit
+architecture configuration, I will run a set of tests. So, KSELTest, KUnit, libgperiod,
+the LTP, etc. Considering that LTP, for example, is broken into 20 different test suites that
+will be 20 different test jobs because it takes a lot of time to run. So, the CI system
+will run a lot of different jobs, of test jobs, that will actually pull the same artifacts
+all the time, which means that in the network, on the network in the lab in Cambridge, we
+have a lot of network usage and a lot of duplication. We are re-downloading always the same artifacts.
+So, that's normally really simple things to solve. You just add caching. So, just, I'm
+really adding that because that's really important. Our system, our CI system, the Lava
+Workers, will download multiple times the same artifacts at the same time in parallel. So,
+if you look for a caching proxy in the open-source community, you will obviously find that Squid
+is the main caching proxy and it's a perfectly good one. It's really working well. So, you
+should just install that on our network, point all the workers to it and it should work. Short
+answer is no, it's not working just because of the two reasons above. So, and also for another
+reason, this one. All artifacts, as I said, are published in an S3 like bucket. They are
+somewhere in the cloud. So, obviously, if you want to download them, you will download over
+HTTPS. You will not download a random binary from internet and run it in your local lab
+for testing. Not something that you will do. So, we have to validate. So, we use HTTPS to
+be sure that what we're downloading is what we're expecting. At least we are trusting
+the software. But when you add a Squid proxy in the connection, it will not work well with
+HTTPS. That written in the script documentation, you can make it work with that. It's not easy.
+The main problem is that as an HTTP client, when you connect to a website over HTTPS,
+you're expecting to get a certificate and the connection will be encrypted with the
+certificate and the certificate, you have to trust it. When you add Squid in the middle,
+Squid will have to connect on your BI to the server. So, the connection between Squid and
+the website is encrypted correctly. The certificate written by the website is a legit one, so it
+will work. But when Squid will have to decrypt the content to cache it and then re-encrypt
+it to send it back to you, it does not have the private certificate from the website,
+obviously. You don't have the private certificate of Google.com on your machine, so you cannot
+re-encrypt the traffic. So, Squid will need to have his own certificate and it will encrypt
+the traffic with its own asset certificate. And you will obviously not trust it. You will
+not trust your local Squid proxy to sign something from Google.com or AWS or any website
+or Linux Foundation. So, when the HTTP client receives the custom asset certificate, it
+will just say, no, I don't trust you. There is a workaround and it's written in the script
+documentation, obviously, which is create a wildcard certificate, which is a certificate
+that will be valid for absolutely every website on the planet, every DNS, so it's kind of
+a dangerous asset certificate. And you can install it on every of your HTTP clients.
+It's possible, but it's really crappy, honestly. That's the first problem. The second problem
+and that there is no way to work around it is that when Squid, when you try to download
+multiple times the same artifact in Squid, so, for example, you have two connections
+downloading the same root FS, Squid will download it twice and stream it back to the
+clients at the same time. And when it's downloaded, it's finished, then the third connection will
+have a cache version. But as long as it's not cached locally, it will re-download from
+the start. And as I said before, our system is by-designed running everything in parallel,
+so it's often the case that we have multiple downloads of the same artifact at the exact
+same time. So when using Squid, it was just not caching anything. Sorry. So that's why
+we created KeysCache. So Keys stands for keep it simple, stupid. It's a pretty simple and
+stupid caching service. But the main features that it has are exactly what we need for a
+API system. It allows to cache HTTPS resources without any acts or anything. It allows to
+download only once, even if you have multiple clients and they will all get a stream back,
+the stream of data back. And the reason why it's not, it's working for both cases is that
+it's not a transparent proxy. So it's not like clients that will know from an environment
+of the Bible that it has to go through a proxy. Instead, you have to prefix your URLs. So
+if you want to access example.com slash .fs.x4, for example, you have to prefix it by your
+KeysCache instance. So even if you're downloading over for HTTPS, your clients know that it
+goes to KeysCache and not example.com so that it's expecting a certificate from KeysCache,
+not from the original website. That's the first reason. And KeysCache also, we made
+it so it knows how to stream back to multiple clients, the same content. Fun thing, we also
+added a lot of automatic retries inside the KeysCache backends. So if for any reason,
+and it happens a lot, the connection between your network and the S3 like bucket breaks
+and it often breaks, honestly, KeysCache backend will automatically retries. This is a list
+of HTTP codes that we're retrying automatically. And it will also, so when it's retrying, it
+retries up to 50 times over a period of two hours because we had exponential backups.
+So sometimes a download will actually take two hours and 50 retries just because the
+S3 like bucket is just sometimes a bit buggy to answer. We also added partial download,
+which when you have, we do a retry, if the HTTP server knows how to do that, we only
+download the remaining content, not from the start. And the good thing is that with
+the automatic retries, the client will never see that there is a broken connection because
+from the client to KeysCache, the connection is kept alive. It's only the backends that
+sees the network issues. So it has been in production for 3.5 years. It downloaded 32
+terabits of data from internet and served 1.6 petabytes of data locally just for a really
+small tiny software, which is an expansion ratio of 51 times. So we divided the network
+usage by 51 just by having a small working proxy. It also improved a lot of stability
+thanks to the automatic retries, I said, up to 50 retries, which is insane. And it also
+lowered a lot of the S3 egress cost because you have to pay for egress in the cloud. When
+you, for 1.6 petabytes of data, that's a lot of money. So yeah, we saved around 150
+K of euros just by having a local proxy. Just because I have just two minutes, a look at
+the global architecture of the service, it suggests a Django application with a salary
+backends. So you have a reverse proxy and Ginex. It can be any reverse proxy in fact,
+that will receive an HTTP connection. It will send that to Giniacon, which is a Django
+runtime. The Django will see if the, we look at the database, but at the base, progress,
+to know if the artifact has been downloaded already or not. If it's a case, it will then
+look at the file system and just give that back to Ginex saying, please send that to
+the client. And I'm done with it. If it's not already downloaded, it will send a message
+to Redis that will spawn a salary task that will actually do the download and retry in
+the back end. And it's done only once. And it's then saving it to the file system, appending
+to a file, byte by byte. And at the same time, the Django process just reads the file on
+the file system and sends the bytes where they are available. And that's all. Waiting
+for the file, the file to be just finished. And if a second or third of many different
+users arrive for the same file, then they will just reuse what is already available in the
+file system and wait for the download to finish. And that's all. That's all. It's pretty simple
+and efficient. And it has been a really good use for us. And it might be useful for your
+CI system. So if you have any questions, I will be here after the talk. Thanks a lot.
+Thank you.

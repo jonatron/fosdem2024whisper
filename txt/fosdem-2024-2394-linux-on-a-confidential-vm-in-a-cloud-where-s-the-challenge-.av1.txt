@@ -1,0 +1,199 @@
+Hello, everyone. Welcome to the virtualization dev room. My name is Vitaly. I normally work
+for Red Hat and you can see me being active in KVM community as well as taking care of
+Linux on all types of third party hypervisors and public clouds. And today I wanted to talk
+about bringing basically general purpose Linux distributions to the newly introduced VM type
+on public clouds, which is a confidential virtual machines. So if you haven't been living in a
+cave with no internet over the last couple years, which I wouldn't blame you because the world is
+a crazy place to be in now, but you may have noticed that some hyperscalers were announcing
+or releasing their confidential VM instance types or features. I'm not here to advertise any of
+them, but just for the reference, Google probably was the first with their plain AMD serve option in
+2020. And now they even have a seven SNP in public review as of like last week or the week before.
+Microsoft Asia, they were refers to commercialize seven SNP offering AMD seven SNP and they
+GA in 2022. You probably see they now have Intel TDX option available in public review and Amazon
+offers seven SNP feature in GA. So it sounds confidential, so it must be good, right? Because
+we all like when our data is confidential. But what does it actually give us? Like at least like
+these technologies, what are they about? Like this are like both like AMD serve and all its
+variants and Intel TDX, they are CPU technologies. So first thing they give you is memory encryption.
+So your VMs memory cannot be read by your hypervisor or other guests. Second, which is important
+and which wasn't in like first implementation like plain serve is that your CPU status encrypted
+because normally hypervisor can see for example your registers where your VM is executed and if it
+can stop you every cycle can certainly read your data. And the last which is also important is
+that memory integrity guarantees are provided to you because even when your memory is encrypted,
+the hypervisor which is like malicious or compromised can do like an esthetic try to for
+example swap to memory pages. They will remain encrypted but your guest will access the wrong
+one, right? And it can probably mount an attack using this technique. So this all sounds great,
+but when we talk about confidentiality normally we say like confidentiality must be achieved in
+runtime at rest and it transits, right? Like very generic and all these things which I just described,
+they give you confidentiality at runtime, right? So what about the rest, right?
+Concentrality of the data in transit is not really specific to CVM because we were doing this for
+years, right? We know that internet is not safe place, right? So we need to encrypt our data when
+we send it through public channels and not only public channels, but what about storage, right?
+How do we ensure that the storage of the VM is also confidential because even if you have something
+which is confidential in memory, you will eventually need to write it to disk and do other
+things like you will need to read your operating system from the disk. So you need some guarantees
+there. The last thing I wanted to mention is that these confidential VM technologies, they don't
+give you any additional guarantees when you're already within the VM. So if you have an application
+which is attacked there, right? Nothing's gonna save you, right? The hypervisor cannot see your
+data, but everything which is within the VM can normally see the data. That's how it works, right?
+We want to put general purpose operating systems there. So yes, let's discuss a little bit about
+this protecting data trust because it seems that hardware technologies don't give us this, right?
+So first is that you want to protect at the guest level. If some cloud tells you, oh, but we are
+encrypting our disks, right? Like you don't need to worry. Yes, but then you have the key, right? If
+you can encrypt and decrypt it for me like in a transparent way, so then it's not confidential from
+this perspective. So you need to do it from the guest. And the thing is you need to somehow
+protect the operating system itself and not only data you care about because first you have some
+data which is really sensitive. Like think SSH host keys, right? If somebody can read it from your
+VM, he can impersonate himself and pretend that he's you, you know? You don't want this. Second,
+you have, you will say, oh, I'm running like a general purpose operating system there. It's
+open source. Why would I need to protect it? You don't probably need to protect it from arbitrary
+like reading from the host, but you still need to protect it from writing because a malicious host
+can try to mount an attack by modifying something in the operating system. Think about swapping
+SSHD binary with something, you know? How would you notice, right? You won't. And good thing is that
+we have some technologies in Linux already for years which are mature like locks or things like
+the invariative or integrity protection which you can use because even when you store your
+like encryption key something or like integrity hash in memory, it is protected from the host
+because remember your memory is encrypted, the host cannot read it. The thing is the guest needs to
+somehow get this key, right, when it starts and where would it get it from? So, yes, let's take a look
+at like how Linux normally boots and what we, how we can implement say like full disk encryption
+or something, right? You start booting from firmware, normally everything is UFI now and all
+these confidential instances, they are UFI. So, there is some firmware which comes from
+CloudVendor, but that's like another story. Why would you trust this firmware? You probably
+shouldn't, but anyway. So, then you will always have some unencrypted part, right? Because the
+firmware cannot jump in the encrypted part without knowing the key, right? You want to do
+decryption yourself, you don't want to afloat this job to someone else. So, you will always have
+something like bootloader, kernel, initramafas stored there in clear. Yes, you may say that we
+can actually do encryption at bootloader level, which is true, but then we are complicating the
+bootloader like a lot and the only one which does it probably is grub and nobody likes it.
+No, I mean, no, but it becomes, it's all like a operating system with all the complexity and
+everything and you don't really want that for your bootloader. You want it to be really small if
+present, maybe even you don't want to have a bootloader at all for confidential case. So,
+and then you will jump into this, you know, encrypted part, you will somehow get the key and
+then we'll decrypt it. So, that's how it's going to work. So, yeah, how can you provide the key to
+the VM? You cannot do it manually. For example, like grub, you can type it on your console. You
+cannot do it on a cloud because you don't trust the console. The console is an emulated device
+there, right? If you type your password there, the cloud will know the password, right? So,
+you're not going to do that and you will need to provide it like in an automated fashion, but you
+can only do that.
+you
+you
+you
+you
+So, they were suggesting if you want to have a virtual TPM device, you run a separate domain
+like another virtual machine which will have this like TPM device. It's really hard to implement
+and this like 1.5, I think, TDA specification they've added partitioning, which is somewhat
+similar to trust levels and I think that that's what clouds are going to use. Although,
+you don't know, thumb clouds may actually implement an emulated device on the host. Just
+for example, like you do with QEMU and SWTPM, right? You can run it as a process on the host.
+And not all of these solutions will give you a confidentiality. For example, the one which runs
+on the host obviously won't. Then there are two types of TPMs normally, stateful and stateless.
+Stateful is a TPM which has its state, right? And every time you run it, for example, think about
+it this way. It has a private key and it never changes, right? So, it's generated once when your
+VM is created and then every time it's loaded, you can use it for like encrypting, decrypting,
+something. Stateless TPM is just firmware which will generate a new key every time it boots.
+So, how can we use this? Let's first talk about stateful TPM. Like all these
+hyperscalers, they give you some sort of a stateful TPM. The question is where is the state stored,
+right? Because you can turn off your VM, turn it on back. So, the state needs to be saved somewhere.
+And it's not part of your like encrypted truth volume or anything. It's somewhere else, right?
+So far, again, like not an advertisement but publicly only Azure proves that this state is kept
+securely, that there is some attestation going on under the hood when this TPM loads,
+which protects it from the underlying hosts. You can't say much about other implementations,
+like because no such claims were made. So, you know,
+you don't know whether you can use it to isolate from your host or not, right? What's good about
+stateful TPM is that you can implement root volume like pre-encryption, right? There is a device
+which has like private key so it can decrypt something. So, you can take your root volume
+and encrypt it and upload it in an encrypted state there. And that's something which, for example,
+like Azure confidential decryption is doing. In theory, we don't need to pre-encrypt. We can
+probably do something like self-encryption. And there are such ideas floating in the air that
+we will start with this general-purpose Linux distro, right? Do some integrity checking. And on
+the first boot, you will encrypt your root volume and seal the key to the TPM. But I haven't seen
+such implementation yet. It's probably possible, but it's kind of hard because you need to prove
+that the environment where you were doing the initial encryption is saying that it was really
+a confidential VM doing an initial encryption. Otherwise, someone can try doing it at some other
+place and attack your VM. So, stateless TPM. Currently, I only know about Azure TDX which
+publicly offers this option. But what's good about stateless TPM is that it's just a program.
+You know, it's just part of the firmware. So, you can take this initial launch measurements
+and attest it. It never changes, right? You don't need to attest the state of the VTPM. It's going to
+get generated every time, right? Which is good. Think is that, again, like as I said, currently,
+you will have to trust your cloud provider with the provided VTPM. And yeah, there is no anything
+like bring your own firmware in public clouds. You can still use it for volume disc encryption
+if you want to use TPM, but you will probably have to do some attestation and then inject some
+intermediary key. And also, there is nothing like this in standard Linux tools, anything.
+Like you can, like just encrypting root volume to TPM is something which is like generally
+supported by SystemD or Clevis or other solutions. But something which would do like attestation to
+remote server and then bring the key is just non-existing. Second, yes, what do you do with
+the VTPM if the cloud provider is not telling you that its state is isolated from the host?
+Or doesn't tell you how it's implemented, actually. And the thing is you cannot use it, right? You
+probably cannot even use it for things like PCR measurements because if it's an emulated device,
+it can certainly get messed with, you know, and then you will see different measurements. So,
+the only thing you can do in this case is try ignoring this thing completely and rely on
+architectural attestation, something, registers which both Sev and TDX give you. The thing is,
+again, that our standard Linux tools for like volume encrypting, something,
+they don't know anything about this currently, right? So, you will have to, you know, come up with
+a solution for attestation and delivering like root volume key password or something there. And
+it's not done yet. So, just a few words about this unencrypted part, right, which I told you that
+will always be there, right? Even if you do like full disk encryption, which you call full, it's
+not going to be full because you want to load like kernel and something. So, how can you prove that
+these things are good? So, normally, we have two technologies which have been used. One is called
+secure boot, the other called like measure boot. Secure boot without a space, measured boot with
+a space, nobody knows why. Anyway, so secure boot proves that all loaded EFI binaries are signed
+by a trusted party and measured boot basically measures every important fact about the boot,
+like binary certificates, which signed binaries, there has to be something in special registers of
+TPM devices. And we need to check basically everything which is being loaded. And as I told
+you, like normally, again, for general purpose Linux distro, you will end up with like a kernel,
+initramafas, kernel command line being available in clear, not encrypted because, yes. And to protect
+these things, there was a concept called unified kernel image introduced, which is a very simple
+thing. It just you take all these artifacts like kernel, initramafas, command line, sign them together
+and make it like a UFI binary like which is extracting itself and launches the kernel after that.
+So the implications are, of course, of this like it's more secure, but it's less convenient to use.
+The initramafas becomes static and generated when we build UKI. And normally for a general
+purpose Linux distro, we want our vendors, yes, to build UKI. You want just like install an RPM,
+you get a UKI. You don't want to build it yourself. Otherwise, you will have to get your keys provisioned
+in the firmware. And not all clouds allow that, right? They may have like a vendor certificate
+there in UFI by default. It may not give you an option to put your own there. So you will get like
+a static initramafas which may or may not be a problem. Of course, you have less demands for
+initramafas which is on public clouds. And like you don't need to do network boot something there
+normally. But it's still limited. There is a system extension feature in system D which can be used to
+with limitations to do initramafas extension. Emanuele is going to give a talk like in an hour
+after me about extending UKI is going to cover this topic, how this can be done. So the other
+limitation is kernel command line becomes static, right? So this becomes one size fits all, right?
+When we build as a vendor like Fedora, we build Fedora UKI, we need to hard code kernel command
+line. You cannot pass like root equals UID anymore. So you need to rely on something like
+auto discover or something. And again, we just got an extension mechanism which is called like
+signed extensions. You place basically a UFI binary stub in ESP and get your kernel command line
+extended. This is already like publicly released in system D but these tools are still adopting
+this. I haven't seen like a fully working solution yet. But we're actively working on it in Fedora.
+Last but not least is how do you boot your UKI, right? So
+it is UFI binary. So it must pass secure boot checks. So it must be signed.
+And you can boot it either directly from firmware or you can, for example, boot it from
+shim if you want to have shim for some reason. For example, if the cloud provider does not allow
+you to have your vendor certificate in the secure boot DB. But you will still have to manage your
+UFI variables because there is nothing like boot menu there if you are booting directly from
+firmware, right? In Fedora, we have a package called UKI direct now which can manage it for you
+like automatically. We do things like AB booting. For example, when you install a new UKI, it's
+going to be tried once. If it boots, it becomes the default. If it doesn't boot, you will rework
+back after the reboot to the old UKI. Because otherwise, if it doesn't boot, you are like
+screwed completely. You won't be able, even able to access your encrypted root volume.
+Yes, so if we speak about stateless TPM where we don't really need to trust the provider,
+the cloud provider doing attestation of VTPM state under the hood, then we will need
+an attestation server and client. And again, there are some offerings say in the proprietary world
+like Intel was advertised as project ember. But there is nothing which you can use today
+in the open source world. There are attempts to implement this in confidential containers project.
+There is this thing called KBS which is both like a protocol and an implementation of this
+key broker server. But again, like we will need something in the standard tools to do attestation.
+We are yet to figure out how to tell this thing which server to attest to.
+Yes, so we talked a little bit about encryption as I said that for root volume, you need to at least
+ensure that it wasn't tampered with. And for that you can probably use integrity checking. But then
+problems are very similar there because now instead of the password, you will have to somehow convey
+the right hash ID to use for the checked part. Right? Yeah, so I'm a little bit out of time here.
+But yes, you will still need to use all the technologies which I described for encryption.
+You will have to ensure the integrity of this non-encrypted, non-verified part because UKI is
+still going to be on ESP which is like VFAT, you cannot attach anything there. Right? Okay, so
+just a few words. Even if you have your VM which started and checked, yes,
+everything, you need to verify that you are basically connecting to the VM you expect because
+think about host starting your VM somewhere and then starting another one which is completely
+encrypted and was like host and you know, oil miners there are changed. How would you know that
+you are connecting your VM? So you probably need runtime attestation and clouds are offering you
+something but there is also no open source, something standard for that. Okay, I'll skip to
+the last and the most important slide. Thank you very much for listening.
+You probably don't really have time for questions but I can take as many as I can before dying
+in the hallway. Yeah, so thank you.

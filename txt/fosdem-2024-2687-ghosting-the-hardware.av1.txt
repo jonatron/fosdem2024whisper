@@ -1,0 +1,285 @@
+Hello everyone and welcome to this session about ghosting the hardware.
+Maybe the title is a bit obscure to you.
+I will explain what it is a bit later on.
+So my name is Rémi Durafort.
+I'm a principal tech lead at Linao and I've been working on different open source projects
+for many years now.
+I'm currently working on Lava which is a test automation system that I will present.
+So Lava stands for linear automated validation architecture.
+So it's a test execution system which means it allows for testing your software on real
+hardware, on real devices like Raspberry Pi, Dragon board, so physical devices.
+It allows to deploy your hardware, boot your software and test it on real devices.
+It's used by multiple projects like NLCI for example that use mainly multiple Lava instances.
+We use that a lot also in Linao for the LKFT project, Linux kernel functional testing project
+that we are driving.
+We also use it for doing bootloader testing.
+So for example you can test your UBoot version directly on your board and Lava will allow
+to interact with UBoot and test it.
+We also do firmware testing with it.
+So it currently supports 364 different device types which is a lot of different device types.
+So if you want to test your software without Lava, so you will have a kernel, DTB, RAM
+disk, root FS modules that you want to test.
+You will have Raspberry Pi, so this is a pretty old Raspberry Pi 3 anyway, doesn't really
+matter.
+You need a way to access the serial to interact with the board, so FTDI cable usually over
+USB.
+You need a way to power on and off the board, so you need some device that will allow to
+send a TCP request to a specific port with some commands and it will power on the board
+and another request will power off the board so it can be made automatic.
+And usually we use TFTP and NFS for sharing the kernel, DTB and root FS system with the
+board so you don't have to actually flash the board because after some time you will
+actually destroy the SD card if you do that a bit too often.
+So then when you have all of this, if you want to test the board you have to power on
+the board so you send the right command to your power manager.
+You then connect to the serial, you interrupt UBoot, you send some commands like DSCP,
+so the board get an IP address, you load the kernel over TFTP, you load the RAM disk over
+HTTP, you set the console argument for the kernel, you then send the right boot argument
+that are both specific.
+You watch the kernel booting, looking for some crashes maybe or warnings, then you have
+the prompt, you log in, you run your test, you collect the results and you shut down
+the board.
+That's dangerous, not really funny and you will have to do that for every release that
+you will have for your software.
+So that's where lava come into place.
+So instead of having to do that manually, we keep the board, we keep the power control,
+serial relay and TFTP and NFS server and replace yourself by a program which is a lava worker.
+So instead of typing commands manually one by one, you will explain in a YAML document
+to the lava worker what you expect him to do.
+So you will explain that you have a kernel, a DTB and a root FS that you want to deploy
+using TFTP and you want your root FS to be available over NFS.
+And lava will then know how to automatically interact with your board to send all the right
+commands that I explained in the previous slide, automatically in a reproducible fashion
+for you and it can do that days and nights, including weekends for you.
+And this document that you write is what we call a job definition or job configuration.
+So obviously you can have multiple DUTs, device under test, for example in this case, per worker
+and you can have multiple workers attached to your lava instance and they will all connect
+to the lava server, the classical server worker model.
+For example in Linao in Cambridge, we have a lab with hundreds of boards and I know Collabora
+also has some kind of board farm like that.
+It has been made for a large board farm if you want to.
+Regarding the roles, so the server, it's a web UI API, it's what is visible to the user
+and it usually does not have access to the boards.
+For example in Linao, all our lava servers are in the cloud somewhere while the boards
+are connected to the workers physically in a closed lab.
+So the workers, they have direct control of the DUTs, the boards, device under test
+and they are not accessible to the users.
+The user will not have access to the board directly, they will not have access to the
+worker directly, only to the server.
+So the server will be responsible for storing the logs, the jobs, the results, do the scheduling,
+send notifications, have an ICOI, things like that.
+And on the other side, the worker are more responsible for the hardware.
+So they have to deploy resources, they have to pour on and off the boards, they have to
+interact with the serials, look for crashes in the kernel under the board health, something
+like that.
+So this is the list of supported devices.
+Obviously you cannot see it, it's way too small because there are way too many devices.
+But just to explain that we support from really tiny devices, IoT devices, up to Raspberry
+Pi form factor and up to even large servers that you can test with Lava if you want to.
+And as we support multiple different kind of device types, we have to support different
+deploy methods, different boot methods.
+So for example you can deploy with TFTC, NBD, fastboots for all the Android boards, Vexpress,
+etc.
+For booting you can use DFU, Uboot, PyOCD, fastboot, etc.
+As a result of different ones.
+And for the tests you can have a POSIX shell interaction if it's available on the system
+that you have.
+You can have interactive tests.
+For example when you want to interact with a bootloader, it's not a POSIX shell, so
+you have to send commands and expect results.
+And we can also do multi-node tests which is a test in which you have multi, you have
+more than one device that will be booting at the same time and that will be able to interact.
+For example you can test your server on a physical hardware that will stream to multiple
+different clients.
+It's something that you can do in Lava.
+So today I will speak a bit more about also why we want to test Lava itself because why
+do we want to test the CI system?
+The obvious reason is that it's just a piece of software so it's buggy.
+So you have to test it to know what is working and what is not.
+And even more important is that when you're building a CI system you have to ensure that
+the CI system is rock solid for two main reasons.
+If you have bugs in your CI and if you have false positives which means that you're reporting
+something like a bug on the software while it's not buggy, then your developer will just
+say okay I'm done with it, it's not working.
+I will not look at your CI system anymore.
+That's the first reason.
+The second is false negative which is you're not reporting an error that happens in your
+CI.
+So you're running a test, it's failing, but the CI system says everything is okay which
+means that you will say to the developer I tested it, it's working while in fact it's
+buggy.
+So you will have a, you will release the software that has been tested but it's still buggy.
+So you have to prove that your CI is reliable over why it's just fully useless.
+So how are we going to test lava itself?
+So we do have a classical hierarchy of tests.
+We obviously have static analysis, we do have unit tests that are running on every GitLab
+CI merge request.
+We also do integration tests and that's why I will print today which is called meta lava
+and we also do federated testing and test on a staging instances.
+So we do have some instances that we upgrade every day where we run actual workload and
+we check that it's still working the same way as before.
+But the main problem when you want to test lava is that it's a combinatorial issue.
+As I said before we support 364 different device types, roughly 16 deploy methods, roughly
+26 boot methods and five test methods.
+So if you do the combination that's insane, the number of combinations that you have to
+test.
+Yes, I know that a lot of these combinations are just not going to work because not all
+devices support DFU or fast boot and things like that but still it's really good.
+So maybe you want to give me both and money, I will be out for it but obviously I don't
+think that's the case.
+So maybe we should consider faking the DUTs.
+So faking the hardware.
+So that's the goal of the MetaLava projects.
+So the goal is to be able to set the full system.
+I want to test from the user point of view back to the user.
+So the user should be able to send jobs.
+It has to be scheduled, run on a fake DUT, send back results and the user will pull the
+result from the user interaction.
+And I don't want to have any boards because I want that to be somewhere running in a CI
+CD system.
+And it has to be cheap obviously and fast.
+So you have two ways you can do that.
+If you want to fake devices, you can go for doing board emulation.
+You can use MVP or QMU devices for example to emulate devices.
+The main problem is that it's CPU intensive so it will be slow and expensive.
+The other way is to ghost the hardware.
+So if you go back at the lab architecture, I don't want to touch the user.
+That will be my testing system.
+I don't want to touch anything in the server and the worker because I want to keep my system
+intact.
+So the only thing I can change is what is on the left part, the board and the power control
+server and the TFTNFS servers.
+So what I have to do, I have to build a system that I have to build a fake DUT that will
+feel like a DUT, look like a DUT, smell like a DUT, sounds like a DUT and tastes like a
+DUT because lava should not see the difference between a real DUT and a fake DUT.
+But that's not enough because I also have to check that what lava will send, the interaction
+that lava will have with the fake DUT is still valid because if I have a fake DUT that accept
+anything then lava will do any stupid things and it will still work while it's just wrong.
+So it has to also check, the fake DUT also have to check that what lava send is legit.
+So it has to check that lava is still acting correctly.
+So we have to look at the interaction between lava and the DUT.
+So as I said there is free interaction, the power control.
+So by the way lava is designed, it's just a command that lava will run so it can be
+any shell command that has to return one or zero, one if it's failing or zero passing.
+But from the DUT point of view, from the fake DUT point of view, the DUT should be able
+to check that the command has been called at the right time, so before booting, that
+lava is still doing what is supposed to do.
+Yeah, the serial relay, again it's just a shell command that lava will run and that
+it will just interact with the input and output, STD and STD out.
+So I need to build something that will feel like a DUT when you interact with it with
+the serial.
+And the TFTP NFS servers, I will just use a normal and TFTP NFS server and I will just
+have to check from the fake DUT point of view that lava has deployed right binaries for
+me.
+So the question is where do I want to mark things?
+Let's take an example.
+I don't want to do this presentation but I want to be in my bed and I have something
+that will be in place of myself.
+So you don't see the difference.
+So I can build a robot that will be in my place and that will speak like me and explain
+the same things, interact with you the same way as I will do.
+That's one way to do it.
+I can also force you to have glasses that will inject in your vision an image of myself.
+That's two different ways to fake me but from your point of view, it will be the same.
+You won't be able to notice the difference.
+For mocking, it's all the same.
+I have different ways I can mock.
+I can create a hardware that will interact with lava the same way a real hardware will
+do but without actually booting a candle.
+I can do that if possible to just have to fake the serial and it will work.
+But as I said before, I don't want to have any hardware.
+I just want software.
+So what I will do is I will have only software that will fake all the interaction with lava.
+So it will fake the serial relay for example.
+So we're going for a full software implementation.
+It's a project called DEMISIS.
+So when you run it, it has the same output as a normal board.
+You can interact with it and you feel like you interact with a real board.
+I will show you in a right after that.
+So you can send it commands and it will react like a normal board will do.
+And when you do TFTP and NFS commands, it will actually load the TFTP and NFS command
+for you and check that the binary are present.
+I will just go for a really short demo.
+So I just have a run script, just a wrapper not to type everything because it's painful
+to type.
+For example, I want to, so my DEMISIS system, my program that will fake a duty, so it's
+a Python script and I give it some commands that are inside YAML file that I will explain
+right after.
+So if I start it, you will see for the one that are used to have a UBoot booting and
+acting to UBoot machine, it's what UBoot usually type enter and it's actually wait for you
+to do type enter and then you have a shell in which you can type some commands, for
+example, DSCP.
+It will get a DSCP.
+This is all fake.
+I don't have any board attached to it.
+You see that.
+It's just a program that is faking a UBoot interaction, a board interaction.
+And then I can just ask it to boot.
+I'm not doing it because I'm not booting anything.
+It's just faking it.
+For LavaPoint of view, it's actually booting something.
+You see that the screen is a bit too small.
+You see that it looks like a board is booting, but it's just printing text.
+But that's enough because that's filling all the requirements from the LavaPoint of
+view.
+And you see it's just a program running.
+I can just, for example, do a login interaction if I want to.
+I want to check that Lava is able to log in automatically to send or write login parameters
+and password.
+I can create a program that will do that.
+Again, just doing the basic thing, booting.
+You see it's a small delay when printing.
+It's on purpose to fake what a real board does because a real board does not send all
+the characters in one row because the cellular takes some time to process, to transfer.
+So we fake that also.
+Now I have to send.
+You see that if I not send in the right parameters, it would do a login incorrect.
+If I'm sending the right one, it will log in as normal.
+Again, this is not doing anything.
+It's just pretending to run up a system.
+And then this is what usually what Lava is expecting when it's run tests.
+It's expecting some signals to have.
+And I can fake that also.
+If you look at what's inside, it's a bit too small.
+So inside the argument for my program, it's just a set of commands that I'm asking.
+I'm asking my program to print the lines.
+That's the line that you've seen.
+Then it's printing the different lines and accept to be interrupted like what UBOOT does.
+Then it has a shell.
+This is a prompt with UBOOT prompt.
+And it will look forever waiting for exactly this command, USB start, and et cetera, et
+cetera, et cetera.
+And for the fake DUT to work and to go to the next stage, Lava has to exactly send the
+right commands.
+And if it's not sending it, it will fail.
+So thanks to this list of commands that I'm expecting, I'm able to check that Lava will
+send exactly the same command from one version to another, because that's what a real board
+will expect.
+And at the same time, from the Lava point of view, it will have the output that is expecting.
+And for example, here, Lava will, it's waiting for getting a TFTP instruction to load the
+VM Linux over TFTP.
+So I'm waiting for this exact command.
+And when I get it, I will actually download it.
+I have a small script that will download over TFTP, download the file, check that it's present.
+That's what I said.
+What it sends should be meaningful.
+So all the tools should be available, what it should be.
+That's for the shop demo.
+So that's what the MailTile Lava project is doing.
+So we have a server, we have the workers that are working together.
+And instead of having a real board, I just have the domicile system.
+So it's actually running 28 different device types, including both that I've never seen,
+because I just need the logs and the commands that it's expecting.
+I don't need the real board itself.
+And it also allows you to test bootloader failures, for example.
+So that's something that's difficult to reproduce in real life.
+You have to damage your board if you want to have some specific errors.
+The system, meta-lava and domicile, they can reproduce the same error all the time, because
+it's just a specific output that Lava will have to see.
+If you want to contribute to this, to have your boards tested by Lava, so a fake board
+tested by Lava, please come to see me.
+I will be happy to add that to the system, and that will ensure that your board will
+still remain valid in the next time I'm working.
+It's a fun thing to do, to do system mocking.
+And just have to look at the interaction between the different systems.
+That's all.
+Do you have some questions before we go to the next meeting, next presentation?

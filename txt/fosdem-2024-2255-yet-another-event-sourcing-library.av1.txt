@@ -1,0 +1,140 @@
+Yeah, this is better.
+So yeah, I'll talk about history, how we made some decisions we made, some things regarding
+lambda and the project, and basically this was kind of a point where we started to do
+most of the stuff on our own.
+Then I will go over the patterns that were kind of influenced for the libraries, so the
+security and even sourcing, I'll briefly show how the whole thing works in architecture,
+diagrams, and then I will say why we actually decided to open source it.
+So the project started in 2019, everyone wanted to do several lists, it was kind of a fancy
+thing to do at the time, and also we wanted everything to be managed by Amazon and we
+didn't want to monitor containers or run stuff around, we just want to give our code to the
+Amazon and run it, and that was kind of perfect to do this.
+We also had to keep the business logic vendor independent, so this is kind of a regulatory
+requirement, so we kind of speak that our business logic is the most valuable thing and
+then we isolated it from the infrastructure, and so the infrastructure part we can always
+rewrite, but the business logic we want to reuse.
+You want a simple API, so I had all these query pads, headers, discussions, we always
+had about API, so I wanted to drop this thing out, and we wanted to keep data so we can
+transfer it, I know rewrite library and move it to another language and use the same data
+and so on, so like binary stored messages in Kafka queues were not an option for us.
+With Lambda basically the big problem is the startup, so we wanted to use closure because
+we had lots of data stuff to take care of, so the biggest problem was of course the startup,
+so the ground we had at that time was pretty new and basically most of the stuff didn't
+compile.
+We tried AWS SDK, this was a mess inside, they bring half of the main repository back
+to it when you use it.
+Also we had like Hockey Recipient, we had to fork it as well because there was some stuff
+there that they were using that didn't compile as well, even Logback didn't compile for like
+one year ago with this as well, so then we started to build something on our own to make
+it simple, so we created our own AWS SDK because everything they do in all this magical SDK
+is kind of a post request to the AWS, so it was kind of super easy in the end to do.
+So the first pattern we chose to use was TECORES, just command and query segregation pattern,
+so the idea is that you have place where you send commands, where you mutate data and you
+have a place where you query stuff and this kind of influence our implementation, so we
+had on HTTP site we just had two endpoints, commands and queries, you send in the body
+everything you want to do in the system, which also make you can take the same body, you
+can send it to the queue, you can send it and batch of the command in S3 buckets, so
+this was kind of great because we could just store the commands from the post request,
+put them in the queue or store them in S3 bucket as a list of commands so it was super practical.
+The query site is also very simple, so just the query endpoint which made the front end
+client, we implemented our own front end client for this, it was 300 lines of code together
+with it mocking, with retries, with deduplication, with everything, so basically just simply
+having this simplicity on the HTTP site made it possible.
+Together with Tech QRS, now it comes the event sourcing, so the idea of event sourcing is
+just we will not store the current state of the system, we will store events that happen,
+so it is a pattern from 2000, 1970, basically but then they didn't have enough resources
+to do it, so they decided to event like a relational database model where you just store
+the current state, so the event source will be, for example, if you take a shopping cart
+as an example, you would instead of storing the current shopping cart, you would store
+item edit, item removed, item edit and then when the client asks what is my shopping cart,
+you would go over the events and figure out what is the current state of the shopping
+cart but the nice advantage of this is that everything is stored, so basically for us
+it's very important, the audit logs, basically the event sourcing, they are naturally there,
+everything is stored, the database itself is inutable, so we are just appending stuff
+forward, so it's quite easy to handle from the security perspective, information perspective
+and so on, so for our implementation we have chosen to take postgres, we just store our
+events as a JSONB field with some metadata around, so it was super simple, we have the
+transactions because it's just append only, it scales very well, so we have around one
+terabyte of data and we just add, we don't even think about adding new stuff there, we
+use optimistic locking, so on the client side we just add sequence to every event and basically
+unique field on the postgres gives us optimistic locking, so it was super easy to do, so yeah,
+this is a simple diagram, so from the client perspective how things look like, so we have
+a command coming into the system and there we touch our service, we just edit the core
+implementation, edit the core does four things, so takes a snapshot from the view store, then
+does the processing, whatever needs to be done, stores the response in event store and
+basically sends to the router all the events effects that were created, so events are,
+as I said, something that will store the changes and the effects are the things that need to
+be distributed to the other services, so if you want to call service B or never call it
+directly, I will store it in the database, the things I want to send to the other service
+and then they will be distributed to the router. The router then sends also back to the service
+that needs to update this aggregate and then aggregate this update to the view store and
+then we go to the next cycle and query is just a simple query, goes to the view store,
+returns back data to the client. And one more diagram which is also important is how internally
+the core works, so basically does a couple of things, in the beginning we validate the
+request, the important thing is what we do, we check if there was already this request
+process, so we have a command response log where we check if the request was processed,
+if not then we go, we log this request in the request log, so all the entry commands that
+come to the system are stored there, so if we need to debug something later on, everything
+is collected there, so and since everything is a body, it's super easy to store, whether
+it comes from Q, post request, whatever, then is this processing request, where is the business
+logic part and then we start the transaction, so we can start the transaction at the very
+end of the request, which is quite nice from a performance perspective, we store events,
+store effects, so it commands to the other services and then we just mark this request
+as completed so that we have a deduplication afterwards.
+Well, basically that's it, so we started developing this internally, it was only meant as an internal
+library, there was no open sourcing processing component also, basically this was kind of
+an idea to start this process as well, there was no alternative limitation because it has
+a fixed infrastructure there, so we kind of used this as an opportunity to kind of expand
+library as well, so we mostly started using it as hobby projects, so for the side projects,
+so edit the DynamoDB support for example for the store as well, for the event store, and
+this helped to clean up the project, so we did a big round of cleanup of the project
+with the proper abstractions basically, then we started adding different implementations
+and then we were contributing the changes back to the internal, so we chose to have the internal
+project, so we fixed huge amount of bugs outside that help also to get them back internally
+for the internal implementation and so on, so we set up the open sourcing process, so basically
+any team in the whole company can open source what they want if you just follow these steps.
+Yeah, so we had very positive experience with this library, so we are now like almost one year
+in production, we store everything, this was this space off on daily basis, so we even had a
+business site messing up thousands of hundred to thousand records, we could recover them quite
+easily just creating data from database, everything is stored there, audit was super happy because
+we stored everything, I even ticked off a lot of the audits just because we said we store everything,
+so they were super happy, and yeah, so the most of stuff like if we had a production bug that
+basically clogged up the queues, we could clean up the queues and five minutes later we could just
+select what happened and recover it back in the queue, so we didn't have to worry about finding
+what was there in that letter queue, what is useful, what is not useful, so and because of the
+duplication we didn't have to worry about sending against some messages, so we do this almost every
+week we have one disaster we need to recover and it's super easy for us to do that. Yeah, that's
+it from my side, questions?
+Excellent, next we can set up.
+So tell us a bit more about accepting open source in your company, you can come up.
+So this was actually six months process, so.
+So, yes, so the question was the experience with setting up the open sourcing process in the
+company, so this was actually a very painful experience, so it took six months negotiation
+with security, actually first to understand what we want to do, then extend it, why you want to do,
+then talk to management, tell them why this is beneficial, but afterwards yeah, once we figured
+out that all the rules that we need to follow, then it was it was quite straightforward, so we
+documented everything and hope that it was six months process to get it, get it there.
+So, my question is why the architecture decided to use lambdas of the first, why decided to use lambdas?
+So, one side was because we had a burst, so we like, ah, sorry, the question is why we decided to use
+lambda functions, so basically in the beginning we had a burst of data, so for example in the
+morning we would get a bunch of data we need to process and the rest of the system would process
+like three requests per hour, so and this was kind of a nice thing because it scales quite fast
+and the other motivation was because it forces kind of doing it fluff clean, there's no caching,
+you have to really think about what to do, so it kind of wants to push the developers to go in
+direction of actually making stuff clean and that they don't depend on something being stored
+somewhere in memory and yeah, the third thing was it was a cool thing to do, so it was kind of
+a nice presentation, marketing material for the project as well.
+So, I mentioned you use optimistic locking, why did you decide to use it? Was it because of the
+lambda bear or was it? So, the question is why we do the optimistic locking, so we use actually
+postgres in the beginning, but we used optimistic locking because we didn't want to even start the
+transaction because until we are done, so because we kind of declare all the dependencies we have,
+we fetch them, we process the data and then we have everything we need to store the mutated
+database we have it at the end, so at this point then we open the transaction and then we can do
+something, so that means we fetch the aggregate, for example aggregate version 72, we process
+everything, we say okay now we'll be version 73 and if there's some version 73 in the bit in
+happening then we would have a postgres nicely saying there's a concurrency problem, so we
+didn't want to lock anything database, we just want to make it simple, so this was super easy to
+implement. I have a comment on that which is our database uses optimistic concurrency control
+and it actually gives much better scaling up the traditional locking methods and it's much more
+robust and it's more secure, so we can have a separate discussion about this later. Yes,
+let's have this, we'll be an interesting discussion.

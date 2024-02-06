@@ -1,0 +1,584 @@
+WEBVTT
+
+00:00.000 --> 00:10.740
+So, next up is going to be Martin, who is going to be talking to us about lift and shift
+
+00:10.740 --> 00:15.700
+modernizing a legacy lamp application with system B and spawn.
+
+00:15.700 --> 00:17.300
+Hi, everybody.
+
+00:17.300 --> 00:18.300
+Welcome.
+
+00:18.300 --> 00:22.060
+So the last time I spoke at this conference a few years ago, it was in the microkernel
+
+00:22.060 --> 00:23.060
+dev room.
+
+00:23.060 --> 00:24.700
+It was a very small room.
+
+00:24.700 --> 00:29.700
+So the bigger the kernel, the bigger the room, I guess.
+
+00:29.700 --> 00:33.780
+So I'm going to start with a little bit of backstory.
+
+00:33.780 --> 00:40.140
+One evening about a year ago, I got a phone call from a friend, a principal at a school,
+
+00:40.140 --> 00:44.100
+saying, Martin, I need help with something.
+
+00:44.100 --> 00:49.200
+Our sole IT person that's worked here for 20 years has decided that they're just going
+
+00:49.200 --> 00:53.260
+to go off to the mountains and leave, and they're off in about a month.
+
+00:53.260 --> 00:56.660
+And I have no idea what state-house systems are around.
+
+00:56.660 --> 00:57.860
+I know nothing about that.
+
+00:57.860 --> 01:02.820
+I need someone I can trust who can step in and help.
+
+01:02.820 --> 01:10.820
+So I originally came in there as a consultant to look at what systems they had and figure
+
+01:10.820 --> 01:13.940
+out what the next steps were.
+
+01:13.940 --> 01:14.940
+I'm still there.
+
+01:14.940 --> 01:17.660
+It's still temporary.
+
+01:17.660 --> 01:24.260
+And I'm going to tell you a little bit about what I did over the last year there concentrating
+
+01:24.260 --> 01:27.260
+on the containers.
+
+01:27.260 --> 01:31.300
+So they weren't kidding when they said it was in a bad state.
+
+01:31.300 --> 01:36.620
+The critical application that the school ran on was running on one single server, along
+
+01:36.620 --> 01:40.980
+with a whole bunch of other stuff, pretty much everything else.
+
+01:40.980 --> 01:47.980
+And you can see here that that server basically dates back to 2009.
+
+01:47.980 --> 01:54.140
+Someone at some point tried to upgrade it from Debian Edge to Debian Leni.
+
+01:54.140 --> 01:59.820
+They failed, or they gave up, partly because from Edge to Leni, you had the transition
+
+01:59.820 --> 02:03.580
+from PHP 4 to PHP 5.
+
+02:03.580 --> 02:08.260
+I did a quick naive slot count of what's in Vah-dub-dub-dub HTML.
+
+02:08.260 --> 02:12.140
+There's 200 something thousand lines of PHP.
+
+02:12.140 --> 02:16.060
+It turns out that this person did not use source control.
+
+02:16.060 --> 02:19.540
+So there's a hell of a lot of duplication in there.
+
+02:19.540 --> 02:25.940
+And it's also very much a typical crud app, as you would design it 20 years ago.
+
+02:25.940 --> 02:32.340
+So it's all just very basic PHP with hidden HTML mix, the worst possible thing you could
+
+02:32.340 --> 02:33.340
+have.
+
+02:33.340 --> 02:44.540
+But at the same time, it's very simple as an application, which turns out helped us later.
+
+02:44.540 --> 02:49.660
+So my naive plan, how do I salvage this, try and extract as much business and technical
+
+02:49.660 --> 02:54.100
+knowledge from the author before they leave and never come back?
+
+02:54.100 --> 02:59.700
+And then virtualize all the things, secure all the obvious attack surfaces.
+
+02:59.700 --> 03:03.340
+I mean, this was still running TLS version 1.
+
+03:03.340 --> 03:07.220
+It had Apache 1.3 exposed to the internet, worst possible cases.
+
+03:07.220 --> 03:13.780
+So then split off the business critical system from all the other things that were running
+
+03:13.780 --> 03:14.900
+on that server.
+
+03:14.900 --> 03:19.100
+Do that in a way that's as future-proof and maintainable as I can.
+
+03:19.100 --> 03:25.100
+All while keeping it running and not getting killed by 550 students and 100 odd employees
+
+03:25.100 --> 03:27.100
+during the school year.
+
+03:27.100 --> 03:31.060
+The first two steps were pretty obvious.
+
+03:31.060 --> 03:32.900
+They had some new hardware lying around.
+
+03:32.900 --> 03:35.780
+I spun up a hypervisor.
+
+03:35.780 --> 03:37.620
+I had a bunch of VMs.
+
+03:37.620 --> 03:43.660
+So put the physical server into VMs, started splitting chunks off it.
+
+03:43.700 --> 03:47.100
+That turned out to be hard.
+
+03:47.100 --> 03:55.580
+So I eventually decided that I needed a way of reproducing this 15-year-old environment.
+
+03:55.580 --> 04:02.740
+Reproducing it in a way that I could then develop with, maintain with modern tools,
+
+04:02.740 --> 04:07.140
+source control and so on.
+
+04:07.220 --> 04:13.580
+So the nice thing here is I found that the Debian community have developed something
+
+04:13.580 --> 04:20.660
+called Debian EOL, which are basically Docker images of end-of-life Debian releases, all
+
+04:20.660 --> 04:23.860
+of them going way, way, way, way back.
+
+04:23.860 --> 04:29.580
+You can use these images to run both Docker containers or to do whatever else you want
+
+04:29.580 --> 04:30.580
+with them.
+
+04:30.580 --> 04:36.060
+The nice thing about them also is that they're actually integrated into the modern infrastructure
+
+04:36.100 --> 04:42.340
+so that pointing at archive.debian.org, you can, as you'll see, install additional software
+
+04:42.340 --> 04:45.420
+and so on.
+
+04:45.420 --> 04:48.540
+I could have probably done this with Docker, but it doesn't really fit the bill because
+
+04:48.540 --> 04:53.980
+this application, I mean, it's never going to be a 12-factor app with a bunch of microservices.
+
+04:53.980 --> 04:59.020
+I needed something that's more like previous Dejails or Flourish Zones.
+
+04:59.020 --> 05:01.060
+And I've previously used SystemDnSpawn.
+
+05:01.060 --> 05:05.180
+I use it, in fact, today to run a bunch of my own infrastructure, which was originally
+
+05:05.220 --> 05:11.220
+a bunch of Zen PVVMs and is now happily running for many years as SystemDnSpawn containers.
+
+05:11.220 --> 05:18.220
+So you want something that can do full system containers that's available, lightweight,
+
+05:18.220 --> 05:22.580
+and flexible.
+
+05:22.580 --> 05:33.580
+So how do we get Debian Lenny from 2009 running, using these Debian EOL images with SystemDnSpawn?
+
+05:34.060 --> 05:39.620
+We need a couple of tools, something called Scopo and OCI Image tool, to get the images
+
+05:39.620 --> 05:46.620
+off the Docker registry, flatten the OCI image, you basically end up with a root file system.
+
+05:48.180 --> 05:55.180
+You then, what I do is I use, the reason I'm emphasizing RefLink here, I didn't know about
+
+05:55.180 --> 05:57.660
+that, it's basically copy on write.
+
+05:57.740 --> 06:04.240
+So you can use this to create a lightweight copy of an entire directory tree, which only
+
+06:04.240 --> 06:08.740
+takes up more space if you actually change things in it.
+
+06:08.740 --> 06:15.740
+So, you try and run this, previally with SystemDnSpawn, and you find bam, it's safe false.
+
+06:19.740 --> 06:24.140
+Thankfully, we actually get a helpful message from the kernel saying, ooh, you tried to
+
+06:24.180 --> 06:28.220
+do VSys calls, but no, we don't do that anymore.
+
+06:28.220 --> 06:35.220
+We can fix that, that's fairly easy, and we can see that, oh look, we have Debian Lenny
+
+06:36.060 --> 06:39.380
+running in a SystemDnSpawn container.
+
+06:39.380 --> 06:44.740
+Okay, that's great, and if that was all I was going to tell you today, then that probably
+
+06:44.740 --> 06:47.020
+wouldn't be very interesting.
+
+06:47.020 --> 06:52.100
+But if all we want is Ben SH and that to get, that's fine, but I want this full system where
+
+06:52.140 --> 06:57.640
+I basically want to run full SBIT in it, inside the container to manage all the original
+
+06:57.640 --> 07:00.980
+LAMP stack services to run the application.
+
+07:00.980 --> 07:07.580
+I want to integrate the container's networking with the host system's SystemDnetworkD, and
+
+07:07.580 --> 07:14.140
+get a dev log in it, get, use username spacing, and start and stop the container as part
+
+07:14.140 --> 07:17.020
+of the normal host system boot process.
+
+07:17.020 --> 07:21.580
+So I made a script for this, I extracted this out of my build scripts so that you don't
+
+07:21.620 --> 07:23.380
+have to.
+
+07:23.380 --> 07:27.140
+There's a link to it also in the resources for this talk.
+
+07:27.140 --> 07:30.820
+Please take a look.
+
+07:30.820 --> 07:37.820
+So this script basically gives you a Debian Lenny root file system that has all the things
+
+07:41.460 --> 07:48.460
+applied to it to let you do the first, the steps that are described here.
+
+07:49.340 --> 07:54.700
+I spent quite a bit of time working that out, so I hope people will find that useful.
+
+07:54.700 --> 07:59.300
+You can then do, with that root file system, you get out of that script, you can boot
+
+07:59.300 --> 08:01.980
+the resulting root of this, like this.
+
+08:01.980 --> 08:08.020
+The important parts there are private users, private users equals pick, that turns on username
+
+08:08.020 --> 08:15.020
+spacing, so your container root gets, automatically gets a special user ID in a range mapped
+
+08:18.620 --> 08:25.620
+to it, which system dns-born will pick when that particular root file system is started.
+
+08:26.180 --> 08:31.780
+And you get a VF network talking to the host.
+
+08:31.780 --> 08:37.980
+Kill signal equals SIGINT, we want that so that when the host system, if you run this
+
+08:37.980 --> 08:44.300
+container as unit file tries to stop it, then the SIGINT gets sent to the sysvian as inside
+
+08:44.300 --> 08:50.620
+the container, and it will actually interpret that as a system shutdown and shutdown cleanly.
+
+08:50.620 --> 08:55.980
+So if you run that, you can log it on the console and you'll see that yes, we can shut
+
+08:55.980 --> 08:57.380
+down the container with control C.
+
+08:57.380 --> 09:04.380
+So there's a bunch of gotchas, networking, system d network d, you want this, since it
+
+09:04.380 --> 09:11.380
+integrates very well or bar some problems.
+
+09:11.380 --> 09:15.380
+Obviously your host needs IP forwarding enabled.
+
+09:15.380 --> 09:22.380
+As I found out today, or remembered today while making these slides at the hotel earlier
+
+09:24.260 --> 09:29.460
+today, if you're doing anything at all in your forward chain, since I was trying this
+
+09:29.540 --> 09:36.540
+top, then you need to make sure that forwarding is actually being accepted from and to container
+
+09:37.860 --> 09:40.940
+interfaces.
+
+09:40.940 --> 09:42.540
+Another really interesting one.
+
+09:42.540 --> 09:49.300
+So I'm still a DHCP client inside the container so that the container integrates with system
+
+09:49.300 --> 09:55.540
+d network d and gets a network address assigned to it when it spins up.
+
+09:55.540 --> 09:59.540
+Turns out that old DHCP clients are actually picky about getting proper checksums back
+
+09:59.540 --> 10:01.540
+in their responses.
+
+10:01.540 --> 10:08.540
+So if you don't add that particular mangle rule, then what will happen is your networking
+
+10:08.620 --> 10:13.540
+will appear to work and then mysteriously stop when the DHCP lease expires and the client
+
+10:13.540 --> 10:17.900
+tries to renew it and gets upset and you just see it renewing and renewing and nothing
+
+10:17.900 --> 10:22.020
+happens.
+
+10:22.340 --> 10:25.980
+So, system d journal d has a nice name spacing mechanism.
+
+10:25.980 --> 10:32.980
+It basically lets you spin up separate instances of system d journal d which have their own
+
+10:32.980 --> 10:38.580
+name space so you don't really want the container logs or different logs of the different instances
+
+10:38.580 --> 10:42.420
+mixing with the host logs.
+
+10:42.420 --> 10:49.420
+It works, but I had to actually read the source code of the system d main loop to figure out
+
+10:49.420 --> 10:56.420
+why it would just, after you start it, just mysteriously say, oh, no clients, I'm going
+
+10:56.900 --> 10:58.140
+away now.
+
+10:58.140 --> 11:05.140
+So the way to fix that, not described anywhere, is you add a drop and set your retention time
+
+11:05.260 --> 11:12.220
+to something high and then it will just wait around until something connects to devlog.
+
+11:12.220 --> 11:16.540
+Devlog you can then bind mount into the container.
+
+11:16.540 --> 11:19.380
+That's fairly straightforward.
+
+11:19.380 --> 11:22.660
+Starting up, start up and shut down integration.
+
+11:22.660 --> 11:29.660
+System d n spawn comes with a default unit file and you can then customize that.
+
+11:31.700 --> 11:35.900
+There are some useful things you can do there like you can add a dependency on your journal
+
+11:35.900 --> 11:42.580
+d namespace service so that everything nicely starts up and shuts down and there's an example
+
+11:42.580 --> 11:49.580
+of what you can start with exact start that if you want to use this particular arrangement.
+
+11:52.580 --> 11:59.580
+So I actually did this, or the bulk of it during the school holidays last summer.
+
+12:04.580 --> 12:07.500
+Application has been running fine since then.
+
+12:07.500 --> 12:11.020
+I was quite surprised.
+
+12:11.020 --> 12:18.020
+I could talk a lot more about PHP and MySQL 5 but that's mostly just be ranting.
+
+12:18.260 --> 12:25.260
+One thing that I didn't mention is the application is actually running all in CP1250 and not
+
+12:25.500 --> 12:31.740
+only that but originally the databases were all running still with MyISAM.
+
+12:31.740 --> 12:38.740
+So I ended up basically exporting the lot into SQL text files.
+
+12:39.540 --> 12:45.100
+Then I discovered that MySQL and PHP at this time didn't really understand character sets
+
+12:45.100 --> 12:50.100
+so the database thought that everything was Latin 1 when it in fact wasn't.
+
+12:50.100 --> 12:57.100
+Well, the way to fix that is again you export it to a text file making sure that the database
+
+12:57.300 --> 12:59.780
+or nothing tries to convert any of the data.
+
+12:59.780 --> 13:05.780
+Then you do a set on the text file and say just recreate, replace MyISAM everywhere with
+
+13:05.780 --> 13:12.780
+the InnoDB, replace Latin 1 with CP1250 and it actually worked.
+
+13:12.780 --> 13:14.140
+Still there.
+
+13:14.140 --> 13:17.180
+No data got corrupted.
+
+13:17.180 --> 13:22.700
+And it's 64 bit now so it won't fall over in 2038.
+
+13:22.700 --> 13:29.700
+So yeah and I'll end this with a quote for the conversation I had in the autumn with
+
+13:29.740 --> 13:35.740
+my long time friend Martin Sustrick who was asking, so you spent the last few years
+
+13:36.460 --> 13:42.780
+before that working on OS research with Unicernals and Docker and the University of Cambridge
+
+13:42.780 --> 13:44.540
+and so on.
+
+13:44.540 --> 13:46.060
+So what was more complicated?
+
+13:46.060 --> 13:50.620
+All this OS research that you were doing or the work you've been doing at the school
+
+13:50.620 --> 13:51.820
+over the last six months?
+
+13:51.820 --> 13:58.820
+And I said well definitely the work at the school over the last six months.
+
+14:00.140 --> 14:05.020
+And I still have 10 minutes.
+
+14:05.020 --> 14:11.420
+So in fact I guess questions.
+
+14:11.420 --> 14:15.420
+It was quicker than I thought.
+
+14:15.420 --> 14:20.420
+Yes sir.
+
+14:20.420 --> 14:25.420
+This man here?
+
+14:25.420 --> 14:30.420
+Sorry?
+
+14:30.420 --> 14:37.420
+The hyphen N option?
+
+14:37.420 --> 14:40.420
+Oh, ah yes.
+
+14:40.420 --> 14:47.420
+Okay so the reason you can't do that, in fact this is important and I sort of glossed over
+
+14:56.260 --> 14:57.860
+it here.
+
+14:57.860 --> 14:59.460
+That will only work.
+
+14:59.460 --> 15:04.060
+The journal D integration will only work if the distribution that's running inside the
+
+15:04.060 --> 15:07.460
+container is new enough.
+
+15:07.460 --> 15:13.460
+The Debbie and Lenny from 2009 does not have journal D, does not have system D, this predates
+
+15:13.460 --> 15:14.460
+it.
+
+15:14.460 --> 15:19.700
+So this is all running good old Cisvi S bin in it.
+
+15:19.700 --> 15:25.620
+So none of the integration that you'd expect, the fancy stuff that you get today with system
+
+15:25.620 --> 15:29.820
+D and spiral with machine Ctl if you use the full interface.
+
+15:29.820 --> 15:34.980
+If you run a system D distribution inside the container then your logging will just
+
+15:34.980 --> 15:38.540
+transparently get integrated with the host journal.
+
+15:38.540 --> 15:43.860
+Likewise you'll get things like machine Ctl login which will get you a TTY, a console
+
+15:43.860 --> 15:46.660
+that you can use to log into the container.
+
+15:46.660 --> 15:52.020
+We don't have that here because there is no system D, all of this relies on there being
+
+15:52.020 --> 15:59.020
+system D inside the container as well as on the host.
+
+16:22.460 --> 16:35.300
+It is exposed to the internet but not directly.
+
+16:35.300 --> 16:41.260
+So it's the first thing I did way back before I started on all of this.
+
+16:41.260 --> 16:45.180
+Right, number two here, secure the most obvious attack surfaces.
+
+16:45.180 --> 16:47.620
+I stuck a modern reverse proxy in front of it.
+

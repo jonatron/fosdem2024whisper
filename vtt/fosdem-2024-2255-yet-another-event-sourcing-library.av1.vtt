@@ -1,0 +1,422 @@
+WEBVTT
+
+00:00.000 --> 00:08.440
+Yeah, this is better.
+
+00:08.440 --> 00:14.840
+So yeah, I'll talk about history, how we made some decisions we made, some things regarding
+
+00:14.840 --> 00:18.640
+lambda and the project, and basically this was kind of a point where we started to do
+
+00:18.640 --> 00:21.000
+most of the stuff on our own.
+
+00:21.000 --> 00:25.240
+Then I will go over the patterns that were kind of influenced for the libraries, so the
+
+00:25.240 --> 00:30.320
+security and even sourcing, I'll briefly show how the whole thing works in architecture,
+
+00:30.320 --> 00:35.120
+diagrams, and then I will say why we actually decided to open source it.
+
+00:35.120 --> 00:38.920
+So the project started in 2019, everyone wanted to do several lists, it was kind of a fancy
+
+00:38.920 --> 00:43.800
+thing to do at the time, and also we wanted everything to be managed by Amazon and we
+
+00:43.800 --> 00:48.400
+didn't want to monitor containers or run stuff around, we just want to give our code to the
+
+00:48.400 --> 00:52.280
+Amazon and run it, and that was kind of perfect to do this.
+
+00:52.280 --> 00:56.600
+We also had to keep the business logic vendor independent, so this is kind of a regulatory
+
+00:56.600 --> 01:01.200
+requirement, so we kind of speak that our business logic is the most valuable thing and
+
+01:01.200 --> 01:05.560
+then we isolated it from the infrastructure, and so the infrastructure part we can always
+
+01:05.560 --> 01:09.600
+rewrite, but the business logic we want to reuse.
+
+01:09.600 --> 01:13.960
+You want a simple API, so I had all these query pads, headers, discussions, we always
+
+01:13.960 --> 01:19.360
+had about API, so I wanted to drop this thing out, and we wanted to keep data so we can
+
+01:19.360 --> 01:23.360
+transfer it, I know rewrite library and move it to another language and use the same data
+
+01:23.360 --> 01:31.640
+and so on, so like binary stored messages in Kafka queues were not an option for us.
+
+01:31.640 --> 01:35.880
+With Lambda basically the big problem is the startup, so we wanted to use closure because
+
+01:35.880 --> 01:42.320
+we had lots of data stuff to take care of, so the biggest problem was of course the startup,
+
+01:42.320 --> 01:45.520
+so the ground we had at that time was pretty new and basically most of the stuff didn't
+
+01:45.520 --> 01:47.360
+compile.
+
+01:47.360 --> 01:56.760
+We tried AWS SDK, this was a mess inside, they bring half of the main repository back
+
+01:56.760 --> 01:59.600
+to it when you use it.
+
+01:59.600 --> 02:04.360
+Also we had like Hockey Recipient, we had to fork it as well because there was some stuff
+
+02:04.360 --> 02:10.480
+there that they were using that didn't compile as well, even Logback didn't compile for like
+
+02:10.480 --> 02:17.000
+one year ago with this as well, so then we started to build something on our own to make
+
+02:17.000 --> 02:22.120
+it simple, so we created our own AWS SDK because everything they do in all this magical SDK
+
+02:22.120 --> 02:29.640
+is kind of a post request to the AWS, so it was kind of super easy in the end to do.
+
+02:29.640 --> 02:36.720
+So the first pattern we chose to use was TECORES, just command and query segregation pattern,
+
+02:36.720 --> 02:40.600
+so the idea is that you have place where you send commands, where you mutate data and you
+
+02:40.600 --> 02:46.560
+have a place where you query stuff and this kind of influence our implementation, so we
+
+02:46.560 --> 02:52.040
+had on HTTP site we just had two endpoints, commands and queries, you send in the body
+
+02:52.040 --> 02:56.240
+everything you want to do in the system, which also make you can take the same body, you
+
+02:56.240 --> 03:00.720
+can send it to the queue, you can send it and batch of the command in S3 buckets, so
+
+03:00.720 --> 03:06.320
+this was kind of great because we could just store the commands from the post request,
+
+03:06.320 --> 03:14.160
+put them in the queue or store them in S3 bucket as a list of commands so it was super practical.
+
+03:14.160 --> 03:18.360
+The query site is also very simple, so just the query endpoint which made the front end
+
+03:18.360 --> 03:22.880
+client, we implemented our own front end client for this, it was 300 lines of code together
+
+03:22.880 --> 03:29.320
+with it mocking, with retries, with deduplication, with everything, so basically just simply
+
+03:29.320 --> 03:35.760
+having this simplicity on the HTTP site made it possible.
+
+03:35.760 --> 03:39.320
+Together with Tech QRS, now it comes the event sourcing, so the idea of event sourcing is
+
+03:39.320 --> 03:43.200
+just we will not store the current state of the system, we will store events that happen,
+
+03:43.200 --> 03:49.720
+so it is a pattern from 2000, 1970, basically but then they didn't have enough resources
+
+03:49.720 --> 03:53.600
+to do it, so they decided to event like a relational database model where you just store
+
+03:53.600 --> 03:57.480
+the current state, so the event source will be, for example, if you take a shopping cart
+
+03:57.920 --> 04:02.040
+as an example, you would instead of storing the current shopping cart, you would store
+
+04:02.040 --> 04:06.240
+item edit, item removed, item edit and then when the client asks what is my shopping cart,
+
+04:06.240 --> 04:09.640
+you would go over the events and figure out what is the current state of the shopping
+
+04:09.640 --> 04:14.400
+cart but the nice advantage of this is that everything is stored, so basically for us
+
+04:14.400 --> 04:19.000
+it's very important, the audit logs, basically the event sourcing, they are naturally there,
+
+04:19.000 --> 04:22.440
+everything is stored, the database itself is inutable, so we are just appending stuff
+
+04:22.480 --> 04:27.720
+forward, so it's quite easy to handle from the security perspective, information perspective
+
+04:27.720 --> 04:33.160
+and so on, so for our implementation we have chosen to take postgres, we just store our
+
+04:33.160 --> 04:37.280
+events as a JSONB field with some metadata around, so it was super simple, we have the
+
+04:37.280 --> 04:41.840
+transactions because it's just append only, it scales very well, so we have around one
+
+04:41.840 --> 04:48.840
+terabyte of data and we just add, we don't even think about adding new stuff there, we
+
+04:48.880 --> 04:55.880
+use optimistic locking, so on the client side we just add sequence to every event and basically
+
+04:56.720 --> 05:03.720
+unique field on the postgres gives us optimistic locking, so it was super easy to do, so yeah,
+
+05:06.720 --> 05:10.560
+this is a simple diagram, so from the client perspective how things look like, so we have
+
+05:10.560 --> 05:14.560
+a command coming into the system and there we touch our service, we just edit the core
+
+05:14.720 --> 05:21.720
+implementation, edit the core does four things, so takes a snapshot from the view store, then
+
+05:21.720 --> 05:27.240
+does the processing, whatever needs to be done, stores the response in event store and
+
+05:27.240 --> 05:32.600
+basically sends to the router all the events effects that were created, so events are,
+
+05:32.600 --> 05:37.520
+as I said, something that will store the changes and the effects are the things that need to
+
+05:37.520 --> 05:40.760
+be distributed to the other services, so if you want to call service B or never call it
+
+05:40.760 --> 05:44.120
+directly, I will store it in the database, the things I want to send to the other service
+
+05:44.200 --> 05:51.200
+and then they will be distributed to the router. The router then sends also back to the service
+
+05:51.600 --> 05:56.360
+that needs to update this aggregate and then aggregate this update to the view store and
+
+05:56.360 --> 06:01.720
+then we go to the next cycle and query is just a simple query, goes to the view store,
+
+06:01.720 --> 06:08.720
+returns back data to the client. And one more diagram which is also important is how internally
+
+06:09.720 --> 06:14.280
+the core works, so basically does a couple of things, in the beginning we validate the
+
+06:14.280 --> 06:19.320
+request, the important thing is what we do, we check if there was already this request
+
+06:19.320 --> 06:23.560
+process, so we have a command response log where we check if the request was processed,
+
+06:23.560 --> 06:27.680
+if not then we go, we log this request in the request log, so all the entry commands that
+
+06:27.680 --> 06:31.480
+come to the system are stored there, so if we need to debug something later on, everything
+
+06:31.480 --> 06:35.800
+is collected there, so and since everything is a body, it's super easy to store, whether
+
+06:35.840 --> 06:40.840
+it comes from Q, post request, whatever, then is this processing request, where is the business
+
+06:40.840 --> 06:46.120
+logic part and then we start the transaction, so we can start the transaction at the very
+
+06:46.120 --> 06:51.000
+end of the request, which is quite nice from a performance perspective, we store events,
+
+06:51.000 --> 06:56.440
+store effects, so it commands to the other services and then we just mark this request
+
+06:56.440 --> 07:00.160
+as completed so that we have a deduplication afterwards.
+
+07:01.000 --> 07:08.760
+Well, basically that's it, so we started developing this internally, it was only meant as an internal
+
+07:08.760 --> 07:15.600
+library, there was no open sourcing processing component also, basically this was kind of
+
+07:15.600 --> 07:21.960
+an idea to start this process as well, there was no alternative limitation because it has
+
+07:21.960 --> 07:26.720
+a fixed infrastructure there, so we kind of used this as an opportunity to kind of expand
+
+07:26.840 --> 07:32.200
+library as well, so we mostly started using it as hobby projects, so for the side projects,
+
+07:32.200 --> 07:38.760
+so edit the DynamoDB support for example for the store as well, for the event store, and
+
+07:38.760 --> 07:43.480
+this helped to clean up the project, so we did a big round of cleanup of the project
+
+07:43.480 --> 07:49.880
+with the proper abstractions basically, then we started adding different implementations
+
+07:49.880 --> 07:53.440
+and then we were contributing the changes back to the internal, so we chose to have the internal
+
+07:53.480 --> 07:59.040
+project, so we fixed huge amount of bugs outside that help also to get them back internally
+
+07:59.040 --> 08:05.400
+for the internal implementation and so on, so we set up the open sourcing process, so basically
+
+08:05.400 --> 08:08.960
+any team in the whole company can open source what they want if you just follow these steps.
+
+08:08.960 --> 08:17.600
+Yeah, so we had very positive experience with this library, so we are now like almost one year
+
+08:17.840 --> 08:23.840
+in production, we store everything, this was this space off on daily basis, so we even had a
+
+08:23.840 --> 08:28.400
+business site messing up thousands of hundred to thousand records, we could recover them quite
+
+08:28.400 --> 08:33.800
+easily just creating data from database, everything is stored there, audit was super happy because
+
+08:33.800 --> 08:37.440
+we stored everything, I even ticked off a lot of the audits just because we said we store everything,
+
+08:37.440 --> 08:44.840
+so they were super happy, and yeah, so the most of stuff like if we had a production bug that
+
+08:45.080 --> 08:49.880
+basically clogged up the queues, we could clean up the queues and five minutes later we could just
+
+08:49.880 --> 08:55.640
+select what happened and recover it back in the queue, so we didn't have to worry about finding
+
+08:55.640 --> 09:00.080
+what was there in that letter queue, what is useful, what is not useful, so and because of the
+
+09:00.080 --> 09:06.360
+duplication we didn't have to worry about sending against some messages, so we do this almost every
+
+09:06.360 --> 09:13.080
+week we have one disaster we need to recover and it's super easy for us to do that. Yeah, that's
+
+09:13.080 --> 09:15.640
+it from my side, questions?
+
+09:15.640 --> 09:22.080
+Excellent, next we can set up.
+
+09:22.080 --> 09:36.280
+So tell us a bit more about accepting open source in your company, you can come up.
+
+09:36.280 --> 09:40.080
+So this was actually six months process, so.
+
+09:41.080 --> 09:45.880
+So, yes, so the question was the experience with setting up the open sourcing process in the
+
+09:45.880 --> 09:50.920
+company, so this was actually a very painful experience, so it took six months negotiation
+
+09:50.920 --> 09:54.520
+with security, actually first to understand what we want to do, then extend it, why you want to do,
+
+09:54.520 --> 09:59.960
+then talk to management, tell them why this is beneficial, but afterwards yeah, once we figured
+
+09:59.960 --> 10:04.720
+out that all the rules that we need to follow, then it was it was quite straightforward, so we
+
+10:04.720 --> 10:10.360
+documented everything and hope that it was six months process to get it, get it there.
+
+10:10.360 --> 10:28.000
+So, my question is why the architecture decided to use lambdas of the first, why decided to use lambdas?
+
+10:28.000 --> 10:36.000
+So, one side was because we had a burst, so we like, ah, sorry, the question is why we decided to use
+
+10:36.000 --> 10:40.000
+lambda functions, so basically in the beginning we had a burst of data, so for example in the
+
+10:40.040 --> 10:43.840
+morning we would get a bunch of data we need to process and the rest of the system would process
+
+10:43.840 --> 10:48.280
+like three requests per hour, so and this was kind of a nice thing because it scales quite fast
+
+10:48.280 --> 10:53.840
+and the other motivation was because it forces kind of doing it fluff clean, there's no caching,
+
+10:53.840 --> 10:57.720
+you have to really think about what to do, so it kind of wants to push the developers to go in
+
+10:57.720 --> 11:03.400
+direction of actually making stuff clean and that they don't depend on something being stored
+
+11:03.400 --> 11:07.480
+somewhere in memory and yeah, the third thing was it was a cool thing to do, so it was kind of
+
+11:07.480 --> 11:09.960
+a nice presentation, marketing material for the project as well.
+
+11:09.960 --> 11:18.840
+So, I mentioned you use optimistic locking, why did you decide to use it? Was it because of the
+
+11:18.840 --> 11:25.640
+lambda bear or was it? So, the question is why we do the optimistic locking, so we use actually
+
+11:25.640 --> 11:30.600
+postgres in the beginning, but we used optimistic locking because we didn't want to even start the
+
+11:30.600 --> 11:36.320
+transaction because until we are done, so because we kind of declare all the dependencies we have,
+
+11:36.320 --> 11:40.600
+we fetch them, we process the data and then we have everything we need to store the mutated
+
+11:40.600 --> 11:45.360
+database we have it at the end, so at this point then we open the transaction and then we can do
+
+11:45.360 --> 11:50.240
+something, so that means we fetch the aggregate, for example aggregate version 72, we process
+
+11:50.240 --> 11:55.200
+everything, we say okay now we'll be version 73 and if there's some version 73 in the bit in
+
+11:55.200 --> 12:00.120
+happening then we would have a postgres nicely saying there's a concurrency problem, so we
+
+12:00.120 --> 12:05.000
+didn't want to lock anything database, we just want to make it simple, so this was super easy to
+
+12:05.000 --> 12:17.360
+implement. I have a comment on that which is our database uses optimistic concurrency control
+
+12:17.360 --> 12:22.120
+and it actually gives much better scaling up the traditional locking methods and it's much more
+
+12:22.120 --> 12:26.280
+robust and it's more secure, so we can have a separate discussion about this later. Yes,
+
+12:26.280 --> 12:28.760
+let's have this, we'll be an interesting discussion.
+

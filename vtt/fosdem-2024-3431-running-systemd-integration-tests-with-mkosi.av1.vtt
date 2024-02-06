@@ -1,0 +1,464 @@
+WEBVTT
+
+00:00.000 --> 00:14.160
+I'm Dan, I work on systemd and I also maintain the maker side tool which is a sister tool
+
+00:14.160 --> 00:21.200
+of systemd and I work in my day job at the Linux user space team at MATA.
+
+00:21.200 --> 00:23.800
+So specifically why do we want to do this?
+
+00:23.800 --> 00:33.800
+Systemd is a pretty low level user space project so running its integration test is not as trivial as it is for a regular project.
+
+00:33.800 --> 00:42.800
+So specifically we want to make sure that we don't accidentally break the host machine which when you're running something like systemd becomes rather easy.
+
+00:42.800 --> 00:50.800
+We also want to minimize the requirements that are needed to run the systemd integration test so that regardless of which machine you actually run them on
+
+00:50.800 --> 00:55.800
+or regardless of which machine you're hacking on you can still run the tests.
+
+00:55.800 --> 01:05.800
+This is especially important for new contributors because at the moment the barrier for writing a new integration test is pretty high and we want to make that lower.
+
+01:05.800 --> 01:19.800
+We don't want any host system details to leak into the integration tests so currently that actually happens quite a bit and it means that you often get a failure for example on a CI machine that you can't reproduce locally.
+
+01:19.800 --> 01:24.800
+And when that happens it's usually a huge pain to figure out what's going wrong and how to fix it.
+
+01:24.800 --> 01:30.800
+So we want to try and make these tests more reproducible regardless of the machine that they're running on so that we avoid issues like this.
+
+01:30.800 --> 01:46.800
+We want to be able to paralyze them as much as possible and again the isolation from the host helps here because it allows you to run more instances of tests without having to fear that they are fighting over the same resources that might be leaking in from the host.
+
+01:47.800 --> 01:54.800
+We want to make them easy to run of course like I said for new contributors and we also want to make them easy to write.
+
+01:54.800 --> 01:59.800
+So before I go further with the integration test I'll give a little overview of MakeOSI.
+
+01:59.800 --> 02:05.800
+MakeOSI is basically system deals tool to hack on systemd.
+
+02:05.800 --> 02:23.800
+So because systemd is such a low level user space project you can't just build it from source and then run it especially not if you're working on the in-it system itself because you're very likely already running a systemd on your laptop and you can't simply replace it with another one.
+
+02:23.800 --> 02:29.800
+And even if you could if you write a book and it crushes systemd then your laptop is certainly unusable.
+
+02:29.800 --> 02:41.800
+So we need another solution and specifically we need to run it in a virtual machine so that if something goes wrong and it crashes you can simply kill the virtual machine and it's like nothing ever happened.
+
+02:41.800 --> 02:43.800
+And this is where we use MakeOSI.
+
+02:43.800 --> 02:54.800
+So we use it to build a Linux image that contains systemd compiled from source and installed into the image along with all the other packages from your Linux distribution that you would need for development.
+
+02:54.800 --> 03:03.800
+If you can then boot in QMU and do whatever testing you need shut down the machine and then you can submit your patch.
+
+03:03.800 --> 03:14.800
+So it does a few things but the primary thing it does is it simply runs your distribution package manager to install whatever packages are needed and then runs various tools to configure the image.
+
+03:14.800 --> 03:19.800
+Most of them coming from systemd but also a few from Linux itself.
+
+03:19.800 --> 03:29.800
+It builds an environment where it's necessary, it generates a unified kernel image if you wanted to and then it packages it all up and then boots it in QMU.
+
+03:29.800 --> 03:37.800
+And so we can generate a few different archives but the most important ones are probably the disk images and just a plane directory.
+
+03:38.800 --> 03:49.800
+So what does this look like if you want to build an arch Linux distribution image and install systemd and Linux and then enable autologon that's how you do it.
+
+03:49.800 --> 03:53.800
+And this will build that and then boot into it with QMU.
+
+03:53.800 --> 04:00.800
+So you eventually end up in a root shell in a virtual machine with systemd installed.
+
+04:00.800 --> 04:05.800
+You don't need root privileges for any of this which is another thing we want to do with the integration test.
+
+04:05.800 --> 04:15.800
+Currently you need root privileges so if more files are written they're owned by your root user in your home directory which means that you run into weird issues when you try to delete files and stuff like that.
+
+04:15.800 --> 04:19.800
+So we want to try and do it all without even root privileges.
+
+04:19.800 --> 04:25.800
+You can figure out how to go aside it's like a systemd project so we do the usual unit file stuff.
+
+04:26.800 --> 04:29.800
+You can conditionally include stuff with a match section.
+
+04:29.800 --> 04:33.800
+They only apply something to the Fedora distribution for example.
+
+04:35.800 --> 04:40.800
+So we already use this for hacking and we don't use this for the integration test.
+
+04:40.800 --> 04:51.800
+So we use macOSI for manual testing which is not exactly great but the automated testing still runs outside of macOSI.
+
+04:51.800 --> 05:06.800
+So this is because the integration test existed before macOSI was there and the way this was implemented was they still wanted of course that you could run in a virtual machine.
+
+05:06.800 --> 05:15.800
+But instead of assembling the virtual machine from distribution packages the implementation decided to use the files from the host.
+
+05:16.800 --> 05:31.800
+So similarly to the first generation tools like Dracood which is where the approach came from they pick various files from the host when building the integration test image and then that becomes the image and there in the image you run the test.
+
+05:31.800 --> 05:42.800
+The problem is that this is completely independent from macOSI so we have two very different environments one for hacking and then another for running the integration test which isn't great.
+
+05:43.800 --> 05:55.800
+Even if you manage to do a set of two manual testing inside macOSI you then have to somehow translate that to the existing integration test which is very hard sometimes.
+
+05:55.800 --> 06:02.800
+We have a custom test runner using make so it's all implemented with make and bash and shell scripts.
+
+06:02.800 --> 06:07.800
+We don't really use any off the shelf tooling here so it can get very nasty.
+
+06:08.800 --> 06:12.800
+The tests themselves so this is one part that does work well.
+
+06:12.800 --> 06:17.800
+The tests themselves that run inside the image are implemented as systems.
+
+06:17.800 --> 06:20.800
+So what do you get this?
+
+06:20.800 --> 06:26.800
+Start the image and then we pull in the system unit and the system unit executes the test.
+
+06:26.800 --> 06:32.800
+If the unit succeeds then it has succeeded and then the test failed.
+
+06:33.800 --> 06:48.800
+Of course all the test specific dependencies have to be added to the image so this ends up being like I think it's like a two or three thousand line bash file now which is responsible for making sure all the dependencies get picked up from the host file system and then put into the image.
+
+06:48.800 --> 06:52.800
+So it's very complex and I don't think anyone fully understands it.
+
+06:53.800 --> 07:03.800
+Any customization that you want to do to these test images also requires writing a lot of bash which again is very hard and for new contributors especially to figure out how to do.
+
+07:03.800 --> 07:09.800
+As you can see to run a test roughly this is what you currently do.
+
+07:12.800 --> 07:19.800
+So as I said the files gets picked up from the host for the current images but of course we do need to lay the system to build from source.
+
+07:20.800 --> 07:32.800
+So you build system from source of the host as well and then what the three thousand line bash file does is it basically takes files from those takes files from the build directory combines them and you end up with this franken image.
+
+07:32.800 --> 07:37.800
+That contains God knows who what.
+
+07:37.800 --> 07:48.800
+Half system the build from source half from the host and that's where the image runs in and as you can imagine figuring out what's going on in this environment can be rather complicated.
+
+07:49.800 --> 07:51.800
+What do we want to do instead.
+
+07:51.800 --> 08:10.800
+So we want to reuse as much as our existing tooling as possible so one make OSI which are already used for the environment and then the other part is system these build system which is a mess on which already has targets test targets which will execute the tests.
+
+08:11.800 --> 08:26.800
+This is primarily intended or the I guess the primary goal for this was actually unit tests for C or C++ projects where the test macro and in mess on simply execute the unit test.
+
+08:26.800 --> 08:37.800
+But there's nothing really specific about it that says it can only be used for unit tests since all it does is really just run a command and check whether it returns zero or non zero exit status.
+
+08:37.800 --> 08:40.800
+So it's perfectly possible to just have running integration test as well.
+
+08:40.800 --> 08:51.800
+So I wanted to make use of that so that we can simply add a mess on sweet that's specifically for the integration tests and then running them is exactly the same as running the unit test.
+
+08:51.800 --> 09:01.800
+So you make things more similar and it will generally we hope lower the barrier for running the integration tests for new newcomers to system.
+
+09:02.800 --> 09:05.800
+We want to make sure that all the tests reuse the same image.
+
+09:05.800 --> 09:12.800
+So currently the image gets rebuilt quite often for individual tests which makes the whole thing a lot slower.
+
+09:12.800 --> 09:21.800
+We want to get to a point where we can ideally reuse the same image even the same one that we use for hacking for the integration tests as well.
+
+09:21.800 --> 09:25.800
+So we can make use of caching and we avoid having to rebuild the image.
+
+09:26.800 --> 09:35.800
+And the customization instead of writing whole pile of bash you can just reuse all the settings that may go as I provides to customize the image.
+
+09:35.800 --> 09:40.800
+And we hope that running an integration test would look roughly like this.
+
+09:40.800 --> 09:51.800
+So a proof of concept PR is already available on the system the GitHub repo where we more or less have it like this so that an integration test can be executed simply by running mess on test.
+
+09:51.800 --> 09:58.800
+Specifying the individual test if you want to run one or specify the entire suite if you want to run all of them.
+
+09:58.800 --> 10:06.800
+Mess on supports running tests in parallel so we want to make use of that as well to be able to run multiple integration tests in parallel.
+
+10:06.800 --> 10:17.800
+Of course since these tests are quite heavy because they spawn a virtual machine we can do as much parallelization as we would with unit tests but we can probably still run more than one.
+
+10:17.800 --> 10:24.800
+So how do we run an integration test in a virtual machine with system?
+
+10:24.800 --> 10:32.800
+There are a few interesting things about running a test in a virtual machine that can make it interesting to get the results out.
+
+10:32.800 --> 10:42.800
+So for example if mess on runs a unit test then the process simply exits with its exit status either zero or nonzero where nonzero means that the integration test has failed.
+
+10:43.800 --> 11:00.800
+But if you're running an integration test in a virtual machine when that integration test unit fails in the virtual machine that doesn't mean that your virtual machine is suddenly going to exit with exactly the same exit status.
+
+11:00.800 --> 11:07.800
+And you're not able to use that without some effort to determine if the test failed or not.
+
+11:07.800 --> 11:17.800
+You need to somehow get the exit status of the test out of the virtual machine and to the host so that it can be interpreted by mess on.
+
+11:17.800 --> 11:24.800
+So the way we do this in system D is by using what's called in the AFV socket family.
+
+11:24.800 --> 11:35.800
+This is a socket family that like TCP or the UDP sockets or the unit sockets but this is specifically intended for inter virtual machine communication.
+
+11:35.800 --> 11:43.800
+So you can assign a virtual machine and AFV socket device and it has a connection ID which identifies the virtual machine.
+
+11:43.800 --> 11:49.800
+And then you can bind two ports on that in the virtual machine and you can connect to it from the host.
+
+11:49.800 --> 11:54.800
+So we use this by for passing data from the guest to those.
+
+11:55.800 --> 12:04.800
+So system D as this as the notify protocol which you can is basically it can send messages about its status over a socket.
+
+12:04.800 --> 12:12.800
+And we extended this with support for AFV so that we can send information about the virtual machine to the host if someone is listening.
+
+12:12.800 --> 12:20.800
+We can we the most basic use case of this is to tell the host system when the machine is finished booting.
+
+12:20.800 --> 12:27.800
+So we send ready equals one then but it turns out that we can also just simply send access status equals whatever the exit status is.
+
+12:27.800 --> 12:30.800
+And that's how you can get an access status out of the VM.
+
+12:30.800 --> 12:34.800
+So this is then this is the access status of system D.
+
+12:34.800 --> 12:39.800
+So how do we make this access status of system D the access status of our integration test.
+
+12:39.800 --> 12:46.800
+Well we have two different unit settings for this and success action equals exit or and failure action equals exit.
+
+12:46.800 --> 12:55.800
+And what these two settings tell is that when this unit exits system D should also exit and specifically with the exit status of that service.
+
+12:55.800 --> 13:03.800
+So this gives us a way to pipe the exit status from the integration test to system D which then exits with the same.
+
+13:03.800 --> 13:10.800
+It sends it over VSOC to make or say which is listening it reads the exit status and make or sign in exits with that exit status.
+
+13:10.800 --> 13:21.800
+So you get this whole flow of data through to the host and to just be able to exit with the same exit status in make or sign.
+
+13:21.800 --> 13:25.800
+Of course just getting the exit status isn't really sufficient.
+
+13:25.800 --> 13:30.800
+If you had to do that could ask just by looking at this exit status you'd have a pretty bad experience.
+
+13:30.800 --> 13:32.800
+So you also need the logs ideally.
+
+13:33.800 --> 13:41.800
+So because we run on a serial console the serial console is already displayed so you get those automatically.
+
+13:41.800 --> 13:50.800
+But we also wanted a way to be able to get the system D journal from the virtual machine off the virtual machine and to the host.
+
+13:50.800 --> 13:58.800
+Normally you would just mount the disk image after the virtual machine has finished executing and get the journal out that way.
+
+13:58.800 --> 14:03.800
+But remember that we wanted to be able to support running these integration tests without needing root privileges.
+
+14:03.800 --> 14:08.800
+And if you don't have root privileges then you can't mount any file system in Linux.
+
+14:08.800 --> 14:16.800
+So we can mount the disk image anymore after the integration after the virtual machine has shut down.
+
+14:16.800 --> 14:19.800
+So we need to get the logs out while the virtual machine is running.
+
+14:19.800 --> 14:22.800
+How do we do this? Well again with AFVSOC.
+
+14:22.800 --> 14:33.800
+In the next version of system D most likely we're going to add another forwarding mode to system D-journally so that it can forward its logs over an AFVSOC socket.
+
+14:33.800 --> 14:42.800
+So again you can have something listening on the host on AFVSOC, configure journal D to send its logs over this AFVSOC.
+
+14:42.800 --> 14:48.800
+And then simply store them on the host instead of in the virtual machine itself.
+
+14:48.800 --> 14:53.800
+Or do both because having the logs in the virtual machine available as well can be useful for debugging.
+
+14:53.800 --> 14:59.800
+So to listen on the host we have this little program which is system D-journal remote.
+
+14:59.800 --> 15:02.800
+You can configure to listen on any address.
+
+15:02.800 --> 15:05.800
+This can also be on Unix socket sort of stuff.
+
+15:05.800 --> 15:13.800
+And it will simply store the logs to the directory that you specify.
+
+15:13.800 --> 15:20.800
+So once it's done you simply run journal code, you specify the directory that the logs are stored in and you will get the logs of the virtual machine.
+
+15:20.800 --> 15:23.800
+You can access them, you can read them, you can debug what's going on.
+
+15:23.800 --> 15:30.800
+Or you can just simply store whatever CI system that you're running the tests in.
+
+15:30.800 --> 15:33.800
+Then of course we need to be able to debug any failing tests.
+
+15:33.800 --> 15:39.800
+So the test might be started. It started via the serial console.
+
+15:39.800 --> 15:47.800
+But when Maston is running a test it doesn't give you interactive access to the serial console.
+
+15:47.800 --> 15:53.800
+So we need to have a way to be able to get into the VM without needing the serial console.
+
+15:53.800 --> 15:57.800
+So the regular solution for this is SSH of course.
+
+15:57.800 --> 16:00.800
+So we want to provide SSH access to the VM.
+
+16:00.800 --> 16:05.800
+But we don't want to tie this to the network of the VM.
+
+16:05.800 --> 16:10.800
+Because let's say we might be testing very specific networking access network tests.
+
+16:10.800 --> 16:15.800
+This might involve multiple VMs and they might need a very particular networking setup.
+
+16:15.800 --> 16:24.800
+And it doesn't mean that this network setup might not allow for access to the VM via SSH.
+
+16:24.800 --> 16:26.800
+So we want to use a different protocol.
+
+16:26.800 --> 16:29.800
+And again we can just use AFV so for this.
+
+16:29.800 --> 16:33.800
+So this just emerged. It will be in the next release of system.
+
+16:33.800 --> 16:43.800
+But when system D started with an AFVSock device it can now detect this during early boot via a new generator.
+
+16:43.800 --> 16:49.800
+And it will bind port 22 on the AFVSock family to a socket unit.
+
+16:49.800 --> 16:53.800
+Which will start SSHD when connected to.
+
+16:53.800 --> 16:56.800
+So this allows you to use SSHD with VSOCK.
+
+16:56.800 --> 17:02.800
+So you can connect to the connection ID of the virtual machine on the host using SSH.
+
+17:02.800 --> 17:08.800
+And you will get an SSH session in the VM without needing to configure the network.
+
+17:08.800 --> 17:16.800
+To provision your public key we use system decredentials which can be provided using SMBIOS.
+
+17:16.800 --> 17:22.800
+To the VM to provision your SSH public key into the VM in the correct location.
+
+17:22.800 --> 17:25.800
+In .ssh slash authorized keys.
+
+17:25.800 --> 17:29.800
+So that you don't need to do anything like you don't need to enter a password or anything.
+
+17:29.800 --> 17:36.800
+So just SSH it will do the usual key cryptography or key authentication.
+
+17:36.800 --> 17:41.800
+And you just get your root shell in the VM and you can debug whatever you want.
+
+17:41.800 --> 17:49.800
+To make this nice to use on the host we can drop in an SSH config file that configures a proxy command for SSH.
+
+17:49.800 --> 17:55.800
+So we take ownership then of the Unix and the VSOCK host name prefixes.
+
+17:55.800 --> 18:03.800
+So you can do SSH VSOCK slash the connection ID of the virtual machine to get an SSH session into that virtual machine.
+
+18:03.800 --> 18:10.800
+So this is what we're going to try and use to be able to debug any tests that are going wrong.
+
+18:10.800 --> 18:13.800
+That was all I had to say.
+
+18:13.800 --> 18:16.800
+I'll put a link to the project and go take a look.
+
+18:16.800 --> 18:21.800
+We want to use this for the integration test but make our size of course useful for a lot of other things as well.
+
+18:21.800 --> 18:24.800
+If you need for building Linux images please take a look.
+
+18:24.800 --> 18:31.800
+I'm always happy to add new features or you can join the Matrix channel which is linked in the written and ask new questions.
+
+18:31.800 --> 18:33.800
+And I'll be happy to answer them.
+
+18:33.800 --> 18:35.800
+Thank you for listening.
+

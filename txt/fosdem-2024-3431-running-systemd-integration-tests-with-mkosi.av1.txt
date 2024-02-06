@@ -1,0 +1,154 @@
+I'm Dan, I work on systemd and I also maintain the maker side tool which is a sister tool
+of systemd and I work in my day job at the Linux user space team at MATA.
+So specifically why do we want to do this?
+Systemd is a pretty low level user space project so running its integration test is not as trivial as it is for a regular project.
+So specifically we want to make sure that we don't accidentally break the host machine which when you're running something like systemd becomes rather easy.
+We also want to minimize the requirements that are needed to run the systemd integration test so that regardless of which machine you actually run them on
+or regardless of which machine you're hacking on you can still run the tests.
+This is especially important for new contributors because at the moment the barrier for writing a new integration test is pretty high and we want to make that lower.
+We don't want any host system details to leak into the integration tests so currently that actually happens quite a bit and it means that you often get a failure for example on a CI machine that you can't reproduce locally.
+And when that happens it's usually a huge pain to figure out what's going wrong and how to fix it.
+So we want to try and make these tests more reproducible regardless of the machine that they're running on so that we avoid issues like this.
+We want to be able to paralyze them as much as possible and again the isolation from the host helps here because it allows you to run more instances of tests without having to fear that they are fighting over the same resources that might be leaking in from the host.
+We want to make them easy to run of course like I said for new contributors and we also want to make them easy to write.
+So before I go further with the integration test I'll give a little overview of MakeOSI.
+MakeOSI is basically system deals tool to hack on systemd.
+So because systemd is such a low level user space project you can't just build it from source and then run it especially not if you're working on the in-it system itself because you're very likely already running a systemd on your laptop and you can't simply replace it with another one.
+And even if you could if you write a book and it crushes systemd then your laptop is certainly unusable.
+So we need another solution and specifically we need to run it in a virtual machine so that if something goes wrong and it crashes you can simply kill the virtual machine and it's like nothing ever happened.
+And this is where we use MakeOSI.
+So we use it to build a Linux image that contains systemd compiled from source and installed into the image along with all the other packages from your Linux distribution that you would need for development.
+If you can then boot in QMU and do whatever testing you need shut down the machine and then you can submit your patch.
+So it does a few things but the primary thing it does is it simply runs your distribution package manager to install whatever packages are needed and then runs various tools to configure the image.
+Most of them coming from systemd but also a few from Linux itself.
+It builds an environment where it's necessary, it generates a unified kernel image if you wanted to and then it packages it all up and then boots it in QMU.
+And so we can generate a few different archives but the most important ones are probably the disk images and just a plane directory.
+So what does this look like if you want to build an arch Linux distribution image and install systemd and Linux and then enable autologon that's how you do it.
+And this will build that and then boot into it with QMU.
+So you eventually end up in a root shell in a virtual machine with systemd installed.
+You don't need root privileges for any of this which is another thing we want to do with the integration test.
+Currently you need root privileges so if more files are written they're owned by your root user in your home directory which means that you run into weird issues when you try to delete files and stuff like that.
+So we want to try and do it all without even root privileges.
+You can figure out how to go aside it's like a systemd project so we do the usual unit file stuff.
+You can conditionally include stuff with a match section.
+They only apply something to the Fedora distribution for example.
+So we already use this for hacking and we don't use this for the integration test.
+So we use macOSI for manual testing which is not exactly great but the automated testing still runs outside of macOSI.
+So this is because the integration test existed before macOSI was there and the way this was implemented was they still wanted of course that you could run in a virtual machine.
+But instead of assembling the virtual machine from distribution packages the implementation decided to use the files from the host.
+So similarly to the first generation tools like Dracood which is where the approach came from they pick various files from the host when building the integration test image and then that becomes the image and there in the image you run the test.
+The problem is that this is completely independent from macOSI so we have two very different environments one for hacking and then another for running the integration test which isn't great.
+Even if you manage to do a set of two manual testing inside macOSI you then have to somehow translate that to the existing integration test which is very hard sometimes.
+We have a custom test runner using make so it's all implemented with make and bash and shell scripts.
+We don't really use any off the shelf tooling here so it can get very nasty.
+The tests themselves so this is one part that does work well.
+The tests themselves that run inside the image are implemented as systems.
+So what do you get this?
+Start the image and then we pull in the system unit and the system unit executes the test.
+If the unit succeeds then it has succeeded and then the test failed.
+Of course all the test specific dependencies have to be added to the image so this ends up being like I think it's like a two or three thousand line bash file now which is responsible for making sure all the dependencies get picked up from the host file system and then put into the image.
+So it's very complex and I don't think anyone fully understands it.
+Any customization that you want to do to these test images also requires writing a lot of bash which again is very hard and for new contributors especially to figure out how to do.
+As you can see to run a test roughly this is what you currently do.
+So as I said the files gets picked up from the host for the current images but of course we do need to lay the system to build from source.
+So you build system from source of the host as well and then what the three thousand line bash file does is it basically takes files from those takes files from the build directory combines them and you end up with this franken image.
+That contains God knows who what.
+Half system the build from source half from the host and that's where the image runs in and as you can imagine figuring out what's going on in this environment can be rather complicated.
+What do we want to do instead.
+So we want to reuse as much as our existing tooling as possible so one make OSI which are already used for the environment and then the other part is system these build system which is a mess on which already has targets test targets which will execute the tests.
+This is primarily intended or the I guess the primary goal for this was actually unit tests for C or C++ projects where the test macro and in mess on simply execute the unit test.
+But there's nothing really specific about it that says it can only be used for unit tests since all it does is really just run a command and check whether it returns zero or non zero exit status.
+So it's perfectly possible to just have running integration test as well.
+So I wanted to make use of that so that we can simply add a mess on sweet that's specifically for the integration tests and then running them is exactly the same as running the unit test.
+So you make things more similar and it will generally we hope lower the barrier for running the integration tests for new newcomers to system.
+We want to make sure that all the tests reuse the same image.
+So currently the image gets rebuilt quite often for individual tests which makes the whole thing a lot slower.
+We want to get to a point where we can ideally reuse the same image even the same one that we use for hacking for the integration tests as well.
+So we can make use of caching and we avoid having to rebuild the image.
+And the customization instead of writing whole pile of bash you can just reuse all the settings that may go as I provides to customize the image.
+And we hope that running an integration test would look roughly like this.
+So a proof of concept PR is already available on the system the GitHub repo where we more or less have it like this so that an integration test can be executed simply by running mess on test.
+Specifying the individual test if you want to run one or specify the entire suite if you want to run all of them.
+Mess on supports running tests in parallel so we want to make use of that as well to be able to run multiple integration tests in parallel.
+Of course since these tests are quite heavy because they spawn a virtual machine we can do as much parallelization as we would with unit tests but we can probably still run more than one.
+So how do we run an integration test in a virtual machine with system?
+There are a few interesting things about running a test in a virtual machine that can make it interesting to get the results out.
+So for example if mess on runs a unit test then the process simply exits with its exit status either zero or nonzero where nonzero means that the integration test has failed.
+But if you're running an integration test in a virtual machine when that integration test unit fails in the virtual machine that doesn't mean that your virtual machine is suddenly going to exit with exactly the same exit status.
+And you're not able to use that without some effort to determine if the test failed or not.
+You need to somehow get the exit status of the test out of the virtual machine and to the host so that it can be interpreted by mess on.
+So the way we do this in system D is by using what's called in the AFV socket family.
+This is a socket family that like TCP or the UDP sockets or the unit sockets but this is specifically intended for inter virtual machine communication.
+So you can assign a virtual machine and AFV socket device and it has a connection ID which identifies the virtual machine.
+And then you can bind two ports on that in the virtual machine and you can connect to it from the host.
+So we use this by for passing data from the guest to those.
+So system D as this as the notify protocol which you can is basically it can send messages about its status over a socket.
+And we extended this with support for AFV so that we can send information about the virtual machine to the host if someone is listening.
+We can we the most basic use case of this is to tell the host system when the machine is finished booting.
+So we send ready equals one then but it turns out that we can also just simply send access status equals whatever the exit status is.
+And that's how you can get an access status out of the VM.
+So this is then this is the access status of system D.
+So how do we make this access status of system D the access status of our integration test.
+Well we have two different unit settings for this and success action equals exit or and failure action equals exit.
+And what these two settings tell is that when this unit exits system D should also exit and specifically with the exit status of that service.
+So this gives us a way to pipe the exit status from the integration test to system D which then exits with the same.
+It sends it over VSOC to make or say which is listening it reads the exit status and make or sign in exits with that exit status.
+So you get this whole flow of data through to the host and to just be able to exit with the same exit status in make or sign.
+Of course just getting the exit status isn't really sufficient.
+If you had to do that could ask just by looking at this exit status you'd have a pretty bad experience.
+So you also need the logs ideally.
+So because we run on a serial console the serial console is already displayed so you get those automatically.
+But we also wanted a way to be able to get the system D journal from the virtual machine off the virtual machine and to the host.
+Normally you would just mount the disk image after the virtual machine has finished executing and get the journal out that way.
+But remember that we wanted to be able to support running these integration tests without needing root privileges.
+And if you don't have root privileges then you can't mount any file system in Linux.
+So we can mount the disk image anymore after the integration after the virtual machine has shut down.
+So we need to get the logs out while the virtual machine is running.
+How do we do this? Well again with AFVSOC.
+In the next version of system D most likely we're going to add another forwarding mode to system D-journally so that it can forward its logs over an AFVSOC socket.
+So again you can have something listening on the host on AFVSOC, configure journal D to send its logs over this AFVSOC.
+And then simply store them on the host instead of in the virtual machine itself.
+Or do both because having the logs in the virtual machine available as well can be useful for debugging.
+So to listen on the host we have this little program which is system D-journal remote.
+You can configure to listen on any address.
+This can also be on Unix socket sort of stuff.
+And it will simply store the logs to the directory that you specify.
+So once it's done you simply run journal code, you specify the directory that the logs are stored in and you will get the logs of the virtual machine.
+You can access them, you can read them, you can debug what's going on.
+Or you can just simply store whatever CI system that you're running the tests in.
+Then of course we need to be able to debug any failing tests.
+So the test might be started. It started via the serial console.
+But when Maston is running a test it doesn't give you interactive access to the serial console.
+So we need to have a way to be able to get into the VM without needing the serial console.
+So the regular solution for this is SSH of course.
+So we want to provide SSH access to the VM.
+But we don't want to tie this to the network of the VM.
+Because let's say we might be testing very specific networking access network tests.
+This might involve multiple VMs and they might need a very particular networking setup.
+And it doesn't mean that this network setup might not allow for access to the VM via SSH.
+So we want to use a different protocol.
+And again we can just use AFV so for this.
+So this just emerged. It will be in the next release of system.
+But when system D started with an AFVSock device it can now detect this during early boot via a new generator.
+And it will bind port 22 on the AFVSock family to a socket unit.
+Which will start SSHD when connected to.
+So this allows you to use SSHD with VSOCK.
+So you can connect to the connection ID of the virtual machine on the host using SSH.
+And you will get an SSH session in the VM without needing to configure the network.
+To provision your public key we use system decredentials which can be provided using SMBIOS.
+To the VM to provision your SSH public key into the VM in the correct location.
+In .ssh slash authorized keys.
+So that you don't need to do anything like you don't need to enter a password or anything.
+So just SSH it will do the usual key cryptography or key authentication.
+And you just get your root shell in the VM and you can debug whatever you want.
+To make this nice to use on the host we can drop in an SSH config file that configures a proxy command for SSH.
+So we take ownership then of the Unix and the VSOCK host name prefixes.
+So you can do SSH VSOCK slash the connection ID of the virtual machine to get an SSH session into that virtual machine.
+So this is what we're going to try and use to be able to debug any tests that are going wrong.
+That was all I had to say.
+I'll put a link to the project and go take a look.
+We want to use this for the integration test but make our size of course useful for a lot of other things as well.
+If you need for building Linux images please take a look.
+I'm always happy to add new features or you can join the Matrix channel which is linked in the written and ask new questions.
+And I'll be happy to answer them.
+Thank you for listening.

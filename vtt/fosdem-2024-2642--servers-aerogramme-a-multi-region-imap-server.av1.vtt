@@ -1,0 +1,632 @@
+WEBVTT
+
+00:00.000 --> 00:05.960
+Hi everyone.
+
+00:05.960 --> 00:12.640
+So I will present IROGAM which is a multi-region IMAB server.
+
+00:12.640 --> 00:19.080
+And so the goal of this talk is to discuss about this multi-region thing.
+
+00:19.080 --> 00:24.480
+But before starting some context, so my name is Quentin and I have a PhD in distributed
+
+00:24.480 --> 00:29.640
+systems and this talk will be a lot about distributed systems because that's something
+
+00:29.640 --> 00:30.640
+I know.
+
+00:30.640 --> 00:35.000
+And I try to work as much as I can for a collective.
+
+00:35.000 --> 00:40.280
+It's called Duffler and we try to build a low-tech, etic internet and if you want to
+
+00:40.280 --> 00:48.040
+know more about the things we are doing, there was a talk yesterday about garage where the
+
+00:48.040 --> 00:54.600
+infrastructure, the self-hosted, geo-distributed infrastructure we have is presented.
+
+00:54.600 --> 01:01.400
+And IROGAM is part of the strategy and the project of this collective and also a very
+
+01:01.400 --> 01:02.400
+nice thing.
+
+01:02.400 --> 01:07.000
+It is supported by an internet and they are very nice.
+
+01:07.000 --> 01:11.000
+I have to mention it.
+
+01:11.000 --> 01:16.800
+So first the problem we want to solve and I like to say that with emails we want to make
+
+01:16.800 --> 01:21.480
+other people available when it would be as always impossible due to distance.
+
+01:21.840 --> 01:27.720
+We can achieve this goal only if the underlying system is working.
+
+01:27.720 --> 01:34.920
+And so this talk will be about distributed systems but also about availability and reliability.
+
+01:34.920 --> 01:42.200
+And so I have three main ideas that frame the decisions when developing IROGAM.
+
+01:42.200 --> 01:52.080
+So the first is that we should not trust the cloud and hosting providers not only because
+
+01:52.080 --> 01:59.120
+they can fail and when they fail your service is not working.
+
+01:59.120 --> 02:06.440
+And the second aspect is that we think there is some space when it comes to IMAP server
+
+02:06.520 --> 02:11.840
+designs to study and to try new design, new trade-off.
+
+02:11.840 --> 02:13.800
+So there is no perfect solution.
+
+02:13.800 --> 02:18.840
+We don't have a magic solution but we can try new ways and new designs.
+
+02:18.840 --> 02:24.160
+And the third part I will try to convince you that this new design can work in the real
+
+02:24.160 --> 02:25.160
+life.
+
+02:25.160 --> 02:29.360
+So first don't trust your provider.
+
+02:29.360 --> 02:34.480
+So generally when you have the title of this talk is multi-region.
+
+02:34.480 --> 02:39.520
+I think the first part is to define what is a region when you talk about a cloud or
+
+02:39.520 --> 02:40.880
+hosting provider.
+
+02:40.880 --> 02:44.640
+So it's the Google Cloud Platform Region Paris.
+
+02:44.640 --> 02:49.160
+So its name is Europe West 9 and it's made of three data centers.
+
+02:49.160 --> 02:56.120
+And last April the whole region, so the three data centers, was unavailable for three weeks.
+
+02:56.120 --> 03:02.560
+Not totally but the outage lasted for three weeks in some part and it was due to a fire
+
+03:02.680 --> 03:05.040
+in one data center.
+
+03:05.040 --> 03:12.040
+And due to some tight interconnection between the other data centers and many software,
+
+03:14.200 --> 03:20.800
+the other data center were unable to work not due to hardware failure but due to software
+
+03:20.800 --> 03:21.920
+problem.
+
+03:21.920 --> 03:28.120
+So three weeks without emails you can imagine that it could be very hard when you use it
+
+03:28.120 --> 03:35.120
+for very important stuff like I don't know paying tax and seeking for a new job and so
+
+03:37.240 --> 03:39.680
+on and so forth.
+
+03:39.680 --> 03:46.680
+So the idea, it's not new, is that you should move to reliability first design.
+
+03:46.680 --> 03:50.920
+You should think reliability in your service and not rely only on your server.
+
+03:50.920 --> 03:56.080
+I'm sorry, the book is named Cloud Native Patterns but we could have named it Distributed
+
+03:56.120 --> 04:01.480
+Native Patterns and it's the same example with the region in, this time it's Amazon
+
+04:01.480 --> 04:08.480
+in the US and we see that, so the author of the book, Today's Three Services, Netflix,
+
+04:08.640 --> 04:14.840
+IMDB and Nest and only Netflix took the effort to deploy in a multi region and there was
+
+04:14.840 --> 04:21.040
+only one that were still working when the US, this one region was not available.
+
+04:21.320 --> 04:28.320
+I think it's the secret source of Google when it comes to Gmail or when it comes to Google
+
+04:31.400 --> 04:32.160
+search.
+
+04:32.160 --> 04:37.080
+It works despite data center failure, despite multi region failure because they are designing
+
+04:37.080 --> 04:40.720
+their service as reliability first.
+
+04:40.720 --> 04:46.720
+So it's easy to say that we should design our services as reliability first but in fact
+
+04:47.400 --> 04:53.760
+it's hard, like many things and something which makes it hard is that when you are in
+
+04:53.760 --> 04:59.440
+the same region, latency are very low, like one or two milliseconds but when you consider
+
+04:59.440 --> 05:06.440
+multi region deployment, I have made a test so between Paris and Warsaw in Poland and
+
+05:08.640 --> 05:11.720
+we jump to 30 or 40 milliseconds.
+
+05:11.720 --> 05:17.440
+It's not a lot but when you have distributed protocols, often this latency is amplified
+
+05:17.440 --> 05:22.840
+and there is such example in yesterday's presentation too.
+
+05:22.840 --> 05:29.840
+So we know that it's hard but it's even harder in the context of the email systems and the
+
+05:30.480 --> 05:34.560
+Apache Jambs documentation summarizes it very well.
+
+05:34.560 --> 05:41.560
+So the hard problem is, yes well done, the hard problem is about the monotony QID generation.
+
+05:41.720 --> 05:48.720
+If you are at the beginning of the dev room, UID in emails have been explained and so they
+
+05:48.880 --> 05:52.000
+say you have basically two solutions.
+
+05:52.000 --> 05:59.000
+Either you choose to doing weak consistency and so you risk data loss or you choose strong
+
+05:59.320 --> 06:04.600
+consistency and strong consistency is very sensitive to latency so it will be very slow.
+
+06:04.600 --> 06:11.040
+So currently the answer of the Apache Jambs developer is you should not deploy Apache
+
+06:11.080 --> 06:16.080
+Jambs or the cat-sandwrap part in a multiple data center setup.
+
+06:16.080 --> 06:19.080
+You should pay for consulting.
+
+06:19.080 --> 06:22.080
+Okay.
+
+06:22.080 --> 06:29.080
+So if we make a wider review of the existing work, maybe I have missed something and let
+
+06:29.200 --> 06:35.640
+me know, but you have some leader follower design which are for example, Cyrus or Dof
+
+06:35.720 --> 06:41.920
+Cut and you have some consensus or total order based design like Stalvart, IMAB, Gmail, Apache
+
+06:41.920 --> 06:44.560
+Jambs, Wilder, and so on.
+
+06:44.560 --> 06:50.560
+So this consensus or total order is often outsourced to the database.
+
+06:50.560 --> 06:56.560
+So for example, FoundationDB, Cassandra, lightweight transactions or MongoDB.
+
+06:56.560 --> 07:03.560
+There was also a research project named Pluto and they tried to design a mailbox server on
+
+07:04.520 --> 07:06.040
+a serial DT design.
+
+07:06.040 --> 07:13.040
+So it was very, it works very well in a multi-region setup but they have an incomplete implementation
+
+07:13.680 --> 07:15.880
+because they do not support the monotonic ID.
+
+07:15.880 --> 07:18.760
+They only support sequence identifiers.
+
+07:18.760 --> 07:25.760
+So yes, it's interesting if we don't implement the whole IMAB protocol, we can do multi-region
+
+07:27.440 --> 07:29.840
+way more easily.
+
+07:29.840 --> 07:36.840
+So our solution was, we wanted to implement the full IMAB protocol and so it's a trade-off.
+
+07:37.160 --> 07:40.840
+It's not a magical solution but we decided to live with conflicts.
+
+07:40.840 --> 07:47.840
+So in fact, in IMAB you can have conflicts as long as you detect it and you change a
+
+07:48.200 --> 07:51.240
+value that is named the UID validity.
+
+07:51.240 --> 07:58.240
+So it's not free, it has a don't sign, sorry, it will trigger a full expensive resynchronization
+
+07:58.240 --> 07:59.640
+for the clients.
+
+07:59.640 --> 08:05.560
+So for example, we see two processes, so you can imagine that's two IROGAM processes
+
+08:05.560 --> 08:10.960
+and at the end for UID4, the two processes assign the same UID for different emails and
+
+08:10.960 --> 08:14.080
+when the other one learns it, there is a conflict.
+
+08:14.080 --> 08:19.360
+And so in our implementation, assigning a UID is a log and we have an event log that
+
+08:19.360 --> 08:24.080
+is not totally ordered but only causally ordered and we have a proven algorithm to solve conflict
+
+08:24.080 --> 08:26.440
+and compute a new UID validity.
+
+08:26.440 --> 08:31.200
+Also there is a proof in our documentation, if you want to read it or to review it, we
+
+08:31.200 --> 08:36.040
+are interested and we try to be as clever as possible when we synchronize this event
+
+08:36.040 --> 08:39.520
+log to reduce the conflict window.
+
+08:39.520 --> 08:42.720
+And so you might say we are cheating because we are changing the problem.
+
+08:42.720 --> 08:49.520
+We don't try to have monotonic UID but we try this time to handle correctly conflicts.
+
+08:49.520 --> 08:53.600
+And yes, it's true but I have two arguments.
+
+08:54.320 --> 08:57.440
+Often people are tweaking raft and they are doing bad things.
+
+08:57.440 --> 09:02.240
+And I have two examples when in Kubernetes, an issue that has been opened like six years
+
+09:02.240 --> 09:10.040
+ago and it's still open because they are violating some invariance due to a caching of raft for
+
+09:10.040 --> 09:15.040
+performance reasons and another one is the post-mortem of GitHub where they also use
+
+09:15.040 --> 09:17.720
+raft which is a strong consistent algorithm.
+
+09:17.840 --> 09:24.160
+And they say that and they show that they have done some optimizations that break some
+
+09:24.160 --> 09:26.240
+invariance of the protocol.
+
+09:26.240 --> 09:31.640
+And you can reduce the risk of conflicts as much as you can.
+
+09:31.640 --> 09:36.720
+So the most important was to have the correct solutions.
+
+09:36.720 --> 09:43.840
+And so if you want you can put a multiplexer in front of a irogram and redirect all the
+
+09:43.840 --> 09:49.800
+same user to the same server and so you will reduce even more the risk of having a conflict.
+
+09:49.800 --> 09:53.320
+So talk is cheap, show me the mail server.
+
+09:53.320 --> 09:59.040
+So I will be quick on this part but I've tried the deployment in France, in Netherlands,
+
+09:59.040 --> 10:00.040
+in Poland.
+
+10:00.040 --> 10:03.640
+And so you have some screen shot and you can check the IP address.
+
+10:03.640 --> 10:06.200
+There are some IMAG server listening on.
+
+10:06.200 --> 10:08.600
+And on each region, this is the deployment.
+
+10:08.600 --> 10:14.120
+This is connected to post-fix through the LMTP protocol.
+
+10:14.120 --> 10:16.160
+We have implemented in irogram.
+
+10:16.160 --> 10:22.760
+And irogram is a state-less software and so all the data managed by Garage which is in
+
+10:22.760 --> 10:28.920
+fact doing the magic behind the scene with is a geo distributed design.
+
+10:28.920 --> 10:29.920
+Yes.
+
+10:29.920 --> 10:33.640
+And I have a demo.
+
+10:33.640 --> 10:52.800
+So I will try to show you.
+
+10:52.800 --> 10:59.720
+So I'm just using something like NetCAD to connect and show you that there is an irogram
+
+10:59.720 --> 11:04.080
+server listening behind the domain name.
+
+11:04.080 --> 11:11.800
+And after that, I have configured this iMAG server on my phone.
+
+11:11.800 --> 11:14.240
+And you can see that I have a mailbox.
+
+11:14.240 --> 11:16.280
+And now there is a Gmail.
+
+11:16.280 --> 11:25.440
+It's the Gmail web UI and I will send an email to this server, to this multi-region server.
+
+11:25.440 --> 11:34.840
+And so the email is sent and now we will wait until it's received both on the phone and
+
+11:34.840 --> 11:36.920
+the computer behind.
+
+11:36.920 --> 11:49.120
+And that's it.
+
+11:49.120 --> 11:52.120
+So that's the conclusion.
+
+11:52.120 --> 11:55.360
+So we started with three ideas.
+
+11:55.360 --> 11:57.480
+And so this is the answer.
+
+11:57.480 --> 12:00.440
+So irogram is designed from the ground up for reliability.
+
+12:00.440 --> 12:05.800
+So it was the most important thing to us.
+
+12:05.800 --> 12:14.040
+And we decided to tolerate UID conflicts instead of trying to be to enforce monotonic UIDs.
+
+12:14.040 --> 12:17.520
+And so we tried to handle them correctly and minimize them.
+
+12:17.520 --> 12:22.720
+And finally, we want to prove that irogram already works in real environments.
+
+12:22.720 --> 12:26.840
+But irogram is still a technological preview.
+
+12:26.840 --> 12:28.520
+And it's not yet deployed in production.
+
+12:28.520 --> 12:31.440
+So be very careful when using it.
+
+12:31.440 --> 12:33.240
+Don't use it for real workloads.
+
+12:33.240 --> 12:41.120
+No, I think during this year we will deploy it on infrastructure for real users.
+
+12:41.120 --> 12:45.560
+And that's one of the future work we will do as much user testing as we can because we
+
+12:45.560 --> 12:49.120
+don't want to lose important information for people.
+
+12:49.120 --> 12:52.320
+And we also plan to implement KALDAV and CARDAV.
+
+12:52.320 --> 12:55.840
+And maybe in the end, envision irogram as a group.
+
+12:55.840 --> 13:00.000
+And something that's so important is performance measurements and improvements.
+
+13:00.000 --> 13:06.640
+And I can say that many design choices we have done will result in the fact that irogram
+
+13:06.640 --> 13:11.200
+might use a bit more CPU or memory than your regular email server.
+
+13:11.200 --> 13:15.000
+And you have to take also into account this fact.
+
+13:15.000 --> 13:19.120
+So thanks for listening and I cannot start questions if you want.
+
+13:19.120 --> 13:25.840
+Thank you very much.
+
+13:25.840 --> 13:30.800
+I see one question over there.
+
+13:30.800 --> 13:32.880
+Gentlemen in red.
+
+13:32.880 --> 13:39.240
+So first, thank you very much for this design.
+
+13:39.240 --> 13:44.200
+I've been working on distributed email for quite a bit.
+
+13:44.200 --> 13:50.120
+And UID generation is part of the story.
+
+13:50.120 --> 13:58.280
+What is your approach with keeping the IMAP session synchronized, especially the modification
+
+13:58.280 --> 14:05.800
+sequence to UID mapping, IMAP ideally, and other things like that with such design?
+
+14:06.800 --> 14:08.240
+OK.
+
+14:08.240 --> 14:16.040
+So we are handling the synchronization, the rest of the synchronization in the IMAP protocol.
+
+14:16.040 --> 14:19.920
+So we have a view and ways that we are maintaining.
+
+14:19.920 --> 14:23.760
+And so as I've said, we have an event log.
+
+14:23.760 --> 14:31.440
+And each irogram server sessions are watching the event log that is stored in garage.
+
+14:31.440 --> 14:36.440
+And so when there is a change, we compute the difference.
+
+14:36.440 --> 14:40.440
+All right.
+
+14:40.440 --> 14:46.960
+Further questions?
+
+14:46.960 --> 14:47.960
+Last call?
+
+14:47.960 --> 14:48.960
+OK.
+
+14:48.960 --> 14:49.960
+So.
+
+14:49.960 --> 14:54.680
+Ah, there's one.
+
+14:54.680 --> 14:57.120
+Can you say it just again shortly?
+
+14:57.120 --> 14:59.160
+What is garage exactly in a few words?
+
+14:59.160 --> 15:00.800
+Can you say a bit about this?
+
+15:00.800 --> 15:05.200
+So we say that garage is a distributed data store.
+
+15:05.200 --> 15:13.760
+So there is one API that is S3, which we call often object storage.
+
+15:13.760 --> 15:19.160
+So it's like a file system, but with way, way, way less features.
+
+15:19.160 --> 15:24.640
+So it makes possible to have efficient distributed deployments.
+
+15:24.640 --> 15:36.160
+And garage is inspired by a research paper entitled Dynamo by Amazon.
+
+15:36.160 --> 15:40.120
+And it's a design of a key value store.
+
+15:40.120 --> 15:48.920
+And garage has a second API, which is named K2V, which is very similar to also Raya KV.
+
+15:48.920 --> 15:54.000
+If you know Bashow, it was a company and they don't exist anymore.
+
+15:54.760 --> 16:00.320
+So garage is really about replicating your data and making them available.
+
+16:00.320 --> 16:06.520
+And you have this API about object storage, but we have this key value API.
+
+16:06.520 --> 16:10.480
+And so it's really the foundation of your data layer.
+
+16:10.480 --> 16:12.440
+And that's a new way, I think.
+
+16:12.440 --> 16:15.120
+And that's what we wanted to prove with Irogan.
+
+16:15.120 --> 16:22.680
+But we can design applications a bit different and use not only for
+
+16:22.680 --> 16:28.840
+a garage for binary blobs, but also for that lightweight database used.
+
+16:34.080 --> 16:39.560
+So I think I understood from the website that you also encrypt data addressed.
+
+16:39.560 --> 16:41.120
+But you haven't mentioned that at all.
+
+16:41.120 --> 16:41.520
+Yes.
+
+16:41.520 --> 16:42.520
+You're doing it, right?
+
+16:42.520 --> 16:43.600
+Yes, we are doing it.
+
+16:43.600 --> 16:45.440
+It's in the code and it's a choice.
+
+16:45.440 --> 16:48.680
+Maybe we are keeping it for the next year, probably.
+
+16:48.680 --> 16:55.200
+But sure, yes, in garage, all data is encrypted with a key that is derived from
+
+16:55.200 --> 16:56.400
+your password.
+
+16:56.400 --> 17:01.760
+And so when the data that are stored in garage are always encrypted.
+
+17:01.760 --> 17:08.680
+And the data is in plain text only in the Irogan process memory.
+
+17:09.640 --> 17:13.600
+But it's not really ready.
+
+17:13.600 --> 17:17.840
+We have to find as many things, but we have many ideas about that.
+
+17:19.960 --> 17:21.720
+All right, thank you very much again.
+
+17:21.720 --> 17:25.680
+And I think we will head over to already mentioned Apache James.
+

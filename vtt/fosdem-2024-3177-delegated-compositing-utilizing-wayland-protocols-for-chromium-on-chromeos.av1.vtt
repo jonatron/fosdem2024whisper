@@ -1,0 +1,638 @@
+WEBVTT
+
+00:00.000 --> 00:11.400
+So, hello everyone.
+
+00:11.400 --> 00:12.400
+My name is Maxim.
+
+00:12.400 --> 00:18.520
+I'm a browser engineer from EGALIA and today we are going to talk about the delegated compositing
+
+00:18.520 --> 00:24.200
+utilizing Willem protocols for Chromium on ChromoS.
+
+00:24.200 --> 00:26.400
+And here's our today's agenda.
+
+00:26.400 --> 00:32.000
+So first we talk about the goals and the motivations of the project, why we have Willem
+
+00:32.000 --> 00:35.480
+on ChromoS and why it's in Chromium.
+
+00:35.480 --> 00:39.120
+Then I will talk a little bit about what lacrosse is.
+
+00:39.120 --> 00:44.840
+Also I will need to cover a little bit about the Chromium display compositor to give you
+
+00:44.840 --> 00:50.920
+some of the ideas, why, how it works and why we actually needed the delegated compositing
+
+00:50.920 --> 00:51.920
+there.
+
+00:51.920 --> 00:58.640
+Then about the delegated compositing itself, the Willem protocols and a big picture of
+
+00:58.640 --> 01:01.720
+what we actually have.
+
+01:01.720 --> 01:06.000
+So Chromium and Willem on ChromoS.
+
+01:06.000 --> 01:12.400
+So there are quite a few vendors who are shipping ChromoS on their devices and as soon as the
+
+01:12.400 --> 01:15.680
+devices become, well, they are aging, right?
+
+01:15.680 --> 01:19.600
+So they are not receiving the updates.
+
+01:19.600 --> 01:26.000
+That results in having them with the old browser and so on.
+
+01:26.000 --> 01:31.360
+So in order to improve that and improve the maintainability of the devices, it was decided
+
+01:31.360 --> 01:37.760
+to split the Chrome browser from the ChromoS system itself because they are tied together.
+
+01:37.760 --> 01:44.880
+And that would also make it possible to receive them the browser updates.
+
+01:44.880 --> 01:47.160
+But how is it possible to do that?
+
+01:47.160 --> 01:52.720
+So the idea was to decouple the browser, as I said, from the operating system itself.
+
+01:52.720 --> 01:55.240
+That was called the lacrosse project.
+
+01:55.240 --> 02:01.120
+And the ChromoS itself, it has a system UI and the window manager called Ash.
+
+02:01.120 --> 02:05.760
+And yeah, Chrome was tied to that operating system.
+
+02:05.760 --> 02:11.280
+And at this point, there was also a Willem implementation already in ChromoS and it was
+
+02:11.280 --> 02:13.480
+decided to use Willem.
+
+02:13.480 --> 02:20.480
+So basically in 2015, if I'm not mistaken, the ChromoS received an own Willem's
+
+02:20.480 --> 02:24.000
+version of the implementation called Exosphere.
+
+02:24.000 --> 02:30.400
+It's currently used by ARC to run 100 apps on the ChromoS and also Crestini to run Linux
+
+02:30.400 --> 02:31.920
+apps.
+
+02:31.920 --> 02:40.880
+And in about 2016, we started to port Chromium to Willem and on Linux, you can use Chromium
+
+02:40.880 --> 02:44.240
+with Headless, X11 and Willem.
+
+02:44.240 --> 02:51.840
+So it was kind of a natural choice to employ that implementation and have a browser running
+
+02:51.840 --> 02:53.840
+them.
+
+02:53.840 --> 02:58.840
+And basically Willem is used for graphics and the wind handlings with stable protocols
+
+02:58.840 --> 03:04.000
+employed and also with some custom extensions employed.
+
+03:04.000 --> 03:09.400
+And for the high level features like file picking, Cross API is used.
+
+03:09.400 --> 03:13.800
+Well, it's basically Google's implementation called Moja IPC.
+
+03:13.800 --> 03:19.080
+This is similar to Win32 and Cocoa.
+
+03:19.080 --> 03:21.080
+But what is Lacrosse?
+
+03:21.080 --> 03:27.040
+So Lacrosse is a project to decouple the Chrome browser from the Chrome OS window manager
+
+03:27.040 --> 03:29.440
+called Ash from the System UI.
+
+03:29.440 --> 03:35.000
+So on this box, on the green box, you see the Chrome OS operating system.
+
+03:35.000 --> 03:40.640
+And on the yellow box, you can see the Lacrosse browser, which using Welland backend through
+
+03:40.640 --> 03:41.880
+the Ozone layer.
+
+03:41.880 --> 03:47.440
+The Ozone layer is basically an abstraction in the Chromium browser, which allows you
+
+03:47.440 --> 03:49.040
+to implement on backend.
+
+03:49.040 --> 03:52.520
+And as a sent on Linux, it's X11, Headless and Welland.
+
+03:52.520 --> 03:55.280
+And it's switchable in the runtime.
+
+03:55.280 --> 04:03.200
+For the ChromoS itself, it runs on the DRAM, but you can also use like X11 and run ChromoS
+
+04:03.200 --> 04:06.360
+emulator on your Linux device.
+
+04:06.360 --> 04:11.720
+So the Lacrosse is using Welland to communicate with Exo, which is in built in the Chrome
+
+04:11.720 --> 04:20.360
+OS, which actually forwards the input devices and has some graphics communication there.
+
+04:20.360 --> 04:22.280
+But there was a problem.
+
+04:22.280 --> 04:26.440
+So this split resulted in performance and resource cost.
+
+04:26.440 --> 04:30.840
+But why and how to mitigate that?
+
+04:31.280 --> 04:36.960
+To understand why it was causing a problem, we need to switch to the Chromium display
+
+04:36.960 --> 04:45.160
+compositor and understand a little bit how actually Chromium draws frames.
+
+04:45.160 --> 04:52.800
+So as you may know, Chromium has multi-architecture, multi-process architecture.
+
+04:52.800 --> 04:56.800
+So we have a GPU process or this service process.
+
+04:56.800 --> 05:02.280
+And also we have clients, which are the render process, the browser process.
+
+05:02.280 --> 05:08.080
+There's also this video client, which sends the video frames.
+
+05:08.080 --> 05:13.400
+So basically, we call them the frame things.
+
+05:13.400 --> 05:22.680
+And basically, the way how it works is that if we are talking about this GPU acceleration
+
+05:22.680 --> 05:27.720
+and the GPU rasterization, the way how it works is that, for example, if we take the
+
+05:27.720 --> 05:33.040
+render process, it prepares paint operations for the compositor frame.
+
+05:33.040 --> 05:39.400
+Then when we are preparing the final compositor frame, we submit those paint operations to
+
+05:39.400 --> 05:41.560
+ski on the GPU process.
+
+05:41.560 --> 05:43.600
+That is called the GPU rasterization.
+
+05:43.600 --> 05:45.720
+And we prepare textures.
+
+05:45.720 --> 05:52.640
+And these textures basically represent tiles if we divide the whole window to the tiles.
+
+05:52.640 --> 05:54.720
+So those represent tiles.
+
+05:54.720 --> 06:00.840
+And the compositor frames, they have references to the tiles, including some frame data like
+
+06:00.840 --> 06:05.880
+masks, filters, clipping, and other stuff.
+
+06:05.880 --> 06:11.600
+And on the right side, you can see the vService process or simply GPU process.
+
+06:11.600 --> 06:14.240
+It represents clients as surfaces.
+
+06:14.240 --> 06:17.200
+And each of the surfaces has own compositor frame.
+
+06:17.200 --> 06:24.440
+So we need to aggregate all the surfaces into a single compositor frame and do the final
+
+06:24.440 --> 06:28.160
+compositing.
+
+06:28.160 --> 06:34.000
+So this is a high-level picture, high-level overview of how it was working before the delegated
+
+06:34.000 --> 06:35.000
+compositing.
+
+06:35.000 --> 06:41.840
+So Lacrosse was aggregating the quads that would end up creating a final surface.
+
+06:41.840 --> 06:46.480
+And that final surface was, of course, represented by Zingobuffer.
+
+06:46.480 --> 06:50.400
+It was sent over Weyland to Exo.
+
+06:50.400 --> 06:58.720
+Then in the Ashcromb site, Ashcromb you can call HromoS, it was like maybe getting some
+
+06:58.720 --> 07:05.440
+other frames from other windows, I don't know, some system settings if you open that one.
+
+07:05.440 --> 07:11.000
+And it was doing the compositing once again in this step.
+
+07:11.000 --> 07:17.280
+So that resulted in double compositing and bigel resources overhead.
+
+07:17.280 --> 07:19.720
+But how to fix that?
+
+07:19.720 --> 07:23.200
+And the solution to that was to use the delegated compositing.
+
+07:23.200 --> 07:30.280
+So basically, we left the aggregation step, we created our final compositor frame, but
+
+07:30.280 --> 07:37.520
+the quads that we got, which are basically the textures, all of them must have been sent
+
+07:37.520 --> 07:45.320
+over Weyland protocol to Ash for the final compositing.
+
+07:45.320 --> 07:53.620
+And of course, I need to say, basically, this is about serializing the HromoS compositor
+
+07:53.620 --> 07:59.120
+frame, sending over a couple of IPCs through Weyland to Ash.
+
+07:59.120 --> 08:08.840
+And basically, it was at this stage, deserializing the data that it received, and it basically
+
+08:08.840 --> 08:17.800
+created, must have been creating the same kind of browser frame for the final compositing.
+
+08:17.800 --> 08:23.800
+And in order to achieve that, a couple of, well, at first I was thinking that there's
+
+08:23.800 --> 08:28.440
+actually more things we implemented, like some custom things.
+
+08:28.440 --> 08:31.640
+But in the end, it wasn't that much.
+
+08:31.640 --> 08:35.000
+So Weyland subsurface, that is standard, right?
+
+08:35.000 --> 08:41.760
+Each quad and, well, let's say we were sending quads as overlays, they were represented by
+
+08:41.760 --> 08:43.320
+own surface.
+
+08:43.320 --> 08:50.480
+Of course, Weyland buffers and explicit synchronization protocol, because we want the job to be asynchronous.
+
+08:50.480 --> 08:56.760
+And the main thing is surface augmenter, right?
+
+08:56.760 --> 09:05.840
+Because we wanted to have this data to be sent from Hromo, Hromo browser, basically,
+
+09:05.840 --> 09:11.520
+the compositor frame, with this additional information like rounder corners, clipping,
+
+09:11.520 --> 09:15.200
+also pixel precision, this is one of the important things.
+
+09:15.200 --> 09:21.200
+And we needed to make our own protocol extending the Weyland surface.
+
+09:21.200 --> 09:28.280
+Also we used, in the beginning, we used our own protocol for the single color buffers,
+
+09:28.280 --> 09:34.440
+but as soon as in the upstream, there is now, right now, a single pixel buffer protocol,
+
+09:34.440 --> 09:40.120
+we just employ that one, so that we don't need to create a real buffer.
+
+09:40.120 --> 09:48.680
+At first, when nothing was there, we were just clearing a buffer to a certain color,
+
+09:48.680 --> 09:51.360
+but that's not really efficient.
+
+09:51.360 --> 09:59.000
+Yeah, why we also needed to pass this kind of round-end corner and clipping information?
+
+09:59.000 --> 10:07.840
+And the reason to that one is basically because when Hromo sends, it thrusterizes the quads
+
+10:07.840 --> 10:11.760
+to the textures, those do not have any masks, right?
+
+10:11.760 --> 10:20.400
+So when we do the final compositing step, we apply those mask filters and so on and send
+
+10:20.400 --> 10:25.520
+them to Skiya, which does the final picture for us.
+
+10:25.520 --> 10:34.280
+And for the pixel precision, the problem is that Hromo basically works with the pixels,
+
+10:34.280 --> 10:41.240
+and as long as Weyland uses deeps, it resulted in some pixels losses.
+
+10:41.240 --> 10:47.960
+And when it was compositing the quads together, we could see some of the glitches.
+
+10:47.960 --> 10:56.440
+For that, to overcome that, we actually added some additional stuff to the surface segmenter
+
+10:56.440 --> 11:03.400
+and started to pass this information using VLFixed, basically, which allows us to use
+
+11:03.400 --> 11:05.160
+some floating wallets.
+
+11:05.160 --> 11:12.920
+It was also required to update the VP port, this destination, and some of the other stuff,
+
+11:12.920 --> 11:20.160
+like setting trust form, setting trusted damage, because when we, for example, change the order
+
+11:20.160 --> 11:28.480
+of the Weyland subsurface, this Z-order, at some point, we don't need to recalculate the
+
+11:28.480 --> 11:31.080
+damage or do we need to recalculate that?
+
+11:31.080 --> 11:36.280
+So basically, all that is managed with this additional fact.
+
+11:36.280 --> 11:42.520
+And there can be some other stuff, but I would say that was the most important one.
+
+11:42.520 --> 11:48.240
+And so this is the big picture how everything is implemented.
+
+11:48.240 --> 11:53.960
+So we have, like, on the top, Lacros viz process and the Lacros browser.
+
+11:53.960 --> 12:01.640
+So Lacros viz is basically preparing the frame with the quads and sends over the Weyland
+
+12:01.640 --> 12:10.920
+to the ashram, which then creates the same compositor frame as Lacros would have if it
+
+12:10.920 --> 12:16.120
+wasn't delegating but was compositing itself.
+
+12:16.120 --> 12:21.240
+Prepares the final frame, prepares the overlay and sends it to the DRM and that's it.
+
+12:21.240 --> 12:31.040
+You have the final frame with the system UI and the browser content as well.
+
+12:31.040 --> 12:33.040
+That's it.
+
+12:33.040 --> 12:34.040
+Questions?
+
+12:34.040 --> 12:37.040
+No, go ahead.
+
+12:37.040 --> 12:38.040
+Yes?
+
+12:38.040 --> 13:01.840
+Well, I can just repeat the question.
+
+13:01.840 --> 13:13.520
+Okay, so the question was whether the GTK and QT can also benefit from that.
+
+13:13.520 --> 13:17.160
+Do you mean the Chromium browser or you mean itself?
+
+13:17.160 --> 13:23.840
+No, just regular apps using GTK or QT.
+
+13:23.840 --> 13:25.720
+Yeah, I think so.
+
+13:25.720 --> 13:29.280
+Basically, if it's possible to have the double compositing, it is possible.
+
+13:29.760 --> 13:39.400
+We had to use some additional protocols because as long as Chromo is a really closed environment,
+
+13:39.400 --> 13:44.440
+we can do whatever is possible, whatever is convenient for us.
+
+13:44.440 --> 13:52.360
+But I think that is possible for the GTK and get this improvement of the performance as
+
+13:52.360 --> 13:56.400
+well because if the Weyland compositor can do that, why not?
+
+13:57.400 --> 14:03.920
+Yeah, basically in similar direction, but the Chromium on a regular Linux Weyland compositor,
+
+14:03.920 --> 14:09.720
+I mean, that would benefit from such features as well.
+
+14:09.720 --> 14:12.160
+I mean, there is double compositing again.
+
+14:12.160 --> 14:19.480
+So, have you looked at getting up to or generic protocols to manage that?
+
+14:19.480 --> 14:22.880
+So, now you have custom protocols, right?
+
+14:22.880 --> 14:28.200
+But for it to work on a regular Linux Uniday, yeah, a generic protocol.
+
+14:28.200 --> 14:30.040
+Do you look at doing that?
+
+14:30.040 --> 14:36.680
+So the question is basically about if Chromium Linux can benefit from the same implementation
+
+14:36.680 --> 14:45.640
+and whether we considered creating some generic protocol and upstream that.
+
+14:45.640 --> 14:59.160
+Well, if we get back to this pixel precision and the rounding corners, for the pixel precision,
+
+14:59.160 --> 15:04.840
+if the browser doesn't work in some custom scale, it's one, right?
+
+15:04.840 --> 15:07.600
+So it's fine, we don't need this kind of protocol.
+
+15:07.600 --> 15:15.360
+But for the rounded corners, well, probably we could do something like do this processing
+
+15:15.360 --> 15:19.360
+on the Chromium side, but it's not very efficient, right?
+
+15:19.360 --> 15:27.880
+Well, it should be possible, but creating a protocol and upstreaming that, it will take
+
+15:27.880 --> 15:30.160
+some quite some time.
+
+15:30.160 --> 15:36.600
+I personally did not thought about that, but it's an interesting concept for the future,
+
+15:36.600 --> 15:37.600
+of course.
+
+15:37.600 --> 15:44.240
+I mean, especially for embedded, it can also help if you, I'm guessing part of the subsurface
+
+15:44.240 --> 15:48.520
+is offered, for example, the video in the browser.
+
+15:48.520 --> 15:56.920
+If the compositor on the embedded device can then put that video on the plane, the rest
+
+15:56.920 --> 16:01.080
+is not branded, then you can benefit from these kind of things much more easily.
+
+16:01.080 --> 16:02.080
+Yes, of course.
+
+16:02.080 --> 16:07.240
+Do you delegate all the compositing and the compositor can decide what to put on the plane?
+
+16:07.240 --> 16:12.160
+Well, at least we can submit this video frame as an overlay.
+
+16:12.160 --> 16:20.920
+If I'm not mistaken, there was a, from somebody doing this, this forwarding Chromium, if I'm
+
+16:20.920 --> 16:23.600
+not mistaken, I actually saw this by the patches.
+
+16:23.600 --> 16:28.000
+I think that landed from the problem later.
+
+16:28.000 --> 16:29.760
+Yeah, probably, probably, yes.
+
+16:29.880 --> 16:31.680
+I didn't pay attention to that.
+
+16:31.680 --> 16:33.480
+I was busy with the Chromium itself.
+
+16:33.480 --> 16:34.480
+Yeah.
+
+16:34.480 --> 16:35.480
+Yes.
+
+16:35.480 --> 16:38.480
+What's the granularity of these subsurances?
+
+16:38.480 --> 16:43.480
+Like, how many would you expect to have on a regular webpage?
+
+16:43.480 --> 16:51.480
+Are we talking like almost every screen element or is it the more hard to think?
+
+16:51.480 --> 16:54.480
+Are you compared to like CIL?
+
+16:54.480 --> 16:58.480
+Well, if you just take a normal page, right?
+
+16:59.200 --> 17:05.520
+So, the question is how many subsurances we are going to have, I mean, how the page is
+
+17:05.520 --> 17:13.040
+itself like divided, whether we are going to have each, for the each element, sub-sub-surface
+
+17:13.040 --> 17:16.200
+or it's kind of done in other way.
+
+17:16.200 --> 17:25.160
+Well, basically, if you imagine a page, right, as a simple page, there are no additional
+
+17:25.200 --> 17:30.720
+textures and so on, we can split the page to the tiles, like there will be, I don't
+
+17:30.720 --> 17:34.760
+know how many, maybe six tiles, something like that.
+
+17:34.760 --> 17:37.680
+So, basically, this is how much you are going to send.
+
+17:37.680 --> 17:43.680
+But if you take like, for example, motion mark, right, there are some tests, like images
+
+17:43.680 --> 17:48.040
+tests, it can create hundreds of those textures.
+
+17:48.040 --> 17:52.400
+Then we are starting to send all of them over the pipe.
+
+17:52.400 --> 17:53.880
+But there is a limit for the IPC.
+
+17:54.080 --> 17:58.400
+So, we have to limit this, the number of quads that we are able to send.
+
+17:58.400 --> 18:02.480
+And if I'm not mistaken, it's limited right now to 50.
+
+18:02.480 --> 18:08.040
+Because after this while you, it just doesn't make sense to do any delegation.
+
+18:08.040 --> 18:13.480
+It's kind of become too expensive in terms of, I mean, there will be too many subsurances.
+
+18:13.480 --> 18:18.320
+If we could like squash this together, that would definitely help.
+
+18:18.320 --> 18:23.120
+Because it seems like it wasn't like a use case that was thought when the
+
+18:23.120 --> 18:25.240
+wheel and was designed.
+
+18:28.440 --> 18:29.600
+So, any other questions?
+
+18:32.320 --> 18:32.720
+Thank you.
+

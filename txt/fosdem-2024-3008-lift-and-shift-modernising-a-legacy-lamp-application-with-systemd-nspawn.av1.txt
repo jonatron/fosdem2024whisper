@@ -1,0 +1,194 @@
+So, next up is going to be Martin, who is going to be talking to us about lift and shift
+modernizing a legacy lamp application with system B and spawn.
+Hi, everybody.
+Welcome.
+So the last time I spoke at this conference a few years ago, it was in the microkernel
+dev room.
+It was a very small room.
+So the bigger the kernel, the bigger the room, I guess.
+So I'm going to start with a little bit of backstory.
+One evening about a year ago, I got a phone call from a friend, a principal at a school,
+saying, Martin, I need help with something.
+Our sole IT person that's worked here for 20 years has decided that they're just going
+to go off to the mountains and leave, and they're off in about a month.
+And I have no idea what state-house systems are around.
+I know nothing about that.
+I need someone I can trust who can step in and help.
+So I originally came in there as a consultant to look at what systems they had and figure
+out what the next steps were.
+I'm still there.
+It's still temporary.
+And I'm going to tell you a little bit about what I did over the last year there concentrating
+on the containers.
+So they weren't kidding when they said it was in a bad state.
+The critical application that the school ran on was running on one single server, along
+with a whole bunch of other stuff, pretty much everything else.
+And you can see here that that server basically dates back to 2009.
+Someone at some point tried to upgrade it from Debian Edge to Debian Leni.
+They failed, or they gave up, partly because from Edge to Leni, you had the transition
+from PHP 4 to PHP 5.
+I did a quick naive slot count of what's in Vah-dub-dub-dub HTML.
+There's 200 something thousand lines of PHP.
+It turns out that this person did not use source control.
+So there's a hell of a lot of duplication in there.
+And it's also very much a typical crud app, as you would design it 20 years ago.
+So it's all just very basic PHP with hidden HTML mix, the worst possible thing you could
+have.
+But at the same time, it's very simple as an application, which turns out helped us later.
+So my naive plan, how do I salvage this, try and extract as much business and technical
+knowledge from the author before they leave and never come back?
+And then virtualize all the things, secure all the obvious attack surfaces.
+I mean, this was still running TLS version 1.
+It had Apache 1.3 exposed to the internet, worst possible cases.
+So then split off the business critical system from all the other things that were running
+on that server.
+Do that in a way that's as future-proof and maintainable as I can.
+All while keeping it running and not getting killed by 550 students and 100 odd employees
+during the school year.
+The first two steps were pretty obvious.
+They had some new hardware lying around.
+I spun up a hypervisor.
+I had a bunch of VMs.
+So put the physical server into VMs, started splitting chunks off it.
+That turned out to be hard.
+So I eventually decided that I needed a way of reproducing this 15-year-old environment.
+Reproducing it in a way that I could then develop with, maintain with modern tools,
+source control and so on.
+So the nice thing here is I found that the Debian community have developed something
+called Debian EOL, which are basically Docker images of end-of-life Debian releases, all
+of them going way, way, way, way back.
+You can use these images to run both Docker containers or to do whatever else you want
+with them.
+The nice thing about them also is that they're actually integrated into the modern infrastructure
+so that pointing at archive.debian.org, you can, as you'll see, install additional software
+and so on.
+I could have probably done this with Docker, but it doesn't really fit the bill because
+this application, I mean, it's never going to be a 12-factor app with a bunch of microservices.
+I needed something that's more like previous Dejails or Flourish Zones.
+And I've previously used SystemDnSpawn.
+I use it, in fact, today to run a bunch of my own infrastructure, which was originally
+a bunch of Zen PVVMs and is now happily running for many years as SystemDnSpawn containers.
+So you want something that can do full system containers that's available, lightweight,
+and flexible.
+So how do we get Debian Lenny from 2009 running, using these Debian EOL images with SystemDnSpawn?
+We need a couple of tools, something called Scopo and OCI Image tool, to get the images
+off the Docker registry, flatten the OCI image, you basically end up with a root file system.
+You then, what I do is I use, the reason I'm emphasizing RefLink here, I didn't know about
+that, it's basically copy on write.
+So you can use this to create a lightweight copy of an entire directory tree, which only
+takes up more space if you actually change things in it.
+So, you try and run this, previally with SystemDnSpawn, and you find bam, it's safe false.
+Thankfully, we actually get a helpful message from the kernel saying, ooh, you tried to
+do VSys calls, but no, we don't do that anymore.
+We can fix that, that's fairly easy, and we can see that, oh look, we have Debian Lenny
+running in a SystemDnSpawn container.
+Okay, that's great, and if that was all I was going to tell you today, then that probably
+wouldn't be very interesting.
+But if all we want is Ben SH and that to get, that's fine, but I want this full system where
+I basically want to run full SBIT in it, inside the container to manage all the original
+LAMP stack services to run the application.
+I want to integrate the container's networking with the host system's SystemDnetworkD, and
+get a dev log in it, get, use username spacing, and start and stop the container as part
+of the normal host system boot process.
+So I made a script for this, I extracted this out of my build scripts so that you don't
+have to.
+There's a link to it also in the resources for this talk.
+Please take a look.
+So this script basically gives you a Debian Lenny root file system that has all the things
+applied to it to let you do the first, the steps that are described here.
+I spent quite a bit of time working that out, so I hope people will find that useful.
+You can then do, with that root file system, you get out of that script, you can boot
+the resulting root of this, like this.
+The important parts there are private users, private users equals pick, that turns on username
+spacing, so your container root gets, automatically gets a special user ID in a range mapped
+to it, which system dns-born will pick when that particular root file system is started.
+And you get a VF network talking to the host.
+Kill signal equals SIGINT, we want that so that when the host system, if you run this
+container as unit file tries to stop it, then the SIGINT gets sent to the sysvian as inside
+the container, and it will actually interpret that as a system shutdown and shutdown cleanly.
+So if you run that, you can log it on the console and you'll see that yes, we can shut
+down the container with control C.
+So there's a bunch of gotchas, networking, system d network d, you want this, since it
+integrates very well or bar some problems.
+Obviously your host needs IP forwarding enabled.
+As I found out today, or remembered today while making these slides at the hotel earlier
+today, if you're doing anything at all in your forward chain, since I was trying this
+top, then you need to make sure that forwarding is actually being accepted from and to container
+interfaces.
+Another really interesting one.
+So I'm still a DHCP client inside the container so that the container integrates with system
+d network d and gets a network address assigned to it when it spins up.
+Turns out that old DHCP clients are actually picky about getting proper checksums back
+in their responses.
+So if you don't add that particular mangle rule, then what will happen is your networking
+will appear to work and then mysteriously stop when the DHCP lease expires and the client
+tries to renew it and gets upset and you just see it renewing and renewing and nothing
+happens.
+So, system d journal d has a nice name spacing mechanism.
+It basically lets you spin up separate instances of system d journal d which have their own
+name space so you don't really want the container logs or different logs of the different instances
+mixing with the host logs.
+It works, but I had to actually read the source code of the system d main loop to figure out
+why it would just, after you start it, just mysteriously say, oh, no clients, I'm going
+away now.
+So the way to fix that, not described anywhere, is you add a drop and set your retention time
+to something high and then it will just wait around until something connects to devlog.
+Devlog you can then bind mount into the container.
+That's fairly straightforward.
+Starting up, start up and shut down integration.
+System d n spawn comes with a default unit file and you can then customize that.
+There are some useful things you can do there like you can add a dependency on your journal
+d namespace service so that everything nicely starts up and shuts down and there's an example
+of what you can start with exact start that if you want to use this particular arrangement.
+So I actually did this, or the bulk of it during the school holidays last summer.
+Application has been running fine since then.
+I was quite surprised.
+I could talk a lot more about PHP and MySQL 5 but that's mostly just be ranting.
+One thing that I didn't mention is the application is actually running all in CP1250 and not
+only that but originally the databases were all running still with MyISAM.
+So I ended up basically exporting the lot into SQL text files.
+Then I discovered that MySQL and PHP at this time didn't really understand character sets
+so the database thought that everything was Latin 1 when it in fact wasn't.
+Well, the way to fix that is again you export it to a text file making sure that the database
+or nothing tries to convert any of the data.
+Then you do a set on the text file and say just recreate, replace MyISAM everywhere with
+the InnoDB, replace Latin 1 with CP1250 and it actually worked.
+Still there.
+No data got corrupted.
+And it's 64 bit now so it won't fall over in 2038.
+So yeah and I'll end this with a quote for the conversation I had in the autumn with
+my long time friend Martin Sustrick who was asking, so you spent the last few years
+before that working on OS research with Unicernals and Docker and the University of Cambridge
+and so on.
+So what was more complicated?
+All this OS research that you were doing or the work you've been doing at the school
+over the last six months?
+And I said well definitely the work at the school over the last six months.
+And I still have 10 minutes.
+So in fact I guess questions.
+It was quicker than I thought.
+Yes sir.
+This man here?
+Sorry?
+The hyphen N option?
+Oh, ah yes.
+Okay so the reason you can't do that, in fact this is important and I sort of glossed over
+it here.
+That will only work.
+The journal D integration will only work if the distribution that's running inside the
+container is new enough.
+The Debbie and Lenny from 2009 does not have journal D, does not have system D, this predates
+it.
+So this is all running good old Cisvi S bin in it.
+So none of the integration that you'd expect, the fancy stuff that you get today with system
+D and spiral with machine Ctl if you use the full interface.
+If you run a system D distribution inside the container then your logging will just
+transparently get integrated with the host journal.
+Likewise you'll get things like machine Ctl login which will get you a TTY, a console
+that you can use to log into the container.
+We don't have that here because there is no system D, all of this relies on there being
+system D inside the container as well as on the host.
+It is exposed to the internet but not directly.
+So it's the first thing I did way back before I started on all of this.
+Right, number two here, secure the most obvious attack surfaces.
+I stuck a modern reverse proxy in front of it.

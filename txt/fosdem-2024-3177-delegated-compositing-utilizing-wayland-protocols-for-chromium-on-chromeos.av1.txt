@@ -1,0 +1,212 @@
+So, hello everyone.
+My name is Maxim.
+I'm a browser engineer from EGALIA and today we are going to talk about the delegated compositing
+utilizing Willem protocols for Chromium on ChromoS.
+And here's our today's agenda.
+So first we talk about the goals and the motivations of the project, why we have Willem
+on ChromoS and why it's in Chromium.
+Then I will talk a little bit about what lacrosse is.
+Also I will need to cover a little bit about the Chromium display compositor to give you
+some of the ideas, why, how it works and why we actually needed the delegated compositing
+there.
+Then about the delegated compositing itself, the Willem protocols and a big picture of
+what we actually have.
+So Chromium and Willem on ChromoS.
+So there are quite a few vendors who are shipping ChromoS on their devices and as soon as the
+devices become, well, they are aging, right?
+So they are not receiving the updates.
+That results in having them with the old browser and so on.
+So in order to improve that and improve the maintainability of the devices, it was decided
+to split the Chrome browser from the ChromoS system itself because they are tied together.
+And that would also make it possible to receive them the browser updates.
+But how is it possible to do that?
+So the idea was to decouple the browser, as I said, from the operating system itself.
+That was called the lacrosse project.
+And the ChromoS itself, it has a system UI and the window manager called Ash.
+And yeah, Chrome was tied to that operating system.
+And at this point, there was also a Willem implementation already in ChromoS and it was
+decided to use Willem.
+So basically in 2015, if I'm not mistaken, the ChromoS received an own Willem's
+version of the implementation called Exosphere.
+It's currently used by ARC to run 100 apps on the ChromoS and also Crestini to run Linux
+apps.
+And in about 2016, we started to port Chromium to Willem and on Linux, you can use Chromium
+with Headless, X11 and Willem.
+So it was kind of a natural choice to employ that implementation and have a browser running
+them.
+And basically Willem is used for graphics and the wind handlings with stable protocols
+employed and also with some custom extensions employed.
+And for the high level features like file picking, Cross API is used.
+Well, it's basically Google's implementation called Moja IPC.
+This is similar to Win32 and Cocoa.
+But what is Lacrosse?
+So Lacrosse is a project to decouple the Chrome browser from the Chrome OS window manager
+called Ash from the System UI.
+So on this box, on the green box, you see the Chrome OS operating system.
+And on the yellow box, you can see the Lacrosse browser, which using Welland backend through
+the Ozone layer.
+The Ozone layer is basically an abstraction in the Chromium browser, which allows you
+to implement on backend.
+And as a sent on Linux, it's X11, Headless and Welland.
+And it's switchable in the runtime.
+For the ChromoS itself, it runs on the DRAM, but you can also use like X11 and run ChromoS
+emulator on your Linux device.
+So the Lacrosse is using Welland to communicate with Exo, which is in built in the Chrome
+OS, which actually forwards the input devices and has some graphics communication there.
+But there was a problem.
+So this split resulted in performance and resource cost.
+But why and how to mitigate that?
+To understand why it was causing a problem, we need to switch to the Chromium display
+compositor and understand a little bit how actually Chromium draws frames.
+So as you may know, Chromium has multi-architecture, multi-process architecture.
+So we have a GPU process or this service process.
+And also we have clients, which are the render process, the browser process.
+There's also this video client, which sends the video frames.
+So basically, we call them the frame things.
+And basically, the way how it works is that if we are talking about this GPU acceleration
+and the GPU rasterization, the way how it works is that, for example, if we take the
+render process, it prepares paint operations for the compositor frame.
+Then when we are preparing the final compositor frame, we submit those paint operations to
+ski on the GPU process.
+That is called the GPU rasterization.
+And we prepare textures.
+And these textures basically represent tiles if we divide the whole window to the tiles.
+So those represent tiles.
+And the compositor frames, they have references to the tiles, including some frame data like
+masks, filters, clipping, and other stuff.
+And on the right side, you can see the vService process or simply GPU process.
+It represents clients as surfaces.
+And each of the surfaces has own compositor frame.
+So we need to aggregate all the surfaces into a single compositor frame and do the final
+compositing.
+So this is a high-level picture, high-level overview of how it was working before the delegated
+compositing.
+So Lacrosse was aggregating the quads that would end up creating a final surface.
+And that final surface was, of course, represented by Zingobuffer.
+It was sent over Weyland to Exo.
+Then in the Ashcromb site, Ashcromb you can call HromoS, it was like maybe getting some
+other frames from other windows, I don't know, some system settings if you open that one.
+And it was doing the compositing once again in this step.
+So that resulted in double compositing and bigel resources overhead.
+But how to fix that?
+And the solution to that was to use the delegated compositing.
+So basically, we left the aggregation step, we created our final compositor frame, but
+the quads that we got, which are basically the textures, all of them must have been sent
+over Weyland protocol to Ash for the final compositing.
+And of course, I need to say, basically, this is about serializing the HromoS compositor
+frame, sending over a couple of IPCs through Weyland to Ash.
+And basically, it was at this stage, deserializing the data that it received, and it basically
+created, must have been creating the same kind of browser frame for the final compositing.
+And in order to achieve that, a couple of, well, at first I was thinking that there's
+actually more things we implemented, like some custom things.
+But in the end, it wasn't that much.
+So Weyland subsurface, that is standard, right?
+Each quad and, well, let's say we were sending quads as overlays, they were represented by
+own surface.
+Of course, Weyland buffers and explicit synchronization protocol, because we want the job to be asynchronous.
+And the main thing is surface augmenter, right?
+Because we wanted to have this data to be sent from Hromo, Hromo browser, basically,
+the compositor frame, with this additional information like rounder corners, clipping,
+also pixel precision, this is one of the important things.
+And we needed to make our own protocol extending the Weyland surface.
+Also we used, in the beginning, we used our own protocol for the single color buffers,
+but as soon as in the upstream, there is now, right now, a single pixel buffer protocol,
+we just employ that one, so that we don't need to create a real buffer.
+At first, when nothing was there, we were just clearing a buffer to a certain color,
+but that's not really efficient.
+Yeah, why we also needed to pass this kind of round-end corner and clipping information?
+And the reason to that one is basically because when Hromo sends, it thrusterizes the quads
+to the textures, those do not have any masks, right?
+So when we do the final compositing step, we apply those mask filters and so on and send
+them to Skiya, which does the final picture for us.
+And for the pixel precision, the problem is that Hromo basically works with the pixels,
+and as long as Weyland uses deeps, it resulted in some pixels losses.
+And when it was compositing the quads together, we could see some of the glitches.
+For that, to overcome that, we actually added some additional stuff to the surface segmenter
+and started to pass this information using VLFixed, basically, which allows us to use
+some floating wallets.
+It was also required to update the VP port, this destination, and some of the other stuff,
+like setting trust form, setting trusted damage, because when we, for example, change the order
+of the Weyland subsurface, this Z-order, at some point, we don't need to recalculate the
+damage or do we need to recalculate that?
+So basically, all that is managed with this additional fact.
+And there can be some other stuff, but I would say that was the most important one.
+And so this is the big picture how everything is implemented.
+So we have, like, on the top, Lacros viz process and the Lacros browser.
+So Lacros viz is basically preparing the frame with the quads and sends over the Weyland
+to the ashram, which then creates the same compositor frame as Lacros would have if it
+wasn't delegating but was compositing itself.
+Prepares the final frame, prepares the overlay and sends it to the DRM and that's it.
+You have the final frame with the system UI and the browser content as well.
+That's it.
+Questions?
+No, go ahead.
+Yes?
+Well, I can just repeat the question.
+Okay, so the question was whether the GTK and QT can also benefit from that.
+Do you mean the Chromium browser or you mean itself?
+No, just regular apps using GTK or QT.
+Yeah, I think so.
+Basically, if it's possible to have the double compositing, it is possible.
+We had to use some additional protocols because as long as Chromo is a really closed environment,
+we can do whatever is possible, whatever is convenient for us.
+But I think that is possible for the GTK and get this improvement of the performance as
+well because if the Weyland compositor can do that, why not?
+Yeah, basically in similar direction, but the Chromium on a regular Linux Weyland compositor,
+I mean, that would benefit from such features as well.
+I mean, there is double compositing again.
+So, have you looked at getting up to or generic protocols to manage that?
+So, now you have custom protocols, right?
+But for it to work on a regular Linux Uniday, yeah, a generic protocol.
+Do you look at doing that?
+So the question is basically about if Chromium Linux can benefit from the same implementation
+and whether we considered creating some generic protocol and upstream that.
+Well, if we get back to this pixel precision and the rounding corners, for the pixel precision,
+if the browser doesn't work in some custom scale, it's one, right?
+So it's fine, we don't need this kind of protocol.
+But for the rounded corners, well, probably we could do something like do this processing
+on the Chromium side, but it's not very efficient, right?
+Well, it should be possible, but creating a protocol and upstreaming that, it will take
+some quite some time.
+I personally did not thought about that, but it's an interesting concept for the future,
+of course.
+I mean, especially for embedded, it can also help if you, I'm guessing part of the subsurface
+is offered, for example, the video in the browser.
+If the compositor on the embedded device can then put that video on the plane, the rest
+is not branded, then you can benefit from these kind of things much more easily.
+Yes, of course.
+Do you delegate all the compositing and the compositor can decide what to put on the plane?
+Well, at least we can submit this video frame as an overlay.
+If I'm not mistaken, there was a, from somebody doing this, this forwarding Chromium, if I'm
+not mistaken, I actually saw this by the patches.
+I think that landed from the problem later.
+Yeah, probably, probably, yes.
+I didn't pay attention to that.
+I was busy with the Chromium itself.
+Yeah.
+Yes.
+What's the granularity of these subsurances?
+Like, how many would you expect to have on a regular webpage?
+Are we talking like almost every screen element or is it the more hard to think?
+Are you compared to like CIL?
+Well, if you just take a normal page, right?
+So, the question is how many subsurances we are going to have, I mean, how the page is
+itself like divided, whether we are going to have each, for the each element, sub-sub-surface
+or it's kind of done in other way.
+Well, basically, if you imagine a page, right, as a simple page, there are no additional
+textures and so on, we can split the page to the tiles, like there will be, I don't
+know how many, maybe six tiles, something like that.
+So, basically, this is how much you are going to send.
+But if you take like, for example, motion mark, right, there are some tests, like images
+tests, it can create hundreds of those textures.
+Then we are starting to send all of them over the pipe.
+But there is a limit for the IPC.
+So, we have to limit this, the number of quads that we are able to send.
+And if I'm not mistaken, it's limited right now to 50.
+Because after this while you, it just doesn't make sense to do any delegation.
+It's kind of become too expensive in terms of, I mean, there will be too many subsurances.
+If we could like squash this together, that would definitely help.
+Because it seems like it wasn't like a use case that was thought when the
+wheel and was designed.
+So, any other questions?
+Thank you.

@@ -1,0 +1,408 @@
+Hello, my name is, does this work?
+Or?
+It's green, it's good.
+It's green, it's good.
+Yeah, my name is Robin N. I work at Reavals with RISC 5 and I'm mostly working on the
+OpenJDK.
+So I'll talk about some of the experience with the OpenJDK.
+And unfortunately for me, I can't lie too much because I see some experienced OpenJDK
+people in the crowd here.
+So we'll see if they correct me.
+So yeah, this is basically what I'm going to talk about, the OpenJDK, the JIT, which
+is kind of important for a new architecture.
+We're going to mention the trampoline lines as Mambo.
+We have some cross-modifying code.
+We talk about all the extensions we have, a bit about sign extensions.
+And I was going to talk something about canonical NANDs, but I think Ludovic made a good job
+of it, so I might just skim that through.
+So I'm not sure how much anyone knows about the OpenJDK, but it's a huge C++ code base
+with inline assembly and there is a lot of C++ code which is architecture specific, since
+we have different ABI's on different architectures.
+So the C++ code needs to know what's ABI for these architectures.
+We have a template interpreter, which means we basically have assembly snippets implemented
+for each thing we want to interpret, which jump to each other, so it's not a C and a
+switch statement.
+We have two compilers, C1 and C2.
+One is very fast and one is a bit slower.
+The first one is usually compiled with profiling, so we keep profiling the interpreter, we
+keep profiling when we compile with C1, then we compile with C2 and we drop the profiling
+because the profiling eats from your performance.
+And we also generate the template interpreter is actually generated during startup, because
+we customize it because you might use a GC which requires some specific load barriers
+and stuff, so we generate the code for the interpreter and we generate a bunch of other
+code.
+Like we have a lot of assembly which is glue between like the runtime, the compiler, the
+interpreter.
+So, the risk five port, it's fully functional, all great.
+Well, we are missing some optimizations and when we say fully functional, we mean with
+limited tested.
+We are done, have done, as Ludovic have talked about, testing is a pain as we have small
+boards, we have QEMO and OpenUDK have a lot of tests.
+We have tests that can run for like a week, just one test.
+If you take that and try to run it in QEMO, it will take forever.
+So, we have JDK 21 and 17, we are working on the 11 to get the port done for 11.
+I wouldn't recommend JDK 11, I would recommend at least 17, because it's much faster, it's
+better and you also get a GC.
+Yeah, the other platforms since like x86 have had like 25 years of optimization and our
+report is like, I don't know, four years, so we are missing like at least 20 years of
+optimization in the codebase.
+So just in time compilation, why?
+Yeah, of course the obvious reason is because we want to be right once run anywhere, but
+we also have some other things in the OpenJDK going on.
+We have a dynamic class hierarchy, as we can do class loading or we always do class loading,
+otherwise we wouldn't get any classes, which means that the hierarchy is changing.
+So it's not such a good idea to try to pre-compile because at any given time your class hierarchy
+might be different.
+So even if you did pre-compile, since mostly everything is virtual, it's virtual by default,
+you would just do just virtual calls all over the place.
+So that would be slow.
+So but with YIT and profiling, we can avoid virtual calls and we can speculate a bit about
+the class hierarchy.
+When do we compile?
+Yeah, we compile hot methods.
+And as I said, first we compile with C1, we keep profiling, then we can compile with C2.
+So what we do is kind of a speculative compilation, which means that if we see you have never
+executed this branch in your method, we may choose to remove that branch and put in a
+trap instead.
+So if you actually want to run that piece of code in that branch, instead we trap, the
+optimized will go to the interpreter.
+And we can do the speculation based on the profiling.
+So if you have a hash table and you put cars in it, you call hash code, we can and I can
+guess that this call to hash code will be on the car.
+So we don't need to do the Vtable lookup, we can instead guess that you're putting cars
+here so we call hash code for car.
+And until we get proven otherwise.
+Yeah, so we also need to do some cross modifying code.
+So when we're kept compiling something, compiling is a bit expensive.
+So if we can just change the code instead and update whatever was what was missing, so
+we don't have to deoptimize and recompile, we will do that instead.
+So I'm jumping directly to talk about a jittered call site.
+So when the jitter lays out a call site, we have two instructions, jump and link, jump
+and link register.
+And when we lay out the call site, since we have a dynamic class hierarchy, I forgot to
+say that on the first page, but classes are loaded on first use, which means the compiler
+is not allowed to load classes, it has to be used by the program.
+So when we lay out a call site, we might not know where we're going to call because we
+don't want to do a resolve.
+Because resolving the call site might mean we need to load classes.
+So when we lay out certain kinds of call sites, we need a full range of that call site, which
+means we have two options, we can either load the address or we can materialize the address.
+Materializing requires a bunch of instructions.
+I think the example here is just materializing six bytes or something, maybe someone that
+is fluent in assembly can tell me.
+Yeah, the reason why normally you would maybe do a table look up here, but we wanted to
+actually lay out a direct call as we can without any loading of data and stuff like that.
+So that's why the call site looks like this.
+And for the full picture, it actually looks even like this.
+So we actually lay out a smaller call site in the code, which calls a trampoline, which
+will load the address, which is just under the jump and link in the trampoline, and then
+we will end up at a destination.
+But as I said, a dynamic call site can be unresolved, which means when we get the code,
+we actually just point the trampoline to a resolve stub.
+So the first thread that actually executes this, we'll need to resolve this call, whatever
+it's going.
+So if this was the, if a is the car.hashcode, when we lay out the code, we don't know this,
+we need to resolve this and figure out that this is the receiver of the call.
+So then we have cross modifying code.
+What is cross modifying code?
+It's that one core is writing the instruction or changing the instruction stream, and we
+have another core executing the instruction stream.
+It's a bit complicated, of course, but OpenJDK does it a lot too.
+Avoid recompilation is basically the thing we want to avoid, because especially during
+startup when your class graph is changing all the time because you keep loading classes,
+if we compile something that looks hot, we don't want to remove it directly and recompile
+and remove it and recompile.
+Instead we can do the speculative compilation and layout code and fix it a bit later.
+So you can talk about two types of cross modifying code synchronous, which is basically you're
+waiting for the other CPU to fix the instruction stream ahead of you.
+And here's an example with the modifying processor do a store to the instruction stream, then
+release the guard.
+The executing processor waits on the guard.
+When it gets released, it picks up the new instructions.
+It's not that easy, but pick up the new instruction is not just a simple thing, but I'll get to
+and then you have the asynchronous cross modification where we just store something directly in the
+instruction stream.
+Executing processor might see the new or the old instruction.
+We don't know.
+We need to handle both.
+So back to our example here.
+So one Fred calls to resolve.
+After you have resolved the know who's the receiver of this call, it will patch the
+eight byte address stored in the trampoline.
+So anyone else that does this call will reach a.
+But we still allow friends to see the old destination, which means that both of the
+old trampoline and the new trampoline is valid.
+Since if you see the old one, you will hit the resolve stub.
+You will see that this quality is already patched by someone else and you will just
+go back and re execute it and then you will pick up the new destination, which is a.
+Yeah, so point to so when the executing Fred actually sees the new instruction stream
+in especially in the said Jai said Jai the extension for cross modifying code.
+We talk about point of unification.
+So that means that modifying processor and executing processor agree on the global state.
+So I'll use the terminal leave from that extension.
+I'll mention it more later.
+So we have patched the trampoline.
+Well, good.
+No.
+So someone loads a B, which is also of a type.
+So we have a new receiver here and we actually need the V table look up.
+So we need to patch trampoline once more and add.
+A V table look up before we can land on a because it could have been a B.
+So the trampoline is not patched just one time.
+It can be patched.
+Well, I think at most two times, but yeah.
+And in this case, all three.
+Ways of calling is that is alive at the same time because you can still see the so one
+Fred lagging behind can still see this resolve.
+Someone else might see this jump and someone might see the V table.
+We allow all three to be OK at the same time.
+We do this, but we have a small piece of code in a which verify when you did the jump to
+a you had the right receiver as your intended target.
+But that becomes really complicated.
+The main point of the slide is to show that we need to be able to patch the whole site
+multiple times.
+So what we're doing here is actually not cross modifying code on risk five as we have
+a the as we do an LD on the eight bite address and we do actually a store of eight bite address.
+It happens to be in the.
+Just below the instruction stream, but it's actually not read as an instruction as we
+do an LD on it.
+So in this case, we're actually not doing cross modifying code since we load the address
+with an LD.
+So but.
+There's still some problems with this.
+First of all, as the the address is just below the addresses, your pipeline might try to
+decode the constant as instructions.
+You also have the problem with reading from the same cash line that you're executing.
+Some process might not like that.
+So you have the same cash line in I and D.
+And we also have the overhead of the jump from a to trampoline.
+So what we are suggesting suggested in on risk five.
+Yeah, and I can also mention as we need this place, atomic or patchable, that's why we
+can't use the ally since it's seven instructions and we can only patch one instruction atomically.
+So for this case, we're suggesting that we actually do the load directly at the call
+site in a and we only have the address as a piece of metadata instead of a full trampoline,
+which means we get rid of one jump.
+We put the address on a separate cash line.
+So it should be faster on any risk processor.
+This is just the general philosophy of open JDK, meaning that in hot pass, we don't have
+any synchronization.
+We allow execution of stale instructions because like you know, if you have your ISB instruction
+on a arch, it's really expensive.
+We cannot have that in hot path since we try to compete with C++.
+So in slope of we try to reach point of unification.
+If you're on AR64, that means that there's probably an ISB instruction in your slope
+off.
+Yeah, and there's a list of other examples of cross modifying code.
+JIT itself is cross modifying.
+It's compiled by one thread.
+Pointer is installed by one thread and another thread is picking that pointer up and jumping
+to the JIT code.
+So that in itself is cross modifying code.
+The third in this solution is when you do a field access.
+The class for the field access is not yet loaded, so we don't know the offset for the
+field.
+So we basically say, oh, you need to fill in the offset here.
+So the first thread that hits this path needs to load the class.
+If it's not loaded, figure out the offset, patch the code.
+And then you have different barriers for the method because they can get invalidated.
+We might need to update the method.
+So we have guards and barriers to protect the method.
+We can have addresses of objects directly into the code stream.
+So when the GCMOS an object, we need to change the immediate for that object that was moved.
+We can have GC barriers as immediate values.
+So when the GC changes color, we might need to update the load barrier to reflect the
+color change.
+Yeah, point of unification.
+So if you're running your AR64, that usually means you're doing an ISB.
+We don't have that.
+What we have is something about fence.i, which is not so good.
+What we're doing today is something really crazy.
+For every write we do in a page that is from the JIT, meaning we think we're doing cross-modifying
+code even though my first example was not, we're doing RISC-5 flash iCache, which means
+the kernel will do an IPI on all CPUs and emit fence.i.
+So every write we do, this is really expensive as from the last page, if we put in like GC
+barriers, which need to shift color for every load of object in the instruction stream,
+meaning that we might change 10 places in one method to reflect the change in GC color.
+So there will be 10 writes just in this method and that will cause 10 IPIs.
+That means that every write we reach point of unification.
+So it's working really well with cross-modifying code RISC-5 with OpenJK at the moment, since
+we actually don't have any races basically, since we do the IPI on every write.
+So I see in like a really small board it costs a half a percent of performance.
+On a large real CPU server class, maybe 2-3 percent of performance decreased due to all
+the IPIs all the time.
+Yeah, point of unification, the modifier needs to make the stores visible and executioner
+needs to make sure the instruction stream is invalidated and so he picks up the new instruction.
+But we still think we can do a bit better with what we have, since fens.i is an
+unprivileged instruction, we can actually emit it ourselves in the slow path.
+So we don't need to do the IPI, but we need help with context switches.
+So you're on your heart to use RISC-5 terminology.
+You emit your fens.i and think you have invalidated your instruction stream, but the kernel moves
+you to another heart.
+So if the kernel moves you, the kernel would need to emit the fens.i so you know that on
+that whole heart also the instruction stream is invalidated.
+And what it's going to save us, we hope, is the ZJID extension for IDI.
+ID synchronization.
+So instead of fens.i we would get an import i, but more importantly we will get a limit
+on the instruction fetching.
+So ARCH allows out of order fetching, which is problematic for us.
+So if you have a call, when you do an A, Y, P, C, jump and link, even though if you
+not bit out by first not being out the jump and link, and then you not about the A, Y,
+P, C, the iFetch could fetch the jump and link before the A, Y, P, C.
+So it reads the A, Y, P, C before you not that then it reads a not from the A, Y, P, C, then
+you're toast.
+So ZJID will specify how the iFetching will work, what we can overwrite without tearing
+instructions apart and stuff like that.
+So we're hoping we get that in place well this year.
+How long have we been going?
+Okay, that's fine.
+Yeah, that brings me to extensions.
+We have a bunch of extensions.
+When I looked, maybe this is totally wrong, but I found 60 ratified, which adds instruction
+for RV64.
+That's 450 base instructions, and I found 45 unratified adding another 400 base instructions.
+As an example, I took this fall I was looking at the CRC32 a bit.
+So OpenJDK have an implementation of it in Java, works fine, but you probably want to
+have an intrinsic for it to make it faster.
+So then you can make your table look up intrinsic with the base ISA, which is the standard CRC32
+intrinsic.
+But you can also use Kerala's multiplication to do even faster intrinsic.
+Then you have your scalar Kerala's multiplication in the CBC extension, but you also have Kerala's
+multiplication in vector.
+So there's a possibility to have four implementations of the same CRC32 algorithm, one in Java,
+one for base ISA, one for CBC, one for vector, which is too much.
+Also at least I'm getting really annoyed with the architecture description through your
+compiler.
+And this is just the first of four lines.
+So if you have a server class CPU, I'm not sure how long that can get.
+So as Ludwig was talking about profiles, we're hoping that we get nice profiles.
+Right now RV823 is perhaps the one that looks best.
+And for the JIT, you need to add an option for every one of these.
+But we have HVPROB, so we can get it automatically.
+But there is like, you get an extension, you add an option, then you get HVPROB.
+So make sure you have like, so basically you need a 6.9 kernel or something to make everything
+work nice.
+6.8 maybe is the next one.
+So I recommend using 6.8, which is released in, I don't know, because otherwise you need
+to add all the options on the command line.
+This brings me to the next problematic things.
+We have some major extensions like do your CPU allow misaligned access?
+Do you have vector, what are your memory model?
+We allow to turn off.
+Yeah, so the JIT, since we do this cross modifying code and stuff, we're really sensitive to
+code layout.
+So if we change anything with code layout, we would like to test it.
+Since you have so many options that changes the code layout from the JIT, we have so many
+combinations that we would like to test, but we only have basic boards in QEMO.
+That makes it really hard to guarantee that your combination will work fine, because I
+guess everyone is testing a combination which will be something for the CPU they are intending.
+So I think there's a lot of combinations which are not tested much at all.
+We also have the compressed.
+Yeah, we have an option for it.
+You can turn it on and off.
+We have an assembler that just changes the instruction for you if you want.
+Since we're sensitive to code size, some parts are fixed size, so just to make it easy for
+us, we turn off compressed in certain parts, because we want it to be at a certain alignment
+or certain address.
+We see 5-10% code size reduction.
+One thing we can do is, since you know the compressed just have 4 bits for the registers,
+we don't consider that, so we just use registers.
+For example, we have the heat base.
+If you have compressed points for your object, we have a base for it, which means every time
+you load an object, we need to materialize the full address.
+That one is in X27, which means we never can use compressed for that.
+So if we were to put heat base in another register, like X14, then we could use compressed
+more.
+Next, which Ludovic touched on, about memory models.
+We have your weak and your strong model.
+In OpenJDK, we're often dealing with free models.
+We have the hotspot memory model, which is from the 90s, I think.
+So it predates C++ and C11.
+Then you have your Java memory model.
+Then you have your C++ memory model.
+Since we have two hardware memory models, we get a lot of mapping around that.
+So we basically have six combinations here.
+And that also, extension, increase the complexity.
+Because then you have like SACAS, which introduce the CAS, which means we need the CAS for the
+memory model also.
+So yeah, again, if we're going to test all combinations, it will be really costly.
+Yeah, sign extension.
+Maybe it's just me, but I'm not a friend with it.
+So sign extension is when you have a word and you need to enlarge it.
+Oh, yeah, I only have a few minutes.
+So that's good.
+So you want to enlarge it to a word.
+You need to replicate the sign bit.
+So we present the sign as of the word when we treat it as a double word.
+And we do this because some of the instructions use the full register, branch and or, for
+example.
+So this is all fine when you let the compiler do the work.
+But as we have so much assembly and we do, yeah, type less passing, we have templates
+with inline assembly.
+So you get a type T and then you're supposed to put in your inline assembly.
+And we have type aliasing, meaning we have one type and we access it through a pointer
+to a different type.
+So when you write all this, you need to think about both like the short representation
+of your word, but you also need to think about the word as a eight bite.
+So I get confused and suddenly my branches go somewhere else because I forgot sign extension.
+So I'm not a fan of it.
+Yeah.
+And sign extension.
+I don't have much to say more than what Ludovic said.
+I had a, this is one example.
+If you're writing Java code, if you use this method, you will be surprised because if you
+have a negative NAND and you ask this guy, you don't know what the bit will be.
+It depends on the instruction and stuff.
+And the C++ version is even more complicated because compiler may choose to evaluate that
+at compile time, which means you get whatever the compiler think design flag should be.
+If you execute it in runtime, then it depends on the instructions.
+So if you see anyone using such one functions and they don't consider not the number then
+there might be a bug.
+So sorry, one too many.
+So yeah, I personally like RWA 23, but of course want said JID.
+So we can formalize the cross modifying code.
+And also like some of the more atomic extensions, I think SACAS is just optional in RWA 23.
+I would like it mandatory.
+And also would like one more instruction to materialize a 64 bit immediate.
+So that will help.
+So we don't, because the load we're doing in the trampoline, even though we remove the
+trampoline, we're doing a load, which means we can have cache missers, which means that
+the call can be really expensive.
+And all additional loads we need to do for the JIT itself or for the JIT code, its memory
+bandwidth.
+So when you're competing with other platforms, which can materialize a large enough immediate
+and have it atomically patchable, it's hard to compete when we can't do that in those
+cases.
+So I guess the road to one instruction to materialize a 64 bit will be long.
+Thank you.
+Yes.
+Two questions.
+First of all, is there a limited interface to send more dense ice through the UTI?
+You can use it with the, for the IPI, you can use the G-Lib C, cache flash, eye cache.
+So there is a G-Lib C function you can call, which do this is call for you and fixes it.
+Yeah, so that's, I can't remember if you changed that or we're using G-Lib C wrapper.
+So there's a G-Lib C wrapper over this is called.
+So you can just say, I want to flash eye cache.
+I can't hear.
+Yeah.
+I haven't given it much thought.
+So I'm not a big fan of compressed.
+So I don't mind what we're doing now.
+It's just that there might be, so from what I've seen, it's the smaller board which gains
+performance from compressed.
+The big out of order CPUs we're waiting for, we don't think there will be much difference.
+So we haven't spent time on it.
+I forgot to repeat the question.
+Yeah, sure.
+So I'm not sure if you're going to be able to measure the code size decreased, but were
+you actually able to measure any sort of performance?
+Using the Vision 5.2, I've seen some performance improvement, but that's an in-order, simpler
+CPU.
+So yes, on Vision 5.2, I see some performance improvements when using compressed.
+Yes.
+And you're using the Vision 5.2?
+I have one at home.
+We have many boards, but I have that one I have sitting next to my desk, so I often use
+it.
+So yeah.
+Well done.
+No corrections from the GD code.
