@@ -1,0 +1,273 @@
+Next talk is coming up.
+Pudos Shreinberg does not need a lot of introduction, especially in the micro-curnal circles, but
+he is the author of the NOVA microhypervisor, and I believe this talk is more a state of
+update.
+The stage is yours.
+Thank you.
+Can everybody hear me fine?
+All right.
+So this talk is going to be about using the NOVA microhypervisor for trusted computing
+at scale.
+So we will talk not so much about micro-curnals or micro-hypervisors.
+We will talk a little bit about scaling NOVA, and we will spend the majority of the talk
+talking about trusted computing.
+So the agenda is first I am going to give you a little overview of NOVA.
+For those of you who have not been in the micro-curnal deaf room before, maybe a quick
+question.
+Have you ever heard of NOVA before?
+Maybe one-third of the people.
+I will explain a little bit what NOVA is and why it is a microhypervisor and not a micro-curnal.
+Then we look at what happened in NOVA in the last year, in 2023.
+The second part of the talk will be about using NOVA for trusted computing for performing
+what is called a measured launch to actually get some trust in the platform.
+At the end, hopefully we will have some time for questions.
+NOVA is used as the bottom piece, the screen box, the micro-curnal that is used in the
+Bedrock Ultravisor, which is a virtualization layer that sits underneath virtual machines.
+For those of you who are familiar with micro-curnals, the kernel is very small and most of the
+operating system functionality is implemented in a multi-server user mode, a deep privileged
+environment.
+All of these colorful boxes are actually deep privileged processes that run in user mode
+and they are isolated from each other and they communicate with IPC.
+This is what you would expect from a typical micro-curnal.
+The reason that NOVA is a microhypervisor is because it additionally provides a virtualization
+interface that allows you to reuse unmodified legacy operating systems in virtual machines.
+NOVA basically relays all the VM exits to those yellow virtual machine monitors, which
+then implement the virtualization functionality.
+The whole stack, all the colorful boxes are in the process of being formally verified and
+this is going to be important also when we talk about trust.
+We will not talk so much about all these boxes, we will talk primarily about NOVA, the green
+kernel at the bottom and a little bit about establishing the trust between NOVA and the
+master controller, which is sort of the inner process of the user environment.
+When we talk about scaling NOVA, it originally started about 20 years ago as a research project
+to address them and since then we have productized it to run on multiple architectures.
+On the left we have ARC64 which is on V8 and on the right we have X86 architecture, primarily
+Intel and then we run on all these platforms and more that are listed on the slide.
+So at the top left corner you can see a variety of arm SOCs and all the ones in yellow are
+actually not using standard UEFI or ACPI interfaces so they have proprietary builds, you get proprietary
+or board specific binaries.
+But for some, like the Raspberry Pi's or even AWS's Graviton Cloud servers, the same NOVA binary
+works all the way from small embedded devices with just a handful of cores all the way up to big cloud
+servers with in this case 64 cores.
+And we have the same on the X86 world, actually the same binary runs on all these platforms
+whether this atom SOCs at the top right corner or client platforms that you see up there all the way
+again down to the largest cloud servers with over 100 of threads.
+So that actually required some infrastructure changes in NOVA but before we get there,
+in the interest of time I'm not doing any live demos but here you can see or if you can't read it
+then look at the slides online.
+The output of NOVA boots on Raspberry Pi 4 or 5.
+So naturally we had an interest in making NOVA working on the Pi 5 and it just works out of the box
+if you use UEFI firmware.
+And the top line which is highlighted shows that it's actually the same build, so the same commit ID
+and the same build timestamp and you can see the differences in the cores.
+Raspberry Pi 4 uses a 72 cores and the Pi 5 uses a 76 cores.
+And as I said the same binary also runs in the cloud.
+So if you take for example an AWS C7G metal instance you can run that binary and it will enumerate 64 cores
+actually our Neo-verse cores and it can also drive all of the PCI devices on a platform
+actually in multiple PCI segment groups.
+So I don't want to go into the details here.
+The same thing on x86 where you can see on the right side, so the left side is the beginning of the log
+and the right side is the end of the log that we can actually run on machines with over 100 cores
+with hundreds of PCI devices and tons of memory.
+So what did we have to do to make that work?
+And I presented a similar thing in my talk last year, what I call an innovation timeline.
+We put out a new version of NOVA approximately every two months, so six releases per year.
+And then some releases are more packed than others.
+So about a year ago we added some local APIC, registered virtualization and support for Atom Sox to NOVA.
+But then the more interesting work happened over the course of the first two releases or the next two releases at the beginning of the year
+where I implemented support for Intel TXT which is trusted execution technology in NOVA.
+And also to make NOVA work with really large core counts, we made the current memory pool extensible.
+So the bootloader has the choice of giving NOVA little or very large amounts of memory depending on how much a particular platform would want to use.
+And then in the middle of the year there were some minor adjustments to read, copy, update and capability management
+that we will not talk about here today. And then at the end of last year for the Christmas release basically,
+the TXT work was so complete that we could actually extend the trust chain all the way to the master controller, this blue component in New Zealand.
+And then again for the first release of this year which is going to come out at the end of February,
+you actually get even more functionality for the TPM and everything that's listed in bold.
+So you'll be talking about in this presentation.
+So why do we want to do something in the area of trusted computing? What problem does that solve?
+And I mentioned this in the introduction that we are formally verifying the entire ultravisor stack.
+So once that is complete, you know that the source code that you have fulfills its specification
+and maybe you have a qualified compiler that compiles this verified source code into some binaries.
+And even if you have that, things can go wrong.
+The binaries can be tampered with by an attacker either during the installation process, during the boot process,
+or after installation and you want to know that the binaries that you built are actually the ones that are running or are being launched on a computer.
+So you want to know that some remote computer is actually running exactly those binaries and not some modified version.
+Before you give that computer some precious content like your super secret K-I algorithm or some secret data.
+So in order to understand what trusted computing and what a chain of trust is,
+we have to look at the concept of what people commonly call secure boot.
+And secure boot is not a very precise term. The better term is actually verified boot.
+And verified boot works like this, that you have some immutable root of trust in this slide showing green.
+And that's the initial stage and it's immutable and it's a root of trust because you cannot reason about it's correct.
+You have to assume it is correct and it's usually implemented in ROM which doesn't change.
+And then every stage like, oops, every stage measures the integrity of the next stage and verifies it against some policy.
+And if the verification succeeds then the next stage gets launched and if the verification fails then you fail the boot.
+And this is basically establishing a transitive chain of trust and the thing we care about the NOVA hypervisor is at the very end.
+And this chain of trust only works if everybody before gets everything right.
+And that's hard because there's millions of lines of code living in all these boxes and some of these boxes are actually very complicated and extensible.
+So the E in UEFI actually stands for extensible.
+And the moment you make a change in any of those components, could be you add a new PCI card or you change the order of your boot devices,
+it changes the measurement.
+So keeping your databases of permitted integrity measurements or denied measurements up to date is hard.
+And the industry has learned this recently when UEFI was affected by this logo fail vulnerability which basically forced every vendor to deploy a new version of their UEFI firmware
+and to blacklist in the DBX database the old version that they had.
+So it is not very flexible and it is a very brittle thing.
+And the screen box here in the background shows that all of this stuff actually belongs to your trusted computing base.
+Because if any of these components actually modifies or trashes the binary, then even though you formally verified your source code,
+this binary is not going to do what you want it to do.
+So can we do better?
+This is an open source conference and we are not so much interested in DRM, we are interested in freedom.
+So we don't want to enforce boot policies, we want to instead use a concept called measure boot.
+And it works very similar that a stage measures the integrity of the next stage but then doesn't take an immediate decision on whether the next stage is good or bad.
+Instead this measurement simply gets extended into a TPM platform configuration register which stores this value for a later attestation request.
+And then the next stage gets executed.
+And there is still the problem that certain stages like UEFI and the boot loader are extensible and that they sort of leave a very hard to manage gap in this trust chain.
+But there is also the problem that typically the whole boot process is not protected against DMA.
+So these components do not make use of an IOMU or SMMU which means even if the software is correct you could have a USB device or some FireWire device,
+some DMA capable device that simply DMAs into this memory and trashes the software that way.
+So again the trusted computing base isn't really getting any smaller.
+So can we do better than that?
+Yes, we can and this extends the concept of measured launch with a dynamic root of trust.
+And the core idea is that you can't really change anything in this boot chain.
+You still have to execute all the firmware, you still have to load all your drivers, your firmware drivers, you still have to make a boot loader like a boot choice and you still have to initialize your memory controllers.
+But you can do all of this in a dirty environment.
+So a dynamic root of trust lets the system boot into initially an untrustworthy state.
+So we don't really care if anything that happens to this point and only at this point we want to bring the platform into a pristine state.
+And this is very interesting how this works because what the effect if you do here represented by this green bolt is it is a disruptive event which feels a bit like a platform reset but it doesn't reboot the machine.
+It just brings the CPU into a well-defined state.
+It's actually a protective mode with a paging turned off and it holds all the other cores.
+You can see that in a moment and it forces the execution after this launch event to a code pass which has previously been measured and protected.
+So we don't care about all this stuff in the red box anymore.
+That gets eliminated from the TCB which is great because it eliminates millions of instructions and our TCB is now just this DLTM sequence plus NOVA.
+So what do we need for that?
+The technology that gives us this on Intel platforms is called Intel TXT.
+You may also come across the acronym CDNT which just is short for Converged Boot Guard and TXT.
+So Intel has fused the static root of trust which is boot guard with the dynamic root of trust which is TXT into one technology.
+And TXT is the one we care about.
+This gives us the DLTM.
+You need a CPU that supports this and you need a TXT capable chipset and a TPM preferably TPM 2.0 because TPM 1.2 is really old and it can only do deprecated hash algorithms.
+And you need an SINNET module which matches your platform.
+And the purpose of this SINNET module is the module that Intel provides that you can download from their website is to initialize and verify the platform in a way that it is securely configured.
+And once you do this you can later do a remote attestation by asking the TPM what these measurements in all the platform configuration registers are.
+And then you can remotely take a trust decision to say if this PCR contains some value do I recognize this value as belonging to NOVA's December release or NOVA's February release.
+And who knows why there is this sign of like grant here.
+So Intel develops all its technologies under code names and the code name for Intel TXT many years ago used to be called Lagrange technology and this is named after a city in eastern Oregon.
+So what happens when you do this disruptive event? How does this reset the platform without rebooting it? And it's very interesting.
+So first of all we have a number of processors. Here this just shows four so these are four lanes.
+And we have one processor which we call the initiating logical processor. That's the one which initiates the DM sequence.
+And we have in this case three responding processors which maybe in some arbitrary state we don't know.
+They could be sitting in some idle loop. They could be executing malicious code. We simply don't know what they do at this point.
+But we also don't care. And then some time before the disruptive launch event the code for NOVA which is in this case called MLE the measure launch environment.
+And this is in it ACM must have been loaded into memory and again they could have been corrupted in memory.
+It could be the wrong version. We don't take a decision there.
+And then later there can be an arbitrary amount of time that passes minutes hours. We can do this a week later. It doesn't matter.
+Some component is executing this DLTM which is a specific processor instruction.
+And what happens when you execute this processor instruction which is privileged is that everything resets.
+And the chipset broadcasts an S-enter cycle on the interconnect.
+And the S-enter cycle basically initiates all the, initializes all the processors into an S-enter sleep state.
+So we now know that all the other processors, all the pieces are not executing any instruction. They are sleeping.
+And it transitions control to this S-init ACM and it checks its integrity.
+So it has a signature and it has a checksum or actually a hash cryptographic hash.
+So the processor validates that this module is a valid Intel S-init ACM and it launches that.
+And this module runs entirely inside the cache. It doesn't use any memory because the memory might have been initialized wrong.
+The memory might have physical memory aliasing where two physical addresses point to the same page.
+So this operates in a very constrained environment but it is software that can validate that your platform is correct.
+That the processors are not overclocked. There's no undervolting.
+That all the chipset registers that need locking are locked and so forth.
+And the final thing that this thing does when it has convinced itself that the platform is in a good state is that it measures and launches NOVA.
+And it stores the measurement of NOVA in TPM PCR 17.
+And then NOVA gets control at its measured entry point.
+And at some point later after it has initialized enough of itself, it can wrong the rule the other processors into the secure environment.
+So that by the time we get to the end of this, we have now all four cores or 128 cores in this measured environment.
+And should anything go wrong during this process like a rogue CPU showing up that nobody knew about or a CPU leaving,
+surprised leaving this environment, then the platform transitions into a TXC shutdown which effectively resets the platform.
+So now we talk a little bit about the TPM because what we want to do is we want to measure the next stage into a platform configuration register PCR.
+And whenever you measure a component, what we really mean is we have a region of that component of that image that we care about that doesn't change.
+You can call it an immutable region which is typically the code and the read-only data.
+And you compute a cryptographic hash like a SHA1 or a SHA2 cryptographic hash.
+And you get in the case of SHA256, you get a value that is 256 bits long or a large number like that.
+And this measuring entity executes a command to the TPM.
+And the TPM is a little chip like the one shown up here that sits on your motherboard.
+And it has, in a typical case of a client platform, it has 24 platform configuration registers.
+And it invokes an operation on the TPM that's called PCR extent.
+And the PCR extent operation is interesting in the sense that you can't write to a PCR directly.
+You can only extend a new value into a PCR and what it does is it takes the existing value, concatenates it with a new value and hashes the concatenated hash.
+And this forms the new value of the PCR.
+So the sequence in which you extend values into the TPM and the values themselves are all reflected in the hash.
+Basically it gets mixed together.
+And once you look at the PCR so you can read the value, you can no longer recompute the original chain of extent operations that led to this PCR value simply because the hash function is a one-way trap function.
+So how would a remote verifier who can ask the TPM for a quote so you can go to the TPM and say give me the value of those PCRs that I care about and have the TPM sign that quote report so you know it's authentic.
+You can send that off to some other computer elsewhere and they can look at all the PCRs and say, okay, if this PCR has the value that I recognize then the platform has launched authentic software.
+But how do you know if multiple extent operations have happened into a PCR what the individual values are because the individual values represent the individual software components.
+And for that you need the left side of this picture where in addition to extending a measurement into the TPM it also gets stored in what's called a crypto agile event log.
+And this effectively is an auditable trace. It's a record of all the extent operations that happened.
+And in addition to recording which PCR and what the digest so this measurement was that was extended.
+There's also some event metadata that said the meaning of this extent operation is I hashed the command line or I hashed the RAM disk or whatever it may be.
+So you have to send both of these things both the TPM quote request and the crypto agile event log to a mode of verifier and it can correlate the two things that can use the crypto event log for a particular PCR to recompute the value in a PCR.
+And then you can then check if the quote from the TPM actually lists exactly that value of the TPR PCR and if it has been signed with an authentic TPM signature.
+And then you know what platform and what software is running on the platform.
+So I said the SNNIT module measures the integrity of NOVA.
+And NOVA is a kernel that consists it's an F image that consists of code and read only data but also of some mutable data and some heap.
+And not all of that thing is immutable in the sense that it doesn't change.
+And while some people may think it's sufficient to just do an integrity measurement at launch time.
+So when you boot the system that's not the full truth because you can also close the lid on your laptop which will basically shut everything down and only keep the content of memory alive.
+And when you resume the laptop then all your protections are gone.
+So on a suspended zoom cycle you actually have to repeat this integrity measurement and then this yellow section has actually changed.
+So not everything can be measured and how does NOVA tell the SNNIT module which region of it to measure.
+And there is this MLE header which enumerates the memory pages that NOVA wants to have measured.
+And NOVA is actually the entity that initiates the launch process.
+So there's no bootloader that says launch NOVA.
+No, NOVA gets launched in this dirty environment and then decides itself to launch its second stage and thereby tells SNNIT module what this to be measured region is.
+But before it actually gets measured the SNNIT module DMA protects this entire region.
+So the moment it gets protected no attacker can change it anymore not even visit DMA attack.
+Then it gets measured the measured value gets extended into TPMPCR17 and then NOVA gets launched.
+And there's also some TXT heap data structures that NOVA's preamble code and NOVA's post launch code used to exchange data with the TXT heap.
+So one of the things for example that the SNNIT module produces and stores in this TXT heap is some information about how many processes really exist.
+And it also stores some validated copies of ACPI tables there so that no IOM use get hidden or whatever.
+When you write software like that that you want to measure you have to carefully think about what should be included in the measurement versus what should be excluded.
+So if you measure too little then maybe something can be changed in a security relevant manner and it will not be reflected in the hash.
+And the thing that immediately comes to mind is let's say you have a command line parameter and NOVA has a few among them is one where you can say don't turn on the IOMU.
+So this is basically a chicken bit for debugging and when you execute NOVA with this command line parameter it's obviously less than fully secure.
+So you want that change or the configuration change to definitely be reflected in the hash that the NOVA version that runs insecurely can be told apart from the normal version which uses the IOMU with the full potential.
+So the command line must be included in the hash but if you have some data structures that maybe take time stamps you don't want to take them into the hash because they will change the moment that the time stamp changes.
+So this needs very careful considerations.
+And then the next question is if you have a binary like that and you've built it to the compiler, the obviously compile instruction sequences of its choice.
+How do you know what integrity measurement to expect?
+So you need some form of reference measurement and when you execute NOVA's built infrastructure and you build a binary at the end of the boot process it will output all the reference integrity measurements.
+So it will say the sharp one value for this binary is this and the sharp two six values is this and the sharp have 12 values is this and then you know what value to expect when you do a decision.
+So extending this to user mode what does it require?
+So it requires NOVA to compute a launch integrity measurement of the root PD which means we have to define what is the region of the master controller of this root PD to measure and we have to actually do the hashing.
+And for that we can do two things.
+We can either send the whole data over the LPC or SPI bus to the TPM and let the TPM compute the integrity measurement or we can compute it in NOVA and software using the CPU.
+And I originally thought that using the TPM it would be a good idea because the TPM automatically does it for all supported hash algorithms.
+But as you can see on the right side the TPM is really really slow and the bus that connects the TPM to the system is also very slow.
+So in order to hash a binary of two megabytes of size TPM actually takes almost 14 seconds and NOVA takes 50 milliseconds plus two.
+So the 15 are for computing the hash and the two are for extending the PCR.
+And then obviously NOVA needs to drive the TPM itself because it needs to send commands to the TPM and NOVA needs to append the entry to the event log.
+So all of that infrastructure had to be added and we actually have to measure the root PD before we launch it because we can't have a process launching some let's say malicious instruction.
+And then saying after I've done some malicious action I'm changing my image to look innocuous and then I'd say measure me.
+Then it will look correctly even though it has executed something malicious.
+So before you even execute the first instruction of the next module you have to measure it.
+So the root PD cannot tell NOVA which part of it to measure so how do we define this.
+And it's simple you can actually use the L headers, the program headers in the root PD and we defined it to say the first L header that is readable or executable but not writable.
+That's the one that contains code and read only data.
+That's the one that we measure.
+And then NOVA obviously had to learn how to compute char one and char two fifty six and char three eighty four and char five twelve.
+And basically the entire NISP FIPS one hundred eighty standard.
+And that looked like very complicated but due to the beauty of C++ templates and function overloading and inheritance the implementation of all these hash functions and NOVA is actually just one hundred thirty lines.
+And it can do all of these algorithms.
+So that brings me to almost the end of my talk.
+The last thing we had to add to NOVA late last year was support for the TPM.
+And the TPM has two interfaces.
+The older interface is the FIFO interface and there is a newer command response buffer interface and NOVA had to understand how to drive those that adds another two hundred fifty lines of code.
+And then you have to send commands across that interface and the TPM library specification is very large.
+It's thousands of pages but NOVA only implements the subset of TPM commands that it needs for this measured launch which is determining what capabilities it needs.
+And then you have to understand how many TPM has and how many PCRs and what algorithms and then performing some PCR operations.
+And that adds about another five hundred lines of code.
+But for both the old TPM one or two and the newer TPM two dot oh.
+And then there is a table that lists how the TPM actually gets used by various parts of the platform.
+The TPM has different localities.
+And locality four which belongs to the core root of transform measurement actually measures the next stage which is NOVA into PCR 17 and then NOVA which drives the TPM at locality three measures.
+No, the SNET ACM measures NOVA also into PCR 17 and then NOVA measures the next stage which is the master controller into PCR 19 and then the root PD measures the next component further up stack into PCR 20.
+So this is the list of all the cool security technologies that we have in NOVA now.
+Ranging from control flow enforcement, total memory encryption with multiple keys and the latest thing we added which we just discussed is trusted execution technology and adaptation.
+So with that thank you for listening and I'm happy to take questions.
+you

@@ -1,0 +1,644 @@
+WEBVTT
+
+00:00.000 --> 00:10.080
+This is this talk is about linker scripts and some of the some of the ways they differ
+
+00:10.080 --> 00:15.840
+between GNU LD, LLD. There are some bits where I've kind of bent that definition a bit and
+
+00:15.840 --> 00:20.320
+gone through the sort of the differences in the internals, sorry not the internals, as
+
+00:20.320 --> 00:24.080
+in the internal linker script because at least with some linkers when you when you say you're
+
+00:24.080 --> 00:28.200
+not using a linker script you are it's just a linker's provided it for you in the background.
+
+00:28.200 --> 00:33.480
+So first slide is basically just some basics so that you can understand what I'm going to
+
+00:33.480 --> 00:37.600
+be talking about for the rest of the talk. Apologies if you're already familiar with
+
+00:37.600 --> 00:41.680
+ELF and linker scripts this will be a bit boring but just very very quickly linker's
+
+00:41.680 --> 00:45.760
+job is to take input sections that you would have in your sort of ELF file normally your
+
+00:45.760 --> 00:51.120
+dot text your dot data dot bss which is sort of zero initialized stuff and it will combine
+
+00:51.120 --> 00:57.560
+them together into one bigger big blob and those are sort of then called output sections
+
+00:57.680 --> 01:01.920
+so I will use the term input sections for stuff coming from your object file, output
+
+01:01.920 --> 01:07.040
+sections what linkers combined together and then these will end up in program segments
+
+01:07.040 --> 01:13.040
+in your ELF file and then basically your operating system or kind of copy will operate on a program
+
+01:13.040 --> 01:19.680
+segment. Right so linker scripts sort of I guess more formally called linker control
+
+01:19.680 --> 01:26.560
+scripts it's kind of like a domain specific language that the linker uses I guess most
+
+01:26.600 --> 01:31.720
+the majority of the commands are to do with image layout you know where you map input
+
+01:31.720 --> 01:36.880
+sections to output sections there are a few additional commands as well like for example
+
+01:36.880 --> 01:42.200
+some of the commands are load more files and you might actually be surprised to know
+
+01:42.200 --> 01:48.720
+at least some systems your libc is actually a linker script but it's a linker script
+
+01:48.720 --> 01:54.000
+that loads the actual files behind the scenes to make sure you get them in the right order.
+
+01:54.040 --> 02:01.560
+Yes some details on the command line. GnuLD has a built-in linker script so even though
+
+02:01.560 --> 02:05.160
+and you can actually dump this with minus minus verbose if you're actually interested in
+
+02:05.160 --> 02:13.160
+the horror of what the new internal linker script is but LLD and gold and assuming mold
+
+02:13.160 --> 02:18.720
+as well basically have an internal they don't use an internal textual DSL scripts they kind
+
+02:18.760 --> 02:23.760
+of mimic it using command line language that type of thing or just basically hard code things.
+
+02:23.760 --> 02:30.360
+So one interesting thing this is just I guess not related to LLD or GnuLD but if you use
+
+02:30.360 --> 02:36.080
+dash t or which is the short form for dash dash script the script that you provide will
+
+02:36.080 --> 02:40.160
+replace the internal linker script but you can actually just put the script on the command
+
+02:40.160 --> 02:46.320
+line as if it were an object file and that won't replace the linker script it will add to it so
+
+02:46.360 --> 02:52.360
+you could basically add various different fragments that type of thing. Anyway here's an example
+
+02:52.360 --> 02:56.360
+of a linker script so you can see what sort of things there this is one from a very very stripped
+
+02:56.360 --> 03:02.120
+down one from an embedded system. I say I've used embedded systems kind of for the linker
+
+03:02.120 --> 03:07.920
+scripts because generally if you're say linking on a in-user space and Linux or whatever you
+
+03:07.920 --> 03:12.640
+really don't need to use a linker script for most of the time and the general advice is if you
+
+03:12.680 --> 03:19.680
+don't need to touch linker scripts don't touch them. So memory command at the top that's basically
+
+03:19.680 --> 03:24.200
+laying out where your various memories are on the embedded system you might have different
+
+03:24.200 --> 03:30.720
+properties like one might be flash one might be RAM that type of thing. You have these things
+
+03:30.720 --> 03:36.040
+called input sections descriptions which are that star dot text star that's the sort of things
+
+03:36.040 --> 03:40.840
+that linker's going to filter against so when your input dot section it will match against
+
+03:40.880 --> 03:47.840
+that dot text there. You have symbol definitions that you can put down that dot in the next
+
+03:47.840 --> 03:52.520
+of the underscore in the EXE IDX start is called the location counter and that's basically
+
+03:52.520 --> 03:57.160
+what will mean the linker will fill in with the address that was there at the time so basically
+
+03:57.160 --> 04:02.960
+at the end of dot text there will be certain amount of addresses space being used so at the end
+
+04:02.960 --> 04:09.400
+of that output section that value will get put into the symbol there so that your program can
+
+04:09.440 --> 04:16.400
+basically introspect itself by using these symbols. Have built-in functions for example align and
+
+04:16.400 --> 04:23.120
+these sort of arrow flash and at flash those are sort of ways of assigning things to memory
+
+04:23.120 --> 04:28.720
+regions and that can become important for other things we'll do later on. Anyway, GnuLD and
+
+04:28.720 --> 04:34.520
+LLD linker script handling so yeah as it's been mentioned in the GnuTalk this morning there's no
+
+04:35.120 --> 04:40.840
+specification for linker scripts the closest we have is the linker script manual in the
+
+04:40.840 --> 04:48.560
+Gnu documentation some parts are under specified some parts are implementation defined GnuLD and
+
+04:48.560 --> 04:54.040
+LLD are also moving targets so even if you did decide to basically reverse engineer the source
+
+04:54.040 --> 04:59.400
+code there would be no guarantee that by the next release it would be the same thing. So yeah so
+
+04:59.440 --> 05:05.040
+generally LLD will try and keep as close to the specification as possible it has made a
+
+05:05.040 --> 05:10.320
+design decision to differ in a few cases where there's been some I guess odd behavior accumulated
+
+05:10.320 --> 05:16.000
+over time I'd say these are not well specified languages that have been sort of gone through a
+
+05:16.000 --> 05:21.320
+programming committee they are accumulations of you know I wouldn't necessarily say hacks over
+
+05:21.320 --> 05:25.720
+time but it has been developed over the course of 30 years and it's accumulated a lot of rubbish.
+
+05:26.560 --> 05:34.400
+Okay so often placement so this is one of the areas where GnuLD and LLD differ slightly but
+
+05:34.400 --> 05:39.360
+they give you roughly the same results so as we sort of went back to that previous linker script
+
+05:39.360 --> 05:45.680
+and there were only fragments and it wasn't a complete specification of where all of the sections
+
+05:45.680 --> 05:51.000
+go so linker scripts do not have to be complete and you could only actually need to give a partial
+
+05:51.120 --> 05:56.560
+description and the linker basically if any section doesn't match any of those input section
+
+05:56.560 --> 06:02.080
+descriptions it's called an orphan and then it's basically the link the manual says it is up to
+
+06:02.080 --> 06:07.560
+the linker to place the orphans so basically it can place them where it tries to do something
+
+06:07.560 --> 06:13.040
+that's relatively sensible so you can if you're concerned about that I want to know what the
+
+06:13.040 --> 06:16.840
+link has done there is this this thing called orphan placement and it can tell you where things
+
+06:16.960 --> 06:20.920
+are that type of thing and then there's also an option called dash dash unique where if you
+
+06:20.920 --> 06:24.960
+want to get if you don't want the linker to try and mess about with combining your orphans
+
+06:24.960 --> 06:28.160
+together it will just put them all in their own individual sections that type of thing.
+
+06:28.160 --> 06:35.800
+Okay so here's an example of how a linker might place orphans what it tends to do is it tries
+
+06:35.800 --> 06:40.000
+to match the properties of the section so like for example you've got an executable section
+
+06:40.920 --> 06:48.120
+on the assembly code there you have the AX but for that means SHF ALOC executable A that would be
+
+06:48.120 --> 06:54.280
+read only AW right that sort of thing prog bits there's something in the file no bits that's
+
+06:54.280 --> 06:59.120
+runtime initialized zero to initialized data and the linker basically says okay what have I
+
+06:59.120 --> 07:05.080
+already got in my linker script well I've already got a dot tech section that's good executable so
+
+07:06.040 --> 07:11.440
+I'll place the one the orphan with a similar name afterwards that type of thing so that's the sort
+
+07:11.440 --> 07:17.720
+of thing that would do one of the interesting cases that we'll get to is where does it place
+
+07:17.720 --> 07:22.840
+when there's already symbol assignments so linker's got to be very careful to try not to break
+
+07:22.840 --> 07:29.280
+someone so carefully place symbol assignment so here's just a very very quick textual detail for
+
+07:29.280 --> 07:33.640
+some of the things that I've said there and in particular the example I've got at the bottom
+
+07:33.680 --> 07:40.280
+here you've got this last one dot foo there's a section called bar and then someone's advanced the
+
+07:40.280 --> 07:46.720
+location counter on a thousand so if the linker insert it says oh dot foo I can place that in
+
+07:46.720 --> 07:52.000
+the section dot foo but where does it place it does it place it after bar does it place it after
+
+07:52.000 --> 07:57.760
+the dot and the rule that the linkers take is it always puts it after any of the various expressions
+
+07:57.760 --> 08:02.680
+that it's done there because in general this is this is where programmers might say I want section
+
+08:02.720 --> 08:07.840
+start section end and if you insert something in the middle of that then you might have broken
+
+08:07.840 --> 08:12.280
+someone's program who's been to say try to make their own table of pointers they're iterating
+
+08:12.280 --> 08:18.400
+through that type of thing okay so here's an example of where GNU LD and LLD differ and this is
+
+08:18.400 --> 08:23.920
+actually fairly simple one it's actually quite hard to get them to differ in most cases but
+
+08:24.680 --> 08:33.400
+LLD in its default linker script prefers to place read only sections before executable sections
+
+08:33.400 --> 08:41.440
+GNU LD has the opposite and will place in read only after executable so if there's no read only in
+
+08:41.440 --> 08:46.240
+the linker script the link has got no information of which to say ah here's my anchor to place it
+
+08:46.240 --> 08:51.000
+afterwards so they will make different choices and there was a bug reporter about about this saying
+
+08:51.120 --> 08:55.240
+of the linker did something different but yeah it's one of those unknown difference
+
+08:57.240 --> 09:02.320
+yeah another thing that this is more of a curiosity with LLD and it's just something that I see when
+
+09:02.320 --> 09:09.400
+people port programs from another operating system is quite often someone will forget the A and if
+
+09:09.400 --> 09:14.240
+you forget the A that's essentially telling the linker that this section is not part of the program
+
+09:14.280 --> 09:24.800
+it's like a debug section that's metadata so now it does turn out that GNU LD and LD will place the
+
+09:24.800 --> 09:31.400
+orphan at the same place but LLD unfortunately uses that as an anchor point for all of the other
+
+09:31.400 --> 09:38.040
+sections so if you put in that particular case bar will get inserted after in bar there but then all
+
+09:38.040 --> 09:42.080
+of the debug sections will get put after it because that's suddenly the anchor point for all the
+
+09:42.120 --> 09:46.840
+no-alarm sections which is a bit of a curiosity I think at that point so yeah main thing if you
+
+09:46.840 --> 09:51.560
+ever pointing a program from GNU and something weird goes on check your assembler and the chances are
+
+09:51.560 --> 09:58.920
+you forgot to put an A flag on one of your sections okay okay so program header generations this is
+
+09:58.920 --> 10:04.800
+somewhere where I'm going away from linker script and veering much more back to the user space area
+
+10:05.400 --> 10:13.200
+so this is basically trying to explain some of the differences between separate code and no separate
+
+10:13.200 --> 10:21.200
+code behavior on LLD and GNU LD so this is a an elf program header so this is what describes a
+
+10:21.200 --> 10:28.760
+segment and the most important ones that you need to look at here are p offset which is the offset
+
+10:28.760 --> 10:34.280
+in the file p viadra which is the basically the virtual address that the thing will be loaded at
+
+10:34.280 --> 10:42.440
+and the p align which is a very very very strange very strange thing congruent to p offset modulo
+
+10:42.440 --> 10:47.680
+p a lot a line and this is a I guess you could almost call it it almost seems like a trick and
+
+10:47.680 --> 10:56.920
+to allow basically the same page in the file to get mapped in two different places in virtual memory
+
+10:56.920 --> 11:04.640
+and that can save some physical memory yeah okay so in what I call that system five by system five
+
+11:04.640 --> 11:09.960
+think of that as something like Linux or or BSD that type of thing now this elf file is actually
+
+11:09.960 --> 11:17.600
+memory mapped using various M map calls into memory this is actually quite different from an
+
+11:17.600 --> 11:21.400
+embedded system because an embedded system you probably wouldn't even load the elf file anyway
+
+11:21.440 --> 11:28.440
+you would basically obj copy the load bits out and then you would have some you know bit of
+
+11:28.440 --> 11:34.120
+initialization code copy from various bits to where they needed to be so they're actually in some
+
+11:34.120 --> 11:41.000
+ways even though I guess the linker scripts were designed before elf elf is not really well designed
+
+11:41.000 --> 11:47.400
+for embedded systems because you kind of almost misusing elf to make it work for embedded systems
+
+11:47.440 --> 11:53.720
+in a lot of cases but anyway I'll go from here okay so the reason I'm mentioning program headers
+
+11:53.720 --> 11:58.960
+here is that you can be very explicit in your linker script and use the p headers command but
+
+11:58.960 --> 12:02.280
+most of the time you actually want the linker to generate these things for you because if you get
+
+12:02.280 --> 12:12.360
+it wrong then the program just won't work so for a typical sort of link the the linker's gonna
+
+12:12.400 --> 12:19.400
+look for this thing called the VMA to LMA offset which is basically LMA being the load address
+
+12:19.400 --> 12:23.600
+and this is really only important in embedded systems where you for example want your load
+
+12:23.600 --> 12:29.200
+address to be in flash but your execution address to be in memory that type of thing so if that
+
+12:29.200 --> 12:37.280
+offset changes the link will change the program header you typically want all of your non zero
+
+12:37.280 --> 12:42.160
+initialized thing before the zero initialized thing because that's the only way that elf and elf
+
+12:42.160 --> 12:47.560
+program header can describe it and of course if you're changing properties from like RO to RW
+
+12:47.560 --> 12:53.840
+that's that whilst you couldn't in theory merge them you generally don't want executable RW in
+
+12:53.840 --> 13:01.920
+most systems okay so here's just a graphical example of some of the things that I'm making it's
+
+13:01.920 --> 13:07.440
+quite complicated diagram but this is where you get this alignment coming in in that if you think
+
+13:07.480 --> 13:14.360
+of your text segment there so I've deliberately done done that so it is just a bit smaller than
+
+13:14.360 --> 13:21.640
+the memory page and I'm using a 64k page here so you've got the data segment that is not aligned
+
+13:21.640 --> 13:27.960
+to a page boundary in the file if it was there'd be a big gap in it filled with zeros so what the
+
+13:27.960 --> 13:33.280
+what the operating system actually does is it double maps that particular bits you end up with
+
+13:33.320 --> 13:40.320
+the text segment mapped basically and part of the data segment mapped to the first page read only
+
+13:40.320 --> 13:46.680
+and then you have the second bit mapped to read write into two separate pages there so we've
+
+13:46.680 --> 13:53.960
+actually wasted one page of virtual memory but we've saved one physical memory page now the
+
+13:53.960 --> 13:59.000
+interesting bit for this is that the mapping for the read write is copy on write so you can't
+
+13:59.600 --> 14:05.440
+write to four one thousand and write into the read only execute bit but what it does permit you
+
+14:05.440 --> 14:11.840
+to do is to basically read towards the end of the execute thing and you'll actually be reading into
+
+14:11.840 --> 14:18.880
+the data segment read only now in theory if you've not protected your program and this probably
+
+14:18.880 --> 14:24.280
+doesn't matter that much but if you have hardened your program against rock and chop attacks there
+
+14:24.280 --> 14:29.920
+could be potentially gadgets in the read only data that if someone manages to redirect control
+
+14:29.920 --> 14:36.640
+they can find more gadgets in that same so this is section called Z separate code where it will
+
+14:36.640 --> 14:44.840
+sort of basically make sure that the read only executable is separated by page by pages so you
+
+14:44.840 --> 14:50.000
+don't ever get this double mapping from there and as you can see for the GNU LD layout it's got some
+
+14:51.000 --> 14:57.600
+execute then more read only and actually that can waste you quite a lot of pages in a small system
+
+14:57.600 --> 15:04.520
+particularly in a 64 or something like that where you've got a 64k basic page so there are control
+
+15:04.520 --> 15:11.280
+things for that so if you use no Z no separate code then you end up with them tightly packed like I
+
+15:11.280 --> 15:16.760
+had before so quite often various district just rows will choose different values of Z no separate
+
+15:16.760 --> 15:21.320
+code but if you do find hey all my binary sizes have suddenly got bigger it might be because of
+
+15:21.320 --> 15:27.560
+this Z separate code now GNU LD does something slightly different to that in that because it
+
+15:27.560 --> 15:34.280
+normally preferred read only before read only sorry read only executable before sorry read only no
+
+15:34.280 --> 15:40.200
+executable before read only executable it didn't quite have that triple or a sandwich of read only
+
+15:40.200 --> 15:46.720
+executable between the read onlys so by default LLD put would give you three program layout okay I
+
+15:46.720 --> 15:52.160
+need to speed up a little bit here but anyway that's just one example of differences in memory layout
+
+15:52.160 --> 16:00.320
+even without link script case okay so program segments and embedded systems so mentioned
+
+16:00.320 --> 16:08.040
+before you're on you had this arrow to flash and at so this is how you would basically arrange it so
+
+16:08.080 --> 16:18.440
+that your execution address for your data is actually in RAM but your load address your LMA is in
+
+16:18.440 --> 16:27.280
+in flash and that and then some program will actually go and copy the stuff from the flash contents
+
+16:27.280 --> 16:32.600
+into the RAM contents so reason I'm mentioning this is that there are some slight differences between
+
+16:32.600 --> 16:37.480
+GNU LD and whatever so and there are certainly some problems with LLD that we know at the moment
+
+16:38.120 --> 16:46.640
+so LLD at the moment will assume that your output section and is virtual memory address is
+
+16:46.640 --> 16:53.320
+monotonically ascending so you can break this with a linker script like this where you kind of
+
+16:53.320 --> 16:58.960
+because it's working top down it will just try and assign these sections into the memory region top
+
+16:58.960 --> 17:06.960
+down and unfortunately that plus 64 that second section really should be after the after the section
+
+17:07.040 --> 17:12.520
+in that file GNU LD is clever about this and it will actually sort the things to make sure that
+
+17:12.520 --> 17:18.000
+they are in ascending order but LLD won't and you'll end up with a bit of code that tries to work
+
+17:18.000 --> 17:22.600
+out what the virtual the load address is from its virtual memory address and it basically wraps
+
+17:22.600 --> 17:28.560
+around and goes negative so that's one thing but known bug in LLD at the moment that we'll need
+
+17:28.560 --> 17:32.880
+to fix but the other thing is say if you are writing and a linker script for embedded systems
+
+17:33.440 --> 17:38.280
+please try not to make LLD difficult for your linker and put things in ascending order is what
+
+17:38.280 --> 17:42.880
+I would say on there okay so just because I've only got probably one minute left how some other
+
+17:43.600 --> 17:49.040
+things or gotchas that you probably need to look out for so dot assignment within an output section
+
+17:49.040 --> 17:54.000
+see that dot equals four there and now you might think that means assign the location counter to
+
+17:54.000 --> 17:58.640
+four but no it doesn't there's a special case that if you do that within an output section
+
+17:58.640 --> 18:04.960
+it's supposed to be relative to dot section so that's actually saying dot equals dot section plus
+
+18:04.960 --> 18:11.840
+four so yes so if you want to do that please well LLD has decided this is silly we're not doing this
+
+18:12.480 --> 18:17.760
+and it just means dot equals four but it does mean if you have got an old linker script then
+
+18:17.760 --> 18:22.640
+then you can end up getting caught like this and you have there is a way of doing things in
+
+18:22.640 --> 18:27.120
+that's compatible with both which is used dot plus equals and it also that looks much nicer
+
+18:27.120 --> 18:31.680
+and it actually lines up to what you probably intended to do anyway so I think with that I just
+
+18:31.680 --> 18:37.120
+want to quickly mention some references and then I'll stop and so yeah so if you do want to know
+
+18:37.120 --> 18:42.720
+about what LLD does and mass-grade the current LLD maintainer has gone through and basically
+
+18:43.360 --> 18:47.200
+often when he wants to implement something he will put a blog post up up and write lots of
+
+18:47.200 --> 18:51.360
+interesting things about what he's found out about various things so it's not documentation it's
+
+18:51.360 --> 18:55.840
+definitely blog post type material sort of what's there at the time but it is quite useful to get
+
+18:55.840 --> 18:59.520
+into what the internals of these sort of things done and then there's some various sort of bug
+
+18:59.520 --> 19:02.720
+reports links and things there but I better stop there because I'm probably out of time now
+
+19:09.760 --> 19:13.920
+okay so we've got two minutes so I might be able to get one maybe two questions or something like that
+
+19:14.240 --> 19:27.360
+so the question is there an effort to standardize linker scripts I think it's very much down to
+
+19:27.360 --> 19:34.320
+the community so I think what we've said in LLD is that if anyone wants to add to the
+
+19:35.280 --> 19:40.800
+wants to change the linker script format then go to binutils mailing list and make sure you
+
+19:40.800 --> 19:44.800
+get it agreed with the canoe and don't just input we definitely don't want to just pile
+
+19:44.800 --> 19:50.400
+extensions into LLD but really it's just communication across the yet of the basic the
+
+19:50.400 --> 19:55.280
+problem with standardizing it is that that means that they can't change it so I think there's probably
+
+19:55.280 --> 20:03.360
+one they want to keep some of that yes so I know that if you use funky linker script stuff yeah
+
+20:03.360 --> 20:10.240
+with LDO then LDO like you can do things like we talked about like instructor lists or LDO doesn't
+
+20:10.240 --> 20:15.120
+seem to be able to take advantage of the link of the layout caused by linker script in order to
+
+20:15.920 --> 20:20.080
+do things like preload data that it knows should be in certain locations yeah is that some sort of
+
+20:20.080 --> 20:24.240
+fundamental limitation with the architecture or do you think that could be that so yeah there is
+
+20:24.240 --> 20:29.200
+the question was about basically LTO and linker scripts probably not interacting very well so
+
+20:29.200 --> 20:35.200
+yeah there there are some efforts that are going on with it within the LLVM embedded community
+
+20:35.440 --> 20:44.240
+for this to try and basically say how can we make sure that you can place well basically
+
+20:44.880 --> 20:50.800
+I'll probably take too long to answer this but things like interprocedural optimization
+
+20:51.680 --> 20:55.520
+can break certain linker scripts sometimes you want to say here's this region of memory
+
+20:55.520 --> 21:00.640
+it's and this region of memory and I do not want you to share things between these two bits of memory
+
+21:00.640 --> 21:05.440
+but LTO basically just assumes it can do all of it so there is some effort ongoing but we need to
+
+21:05.440 --> 21:10.160
+work out what the actual rules are here but we but yeah there is some effort in the community to go
+
+21:10.160 --> 21:13.120
+on to try and fix that okay I probably best stop there for
+

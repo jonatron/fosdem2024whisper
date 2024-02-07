@@ -1,0 +1,214 @@
+This is this talk is about linker scripts and some of the some of the ways they differ
+between GNU LD, LLD. There are some bits where I've kind of bent that definition a bit and
+gone through the sort of the differences in the internals, sorry not the internals, as
+in the internal linker script because at least with some linkers when you when you say you're
+not using a linker script you are it's just a linker's provided it for you in the background.
+So first slide is basically just some basics so that you can understand what I'm going to
+be talking about for the rest of the talk. Apologies if you're already familiar with
+ELF and linker scripts this will be a bit boring but just very very quickly linker's
+job is to take input sections that you would have in your sort of ELF file normally your
+dot text your dot data dot bss which is sort of zero initialized stuff and it will combine
+them together into one bigger big blob and those are sort of then called output sections
+so I will use the term input sections for stuff coming from your object file, output
+sections what linkers combined together and then these will end up in program segments
+in your ELF file and then basically your operating system or kind of copy will operate on a program
+segment. Right so linker scripts sort of I guess more formally called linker control
+scripts it's kind of like a domain specific language that the linker uses I guess most
+the majority of the commands are to do with image layout you know where you map input
+sections to output sections there are a few additional commands as well like for example
+some of the commands are load more files and you might actually be surprised to know
+at least some systems your libc is actually a linker script but it's a linker script
+that loads the actual files behind the scenes to make sure you get them in the right order.
+Yes some details on the command line. GnuLD has a built-in linker script so even though
+and you can actually dump this with minus minus verbose if you're actually interested in
+the horror of what the new internal linker script is but LLD and gold and assuming mold
+as well basically have an internal they don't use an internal textual DSL scripts they kind
+of mimic it using command line language that type of thing or just basically hard code things.
+So one interesting thing this is just I guess not related to LLD or GnuLD but if you use
+dash t or which is the short form for dash dash script the script that you provide will
+replace the internal linker script but you can actually just put the script on the command
+line as if it were an object file and that won't replace the linker script it will add to it so
+you could basically add various different fragments that type of thing. Anyway here's an example
+of a linker script so you can see what sort of things there this is one from a very very stripped
+down one from an embedded system. I say I've used embedded systems kind of for the linker
+scripts because generally if you're say linking on a in-user space and Linux or whatever you
+really don't need to use a linker script for most of the time and the general advice is if you
+don't need to touch linker scripts don't touch them. So memory command at the top that's basically
+laying out where your various memories are on the embedded system you might have different
+properties like one might be flash one might be RAM that type of thing. You have these things
+called input sections descriptions which are that star dot text star that's the sort of things
+that linker's going to filter against so when your input dot section it will match against
+that dot text there. You have symbol definitions that you can put down that dot in the next
+of the underscore in the EXE IDX start is called the location counter and that's basically
+what will mean the linker will fill in with the address that was there at the time so basically
+at the end of dot text there will be certain amount of addresses space being used so at the end
+of that output section that value will get put into the symbol there so that your program can
+basically introspect itself by using these symbols. Have built-in functions for example align and
+these sort of arrow flash and at flash those are sort of ways of assigning things to memory
+regions and that can become important for other things we'll do later on. Anyway, GnuLD and
+LLD linker script handling so yeah as it's been mentioned in the GnuTalk this morning there's no
+specification for linker scripts the closest we have is the linker script manual in the
+Gnu documentation some parts are under specified some parts are implementation defined GnuLD and
+LLD are also moving targets so even if you did decide to basically reverse engineer the source
+code there would be no guarantee that by the next release it would be the same thing. So yeah so
+generally LLD will try and keep as close to the specification as possible it has made a
+design decision to differ in a few cases where there's been some I guess odd behavior accumulated
+over time I'd say these are not well specified languages that have been sort of gone through a
+programming committee they are accumulations of you know I wouldn't necessarily say hacks over
+time but it has been developed over the course of 30 years and it's accumulated a lot of rubbish.
+Okay so often placement so this is one of the areas where GnuLD and LLD differ slightly but
+they give you roughly the same results so as we sort of went back to that previous linker script
+and there were only fragments and it wasn't a complete specification of where all of the sections
+go so linker scripts do not have to be complete and you could only actually need to give a partial
+description and the linker basically if any section doesn't match any of those input section
+descriptions it's called an orphan and then it's basically the link the manual says it is up to
+the linker to place the orphans so basically it can place them where it tries to do something
+that's relatively sensible so you can if you're concerned about that I want to know what the
+link has done there is this this thing called orphan placement and it can tell you where things
+are that type of thing and then there's also an option called dash dash unique where if you
+want to get if you don't want the linker to try and mess about with combining your orphans
+together it will just put them all in their own individual sections that type of thing.
+Okay so here's an example of how a linker might place orphans what it tends to do is it tries
+to match the properties of the section so like for example you've got an executable section
+on the assembly code there you have the AX but for that means SHF ALOC executable A that would be
+read only AW right that sort of thing prog bits there's something in the file no bits that's
+runtime initialized zero to initialized data and the linker basically says okay what have I
+already got in my linker script well I've already got a dot tech section that's good executable so
+I'll place the one the orphan with a similar name afterwards that type of thing so that's the sort
+of thing that would do one of the interesting cases that we'll get to is where does it place
+when there's already symbol assignments so linker's got to be very careful to try not to break
+someone so carefully place symbol assignment so here's just a very very quick textual detail for
+some of the things that I've said there and in particular the example I've got at the bottom
+here you've got this last one dot foo there's a section called bar and then someone's advanced the
+location counter on a thousand so if the linker insert it says oh dot foo I can place that in
+the section dot foo but where does it place it does it place it after bar does it place it after
+the dot and the rule that the linkers take is it always puts it after any of the various expressions
+that it's done there because in general this is this is where programmers might say I want section
+start section end and if you insert something in the middle of that then you might have broken
+someone's program who's been to say try to make their own table of pointers they're iterating
+through that type of thing okay so here's an example of where GNU LD and LLD differ and this is
+actually fairly simple one it's actually quite hard to get them to differ in most cases but
+LLD in its default linker script prefers to place read only sections before executable sections
+GNU LD has the opposite and will place in read only after executable so if there's no read only in
+the linker script the link has got no information of which to say ah here's my anchor to place it
+afterwards so they will make different choices and there was a bug reporter about about this saying
+of the linker did something different but yeah it's one of those unknown difference
+yeah another thing that this is more of a curiosity with LLD and it's just something that I see when
+people port programs from another operating system is quite often someone will forget the A and if
+you forget the A that's essentially telling the linker that this section is not part of the program
+it's like a debug section that's metadata so now it does turn out that GNU LD and LD will place the
+orphan at the same place but LLD unfortunately uses that as an anchor point for all of the other
+sections so if you put in that particular case bar will get inserted after in bar there but then all
+of the debug sections will get put after it because that's suddenly the anchor point for all the
+no-alarm sections which is a bit of a curiosity I think at that point so yeah main thing if you
+ever pointing a program from GNU and something weird goes on check your assembler and the chances are
+you forgot to put an A flag on one of your sections okay okay so program header generations this is
+somewhere where I'm going away from linker script and veering much more back to the user space area
+so this is basically trying to explain some of the differences between separate code and no separate
+code behavior on LLD and GNU LD so this is a an elf program header so this is what describes a
+segment and the most important ones that you need to look at here are p offset which is the offset
+in the file p viadra which is the basically the virtual address that the thing will be loaded at
+and the p align which is a very very very strange very strange thing congruent to p offset modulo
+p a lot a line and this is a I guess you could almost call it it almost seems like a trick and
+to allow basically the same page in the file to get mapped in two different places in virtual memory
+and that can save some physical memory yeah okay so in what I call that system five by system five
+think of that as something like Linux or or BSD that type of thing now this elf file is actually
+memory mapped using various M map calls into memory this is actually quite different from an
+embedded system because an embedded system you probably wouldn't even load the elf file anyway
+you would basically obj copy the load bits out and then you would have some you know bit of
+initialization code copy from various bits to where they needed to be so they're actually in some
+ways even though I guess the linker scripts were designed before elf elf is not really well designed
+for embedded systems because you kind of almost misusing elf to make it work for embedded systems
+in a lot of cases but anyway I'll go from here okay so the reason I'm mentioning program headers
+here is that you can be very explicit in your linker script and use the p headers command but
+most of the time you actually want the linker to generate these things for you because if you get
+it wrong then the program just won't work so for a typical sort of link the the linker's gonna
+look for this thing called the VMA to LMA offset which is basically LMA being the load address
+and this is really only important in embedded systems where you for example want your load
+address to be in flash but your execution address to be in memory that type of thing so if that
+offset changes the link will change the program header you typically want all of your non zero
+initialized thing before the zero initialized thing because that's the only way that elf and elf
+program header can describe it and of course if you're changing properties from like RO to RW
+that's that whilst you couldn't in theory merge them you generally don't want executable RW in
+most systems okay so here's just a graphical example of some of the things that I'm making it's
+quite complicated diagram but this is where you get this alignment coming in in that if you think
+of your text segment there so I've deliberately done done that so it is just a bit smaller than
+the memory page and I'm using a 64k page here so you've got the data segment that is not aligned
+to a page boundary in the file if it was there'd be a big gap in it filled with zeros so what the
+what the operating system actually does is it double maps that particular bits you end up with
+the text segment mapped basically and part of the data segment mapped to the first page read only
+and then you have the second bit mapped to read write into two separate pages there so we've
+actually wasted one page of virtual memory but we've saved one physical memory page now the
+interesting bit for this is that the mapping for the read write is copy on write so you can't
+write to four one thousand and write into the read only execute bit but what it does permit you
+to do is to basically read towards the end of the execute thing and you'll actually be reading into
+the data segment read only now in theory if you've not protected your program and this probably
+doesn't matter that much but if you have hardened your program against rock and chop attacks there
+could be potentially gadgets in the read only data that if someone manages to redirect control
+they can find more gadgets in that same so this is section called Z separate code where it will
+sort of basically make sure that the read only executable is separated by page by pages so you
+don't ever get this double mapping from there and as you can see for the GNU LD layout it's got some
+execute then more read only and actually that can waste you quite a lot of pages in a small system
+particularly in a 64 or something like that where you've got a 64k basic page so there are control
+things for that so if you use no Z no separate code then you end up with them tightly packed like I
+had before so quite often various district just rows will choose different values of Z no separate
+code but if you do find hey all my binary sizes have suddenly got bigger it might be because of
+this Z separate code now GNU LD does something slightly different to that in that because it
+normally preferred read only before read only sorry read only executable before sorry read only no
+executable before read only executable it didn't quite have that triple or a sandwich of read only
+executable between the read onlys so by default LLD put would give you three program layout okay I
+need to speed up a little bit here but anyway that's just one example of differences in memory layout
+even without link script case okay so program segments and embedded systems so mentioned
+before you're on you had this arrow to flash and at so this is how you would basically arrange it so
+that your execution address for your data is actually in RAM but your load address your LMA is in
+in flash and that and then some program will actually go and copy the stuff from the flash contents
+into the RAM contents so reason I'm mentioning this is that there are some slight differences between
+GNU LD and whatever so and there are certainly some problems with LLD that we know at the moment
+so LLD at the moment will assume that your output section and is virtual memory address is
+monotonically ascending so you can break this with a linker script like this where you kind of
+because it's working top down it will just try and assign these sections into the memory region top
+down and unfortunately that plus 64 that second section really should be after the after the section
+in that file GNU LD is clever about this and it will actually sort the things to make sure that
+they are in ascending order but LLD won't and you'll end up with a bit of code that tries to work
+out what the virtual the load address is from its virtual memory address and it basically wraps
+around and goes negative so that's one thing but known bug in LLD at the moment that we'll need
+to fix but the other thing is say if you are writing and a linker script for embedded systems
+please try not to make LLD difficult for your linker and put things in ascending order is what
+I would say on there okay so just because I've only got probably one minute left how some other
+things or gotchas that you probably need to look out for so dot assignment within an output section
+see that dot equals four there and now you might think that means assign the location counter to
+four but no it doesn't there's a special case that if you do that within an output section
+it's supposed to be relative to dot section so that's actually saying dot equals dot section plus
+four so yes so if you want to do that please well LLD has decided this is silly we're not doing this
+and it just means dot equals four but it does mean if you have got an old linker script then
+then you can end up getting caught like this and you have there is a way of doing things in
+that's compatible with both which is used dot plus equals and it also that looks much nicer
+and it actually lines up to what you probably intended to do anyway so I think with that I just
+want to quickly mention some references and then I'll stop and so yeah so if you do want to know
+about what LLD does and mass-grade the current LLD maintainer has gone through and basically
+often when he wants to implement something he will put a blog post up up and write lots of
+interesting things about what he's found out about various things so it's not documentation it's
+definitely blog post type material sort of what's there at the time but it is quite useful to get
+into what the internals of these sort of things done and then there's some various sort of bug
+reports links and things there but I better stop there because I'm probably out of time now
+okay so we've got two minutes so I might be able to get one maybe two questions or something like that
+so the question is there an effort to standardize linker scripts I think it's very much down to
+the community so I think what we've said in LLD is that if anyone wants to add to the
+wants to change the linker script format then go to binutils mailing list and make sure you
+get it agreed with the canoe and don't just input we definitely don't want to just pile
+extensions into LLD but really it's just communication across the yet of the basic the
+problem with standardizing it is that that means that they can't change it so I think there's probably
+one they want to keep some of that yes so I know that if you use funky linker script stuff yeah
+with LDO then LDO like you can do things like we talked about like instructor lists or LDO doesn't
+seem to be able to take advantage of the link of the layout caused by linker script in order to
+do things like preload data that it knows should be in certain locations yeah is that some sort of
+fundamental limitation with the architecture or do you think that could be that so yeah there is
+the question was about basically LTO and linker scripts probably not interacting very well so
+yeah there there are some efforts that are going on with it within the LLVM embedded community
+for this to try and basically say how can we make sure that you can place well basically
+I'll probably take too long to answer this but things like interprocedural optimization
+can break certain linker scripts sometimes you want to say here's this region of memory
+it's and this region of memory and I do not want you to share things between these two bits of memory
+but LTO basically just assumes it can do all of it so there is some effort ongoing but we need to
+work out what the actual rules are here but we but yeah there is some effort in the community to go
+on to try and fix that okay I probably best stop there for
