@@ -1,0 +1,458 @@
+WEBVTT
+
+00:00.000 --> 00:13.560
+Good afternoon all. I'm here to talk about the VVC decoder in FFMPEG. I'm going to introduce
+
+00:13.560 --> 00:17.000
+VVC. I should imagine if you're in this room you're already somewhat familiar or at least
+
+00:17.000 --> 00:22.520
+interested but I'll refresh some of the coding tools and some of the objectives that it has.
+
+00:23.040 --> 00:31.600
+Talk about where FFVVC, the FFMPEG VVC decoder fits into that. Again, what new coding tools
+
+00:31.600 --> 00:36.040
+VVC introduces. Talk a bit about the threading model which is one of the most more interesting
+
+00:36.040 --> 00:42.240
+things for those of you who already have some experience with FFMPEG. Then go over performance,
+
+00:42.240 --> 00:50.360
+how that compares to previous codecs and the other VVC decoders out there. Conclude the talk,
+
+00:50.400 --> 00:55.440
+talking a little bit about the Google Summer of Code program this summer and the next steps
+
+00:55.440 --> 01:02.360
+for FFMPEG. First of all, a disclaimer. I did not write very much of this code at all. The
+
+01:02.360 --> 01:11.160
+credit should go to Noemi in China who unfortunately couldn't be here today. Who am I? I am Frank
+
+01:11.160 --> 01:16.320
+Palmer. You can find me at frankclammer.com. There's various other contact details on there. I was
+
+01:16.400 --> 01:22.240
+one of the Google Summer of Code students this summer working on this project. As you saw in
+
+01:22.240 --> 01:28.400
+the agenda, we'll talk a little bit more about what that involved later. Going into the introduction
+
+01:28.400 --> 01:38.280
+then. VVC or not H265, H266, that should read, is a new standard from the Java. It's succeeding
+
+01:39.240 --> 01:48.960
+H264 and HEVC, so quite big boots to follow. It's got two main objectives. It aims to have 50%
+
+01:48.960 --> 01:56.400
+lower bit rates than HEVC for the same quality of video. As the name suggests, versatility is
+
+01:56.400 --> 02:01.040
+the other main objective. That involves a lot of new coding tools for things like screen content
+
+02:01.040 --> 02:07.560
+coding, adaptive resolution change for things like video teleconferencing, independent sub-pictures.
+
+02:08.520 --> 02:14.160
+Versatile applications underlie a lot of the decisions made in the design of VVC.
+
+02:14.160 --> 02:22.000
+The open source landscape of VVC. For encoders, you have VTM, which is the reference software.
+
+02:22.000 --> 02:27.080
+You're not really going to want to use that for practical encoding. You have ENC, VVNC,
+
+02:27.080 --> 02:33.800
+which is developed by the Fraunhofer Institute. That is a practical decoder, encoder very fast.
+
+02:34.760 --> 02:41.320
+Finally, you have UVG266, which is an open source project developed by the community.
+
+02:44.840 --> 02:51.640
+Then on the decoder side, you again have VTM. You have the dual of VVNC, you have VVDEC,
+
+02:51.640 --> 02:55.120
+which I believe there's a lightning talk on that in a little while, which is very fast,
+
+02:55.120 --> 03:01.120
+very good decoder. You have also developed by the Fraunhofer Institute. You have OpenVVC,
+
+03:01.240 --> 03:08.240
+which is a community project VVC decoder, which is relatively performant for a single
+
+03:08.240 --> 03:12.600
+core. Unfortunately, that has now been abandoned. I don't think there's been a commit in about two
+
+03:12.600 --> 03:20.640
+years. Finally, we have what this talk is introducing, FFVVC. The state of FFVVC,
+
+03:20.640 --> 03:26.680
+the C code was merged at the start of the year. I believe it was a month ago exactly now.
+
+03:27.680 --> 03:33.280
+As John Baptiste talked about in his talk a little while ago, we believe it will be in
+
+03:33.280 --> 03:41.360
+FFMPEG 7.0, but possibly under some sort of experimental flag. The Inter-Prediction Assembly
+
+03:41.360 --> 03:45.720
+has just been merged about a week ago. We have some other assembly that has been written and is
+
+03:45.720 --> 03:52.960
+in the review process. It's important to note though that FFVVC is not yet maintain complete.
+
+03:53.080 --> 03:58.120
+There are some coding tools that are missing. The big one that we've heard from the community is
+
+03:58.120 --> 04:03.440
+intra-block copy support is not yet implemented. There is a patch set for that that's in the works.
+
+04:03.440 --> 04:15.040
+I'd be doubtful it will be in the 7.0 release of FFVVC though. Most of the other features
+
+04:15.040 --> 04:20.560
+that are missing are things that are a bit more exotic than intra-block copy. Features such as
+
+04:21.080 --> 04:27.360
+wrap around for 360 degree videos not yet implemented, independent sub-pictures,
+
+04:27.360 --> 04:32.360
+reference picture resizing, some of the more exotic stuff, but that will all come in time.
+
+04:32.360 --> 04:41.400
+This shows the assembly status, what has been written so far, what we're prioritizing,
+
+04:41.400 --> 04:47.600
+and what we've been able to reuse from HEVC. Things that we've prioritized so far are largely
+
+04:48.240 --> 04:54.200
+low hanging fruits. The inter-prediction we were able to reuse quite a lot of that from HEVC for
+
+04:54.200 --> 05:01.800
+good gain. SAO is entirely identical between HEVC and VVC so we've been able to rip that directly.
+
+05:01.800 --> 05:10.160
+Inter-prediction and ALF are both big contributors to the decode time in C only,
+
+05:10.720 --> 05:18.400
+their high priority. One of the GSOC projects last year was working on the ALF stuff so we'll
+
+05:18.400 --> 05:22.920
+talk about that a bit more so that's on its way. Inter we've managed to get some bits out of David
+
+05:22.920 --> 05:28.720
+for the more generic stuff just like averaging functions. That's been effective in getting a
+
+05:28.720 --> 05:33.320
+quick speed up there but we need your help with this. There's not many of us working on this at
+
+05:33.320 --> 05:38.760
+the moment and there's a lot of assembly to write. That's going to be key to performance as we'll
+
+05:38.840 --> 05:48.040
+see in the performance later on. Decoder size. I believe the biggest decoder now in FFMPEG in
+
+05:48.040 --> 05:56.480
+terms of lines of C. I'm not sure how it compares to David but even being the biggest decoder in
+
+05:56.480 --> 06:06.000
+FFMPEG it's still much smaller than open VVC and VVDC as you can see here. How do we manage to
+
+06:06.080 --> 06:14.400
+achieve that? By being in FFMPEG basically we're able to reuse parts from previous codecs. We're
+
+06:14.400 --> 06:22.880
+able to use the CBS Quebec reader you can see there and reuse like whole swathes of code also
+
+06:22.880 --> 06:29.200
+parts of the binary so it's kind of hard to measure that but you get a more bang for your buck in
+
+06:29.240 --> 06:36.760
+terms of the size of a compiled delivery codec. In the future I believe we may be able to also use
+
+06:36.760 --> 06:47.320
+some aspects of hardware decoder APIs to do the DPB reference management. We managed to be much
+
+06:47.320 --> 06:52.160
+much smaller and that's one of the main reasons really motivating putting this inside of FFMPEG.
+
+06:52.160 --> 06:59.080
+The other one being FFMPEG's vibrant community we can say which hopefully will help maintain this
+
+06:59.160 --> 07:08.360
+into the future. Moving on to what's new in VVC so there's a lot of new coding tools like a dizzying
+
+07:08.360 --> 07:16.480
+amount. You can see here you could talk for an hour and many people have about even a subset of
+
+07:16.480 --> 07:24.360
+these. As you say we haven't implemented them all yet but there's loads to play with which yeah
+
+07:25.120 --> 07:31.520
+feedback to them the ability to make much smaller bit streams and also to make more versatile
+
+07:31.520 --> 07:40.440
+video content. What FFVVC introduces that's new for FFMPEG is this stage-based thread model so
+
+07:40.440 --> 07:49.080
+lots of previous codecs have the frame and slice thread models which do well for sort of low
+
+07:49.160 --> 07:56.160
+number of cores but have some sort of here ceiling at certain point and so FFVVC uses a much more
+
+07:56.160 --> 08:01.760
+fine-grained thread model which is able to allocate threads based on the stage of decoding
+
+08:01.760 --> 08:09.600
+individual CTUs and yeah as that says it means we're able to much better utilize higher core
+
+08:09.600 --> 08:16.560
+counts and so our C code with no assembly we're able to decode 4k over 30 fps on you know relatively
+
+08:16.640 --> 08:25.080
+high-end desktop processor but I think that's really impressive. This thread model is possible to
+
+08:25.080 --> 08:31.320
+implement in HEVC. FFVVC does not use it I think it's also possible to do stage-based decoding in
+
+08:31.320 --> 08:41.640
+AV1 but it wasn't a factor in the design of AVC. The way that it works is you divide each CTU into
+
+08:41.720 --> 08:47.920
+several stages of decoding they're all listed there and the key thing is that each stage depends
+
+08:47.920 --> 08:53.720
+only on the current or previous stage of the neighboring CTUs and so you can start doing the
+
+08:53.720 --> 09:01.560
+D block of one stage before you've done the pass even in the like top left corner very far away
+
+09:01.560 --> 09:08.280
+sorry before you've done the intro I think you have to do the pass for all first and the effect
+
+09:08.360 --> 09:13.480
+you get from this is this sort of wave front that progresses across the image of each of the
+
+09:13.480 --> 09:21.200
+different stages and yeah it allows you to use much more cores. To allocate those cores we've had
+
+09:21.200 --> 09:28.480
+to introduce this new AV executor utility which has been made available in LibAVUtil so you can
+
+09:28.480 --> 09:34.920
+use this for other projects inside FFMpeg. It's a really simple algorithm at the moment but
+
+09:34.960 --> 09:41.280
+centralizing the control of allocation of threads you know not repeating yourself means we have
+
+09:41.280 --> 09:48.000
+now one location where we can make improvements here. It's a really simple algorithm it's based
+
+09:48.000 --> 09:55.560
+on I think some of the earlier implementations inside Python and Java's executor structures or
+
+09:55.560 --> 10:00.920
+whatever they call them but yeah having that one thing in one location that can be used throughout
+
+10:00.920 --> 10:12.000
+FFMpeg to improve multi-threading. Yeah so onto the performance section so at the moment it's pretty
+
+10:12.000 --> 10:18.160
+slow compared to previous codecs I mean this is to be expected by to a certain extent VVC is just
+
+10:18.160 --> 10:24.120
+a more complex codec than previous generation stuff it has to be in order to achieve high rates
+
+10:24.160 --> 10:32.680
+compression. This SIMD here false and true for FFVVC so this is with stuff that's not yet in FFMpeg
+
+10:32.680 --> 10:38.720
+master this is with the current state on the development staging repo. You can see we are
+
+10:38.720 --> 10:45.440
+getting about over 200 over a doubling of speed increase for FFVVC already but there's a long
+
+10:45.440 --> 10:50.400
+way to go as you can see from David's really impressive assembly speed up they have there but
+
+10:50.480 --> 10:57.720
+our multi-threading picture is quite different so that shows you the effect of doing that stage
+
+10:57.720 --> 11:04.120
+based multi-threading we're just much more easily able to use higher numbers cause yeah note here
+
+11:04.120 --> 11:08.520
+that this is using hyperthreading which is why you've got quite the knee there at six threads
+
+11:08.520 --> 11:15.800
+and but below six threads it's really not far off from that ideal you get a core you get the same
+
+11:15.840 --> 11:27.200
+multiplicative increase in the speed up comparing it to VVDC then. VVDC uses the same stage based
+
+11:27.200 --> 11:34.560
+threading model so you're getting a very similar performance between FFVVC and VVDC. Open VVC uses
+
+11:34.560 --> 11:42.920
+the conventional frame and tile based multi-threading techniques so that's quite useful on the
+
+11:43.000 --> 11:46.480
+left hand side there that figure to compare what is the effect of this new threading model
+
+11:46.480 --> 11:53.720
+but you can see and then on the right hand side the single threaded performance C only between
+
+11:53.720 --> 12:01.240
+FFVVC and VVDC is pretty much on par. VVDC behaves has quite significantly different
+
+12:01.240 --> 12:07.080
+performance on different operating systems but the average between the two is pretty much the same
+
+12:08.040 --> 12:15.360
+and on 4k it's a similar picture but everything just gets slightly more pronounced. Open VVC is
+
+12:15.360 --> 12:22.400
+slower that the speed up that we're getting from using more threads matters even more for larger
+
+12:22.400 --> 12:32.320
+videos so you can see that effect here but we're still lacking on the assembly front so VVDC has
+
+12:32.600 --> 12:39.520
+a lot of assembly already for quite a few different architectures and you can see that they're
+
+12:39.520 --> 12:46.840
+really pulling ahead once you enable the assembly there. The theoretically FFNPEG VVDC decoder should
+
+12:46.840 --> 12:52.720
+have somewhat of a higher ceiling due to the fact that FFVVC's assembly will be handwritten
+
+12:52.720 --> 13:02.040
+whereas VVDC's is using intrinsics and on some architectures using SIMD anywhere as like a portable
+
+13:02.640 --> 13:11.920
+SIMD library which introduces them overhead so with enough time hopefully FFVVC can be even
+
+13:11.920 --> 13:17.760
+faster but we've got a long way to go to catch up to them at the moment. So just sort of wrapping
+
+13:17.760 --> 13:24.200
+up to the last couple of things here so talking about the Google Summer of Code program in 2023
+
+13:24.200 --> 13:30.920
+so there was two Google Summer of Code students contributing to the VVDC decoder this summer.
+
+13:31.800 --> 13:39.600
+Myself and Sean Liu so I worked on a lot of the stuff that was added in version two of VVDC so that
+
+13:39.600 --> 13:46.720
+includes the support for 12 and 14 bit which needs the range extension which changes various things
+
+13:46.720 --> 13:52.520
+to the entropy encoder when you get to higher bit depths and I've also been working on AVX2
+
+13:52.520 --> 13:57.480
+optimizations for the inverse transforms they all had to be written from scratch in the end
+
+13:57.520 --> 14:06.160
+there's not very much that you can share between HEVC and VVC due to the way that the HEVC transforms
+
+14:06.160 --> 14:14.200
+are written in FFNPEG and Sean Liu is working on also on assembly transforms for the filters which
+
+14:14.200 --> 14:21.320
+some of them are in the process of being upstreamed at the moment I believe. So yeah next steps as
+
+14:21.320 --> 14:27.160
+I'm sure this performance and what we've been working on has sort of shown we've got a very solid
+
+14:27.280 --> 14:32.480
+baseline with the C performance and the multi-threading but we need lots more assembly in there to be
+
+14:32.480 --> 14:39.280
+able to compete with existing decoders so upstreaming and what we've already got implementing
+
+14:39.280 --> 14:47.280
+more functions with assembly also more architectures so ARM is going to be a Google Summer of Code
+
+14:47.280 --> 14:53.160
+project for this summer potentially also risk five there's a lot of work on doing risk five
+
+14:53.160 --> 15:00.280
+assembly for FFNPEG at the moment so we'll need that in time polishing off the maintain
+
+15:00.280 --> 15:05.200
+conformance so implementing those features that I mentioned for missing earlier particularly
+
+15:05.200 --> 15:12.880
+intra block copy is a high priority the thread optimization 32 plus cores so we may be able to
+
+15:12.880 --> 15:22.040
+improve the AVX2 utility for higher core counts if there's sufficient demand for that and
+
+15:22.600 --> 15:29.960
+the GPU based decoder so a lot of the stuff in VBC is really well designed particularly to do with
+
+15:29.960 --> 15:35.520
+the separation of stages that we saw earlier means that it's really well suited to decoding on the
+
+15:35.520 --> 15:46.880
+GPU so that's something on the far horizon. Concluding so FFNPEG now has a VBC decoder I've
+
+15:46.920 --> 15:54.320
+introduced that new threading model showing some of the benefits of that talks about the
+
+15:54.320 --> 16:02.320
+C in multi-threading performance and how that compares with VVDC and given an update on the
+
+16:02.320 --> 16:07.000
+status including the optimized assembly we're currently working on we'd help with this like
+
+16:07.000 --> 16:12.960
+especially with the assembly there's just very few of us who only work in our free time so
+
+16:13.000 --> 16:19.360
+progress on that front has been relatively slow so yeah patches welcome alright yeah thank you very
+
+16:19.360 --> 16:30.240
+much for listening. If anyone's got any questions I'll be happy to try and answer them as best I
+
+16:30.240 --> 16:36.200
+can as I said in that just like disclaimer I did not write very much of this code I just did you
+
+16:36.200 --> 16:42.560
+know the bits I've talked about and then I've worked on doing bug fixes especially since we've
+
+16:42.600 --> 16:48.920
+one thing I forgot to mention part of why we're going to have to be experimental is OSS fuzz
+
+16:48.920 --> 16:53.400
+we've only recently started being fuzzed since we went into FFNPEG master so we're getting a lot
+
+16:53.400 --> 16:58.920
+of reports for that at the moment that we're trying to work through before we go into like a
+
+16:58.920 --> 17:12.160
+normal release but I'll try and answer any questions as best I can yes. So the question was have we
+
+17:12.200 --> 17:24.120
+considered trying to use C in forensics? Yeah as a step between having fully C code and having
+
+17:24.120 --> 17:31.440
+handwritten assembly for everything it's not the FFNPEG way FFNPEG everything is handwritten
+
+17:31.440 --> 17:39.760
+assembly I think there's a little bit in like lib SW scale I believe but that's when the FFNPEG is
+
+17:39.800 --> 17:47.040
+in the process of removing that tiny bit of C in forensics that we still have so yeah I mean
+
+17:47.040 --> 17:54.400
+we're probably not going to do that just out of you can go faster with handwritten assembly so
+
+17:54.400 --> 18:03.800
+if we're trying to get that same performance and even be VVDC I think it's the only way to go really.
+
+18:09.760 --> 18:14.560
+Okay there's no more questions yeah thank you very much.
+

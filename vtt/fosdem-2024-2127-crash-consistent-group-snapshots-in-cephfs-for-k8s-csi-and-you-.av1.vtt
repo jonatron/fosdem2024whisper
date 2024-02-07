@@ -1,0 +1,1211 @@
+WEBVTT
+
+00:00.000 --> 00:08.080
+Hi everyone.
+
+00:08.080 --> 00:09.080
+My name is Leonid.
+
+00:09.080 --> 00:10.680
+This is my colleague, Patrick.
+
+00:10.680 --> 00:15.200
+And today we're going to talk about Snapshot consistency with you.
+
+00:15.200 --> 00:21.360
+So before we dive into Snapshot consistency, let's discuss consistency on its own.
+
+00:21.360 --> 00:25.440
+Now here's some data storage, has a bunch of data written on it.
+
+00:25.440 --> 00:28.080
+Is this data consistent?
+
+00:28.080 --> 00:29.080
+We don't know.
+
+00:29.080 --> 00:33.840
+And the reason that we don't know is because consistency is not an intrinsic property of
+
+00:33.840 --> 00:35.560
+data.
+
+00:35.560 --> 00:41.400
+We have to consider a system that comprises of an application and its logic and a storage
+
+00:41.400 --> 00:44.680
+system and the data that is written.
+
+00:44.680 --> 00:51.040
+And only then, including the logic, we can reason about the data and we can define whether
+
+00:51.040 --> 00:53.360
+it's consistent or not.
+
+00:53.360 --> 00:58.600
+So the application is running fine, data is written, everything is consistent.
+
+00:58.600 --> 01:02.240
+What happens if the application dies?
+
+01:02.240 --> 01:06.000
+We don't know whether the system is in a consistent state or not.
+
+01:06.000 --> 01:13.680
+So actually it is possible to write an application and to write a storage provider in a way that
+
+01:13.680 --> 01:20.840
+by doing some smart decisions during the runtime, then the application can reach a consistent
+
+01:20.840 --> 01:23.980
+state after restarting, after a crash.
+
+01:23.980 --> 01:26.920
+This is called crash consistency.
+
+01:26.920 --> 01:31.200
+Now how is crash consistency related to snapshots?
+
+01:31.200 --> 01:35.920
+And the truth is that the snapshot, or rather the snapshot that we're talking about, which
+
+01:35.920 --> 01:41.360
+is a crash consistent background snapshot, is equivalent to a crash.
+
+01:41.360 --> 01:47.680
+The application cannot tell between restarting after a crash or restarting after you recovered
+
+01:47.680 --> 01:50.240
+from a snapshot.
+
+01:50.240 --> 01:51.720
+So let's look at the system.
+
+01:51.720 --> 01:57.600
+We have an application in storage and it was a poor selection of a storage.
+
+01:57.600 --> 02:00.800
+We cannot reach consistency in the system.
+
+02:00.800 --> 02:05.040
+Even if the application is a high quality, well designed app.
+
+02:05.040 --> 02:06.840
+Same thing other way around.
+
+02:06.840 --> 02:12.240
+If you are using an industry leader storage provider but the application just doesn't
+
+02:12.240 --> 02:17.940
+care or is poorly written, you're not getting consistency.
+
+02:17.940 --> 02:22.700
+If you have a well written application and an industry leader storage provider, it is
+
+02:22.700 --> 02:27.660
+still a question whether the consistency or rather crash consistency is reachable.
+
+02:27.660 --> 02:34.500
+And it is only reachable if we consider a contract that an application and storage adhere
+
+02:34.500 --> 02:40.740
+to and then when they both do things right, together they can reach crash consistency.
+
+02:40.740 --> 02:44.660
+And the scope of this talk would like to refer to this kind of application and storage as
+
+02:44.660 --> 02:45.660
+enterprise.
+
+02:45.660 --> 02:50.660
+There are many ways to unpack this term so bear with us for this scope of this talk.
+
+02:50.660 --> 02:56.300
+An enterprise app and an enterprise storage from our perspective are those that adhere
+
+02:56.300 --> 02:58.900
+to a contract.
+
+02:58.900 --> 03:02.140
+Now what is this contract?
+
+03:02.140 --> 03:07.980
+Or rather in our case what is interesting is what is it that we need to do itself as
+
+03:07.980 --> 03:14.700
+a storage provider that we automatically combine with an enterprise app that is already written
+
+03:14.700 --> 03:19.860
+with this contract in mind and together we provide a crash consistent system.
+
+03:19.860 --> 03:25.620
+And I remind you we want a crash consistent system because this is what enables consistent
+
+03:25.620 --> 03:28.780
+snapshots.
+
+03:28.780 --> 03:33.820
+To understand that we need to understand right ordering.
+
+03:33.820 --> 03:39.020
+Rights A and B here, they are ordered if and only if.
+
+03:39.020 --> 03:46.060
+Right B begins after the app has received and processed an acknowledgement from the
+
+03:46.060 --> 03:50.060
+data storage that right A has been successfully completed.
+
+03:50.060 --> 03:56.060
+Now it is important to note that the acknowledgement has to come from the storage and not from
+
+03:56.060 --> 04:00.380
+the OS because usually your applications are interacting with the operating system and
+
+04:00.380 --> 04:06.140
+it is the operating system that gives you the first acknowledgement after a right.
+
+04:06.140 --> 04:08.300
+These applications are aware of that.
+
+04:08.300 --> 04:16.220
+They know that they need to do to use things like flush or direct IO to know that the acknowledgement
+
+04:16.220 --> 04:24.260
+is originating at the storage level to perform ordered rights A and B.
+
+04:24.260 --> 04:29.700
+Now that we understand what ordered rights are, let's inspect what the storage needs
+
+04:29.700 --> 04:31.020
+to do.
+
+04:31.020 --> 04:33.100
+So we have two ordered rights.
+
+04:33.100 --> 04:38.180
+Right B hasn't begun before A has been acknowledged.
+
+04:38.180 --> 04:42.620
+And in order to understand what storage should do or shouldn't do, let's look at different
+
+04:42.620 --> 04:48.940
+types of background snapshots that the storage might have taken.
+
+04:48.940 --> 04:53.980
+So it could be that we've taken a snapshot before A and it's a consistent snapshot.
+
+04:53.980 --> 04:59.420
+It's a snapshot that has no knowledge about neither A or B.
+
+04:59.420 --> 05:04.180
+It could be that the snapshot already captured A and we know this is possible because there
+
+05:04.180 --> 05:09.100
+is a window of time when A has already been completed and B hasn't yet started because
+
+05:09.100 --> 05:11.340
+application was waiting for the acknowledgement.
+
+05:11.340 --> 05:13.620
+So this is a consistent snapshot.
+
+05:13.620 --> 05:18.140
+And finally there could be a case where the snapshot contains both and B. This is also
+
+05:18.140 --> 05:20.180
+a consistent snapshot.
+
+05:20.180 --> 05:25.980
+What the storage or enterprise storage provider must absolutely promise to the app is that
+
+05:25.980 --> 05:28.340
+snapshot 4 is not possible.
+
+05:28.340 --> 05:34.660
+There cannot be a case that a snapshot contains operation B but somehow lost operation A.
+
+05:34.660 --> 05:41.180
+That's basically the contract to preserve the order of rights.
+
+05:41.180 --> 05:59.620
+So we're going to ask Patrick to discuss how this relates to CEP.
+
+05:59.620 --> 06:10.980
+So within the context of CEPFS, we're going to first start looking at how snapshots work.
+
+06:11.980 --> 06:21.980
+So on the left we have MDS0, managing two trees of interest in the file system, SV1
+
+06:21.980 --> 06:27.460
+and SV2 and two clients, client 1 and client 2.
+
+06:27.460 --> 06:30.540
+So how do we take a snapshot in CEPFS?
+
+06:30.540 --> 06:40.740
+Well there will be an operation sent to MDS called MakeSnap and that will snapshot a particular
+
+06:40.740 --> 06:42.740
+tree within the file system.
+
+06:42.740 --> 06:48.340
+In CEPFS you're allowed to snapshot a particular directory and everything under it, not just
+
+06:48.340 --> 06:51.060
+the entire file system.
+
+06:51.060 --> 06:56.020
+When a snapshot is taken it sends a notification to all the clients that the snapshot has been
+
+06:56.020 --> 07:02.700
+taken for a particular I know that the client is interacting with.
+
+07:02.700 --> 07:09.500
+And once that's all done the snapshot's complete.
+
+07:09.500 --> 07:16.220
+If you want to take another snapshot of another volume you have to do another operation.
+
+07:16.220 --> 07:18.940
+There's no compound snapshot operation.
+
+07:18.940 --> 07:25.620
+So we send a second snapshot out of the other volume and again notify the clients for any
+
+07:25.620 --> 07:31.300
+I know that they may be interacting with.
+
+07:31.300 --> 07:39.060
+When clients interact with RATOS, the underlying distributed object storage of CEPFS, they
+
+07:39.060 --> 07:48.220
+create snapshots implicitly when they write to the objects that hold the files data.
+
+07:48.220 --> 07:55.980
+And they do that by including a snapshot vector of the snapshot IDs that have been taken on
+
+07:55.980 --> 07:58.500
+the files.
+
+07:58.500 --> 08:03.860
+And those are what is transmitted to the clients in the snap updates.
+
+08:03.860 --> 08:07.220
+And here lies the rub.
+
+08:07.220 --> 08:15.540
+If this, with CEPFS snapshots we have eventual consistency.
+
+08:15.540 --> 08:23.500
+Because what, when a snapshot is taken on the file data depends on when the client gets
+
+08:23.500 --> 08:26.980
+the update from the MDS.
+
+08:26.980 --> 08:33.340
+So they're eventually consistent, not synchronous.
+
+08:33.900 --> 08:36.460
+To really highlight this we'll look at a case study.
+
+08:36.460 --> 08:42.060
+So here we have two clients in an MDS.
+
+08:42.060 --> 08:48.340
+Operation B on client two is dependent on the completion of operation A on client one.
+
+08:48.340 --> 08:52.620
+Let's say this is like a database application, a distributed database.
+
+08:52.620 --> 09:00.380
+The MDS is starting a snapshot and it sends the notifications to the clients and expecting
+
+09:00.380 --> 09:02.020
+the apps.
+
+09:02.020 --> 09:08.180
+Client one initiates operation A after it's been notified of the snapshot.
+
+09:08.180 --> 09:13.980
+And so operation A is not part of the snapshot.
+
+09:13.980 --> 09:20.500
+Meanwhile client two has not gotten the notification from the MDS yet or is not processed yet.
+
+09:20.500 --> 09:25.460
+But it has already started operation B. It was just a simple write to a file.
+
+09:25.460 --> 09:37.180
+Well operation B is in the snapshot because it processes the notification afterwards.
+
+09:37.180 --> 09:39.580
+This is a problem and creates inconsistency.
+
+09:39.580 --> 09:47.460
+Op B is in the snapshot but op A is not.
+
+09:47.460 --> 09:52.260
+Looking at this another way you may have a utility that's trying to create a snapshot
+
+09:52.260 --> 10:01.700
+on the file system and it tells the MDS to make the snapshot it does.
+
+10:01.700 --> 10:07.660
+But then induces operation A on the client.
+
+10:07.660 --> 10:12.300
+Expecting operation A to not be part of the snapshot because as far as it knows it's already
+
+10:12.300 --> 10:14.060
+been taken.
+
+10:14.060 --> 10:16.180
+But that's not the case.
+
+10:16.180 --> 10:21.380
+Operation A is in the snapshot because the client has not been notified yet of the snapshot.
+
+10:22.380 --> 10:26.500
+So this is also inconsistent.
+
+10:26.500 --> 10:33.940
+So the solution we've implemented is fairly common within enterprise storage systems in
+
+10:33.940 --> 10:39.780
+the industry that are trying to address this issue of crash consistent snapshots which has
+
+10:39.780 --> 10:48.500
+become a larger thing right now with Kubernetes CSI requirements is to introduce an IO pause.
+
+10:48.500 --> 10:56.900
+And IO pause ensures this ordering by preventing any operations from going on within the tree
+
+10:56.900 --> 11:03.980
+of interest while the snapshot is percolating among the entire file system and all of its
+
+11:03.980 --> 11:06.780
+clients.
+
+11:06.780 --> 11:14.980
+So the way this looks in practice is op A is started and IO pause is established.
+
+11:14.980 --> 11:22.620
+Point one is trying to induce client two to execute operation B. But operation B cannot
+
+11:22.620 --> 11:27.300
+execute because the IO pause is enforced.
+
+11:27.300 --> 11:33.060
+Looking at it a little differently you know we could have op A and op B happen before the
+
+11:33.060 --> 11:34.060
+IO pause.
+
+11:34.060 --> 11:35.900
+They're both part of the snapshot.
+
+11:35.900 --> 11:39.220
+This is consistent.
+
+11:39.220 --> 11:45.780
+And then we may also have a situation where op A is sent to the MDS before the IO pause
+
+11:45.780 --> 11:48.180
+just before the IO pause is established.
+
+11:48.180 --> 11:52.220
+Op A waits through the entire course of the IO pause.
+
+11:52.220 --> 11:56.660
+When the IO pause is lifted operation A is allowed to complete and then the notification
+
+11:56.660 --> 12:01.740
+is sent back to the client that the operation is done and op B is started.
+
+12:01.740 --> 12:04.180
+This is also consistent.
+
+12:05.180 --> 12:14.420
+We'll also look at a super operation, a compound monolith called a mix snap, a variant of mix
+
+12:14.420 --> 12:19.620
+snap which will also establish this IO pause for you.
+
+12:19.620 --> 12:24.780
+But we'll also look at the underlying mono operations you can do to establish this IO
+
+12:24.780 --> 12:26.340
+pause.
+
+12:26.340 --> 12:34.140
+And that will be the mechanism you can use to actually to establish these crash consistencies.
+
+12:34.140 --> 12:39.140
+So I'll move back onto the approach.
+
+12:49.140 --> 12:51.140
+Thanks Patrick.
+
+12:51.140 --> 12:57.660
+So we now realize that all we need to do is an IO pause and let's see how we do it.
+
+12:57.660 --> 13:02.220
+Now we were considering a couple of approaches and one of the approaches apparently is a
+
+13:02.220 --> 13:03.700
+monolith solution.
+
+13:03.700 --> 13:09.340
+We would define some new comment that would mean consistent snapshot and you would configure
+
+13:09.340 --> 13:15.620
+it somehow and start it off and it could be either sync across file systems and even
+
+13:15.620 --> 13:19.860
+across a file system which is a CFFS and an RBD volume.
+
+13:19.860 --> 13:24.900
+If you have multiple different types of volumes configured for your Kubernetes applications
+
+13:24.900 --> 13:28.460
+with this approach you will still be able to create a consistent snapshot across all
+
+13:28.460 --> 13:31.420
+those things.
+
+13:31.620 --> 13:39.420
+So in order to expose this to the user we introduce a concept of QS set and QS routes.
+
+13:39.420 --> 13:46.780
+So a QS set is basically just a collection of mount points that you'd like to QS your
+
+13:46.780 --> 13:47.860
+IO to.
+
+13:47.860 --> 13:52.540
+In the world of Kubernetes there would be a set of volumes that you would like to QS
+
+13:52.540 --> 13:54.900
+your IOS to.
+
+13:54.900 --> 14:01.180
+It's reasonable to give users this entity of QS set because you don't want them to
+
+14:01.180 --> 14:04.820
+chase around all the different sub volumes whether they are QS or not.
+
+14:04.820 --> 14:09.940
+We're interested if a group of volumes are together QS and that's what we are waiting.
+
+14:09.940 --> 14:15.380
+So a QS set implements this state transition.
+
+14:15.380 --> 14:23.300
+Now internally your mount points they map to some path inside CFFS file system and this
+
+14:23.300 --> 14:25.020
+is where the magic happens.
+
+14:25.020 --> 14:32.820
+This is where we actually QS in IO and we refer to that as a QS route.
+
+14:32.820 --> 14:39.740
+We have also thought about the condition where a QS route may be a part of multiple QS sets
+
+14:39.740 --> 14:47.700
+at the same time because we don't want to interact too much with the logic of automated
+
+14:47.700 --> 14:53.740
+snapshots like Kubernetes that might somehow involve consistent snapshot with some volume
+
+14:53.780 --> 14:56.820
+that is part of two different unrelated processes.
+
+14:56.820 --> 14:59.220
+The way we resolve it is really simple.
+
+14:59.220 --> 15:08.940
+As long as the route is part of at least one active QS set IO to this route is QS.
+
+15:08.940 --> 15:12.020
+So let's talk about the API.
+
+15:12.020 --> 15:14.140
+This is the comment that we're suggesting.
+
+15:14.140 --> 15:17.700
+QS we give it a file system name.
+
+15:17.700 --> 15:23.180
+We name our set ID so that we can refer to it later and then you are including as many
+
+15:23.180 --> 15:25.140
+mount points as you wish into the set.
+
+15:25.140 --> 15:30.340
+You can also ask this comment to be synchronous by minus minus a weight and so it won't return
+
+15:30.340 --> 15:33.740
+until the QS has been achieved.
+
+15:33.740 --> 15:36.140
+Once that is done you can go on creating snapshots.
+
+15:36.140 --> 15:37.140
+These are regular snapshots.
+
+15:37.140 --> 15:39.660
+This is the snapshots that you do in CFFS.
+
+15:39.660 --> 15:41.340
+Nothing changed about those.
+
+15:41.340 --> 15:45.140
+So we've created three snapshots for three mount points that we've added to the QS set
+
+15:45.140 --> 15:49.020
+and then we again refer to the QS comment but this time we're asking it to release the
+
+15:49.020 --> 15:50.260
+pause.
+
+15:50.820 --> 15:56.260
+If we successfully QS hopefully we haven't done anything else if there was a failure and
+
+15:56.260 --> 16:03.380
+then the release also succeeded then we know that those three snapshots are consistent because
+
+16:03.380 --> 16:12.420
+the pause has been confirmed active for the whole duration of this process.
+
+16:12.420 --> 16:15.260
+And here's your monolith.
+
+16:15.260 --> 16:20.780
+Hopefully almost for free we're having also a monolith approach so like a one liner for
+
+16:20.780 --> 16:25.700
+system administrators who don't need to interface with the internals.
+
+16:25.700 --> 16:29.220
+We're suggesting a minus minus consistent switch to the snapshot.
+
+16:29.220 --> 16:32.380
+We're changing the semantics of this comment a little bit by being able to provide all
+
+16:32.380 --> 16:34.620
+the mount points in the same time.
+
+16:34.620 --> 16:37.820
+And then this is going to do everything under the hood.
+
+16:37.820 --> 16:39.380
+It's the same thing.
+
+16:39.380 --> 16:43.540
+It's going to do it for you.
+
+16:43.540 --> 16:52.180
+Now we have a tool and we can shoot our leg with it of course because we can DOS our application.
+
+16:52.180 --> 16:58.140
+And we thought about this and we've built in DOS protection inside the QS database.
+
+16:58.140 --> 17:01.460
+We've done this by implementing two watchdog timers.
+
+17:01.460 --> 17:04.420
+The first watchdog timer is a timeout.
+
+17:04.420 --> 17:08.220
+So when we consider the set it's going to spend some time QSing.
+
+17:08.220 --> 17:09.220
+Why?
+
+17:09.220 --> 17:11.460
+Because there are ongoing operations, right?
+
+17:11.460 --> 17:16.580
+And before we can acknowledge QSing we have to let applications finish whatever they have
+
+17:16.580 --> 17:18.340
+been doing right now.
+
+17:18.340 --> 17:24.940
+So under the hood the QSing is managed automatically for you over each and every mount point.
+
+17:24.940 --> 17:29.820
+And so all the mount points have this timeout to reach the QSing.
+
+17:29.820 --> 17:35.180
+And then if at least one of the mount points fails to reach QSing within the timeout then
+
+17:35.180 --> 17:43.660
+the whole set is timed out and whichever QS that were achieved are released immediately.
+
+17:43.660 --> 17:49.220
+Now the next thing, the second timer is the QS expiration timer.
+
+17:49.220 --> 17:52.820
+And for that we need a QS set that actually succeeded to QS.
+
+17:52.820 --> 17:59.460
+Now we know that in order to succeed to QS we have seen all the mount points successfully
+
+17:59.460 --> 18:02.500
+QS within the configured timeout.
+
+18:02.500 --> 18:06.420
+But then if we forgot about the set or something crashed, something bad happened and we never
+
+18:06.420 --> 18:11.660
+released it or never cancelled it and the expiration timeout elapsed then the set is
+
+18:11.660 --> 18:15.060
+going to enter the expired site and again everything is going to be released automatically
+
+18:15.060 --> 18:17.300
+for you.
+
+18:17.300 --> 18:19.620
+Why do we have two timers and not just one?
+
+18:19.620 --> 18:25.260
+And the reason is because you're going to have different considerations when you will
+
+18:25.260 --> 18:27.740
+try to come up with the values for those timers.
+
+18:27.740 --> 18:30.220
+The QSing phase really depends on your system.
+
+18:30.220 --> 18:33.660
+It depends on how many mount points, what kind of applications you're running, what
+
+18:33.660 --> 18:39.100
+kind of operations they're doing with the storage because that means how long you should
+
+18:39.100 --> 18:44.700
+wait for the system to QS and you are allocating some reasonable amount of time for that.
+
+18:44.700 --> 18:47.620
+However the QS state is already on you.
+
+18:47.620 --> 18:52.260
+When the system did reach the QS state and you have the notification about this then
+
+18:52.260 --> 18:57.260
+you can say, okay I know that I need to do just a single snapshot so I don't need more
+
+18:57.260 --> 18:58.900
+than let's say 10 seconds.
+
+18:58.900 --> 18:59.900
+Whatever, right?
+
+18:59.980 --> 19:04.300
+Two different considerations that you need to take into account when figuring out these
+
+19:04.300 --> 19:07.980
+two timer values.
+
+19:07.980 --> 19:12.340
+This is the API, I've simplified it a little bit in the previous slides, this is the API
+
+19:12.340 --> 19:16.900
+where we're not going to go into all the details but it's basically a Swiss knife.
+
+19:16.900 --> 19:21.260
+You should have all the options that you want.
+
+19:21.260 --> 19:25.940
+And with that let's ask Patrick to discuss the design.
+
+19:29.900 --> 19:46.900
+So let's just take a quick look at the high level design of the entire system.
+
+19:46.900 --> 19:52.660
+So here we have an administrative client which in the wild is probably going to be the Kubernetes
+
+19:52.660 --> 19:54.540
+CSI driver.
+
+19:54.660 --> 20:02.660
+That's going to be interacting with the CEPH manager which is specifically the volumes
+
+20:02.660 --> 20:06.260
+plug-in within the CEPH manager.
+
+20:06.260 --> 20:11.540
+That volumes plug-in will be actually executing the commands on one of the MDSs in the file
+
+20:11.540 --> 20:12.540
+system.
+
+20:12.540 --> 20:19.060
+We'll call it the QS leader or rank zero in reality.
+
+20:19.060 --> 20:24.380
+And then that will be also coordinating with any other ranks in the file system.
+
+20:24.380 --> 20:27.460
+We'll call them MDSB and C.
+
+20:27.460 --> 20:33.020
+And then finally the file system clients which are talking to the MDSs.
+
+20:33.020 --> 20:39.100
+To talk to the volumes plug-in the API will be the regular CEPH command line interface
+
+20:39.100 --> 20:42.100
+that we all know and love.
+
+20:42.100 --> 20:45.900
+The API will be exposed at that level.
+
+20:46.900 --> 20:55.900
+And the volumes plug-in will be talking to the MDSs using the LibcFFS API.
+
+20:55.900 --> 21:02.300
+The MDSs will replicate the QS database amongst themselves so they all have a view of the
+
+21:02.300 --> 21:04.340
+same QS database.
+
+21:04.340 --> 21:12.460
+And then the QS protocol will be used to actually QS the IO and stop the clients from doing
+
+21:12.460 --> 21:16.300
+IO on a given subtree in the file system.
+
+21:16.300 --> 21:18.500
+So we're going to actually talk about that part next.
+
+21:18.500 --> 21:23.860
+So how do we actually QS IO on a subtree?
+
+21:23.860 --> 21:30.020
+Before we can get into that we'll take a small step back and look at some context and background
+
+21:30.020 --> 21:33.820
+regarding what CEPHFFS client capabilities are.
+
+21:33.820 --> 21:41.340
+So in CEPHFFS it's somewhat different in a number of distributed file systems in that
+
+21:41.420 --> 21:47.180
+the MDSs and the clients are maintaining a cooperative cache.
+
+21:47.180 --> 21:52.340
+Clients have an elevated status within the file system context in that they also can
+
+21:52.340 --> 21:56.300
+cache metadata, not just data of the file system.
+
+21:56.300 --> 22:01.260
+And not just cache it, they can also have rights to mutate that metadata locally without
+
+22:01.260 --> 22:06.140
+involving the MDSs immediately.
+
+22:06.140 --> 22:14.820
+So to give a specific example we have here MDS0 has a given file that it's authoritative
+
+22:14.820 --> 22:23.500
+for 0x19tb.dat and client.1 on the right has a capability for that file.
+
+22:23.500 --> 22:29.620
+And the access rights that it has on that file, delegated to it by the MDS is to read,
+
+22:29.620 --> 22:36.620
+write, cache reads and buffer writes to that file.
+
+22:36.620 --> 22:43.420
+It has shared extended attributes meaning it has a local cache of the entire extended
+
+22:43.420 --> 22:50.700
+attribute map for the file and it knows that the extended attribute will not change for
+
+22:50.700 --> 22:54.580
+that file without being told by the MDS.
+
+22:55.540 --> 22:59.900
+Similarly also for the link count of the file.
+
+22:59.900 --> 23:04.700
+This allows the client to respond to certain stat calls locally without actually talking
+
+23:04.700 --> 23:07.020
+to the MDS.
+
+23:07.020 --> 23:11.060
+Capabilities themselves are modeled loosely after leases, an academic paper I put in the
+
+23:11.060 --> 23:20.060
+slides and leases are mostly different for having a time-based duration whereas for capabilities
+
+23:20.060 --> 23:27.380
+within CEPFS they have an undefined time duration.
+
+23:27.380 --> 23:31.020
+So now to look at exactly how we're going to QSIL.
+
+23:31.020 --> 23:37.060
+So now we have this issue of clients having these capabilities and maybe trying to continue
+
+23:37.060 --> 23:43.340
+doing writes to the file or modifying metadata so we have to recall those capabilities.
+
+23:43.340 --> 23:51.100
+So here we have two MDSs, zero and one and a QS database replicated between them.
+
+23:51.100 --> 23:56.020
+On the right we have client one with a number of caps for a given tree of interest that
+
+23:56.020 --> 24:01.460
+we're trying to QS, rooted at SV.
+
+24:01.460 --> 24:08.660
+When we want to QS, the QS database launches a QS subvolume operation, it's an internal
+
+24:08.660 --> 24:14.180
+operation on the MDS, it will start that on MDS zero.
+
+24:14.180 --> 24:19.300
+That in turn launches some suboperations, QS subvolume inode and it will do that on
+
+24:19.300 --> 24:25.540
+every inode in the given sub tree that that particular MDS is authoritative for.
+
+24:25.540 --> 24:29.940
+So the inodes are colored according to the MDS authority.
+
+24:29.940 --> 24:35.020
+So just the first two inodes at the top of the tree the QS subvolume inode calls will
+
+24:35.020 --> 24:36.740
+be performed on.
+
+24:37.100 --> 24:39.300
+We'll look at what that does in the next slide.
+
+24:41.420 --> 24:45.940
+QSDB will also launch it the same operation on MDS one.
+
+24:45.940 --> 24:51.780
+It'll launch QS subvolume inode operations on the inodes that it's authoritative for.
+
+24:53.220 --> 24:56.380
+And then once all this is complete, it's done.
+
+24:56.380 --> 24:58.700
+So what does QS subvolume inode do?
+
+24:59.060 --> 25:06.340
+We have this, the operation being executed on as an example, OX19DB.dat.
+
+25:06.340 --> 25:14.340
+We have a client on the right with the capability to read, write, buffer and cache data for
+
+25:14.340 --> 25:15.340
+the file.
+
+25:15.340 --> 25:23.340
+It has exclusive writes on the X-Satters so it can even make local changes to the X-Satters
+
+25:23.340 --> 25:27.940
+without telling the MDS immediately about them and returning to the client.
+
+25:27.940 --> 25:30.220
+And it has a shared link count.
+
+25:30.220 --> 25:37.740
+Now when I start the QS subvolume inode operation, it actually behaves similarly to many client
+
+25:37.740 --> 25:40.540
+requests that are already executed within the MDS.
+
+25:40.540 --> 25:44.020
+We're using the internal facilities that already exist to do this.
+
+25:44.020 --> 25:51.580
+The operation requires a number of locks, internal locks on the inode, not the internal
+
+25:52.580 --> 25:58.580
+not the POSIX facing locks that normal file system users are familiar with.
+
+25:58.580 --> 26:03.620
+These are internal locks on the inode and they control which metadata the operation
+
+26:03.620 --> 26:06.260
+has permission to change on the inode.
+
+26:06.260 --> 26:13.260
+So we're acquiring the auth lock, the link lock, file lock, etc. for reading or exclusively.
+
+26:14.260 --> 26:21.260
+And by doing so, the MDS will reconcile this with what writes have already been given to
+
+26:22.700 --> 26:26.620
+clients, that is what capabilities have been issued.
+
+26:26.620 --> 26:31.020
+And if necessary, it will revoke capabilities before those locks can be acquired.
+
+26:31.020 --> 26:36.500
+So when this operation tries to acquire those locks, it sends a revoke to the client.
+
+26:36.500 --> 26:41.860
+The client updates its local capabilities according to what the MDS is allowing it now
+
+26:41.940 --> 26:48.940
+to have, possibly fleshing data if it changed the file size for example or added in an extended
+
+26:51.780 --> 26:53.140
+attribute.
+
+26:53.140 --> 26:57.860
+You may flush that along with an update message to the MDS saying yes, I've updated the capability,
+
+26:57.860 --> 27:01.180
+I don't have these access rights anymore.
+
+27:01.180 --> 27:04.260
+And now you see that it has no file permissions.
+
+27:04.260 --> 27:10.260
+Its X-hatter is now shared instead of exclusive and the link count continues to be shared.
+
+27:11.260 --> 27:18.260
+So after this has occurred, the operation is considered done and any future ops on the client
+
+27:22.820 --> 27:29.820
+associated with this inode will block because these locks are still held.
+
+27:30.060 --> 27:31.620
+Why?
+
+27:31.620 --> 27:33.660
+Because this is a long running operation.
+
+27:33.660 --> 27:40.060
+Unlike most ops in MDS, which it will acquire these locks, perform some metadata mutation
+
+27:40.060 --> 27:45.700
+and then drop the locks, this is necessarily a long lived operation because it needs to
+
+27:45.700 --> 27:52.180
+continue to prevent clients from getting capabilities on the file or executing metadata operations,
+
+27:52.180 --> 27:56.700
+which will also try to get the locks from executing.
+
+27:56.700 --> 28:03.700
+So the get adder would block or any other client operation that would acquire those
+
+28:05.020 --> 28:08.340
+locks.
+
+28:08.340 --> 28:15.340
+So now to close out the talk, we'll take a quick look at the QIES set state diagram
+
+28:15.540 --> 28:20.980
+and focus only on the happy path.
+
+28:20.980 --> 28:24.280
+You know, it's a typical state diagram, lots of error paths, right?
+
+28:24.280 --> 28:31.280
+So we have a new set, we're adding a number of routes to the set and once it's in that
+
+28:32.540 --> 28:35.140
+state it's going to enter the QIESing.
+
+28:35.180 --> 28:40.060
+So at that point we're going to be launching all our QIES sub volume inode operations and
+
+28:40.060 --> 28:46.540
+acquiring all these locks, capabilities will be revoked, new operations will be blocked.
+
+28:46.540 --> 28:53.540
+When all of those operations have their locks and they're complete but not dead, then we
+
+28:54.900 --> 28:57.660
+can enter the QIES state.
+
+28:57.660 --> 29:04.660
+So all of these, that'll trickle back up the stack when we're querying the database
+
+29:05.820 --> 29:10.020
+we'll be able to see that the set is QIESed.
+
+29:10.020 --> 29:16.140
+At that point we're going to take our snapshots on all the routes that we need, more than
+
+29:16.140 --> 29:23.140
+one probably and when the snapshots are complete we can then release the set.
+
+29:24.860 --> 29:31.020
+So then we'll go into the releasing state, all of those QIESa volume inode operations
+
+29:31.020 --> 29:38.020
+will be killed and the locks automatically released allowing clients to be reissued caps
+
+29:38.100 --> 29:45.600
+or any blocked metadata operations to be kicked and resumed.
+
+29:45.600 --> 29:52.600
+Once those operations are all dead then the set will enter the release state and the QIESet
+
+29:53.180 --> 29:56.100
+is considered terminal and done.
+
+29:56.100 --> 30:02.660
+So that is the basics of the QIESets and again there's a number of error states shown
+
+30:02.660 --> 30:10.660
+on the slide, a canceled QIESet or an expired one, etc.
+
+30:10.700 --> 30:16.820
+So with that that's the end of our talk, we're going to leave time for questions.
+
+30:16.820 --> 30:23.820
+Again I'm Patrick Donnelly, this is Usob, I said your last name right, right?
+
+30:24.020 --> 30:27.100
+Don't often say his last name.
+
+30:27.100 --> 30:31.700
+These are the pull requests we have open still for our work, they've not yet been merged
+
+30:31.700 --> 30:37.260
+into the main branch so this is not yet live and even the development version of CEP.
+
+30:37.260 --> 30:44.260
+And we have some documentation that you can also review, some preliminary documentation,
+
+30:45.100 --> 30:52.100
+some details may change but for the most part it's reaching a very concrete state.
+
+30:52.540 --> 30:55.540
+That's it, thank you.
+
+30:55.540 --> 30:58.540
+Any questions?
+
+30:58.540 --> 31:01.540
+Yes?
+
+31:01.540 --> 31:08.540
+Will CEP mistakes snapshot and store it in like dot snap or underscore snap type within
+
+31:08.540 --> 31:13.540
+the folder?
+
+31:13.540 --> 31:18.540
+You mentioned that all I.O.
+
+31:18.980 --> 31:25.980
+in that part onwards will be pleased so will like leads on previously taken snapshots also
+
+31:28.980 --> 31:31.980
+be frozen or that.
+
+31:31.980 --> 31:38.980
+For the most part, alright so the question is if I've quiesced I.O. on a subtree can
+
+31:39.420 --> 31:45.020
+I continue to access snapshots of that, past snapshots of the subtree and the answer is
+
+31:45.020 --> 31:50.460
+probably not because of the way the locks work on the I.O.s it may also incidentally
+
+31:50.460 --> 31:57.460
+protect how the access through the snapshot version of the I.O.
+
+31:57.460 --> 32:04.460
+Then there is like we didn't introduce the shallow volume people like maybe we can mount
+
+32:04.740 --> 32:09.740
+the snapshots for backup system to just read the contents.
+
+32:10.460 --> 32:17.460
+Not at this time so we're looking also into a variant of quiescing where it allows most
+
+32:21.500 --> 32:23.900
+read only access to the files.
+
+32:23.900 --> 32:30.900
+Right now it's very much a stop the world for the most part I.O. pause so you won't
+
+32:30.900 --> 32:35.420
+even be able to execute most reads on the file system.
+
+32:35.420 --> 32:40.260
+Or like some stat calls may still be able to respond well written stat calls on the
+
+32:40.260 --> 32:45.260
+clients because they still retain certain read only capabilities.
+
+32:45.260 --> 32:52.260
+In the future it will work for the ASX vector like we can access read only snapshots.
+
+32:53.620 --> 32:59.980
+That is the hope in the future we'd be able to do that yeah to support that.
+
+32:59.980 --> 33:02.500
+Any other questions?
+
+33:02.500 --> 33:04.500
+Neil.
+
+33:04.500 --> 33:09.500
+So now you have the set command to quiesce volumes is it also possible to run FS3s on
+
+33:09.500 --> 33:16.500
+the client side if you have set FS kernel mount for example that would quiesce the volume
+
+33:18.620 --> 33:20.500
+for all other clients.
+
+33:20.500 --> 33:27.500
+Do I answer that one?
+
+33:28.500 --> 33:35.500
+So the question was whether we're going to be able to use kernel if it will work for
+
+33:36.580 --> 33:37.580
+kernel clients.
+
+33:37.580 --> 33:44.580
+Exactly if you call FS3s on the client side instead of running set command.
+
+33:45.140 --> 33:50.940
+As of now we haven't planned to support the FS3s command but it will look into it.
+
+33:50.940 --> 33:57.100
+I think it's pretty reasonable to consider it even for the first operation.
+
+33:57.100 --> 34:02.620
+Now one of the good stuff about what we're doing right now is that it's intrinsically
+
+34:02.620 --> 34:07.860
+backward compatible because we're building on the set capabilities kernel clients will
+
+34:07.860 --> 34:10.460
+be able to reach the quiesce.
+
+34:10.460 --> 34:17.460
+Now how you trigger the quiesce it's another question and we'll consider this definitely.
+
+34:20.860 --> 34:23.860
+Other questions?
+
+34:23.860 --> 34:25.860
+Okay thank you very much.
+
+34:25.860 --> 34:28.180
+Was it pleasant?
+

@@ -1,0 +1,1058 @@
+WEBVTT
+
+00:00.000 --> 00:15.920
+All right.
+
+00:15.920 --> 00:17.400
+We're ready for the next talk.
+
+00:17.400 --> 00:26.000
+So Mark is going to explain us how to overcome MPI, ABI compatibility with WM for MPI.
+
+00:26.000 --> 00:33.000
+Yes, can you read me?
+
+00:33.000 --> 00:34.000
+Great.
+
+00:34.000 --> 00:36.560
+So, hi, my name is Mark.
+
+00:36.560 --> 00:39.320
+I'm working at CEA.
+
+00:39.320 --> 00:48.160
+And today I'll talk about how to overcome the MPI, ABI incompatibility using WM for MPI.
+
+00:48.160 --> 00:51.000
+Just a couple of words about CEA.
+
+00:51.000 --> 00:53.600
+Can you read me?
+
+00:53.600 --> 00:54.600
+Yes.
+
+00:54.600 --> 00:56.600
+We are a French organization.
+
+00:56.600 --> 01:00.200
+We are hosting a computer.
+
+01:00.200 --> 01:06.760
+We have big supercomputers that are used at the national and European level.
+
+01:06.760 --> 01:13.280
+And in a couple of years, we'll host one of the two exhaust scale systems in Europe.
+
+01:13.280 --> 01:20.320
+So I start with a quick introduction on the ABI MPI incompatibility issue.
+
+01:20.320 --> 01:22.600
+Why we actually care about this problem.
+
+01:22.600 --> 01:27.840
+I will try to give you an insight of what is the problem actually.
+
+01:27.840 --> 01:34.760
+And then I will show how we can overcome this issue by dynamically translating between
+
+01:34.760 --> 01:36.120
+different implementation.
+
+01:36.120 --> 01:41.160
+And I will show you some use cases before concluding.
+
+01:41.160 --> 01:46.840
+So first of all, why do we need MPI library portability?
+
+01:46.840 --> 01:50.960
+There are a few reasons that are motivating for us.
+
+01:50.960 --> 01:57.120
+The first one is to be able to work around the limitations of an MPI library.
+
+01:57.120 --> 01:59.200
+So as you may know, MPI is a norm.
+
+01:59.200 --> 02:00.840
+There are different implementations.
+
+02:00.840 --> 02:05.600
+And as all software libraries, they may have limitations.
+
+02:05.600 --> 02:07.000
+They may have bugs.
+
+02:07.000 --> 02:12.040
+So to be able to switch between libraries can be interesting to actually diagnose the source
+
+02:12.040 --> 02:13.200
+of a problem.
+
+02:13.200 --> 02:15.400
+It's interesting at the level of a user.
+
+02:15.400 --> 02:22.200
+It's also interesting at the level of managing the supercomputers or at the level of the developers,
+
+02:22.200 --> 02:23.800
+of course.
+
+02:23.800 --> 02:28.760
+It can help you also to choose the best MPI implementation because as you also may know,
+
+02:28.760 --> 02:32.840
+between the different implementation, you won't have necessarily the same algorithm to
+
+02:32.840 --> 02:36.760
+do a specific communication.
+
+02:36.760 --> 02:44.720
+And on a specific cluster, some MPI implementations may be better optimized than others.
+
+02:44.720 --> 02:50.480
+And it's interesting to be able to test easily all those things.
+
+02:50.480 --> 02:58.320
+It's also useful to enable fast and portable containers because what containers offers
+
+02:58.320 --> 03:01.400
+or claim to offer is the flexibility and portability.
+
+03:01.400 --> 03:09.760
+And it is almost true, but there is a problem in HPC that is you will have a loss of portability
+
+03:09.760 --> 03:12.760
+if you need to match the host MPI.
+
+03:12.760 --> 03:19.040
+And in almost all cases, you will need to match this host MPI because it's optimized,
+
+03:19.040 --> 03:25.480
+it's vendor optimized, and you have no other choice than doing so.
+
+03:25.480 --> 03:32.840
+And it's not so probable to have the right underlying libraries.
+
+03:32.840 --> 03:37.040
+Sometimes they're even closed in your containers.
+
+03:37.040 --> 03:41.680
+It can help you also to add flexibility to high-level languages.
+
+03:41.680 --> 03:49.000
+Some high-level languages like Julia or Python at some point depended on a specific MPI library.
+
+03:49.000 --> 03:52.120
+So if you want to use another one, you're stuck.
+
+03:52.120 --> 04:00.400
+And also sometimes you will build very complex software stack with those languages and if
+
+04:00.400 --> 04:06.160
+you want to switch the library and you need to rebuild everything, it's really, really
+
+04:06.160 --> 04:07.680
+time-consuming.
+
+04:07.680 --> 04:11.400
+And if you can switch easily, that's also interesting.
+
+04:11.400 --> 04:16.000
+And the last point is to be able to run a bidding-edge system or early access systems
+
+04:16.000 --> 04:22.320
+because in many cases on state-of-the-art systems, you will have a single vendor optimized
+
+04:22.320 --> 04:23.320
+library.
+
+04:23.320 --> 04:27.640
+So if you have your application already compiled with another implementation, you'll be stuck
+
+04:27.640 --> 04:28.880
+once again.
+
+04:28.880 --> 04:35.400
+And that's sometimes something we saw with cloud providers, some cloud providers provide
+
+04:35.400 --> 04:40.840
+a single vendor optimized MPI library and that's it.
+
+04:40.840 --> 04:47.160
+So now let's talk about the ABI compatibility in MPI and why is it a problem?
+
+04:47.160 --> 04:53.920
+So MPI, as I said earlier, is a norm and the norm actually defines a single API, which
+
+04:53.920 --> 04:57.720
+is great, but it has several ABIs.
+
+04:57.720 --> 05:06.240
+At the moment, there are at least open MPI, MPH, and all the MPH-based library or MPH-compatible
+
+05:06.240 --> 05:08.960
+implementations, MPC.
+
+05:08.960 --> 05:14.680
+And if you go back in time, there are others also that exist.
+
+05:14.680 --> 05:21.360
+And the problem is there are in general ABI incompatible because even for the simplest
+
+05:21.360 --> 05:25.280
+element of an MPI library, it won't be implemented in the same way.
+
+05:25.280 --> 05:32.120
+If you look at just a communicator, which is the very basics for MPI, within MPH it's
+
+05:32.120 --> 05:35.200
+an integer and within open MPI, it's a struct.
+
+05:35.200 --> 05:39.080
+So you have no way of going from one to the other.
+
+05:39.080 --> 05:44.640
+And it means that if you want to switch from between those libraries, you will need to
+
+05:44.640 --> 05:46.200
+recompile.
+
+05:46.200 --> 05:49.880
+And sometimes it's possible, sometimes it is not, as I said, because you could have a
+
+05:49.880 --> 05:55.560
+very complex software stack and it can take literally days to recompile everything.
+
+05:55.560 --> 05:59.200
+And sometimes you're stuck with proprietary software.
+
+05:59.200 --> 06:04.120
+Even though we are at first-dem, those software exists and we have to live with them on our
+
+06:04.120 --> 06:05.120
+clusters.
+
+06:05.120 --> 06:07.920
+So how to do that?
+
+06:07.920 --> 06:15.000
+That was the motivation to create Wayfarr MPI, which is a library that allows us to switch
+
+06:15.000 --> 06:17.640
+between MPI libraries.
+
+06:17.640 --> 06:27.240
+The idea is to catch the calls from a library and to translate them.
+
+06:27.240 --> 06:28.680
+So we have the input arguments.
+
+06:28.680 --> 06:33.440
+We will translate them from the original library to the destination ABI.
+
+06:33.440 --> 06:37.320
+We will call the function from the destination ABI.
+
+06:37.320 --> 06:39.080
+And then we will go the other way around.
+
+06:39.080 --> 06:43.240
+We will translate the output arguments and the return value from the destination ABI
+
+06:43.240 --> 06:49.120
+to the original ABI.
+
+06:49.120 --> 06:50.720
+There is just one catch.
+
+06:50.720 --> 06:54.880
+That is, in some MPI functions, you have actually a call to another MPI function.
+
+06:54.880 --> 07:01.160
+So you have to ensure that you're not already in an MPI function and to avoid to re-translate
+
+07:01.160 --> 07:02.400
+functions.
+
+07:02.400 --> 07:04.440
+Because if you do that, it will crash.
+
+07:04.440 --> 07:09.480
+So we have an assembly code selector to deal with this issue.
+
+07:09.480 --> 07:15.600
+And as you may also know, there are literally hundreds of MPI functions.
+
+07:15.600 --> 07:23.600
+So to deal with those translations, the functions that are doing the translation are actually
+
+07:23.600 --> 07:24.600
+generated.
+
+07:24.600 --> 07:26.920
+So we have templates.
+
+07:26.920 --> 07:36.080
+We have files to define the different functions and the input arguments and so on.
+
+07:36.080 --> 07:41.120
+And we generate everything to be a bit more robust.
+
+07:41.120 --> 07:43.520
+So now how to use Y4MPI.
+
+07:43.520 --> 07:48.040
+One of the great things with Y4MPI is that you have two available modes.
+
+07:48.040 --> 07:49.600
+The first one is the preload mode.
+
+07:49.600 --> 07:54.360
+And this one is quite interesting if you already have a software that is compiled.
+
+07:54.360 --> 08:01.120
+Because you can dynamically, at runtime, translate between MPI implementations.
+
+08:01.120 --> 08:05.320
+So imagine that you have a software that was compiled with MPH.
+
+08:05.320 --> 08:07.960
+At runtime, you can use OpenMPI.
+
+08:07.960 --> 08:09.920
+And we have an interface mode.
+
+08:09.920 --> 08:13.720
+So now we are using Y4MPI as a stub implementation.
+
+08:13.720 --> 08:17.680
+So we will compile the code against Y4MPI.
+
+08:17.680 --> 08:21.520
+And it is at runtime that we will choose which MPI we want to use.
+
+08:21.520 --> 08:28.240
+So this one, if you know that you will have Y4MPI at end on the cluster you will be using,
+
+08:28.240 --> 08:32.200
+it will ensure you greater portability.
+
+08:32.200 --> 08:35.040
+From an installation point of view, it's really simple.
+
+08:35.040 --> 08:37.600
+It's a basic CMake-based installation.
+
+08:37.600 --> 08:42.560
+And Y4MPI is also available through the SPAC package manager.
+
+08:42.560 --> 08:48.080
+So if you're using SPAC, just SPAC install Y4MPI and you're all done.
+
+08:48.080 --> 08:50.520
+And in practice, how you can use it.
+
+08:50.520 --> 08:53.320
+So there is at least two ways of using it.
+
+08:53.320 --> 08:55.800
+The first one is to use it directly as a wrapper.
+
+08:55.800 --> 09:00.160
+So imagine you're using slurm.
+
+09:00.160 --> 09:01.280
+So you will call slurm.
+
+09:01.280 --> 09:07.520
+In general, you will then put the binary you want to launch.
+
+09:07.520 --> 09:13.440
+And you will just add the wrapper saying that you want to go from one implementation to
+
+09:13.440 --> 09:15.680
+the other implementation.
+
+09:15.680 --> 09:21.440
+Another way of doing it is to use it transparently using environment variables.
+
+09:21.440 --> 09:26.120
+And here the main catch actually is to have the right LD preload because you will inject
+
+09:26.120 --> 09:32.320
+the Y4MPI library at runtime to catch the MPI calls and to translate them.
+
+09:32.320 --> 09:38.320
+And then if you do that, you can run directly your app with this run.
+
+09:38.320 --> 09:40.000
+Don't worry about all those variables.
+
+09:40.000 --> 09:42.240
+They are, of course, documented.
+
+09:42.240 --> 09:51.400
+And if the translation work, the only thing that will differ from a normal execution is
+
+09:51.400 --> 09:57.040
+that you will have a message saying, hey, you're using Y4MPI in the preload mode from
+
+09:57.040 --> 10:01.040
+one implementation to the other.
+
+10:01.040 --> 10:05.200
+So for more advanced Qsage, I invite you to read the documentation.
+
+10:05.200 --> 10:08.040
+We have a bunch of tutorials.
+
+10:08.040 --> 10:10.320
+So it's available online.
+
+10:10.320 --> 10:13.160
+At the moment, we have seven main tutorials.
+
+10:13.160 --> 10:19.040
+One, well, we have few basic tutorials about the installation of Y4MPI, how to translate
+
+10:19.040 --> 10:25.040
+MPI dynamically using either the preload or the interface mode.
+
+10:25.040 --> 10:31.960
+And a few examples with Python, with Gromax, which is a molecular dynamic code that is heavily
+
+10:31.960 --> 10:34.400
+used in the HPC community.
+
+10:34.400 --> 10:38.320
+And we have examples with containers.
+
+10:38.320 --> 10:41.840
+The tutorials we have at the moment with containers are using Podman.
+
+10:41.840 --> 10:46.080
+The only reason why we use Podman is that it's the easiest to install almost anywhere.
+
+10:46.080 --> 10:49.960
+You don't need to have root privileges to use it.
+
+10:49.960 --> 10:54.280
+But even though it's specific to Podman, actually, the ID stays the same.
+
+10:54.280 --> 10:58.800
+So if you have another container runtime that you like that is not Podman, you can apply
+
+10:58.800 --> 11:03.360
+what we did with Podman on your specific use case.
+
+11:03.360 --> 11:08.120
+So Y4MPI started in 2016 at CEA, and it's still in Active Development.
+
+11:08.120 --> 11:10.320
+It's, of course, open source.
+
+11:10.320 --> 11:17.120
+And it's under your license, CCLB plus BSD3, to be compliant with the French and more
+
+11:17.120 --> 11:19.320
+international law.
+
+11:19.320 --> 11:25.160
+All our developments are validated using a CI that is using well-established benchmarks,
+
+11:25.160 --> 11:32.680
+especially MPI benchmark, like the OSU benchmark, IOR, and more user-oriented benchmark as
+
+11:32.680 --> 11:34.080
+Gromax.
+
+11:34.080 --> 11:38.280
+And it's also an ongoing collaboration between CEA and the Laurence Livermore Laboratory
+
+11:38.280 --> 11:41.200
+in the US that started in 2020.
+
+11:41.200 --> 11:44.800
+And we have publications together.
+
+11:44.800 --> 11:50.800
+And last year, we did a tutorial at ISC, and we hope to host another tutorial this year
+
+11:50.800 --> 11:55.360
+at ISC in May.
+
+11:55.360 --> 12:00.960
+Regarding the support and the limitations of our library, so we're supporting X86 and
+
+12:00.960 --> 12:05.400
+ARM architecture, GNU, Linux, and BSD.
+
+12:05.400 --> 12:07.720
+It was tested recently on 3BSD.
+
+12:07.720 --> 12:12.960
+We are supporting also, of course, CN4TRAIN and 3.2MPI norm.
+
+12:12.960 --> 12:18.960
+In terms of the limitation, for it to work, you need to have a dynamic linking.
+
+12:18.960 --> 12:23.480
+If you compiled your code statically, it won't work.
+
+12:23.480 --> 12:29.400
+It's better if you can avoid a circumvent air path, because our idea is to inject the
+
+12:29.400 --> 12:32.680
+library at runtime.
+
+12:32.680 --> 12:39.800
+We are not supporting the timeout feature on BSD distribution.
+
+12:39.800 --> 12:47.160
+Because so we have, so we added few features in WeforMPA that are not defined in the MPI
+
+12:47.160 --> 12:53.720
+norm, and in particular, we have this timeout feature that allows you to set a timeout on
+
+12:53.720 --> 12:55.640
+a specific MPI code.
+
+12:55.640 --> 13:01.480
+And that is very interesting for debugging, actually.
+
+13:01.480 --> 13:07.280
+For the transition of some constants that are defining the max length of some strings,
+
+13:07.280 --> 13:14.520
+you may have truncation, but with all the tests we did so far, it was not an issue per se.
+
+13:14.520 --> 13:19.800
+And lastly, the MPIX functions that are the experimental functions implemented in the
+
+13:19.800 --> 13:23.880
+difference MPI implementation.
+
+13:23.880 --> 13:27.960
+We are dealing with those functions on a case-by-case basis.
+
+13:27.960 --> 13:34.320
+So they are all supported, but we started to support few of them.
+
+13:34.320 --> 13:40.480
+So now to give you a glimpse of what you can do with it.
+
+13:40.480 --> 13:46.160
+The first examples I wanted to show you is something that happened to us that we had
+
+13:46.160 --> 13:48.720
+a GROMACS version.
+
+13:48.720 --> 13:52.960
+So GROMACS once again is a molecular dynamic code used in HPC.
+
+13:52.960 --> 13:55.960
+This version was compiled against MPI.
+
+13:55.960 --> 14:03.840
+And on the target cluster we were using, MPI could run only on GPU, and we had an error
+
+14:03.840 --> 14:04.840
+on CPU.
+
+14:04.840 --> 14:13.560
+So this is due to the fact that in GROMACS you have a call to the MPIX query code support
+
+14:13.560 --> 14:17.640
+that is just checking if you have GPUs.
+
+14:17.640 --> 14:24.120
+But actually the way it's implemented in MPIX is that if you don't have GPUs, it crashes.
+
+14:24.120 --> 14:26.440
+In other implementation, it's not doing that.
+
+14:26.440 --> 14:31.000
+It's just telling you, no, you have no CPU, sorry, and then you can do whatever you want.
+
+14:31.000 --> 14:35.600
+But the way they did it for no in MPIX is that it crashes.
+
+14:35.600 --> 14:39.560
+So we couldn't run this code on CPU.
+
+14:39.560 --> 14:45.960
+And so we used Wi-Fi MPI to run the code to go from MPI to open MPI.
+
+14:45.960 --> 14:47.840
+And here I see the results.
+
+14:47.840 --> 14:50.040
+So using MPIX, it fails.
+
+14:50.040 --> 14:53.080
+Using Wi-Fi MPI, we have some performance.
+
+14:53.080 --> 14:57.880
+And actually we recompile the version of the code using the open MPI.
+
+14:57.880 --> 15:03.800
+And we have performances that are really similar.
+
+15:03.800 --> 15:07.240
+And the other use case I wanted to show you is with containers.
+
+15:07.240 --> 15:15.080
+So the idea is to have an MPIX-based container in which we have an OSU microbenchmark that
+
+15:16.040 --> 15:17.800
+was compiled.
+
+15:17.800 --> 15:25.480
+And we did some comparison between two AMD mail-in nodes at TGCC, which is one of our
+
+15:25.480 --> 15:27.800
+clusters at CE.
+
+15:27.800 --> 15:37.560
+And in all the things I will show you, I compare an execution using open MPI directly on the
+
+15:37.560 --> 15:40.880
+cluster with the OSU microbenchmark.
+
+15:40.880 --> 15:48.760
+And one execution using a container in which we have open MPI available that we are plugging
+
+15:48.760 --> 15:51.280
+on the open MPI of the cluster.
+
+15:51.280 --> 15:54.480
+And the last one is a container with MPI.
+
+15:54.480 --> 15:58.760
+And we are using open MPI using Wi-Fi MPI.
+
+15:58.760 --> 16:06.040
+So the first graph here is to show the in-it time between those three cases.
+
+16:06.040 --> 16:09.920
+And you see that it's very comparable.
+
+16:09.920 --> 16:11.520
+We have the same results.
+
+16:11.520 --> 16:19.440
+It takes the same time to in-it MPI with Wi-Fi MPI.
+
+16:19.440 --> 16:21.840
+Here it's bidirectional bandwidth.
+
+16:21.840 --> 16:22.840
+And it's the same.
+
+16:22.840 --> 16:25.440
+The results are very comparable.
+
+16:25.440 --> 16:28.800
+And another example is an old reduce.
+
+16:28.800 --> 16:34.920
+So here all the cores of the two nodes we used were participating to the communication.
+
+16:34.920 --> 16:41.480
+And we have very comparable latencies between those three cases.
+
+16:41.480 --> 16:50.720
+So the good point is that the overhead of Wi-Fi MPI and those tests is really minimum.
+
+16:50.720 --> 16:57.400
+So now in conclusion, for the future, the good news for HPC and the bad news for us is that
+
+16:57.400 --> 17:07.800
+there is a standardizing project for the ABI layer that started last year.
+
+17:07.800 --> 17:13.600
+And it's really great because it will greatly help all the HPC users.
+
+17:13.600 --> 17:21.360
+So there will be very likely a common CBI defined in one of the next norm.
+
+17:21.360 --> 17:26.560
+You can refer to the Haman et al paper from 2023.
+
+17:26.560 --> 17:32.360
+And we actually can reasonably hope for a convergence because nowadays there are actually
+
+17:32.360 --> 17:40.080
+two ABI that covers more than 90% of the HPC platforms that are MPI and OpenMPI.
+
+17:40.080 --> 17:46.560
+And the plan is to have a single feature ABI-only release for MPI 4.2.
+
+17:46.560 --> 17:53.120
+At some point they were talking about MPI 5, but finally in India it should be for 4.2.
+
+17:53.120 --> 17:59.520
+And they are hoping for a draft for SE 24, so more or less one year for now.
+
+17:59.520 --> 18:02.600
+There is already a prototype available in MPI.
+
+18:02.600 --> 18:10.200
+And there is also lots of ideas regarding this common ABI that are implemented in Mukatuva
+
+18:10.200 --> 18:13.040
+from Jeff Hammond.
+
+18:13.040 --> 18:16.080
+So I put in the links if you want to have a look at it.
+
+18:16.080 --> 18:21.680
+And if you want to have more info on that, you can check the MPI ABI working group also
+
+18:21.680 --> 18:23.240
+on GitHub.
+
+18:23.240 --> 18:30.880
+And the good thing with this standardizing effort is that the Wi-Fi MPI is actually seated
+
+18:30.880 --> 18:34.240
+as a reference implementation.
+
+18:34.240 --> 18:42.000
+And so to conclude, for Wi-Fi MPI in Ananshel, this library helps you to switch between different
+
+18:42.000 --> 18:43.640
+MPI libraries.
+
+18:43.640 --> 18:50.280
+So it allows greater portability and a better flexibility for HPC applications, including
+
+18:50.280 --> 18:55.800
+a containerized app or proprietary software.
+
+18:55.800 --> 18:57.960
+Its usage is mostly transparent.
+
+18:57.960 --> 19:04.520
+So in most cases we studied so far there were no significant overhead, which is also a good
+
+19:04.520 --> 19:06.040
+thing.
+
+19:06.040 --> 19:08.080
+And the library is still evolving.
+
+19:08.080 --> 19:14.600
+So in the years to come we hope to have an MPI 4 support.
+
+19:14.600 --> 19:21.200
+We would like to support the Muk ABI, which is the Jeff Hammond project that should be
+
+19:21.200 --> 19:26.040
+close to the common ABI defined in the future norm.
+
+19:26.040 --> 19:31.400
+And of course the project is open, so we are waiting for your contribution.
+
+19:31.400 --> 19:37.040
+And in conclusion, I want also to thank all the people who contributed to Wi-Fi MPI, and
+
+19:37.040 --> 19:43.320
+especially at CEA, at the Lawrence Livermore Laboratory, and at EOLN, which is a company
+
+19:43.320 --> 19:45.600
+with which we are working.
+
+19:45.600 --> 19:46.600
+Thank you all.
+
+19:46.600 --> 19:50.320
+Okay, perfect timing.
+
+19:50.320 --> 19:51.320
+Questions?
+
+19:51.320 --> 20:03.440
+Yes, thank you for the last presentation, and I have several questions.
+
+20:03.440 --> 20:07.400
+And trust me, which version do you support?
+
+20:07.400 --> 20:22.000
+So we are supporting the idea to support the Fortran API of MPI.
+
+20:22.000 --> 20:27.080
+So we have no limitation in terms of Fortran supported.
+
+20:27.080 --> 20:30.520
+But it's not the part that is the most tested.
+
+20:30.520 --> 20:35.640
+So if you have Fortran use cases, you're welcome to try it.
+
+20:35.640 --> 20:37.320
+And if it works, great.
+
+20:37.320 --> 20:43.440
+If you have any issues, open issues on GitHub, we try to be very proactive on the GitHub
+
+20:43.440 --> 20:44.440
+issues.
+
+20:44.440 --> 20:47.000
+Okay, thank you.
+
+20:47.000 --> 20:53.320
+The next question is about ILP64 ABI.
+
+20:53.320 --> 21:01.840
+So because a lot of programs compiled in ILP64 mode, I mean, for example, it's like FDFALT
+
+21:01.840 --> 21:04.520
+integer 8.
+
+21:04.520 --> 21:11.480
+So did you support this feature?
+
+21:11.480 --> 21:21.000
+We're supporting once again, if it's working, the idea is that if it's working with your
+
+21:21.000 --> 21:26.800
+MPI implementation, if you can actually do it with your MPI implementation, if you have
+
+21:26.800 --> 21:30.440
+a compatible MPI implementation, it should work.
+
+21:30.440 --> 21:38.520
+But some cases where you need to have a right, you have to have kind of the same way of compiling
+
+21:38.520 --> 21:43.920
+your library and the ABI.
+
+21:43.920 --> 21:49.800
+You probably didn't understand the problem that initially what a lot of implementation
+
+21:49.800 --> 21:51.720
+has two wrappers already.
+
+21:51.720 --> 21:59.880
+So you have initially you put in some wrapper which translates from ILP64 to LP64.
+
+21:59.880 --> 22:04.280
+And then only after this it will do some traditional calls.
+
+22:04.280 --> 22:09.200
+So do you support this feature?
+
+22:09.200 --> 22:10.520
+I'm not entirely sure.
+
+22:10.520 --> 22:13.520
+We should discuss it afterwards.
+
+22:13.520 --> 22:17.880
+Yeah, and the last question is about runtime because, for example, we have some additional
+
+22:17.880 --> 22:23.000
+parameters in MPI run and some programs like ORCA or MRCC.
+
+22:23.000 --> 22:31.280
+Did you just do internal calls of runtime, I mean just exact of MPI run?
+
+22:31.280 --> 22:33.400
+Did you do something with this feature?
+
+22:33.400 --> 22:39.960
+I mean, because, for example, Intel MPI supports some additional flags and the OpenMPI also
+
+22:39.960 --> 22:48.280
+supports some additional flags and there is different between these two implementations.
+
+22:48.280 --> 23:02.360
+So, same thing I'm not entirely sure because for quite some time we actually didn't support
+
+23:02.360 --> 23:10.480
+MPI run for this kind of question and also because on our clusters the norm is to use
+
+23:10.480 --> 23:12.200
+SRAM directly.
+
+23:12.200 --> 23:16.560
+So there were a few things with this regard that we didn't support it.
+
+23:16.560 --> 23:21.840
+So sometimes the Google started to support MPI run but I'm not entirely sure of the
+
+23:21.840 --> 23:27.720
+level of support we have on specific things you could find on one implementation versus
+
+23:27.720 --> 23:29.720
+another.
+
+23:29.720 --> 23:34.560
+Thank you.
+
+23:34.560 --> 23:35.560
+More questions?
+
+23:35.560 --> 23:40.400
+Hi, cheers for that.
+
+23:40.400 --> 23:41.400
+I wanted to ask.
+
+23:41.400 --> 23:47.320
+I want to mention some example programs and benchmarks that have performance portability
+
+23:47.320 --> 23:48.320
+here.
+
+23:48.320 --> 23:54.760
+What HPC applications are you targeting with this that require the performance portability?
+
+23:54.760 --> 24:00.600
+Because if it's a Gromax application that wants to use all of the system, it's typically
+
+24:00.600 --> 24:06.080
+that code will run for years on the system and be optimized for it anyway.
+
+24:06.080 --> 24:11.000
+So at which point do you need something that works on multiple systems that's okay and
+
+24:11.000 --> 24:15.000
+at which point do you need to have something that's very specialized so you wouldn't actually
+
+24:15.000 --> 24:21.000
+need to have a wrapper in between?
+
+24:21.000 --> 24:22.320
+I'm not sure to understand your question.
+
+24:22.320 --> 24:28.040
+So what applications use this in the real world on the clusters that you're working
+
+24:28.040 --> 24:29.040
+on?
+
+24:29.040 --> 24:37.320
+So none, example programs, what actual programs require the translation from one MPI to another?
+
+24:37.320 --> 24:46.480
+The only one in which we really had to use the wrapper and we have no other choice were
+
+24:46.480 --> 24:47.840
+commercial softwares.
+
+24:47.840 --> 24:54.920
+And especially when I talked about bleeding age system, we have some systems with BXI
+
+24:54.920 --> 24:56.080
+interconnect.
+
+24:56.080 --> 25:00.640
+And BXI interconnect is a evident interconnect.
+
+25:00.640 --> 25:03.960
+And they were supporting only open MPI.
+
+25:03.960 --> 25:13.600
+The thing is some commercial vendors distribute their softwares built against a specific MPI
+
+25:13.600 --> 25:14.800
+implementation.
+
+25:14.800 --> 25:18.680
+And they have no interest of supporting another one.
+
+25:18.680 --> 25:25.520
+And so if we wanted to be able to use for real those commercial softwares on our system,
+
+25:25.520 --> 25:30.240
+we had no other choice than using Wi-Fi MPI.
+
+25:30.640 --> 25:34.920
+That is the only case in which is really, really mandatory.
+
+25:34.920 --> 25:42.520
+For other cases, in most cases, it's actually more, it's more comfortable in some sense
+
+25:42.520 --> 25:45.080
+because it helps you to debug quickly.
+
+25:45.080 --> 25:48.360
+It helps you to test things more easily.
+
+25:48.360 --> 25:52.400
+But if you have an infinite amount of time in front of you, you can do anything.
+
+25:52.400 --> 25:54.560
+You can always recompile everything.
+
+25:54.560 --> 25:59.720
+But we don't have infinite amount of time in front of us.
+
+25:59.920 --> 26:01.280
+OK, thank you.
+
+26:04.200 --> 26:06.560
+Any more questions?
+
+26:06.560 --> 26:07.440
+I have a quick one.
+
+26:07.440 --> 26:10.040
+Have you looked at MPI trampoline?
+
+26:10.040 --> 26:12.240
+That's a very similar project to what?
+
+26:12.240 --> 26:15.720
+Yes, MPI trampoline appeared a few years ago.
+
+26:15.720 --> 26:22.680
+And the main difference between MPI trampoline and Wi-Fi MPI is that MPI trampoline allows
+
+26:22.680 --> 26:28.440
+you only what we call the interface mode in Wi-Fi MPI.
+
+26:28.480 --> 26:34.520
+So you can compile against MPI trampoline and then use another MPI implementation.
+
+26:34.520 --> 26:40.960
+But you can't bring your own code and run it directly with MPI trampoline.
+
+26:40.960 --> 26:46.760
+But yes, in the past few years, there were a few ideas similar to what we did with Wi-Fi MPI.
+
+26:46.760 --> 26:51.760
+And it's interesting because for quite some time, people didn't really care about this
+
+26:51.760 --> 26:53.400
+API incompatibility issue.
+
+26:53.400 --> 26:57.000
+And we see now that there is some interest.
+
+26:57.000 --> 27:01.920
+And that's also why at some point at the MPI forum, they decided that it was time to have
+
+27:01.920 --> 27:03.040
+a common API.
+
+27:03.040 --> 27:07.240
+So that's great to see other projects like that emerging.
+
+27:08.920 --> 27:10.840
+All right.
+
+27:10.840 --> 27:11.440
+I think that's it.
+
+27:11.440 --> 27:12.280
+Thank you very much.
+
+27:17.800 --> 27:21.080
+And if people like the project, there are some stickers here in front as well.
+

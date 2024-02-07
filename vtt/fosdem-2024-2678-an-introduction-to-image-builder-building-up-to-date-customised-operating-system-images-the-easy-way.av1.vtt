@@ -1,0 +1,743 @@
+WEBVTT
+
+00:00.000 --> 00:12.920
+Hello everyone. So I will talk a little bit about Image Builder. I want to talk a little
+
+00:12.920 --> 00:20.320
+bit about how it works, how the stack of Image Builder fits together, show off some of the
+
+00:20.320 --> 00:29.560
+things it can do. But before all that, I'll try to explain why it exists. So Image Builder
+
+00:29.560 --> 00:36.640
+builds bootable operating system images, the base images. It runs on your local machine
+
+00:36.640 --> 00:43.960
+or as a hosted service. So we also run and operate a service for Image Builder. Now
+
+00:43.960 --> 00:50.280
+building bootable operating system images is not that hard of a problem. You just put
+
+00:50.280 --> 00:57.520
+a few bits in the right place, some default correct, hopefully configurations. And most
+
+00:57.520 --> 01:01.040
+of the hard work is done by the package maintainers, the people who maintain a kernel, the people
+
+01:01.040 --> 01:10.360
+who maintain system data. They make sure it all fits together. But at a certain scale,
+
+01:10.360 --> 01:15.840
+consistency and reliability are very important. Because you need to build images for different
+
+01:15.840 --> 01:20.640
+purposes. I'm talking now from the point of view of a distribution. You need to build
+
+01:20.640 --> 01:24.840
+images for different purposes, for different architectures, for different target environments
+
+01:24.840 --> 01:32.080
+like AWS, GCP, Azure, local virtualization, bare metal. And you don't want to have these
+
+01:32.080 --> 01:37.400
+differ too much from one another. These images. You don't want to have them differ too much
+
+01:37.400 --> 01:47.120
+from one another between those different variables. You want to reason about them and produce
+
+01:47.120 --> 01:52.440
+them in roughly the same manner. You want to produce and reproduce them often without
+
+01:52.440 --> 01:58.640
+manual interference. So as part of pipeline. So you need infrastructure around it as well.
+
+01:58.640 --> 02:04.880
+And because I also mentioned like target environments, specifically the cloud platforms, well, every
+
+02:04.880 --> 02:10.720
+cloud platform today often offers something like an image builder as well. I guess AWS
+
+02:10.720 --> 02:16.920
+EC2 image builder. But yeah, then you're sort of like locked into what the cloud provider
+
+02:17.000 --> 02:27.000
+provides. Or you just end up using their images maybe full stop. So it's nice to have tooling
+
+02:27.000 --> 02:35.600
+that is sort of cloud agnostic. Or like specific cloud agnostic, vendor agnostic. And as a final
+
+02:35.600 --> 02:39.760
+point, while image based workloads are also becoming the norm. You know, everybody uses
+
+02:39.800 --> 02:47.800
+containers. People build images for a single specific workload. And really one of the things
+
+02:47.800 --> 02:54.800
+for end users that we're trying to solve is to make VM images almost as easy to deal with
+
+02:54.800 --> 03:01.800
+as container images. So image builder was created to address some of these problems.
+
+03:01.800 --> 03:07.360
+Right? So this is the stack. And I want to walk you through the stack just to quickly give an
+
+03:07.400 --> 03:14.280
+idea of what each component does and why it's there. I will start at OS build. The lowest base
+
+03:14.280 --> 03:20.880
+layer on which everything is based. So at the very bottom, we have OS build, which is a low
+
+03:20.880 --> 03:26.720
+level tool that executes a manifest. Now what is a manifest? The manifest describes exactly
+
+03:26.720 --> 03:34.320
+what goes into the image and then also how to package it. This manifest makes images
+
+03:34.320 --> 03:40.960
+audible because you have a manifest of exactly what's in it and reproducible. Since you have the
+
+03:40.960 --> 03:45.640
+exact steps that were used to build the image described inside of it as well. So not just the
+
+03:45.640 --> 03:53.240
+contents, but also like how do I get from those contents to the actual image? It is mostly
+
+03:53.240 --> 03:57.520
+distribution agnostic. So it doesn't necessarily have a notion of like what makes up a specific
+
+03:57.560 --> 04:04.400
+distribution. So what is a Fedora? 38 image, right? Doesn't really know. But of course it needs to
+
+04:04.400 --> 04:11.560
+support some package manner. So it currently supports RPM and Pacman packages. So theoretically,
+
+04:11.560 --> 04:18.960
+the distributions that it can build are things like Fedora, Arch, CentOS, et cetera. And as a final
+
+04:18.960 --> 04:24.120
+note, OS build starts from a pristine tree, so like an empty directory, and then builds it up piece by
+
+04:24.160 --> 04:30.840
+piece. But to clarify this, let's take a little look at a manifest. So I'm going to need to...
+
+04:32.840 --> 04:41.200
+That's maybe too much. So as you can see, this is sort of what a manifest looks like. First off,
+
+04:41.200 --> 04:49.080
+you have sources because the content needs to come from somewhere. So this is maybe a little bit.
+
+04:50.040 --> 04:55.080
+Okay, so these are just RPM packages indexed by their checksum, so that they're nice and
+
+04:55.080 --> 05:02.560
+addressable. Now here you can see three pipelines. I will not go through all of them, it's just like
+
+05:02.560 --> 05:08.760
+very quickly tell you what's inside of this manifest. So the first pipeline actually builds a
+
+05:08.760 --> 05:17.360
+container because we built the end artifact, so the end image inside of a container. And the reason
+
+05:17.440 --> 05:23.440
+that happens is because you kind of want the same tooling that will end up in the image building the
+
+05:23.440 --> 05:30.880
+image itself. So like the RPM version in the image, you kind of want to install those RPMs using the
+
+05:30.880 --> 05:40.920
+same version because otherwise you might get into a mess. So then the second pipeline is the
+
+05:41.000 --> 05:49.000
+second pipeline that actually puts all the bits in the correct place in the tree. So first it
+
+05:49.000 --> 05:57.320
+sets up the kernel, like I think it's proc kernel command line, then an RPM stage, so it installs
+
+05:57.320 --> 06:04.360
+a bunch of RPMs, then it sets up the locale, hostname, things like this. It relabels the tree, so
+
+06:04.920 --> 06:10.280
+as soon as it's happy. And then in the final pipeline, it actually goes ahead and packages the
+
+06:10.280 --> 06:17.320
+image up. So in this case, it just ends up being a raw disk file, right? So the most basic disk file
+
+06:17.320 --> 06:25.320
+and also like it sets up the file systems and stuff like this. So I guess just a takeaway is
+
+06:26.920 --> 06:32.520
+pipelines stages very precise way of describing what exactly should go into that end artifact.
+
+06:33.480 --> 06:41.240
+So now I need to like, yeah, go back a bit. Okay, that looks better. So, but like I said OS build
+
+06:41.240 --> 06:46.840
+doesn't actually know what makes up a specific distribution. So we have the image definitions.
+
+06:47.880 --> 06:52.120
+The image definitions contain all the information needed to describe an image of a specific
+
+06:52.120 --> 06:57.480
+distribution of a specific architecture for a specific target environments. So it describes
+
+06:57.560 --> 07:03.320
+things like the base package sets, the default configurations, how exactly architectures differ,
+
+07:03.320 --> 07:08.920
+you know, like install these packages if it's arch, install these packages if it's x86. And
+
+07:12.680 --> 07:17.480
+like all the differences between those different, you know, that whole matrix of like architectures,
+
+07:17.480 --> 07:25.240
+target platforms, that's contained within the image definitions. It integrates tightly with
+
+07:26.040 --> 07:31.160
+Composer. So if I don't know if you remember the stack from earlier, now we're at the gray layer.
+
+07:31.800 --> 07:37.000
+So we had OS build images and then Composer. And Composer is really the part that brings it all
+
+07:37.000 --> 07:43.000
+together. It takes user input in a format that I'll get into shortly. It takes package repositories,
+
+07:43.000 --> 07:47.080
+just as a source for the packages, like, you know, the kernel needs to come from somewhere.
+
+07:47.800 --> 07:53.560
+And the aforementioned image definitions to generate the manifest, which is then provided to OS build.
+
+07:54.200 --> 07:57.800
+Right, so Composer takes all of the input from the necessary places,
+
+07:58.440 --> 08:05.160
+generates a manifest, and then OS build executes that manifest. Because like I, like you probably
+
+08:05.160 --> 08:11.240
+saw, there's a manifest, they're okay to read, but if you had to write those by hand, that would not
+
+08:11.240 --> 08:19.960
+end up very well. It's a tiresome job. And as a final point as well, it also orchestrates all the builds.
+
+08:20.200 --> 08:26.520
+It manages the job queue and workers, which you know, like you can queue image builds and then,
+
+08:26.520 --> 08:33.160
+because image builds takes a long time often. So, and that's just an important point to be able to
+
+08:33.160 --> 08:41.800
+run this like in a host, as a host service, as part of infrastructure, etc. So okay, what does,
+
+08:41.800 --> 08:46.040
+what does Composer need? And as you can see, it's already a lot simpler than the manifest that we
+
+08:46.120 --> 08:52.440
+had before, right? So say that I want to build a Fedora 39 image. Okay, so I just asked for a Fedora
+
+08:52.440 --> 09:01.800
+39 image. I want it to be x86, QCOW. I provide it with some repositories, which are just the default
+
+09:02.760 --> 09:08.920
+Fedora 39 repositories. Optionally, some customizations, right? So like in this case, I also want to
+
+09:08.920 --> 09:13.480
+install cockpit. I want like the base system with cockpit installed. And that's it. That's all Composer
+
+09:13.480 --> 09:19.080
+needs. It will take it, grab the image definitions, figure out what the manifest looks like, and then
+
+09:19.080 --> 09:28.360
+pass it to us. Okay, so how to make this even easier and like how do we actually like give this to,
+
+09:28.360 --> 09:37.240
+to end users? I will walk through like two tools that we have. And then I will
+
+09:37.960 --> 09:47.880
+show off the hosted service that we have running. I just realized I didn't spin up a VM, which I
+
+09:47.880 --> 09:57.080
+need to spin up. Okay, so Composer CLI. So Composer CLI takes this format called a blueprint. Now a
+
+09:57.080 --> 10:05.400
+blueprint kind of describes, again, like how to customize the image. As you can see, there's nothing
+
+10:05.800 --> 10:12.600
+anymore of like which architecture you want, which distribution you want. This is intended as like the
+
+10:12.600 --> 10:17.240
+on premise tool, and it's all inferred from the host. So like if you're running on a Fedora 38 system,
+
+10:17.240 --> 10:25.160
+it will build Fedora 38. If it's an ARM system, it will build ARM, etc. All that's left is
+
+10:25.160 --> 10:30.040
+customizations. And as you can see, it can be quite powerful, right? So like here, what happens is,
+
+10:30.440 --> 10:38.040
+I source this from a colleague of mine. But as you can see, it puts in place a system,
+
+10:38.040 --> 10:46.760
+the a little system, the service, then it asks ImageBill to also enable that system, the service,
+
+10:46.760 --> 10:53.080
+and that system, the service sets up a second disk on boot, right? And also it embeds a user.
+
+10:53.240 --> 11:00.760
+So yeah, what's left here is just really just the customizations. And this is how you would
+
+11:00.760 --> 11:06.200
+then like push that blueprint. The workflow is a bit cumbersome, but like you push the blueprint,
+
+11:06.200 --> 11:09.880
+you start the blueprint, you ask for the image type, which in that case is a Q-Cow. So
+
+11:10.440 --> 11:14.360
+important point, you use that same blueprint to build a Q-Cow, build an installer, build a
+
+11:15.560 --> 11:20.440
+cloud image, so that you get, you know, you really just have to specify what you want is common.
+
+11:21.240 --> 11:23.480
+And like ImageBill would say, care of the rest.
+
+11:26.440 --> 11:29.080
+And there's also like a little cockpit application.
+
+11:36.040 --> 11:36.280
+So
+
+11:36.280 --> 11:40.600
+can I, oh I need to,
+
+11:46.600 --> 11:47.560
+if it went to,
+
+11:54.200 --> 11:58.680
+ah there we go. So this is a cockpit application which allows you to define
+
+11:58.680 --> 12:03.240
+blueprints, build images. It's again targeted for on-premise use,
+
+12:03.400 --> 12:09.160
+as you can see, I probably should have removed this question. But yeah, so like it allows you to
+
+12:10.360 --> 12:15.640
+define those blueprints I showed earlier and build images from them. I think if you
+
+12:15.640 --> 12:20.280
+click, right click here, and you can see like some of the, okay, like the blueprint, like an output
+
+12:20.280 --> 12:28.840
+type, so there's a bunch of output types that we support. Yeah, voila. So now, okay, so actually
+
+12:28.840 --> 12:33.800
+the point why I actually mainly did this talk was, which is, so we also run as a Fedora,
+
+12:34.600 --> 12:39.880
+as a, as a hosted service, and for a specific hat company we've been running a service for a while now,
+
+12:40.600 --> 12:46.280
+but we are also figuring out like, okay, how do you actually run services, like software as a service
+
+12:47.480 --> 12:51.800
+for the community, right? Like how do you involve from our community? We want community users,
+
+12:51.800 --> 12:57.240
+we want community feedback, they often use software in like different or interesting ways.
+
+12:59.560 --> 13:06.120
+So yeah, that's what we wanted to offer support for that. So if you go to console.stagels.fodora
+
+13:06.120 --> 13:10.520
+infocloud.org, so it's currently just a staging service, but production is coming soon.
+
+13:11.800 --> 13:15.720
+It will, it will tell you like, okay, this is how you like, if you make an account there, then you
+
+13:15.720 --> 13:22.200
+can use the API in that way, etc. Currently it's just an API, but UI is also on the road now.
+
+13:23.000 --> 13:29.560
+So what's currently supported in that staging service, staging service, it's KVM, BeastFair,
+
+13:30.200 --> 13:34.520
+AWS, and like, on the right hand side, there's all images that we currently
+
+13:34.520 --> 13:38.680
+build, but we just need to set up some service, some stuff in the service and
+
+13:40.680 --> 13:48.200
+enable them and expose them. Also just 8x86 for now, but Arch is relatively easy to add,
+
+13:48.280 --> 13:50.920
+and in a production service, we'll definitely have Arch as well.
+
+13:52.760 --> 13:59.480
+So what does a request to this hosted service look like? And at the very start, right before the
+
+13:59.480 --> 14:03.960
+talk started, I actually sent off this exact same request to the image building service.
+
+14:06.200 --> 14:13.240
+So this is what a complex request, more complex request looks like. So there's the distribution
+
+14:13.240 --> 14:21.560
+I'm asking for Fedora38, X86, it's a QCOW2, don't mind the name, it's a bit weird, but QCOW2,
+
+14:22.680 --> 14:29.320
+please upload it for me to AWS S3 so I can download it afterwards. We host, like, we share images
+
+14:29.320 --> 14:34.360
+with a pre-signed URL, which are like valid for a couple of hours. So, and then it comes,
+
+14:34.360 --> 14:38.760
+like, then we get to the interesting bits, like, so can this hosted service, for which you don't
+
+14:38.760 --> 14:45.800
+need to, like, have any setup on your local machine. Also, integrate with other Fedora services
+
+14:45.800 --> 14:50.040
+that are currently available. So perhaps some of you know, copper, you know, like, very easy to
+
+14:50.040 --> 14:54.040
+build your own RPMs, you just upload your spec files and sources and it will go ahead and build your,
+
+14:55.000 --> 14:59.800
+do everything for you, like, the difficult bits for you, so, and host your RPMs even. So here
+
+14:59.800 --> 15:06.120
+I'm asking, like, okay, can you also in FCE, YAM repose, whatever, like, make this repository
+
+15:06.120 --> 15:11.800
+available so that I can install stuff from it. So that's this customization. Then install these
+
+15:11.800 --> 15:17.800
+packages, right, like, I want copper, I want firewall D, because, I don't know, and then NPM as well.
+
+15:17.800 --> 15:24.280
+Why? Because I have this awful startup script, which installs revealMD, which is, like, the thing
+
+15:24.280 --> 15:30.600
+that's running these slides now, installs demo slides, which come from this demo copper up there.
+
+15:31.480 --> 15:40.840
+Change is to root, runs revealMD, yeah, just it runs, it's a VM that runs slides, yeah. And then
+
+15:40.840 --> 15:47.000
+the second thing is, like, okay, set up a service for me, which, you know, it's a one-shot type of
+
+15:47.000 --> 15:53.560
+service, it runs that startup script that's defined above, and, yeah, run it after the network comes
+
+15:53.560 --> 15:58.440
+online, because I want it, it's a server, it's a service that also starts the server, right, so,
+
+15:59.240 --> 16:05.000
+and then I want to enable the cockpit service, I want to enable the revealMD service, so that's
+
+16:05.000 --> 16:11.240
+the little service that I defined above, and then, yeah, for firewall customizations, I want to open
+
+16:12.760 --> 16:18.120
+this specific port, because that's what revealMD listens on, and I want to enable the cockpit
+
+16:18.120 --> 16:21.800
+service as well, right, so, like, when the machine boots up, cockpits enabled, and these slides will
+
+16:21.800 --> 16:35.640
+hopefully be hosted now. Right, so let's go back to the terminal there, so, as you can see, so
+
+16:35.640 --> 16:44.280
+that's the same request, and I sent it off earlier, and it was building, so let's see what happens now.
+
+16:45.080 --> 16:50.760
+I hope it didn't fail, because that would, okay, no, so like, the build succeeded, right, as you
+
+16:50.840 --> 16:56.040
+can see, this monster of assigned URL, which is technically a secret, it's valid for six hours,
+
+16:57.640 --> 17:04.520
+so, yeah, you can just download it, and, yeah, I mean, that's it, it's really that easy, if there's
+
+17:04.520 --> 17:09.800
+like a whole bunch more customizations available than the ones listed here, but once you've read
+
+17:09.800 --> 17:16.520
+the spec a bit, you figure out how to write a JSON file, it's there, and then you can get a
+
+17:16.520 --> 17:24.040
+whole bunch of images out of it for free, so, let's run that image, right, so like, this is how
+
+17:24.040 --> 17:33.160
+I'm running that image, you can't see that, so, this is how I'm running that image, okay, so I'll
+
+17:33.160 --> 17:40.280
+just go ahead and do that off-screen, how am I for time, yeah, good,
+
+17:48.840 --> 17:55.320
+okay, so I've now booted it up, okay, so I asked it to install cockpit,
+
+17:55.560 --> 18:05.640
+and, okay, yeah, of course, yeah, just sort of, just sort of,
+
+18:13.320 --> 18:17.640
+okay, so let's just take a look at the networking, I asked it to like enable the
+
+18:17.640 --> 18:24.680
+cockpit service, and also, explore this additional port, it has done that, super,
+
+18:25.800 --> 18:31.400
+then I go to services, so these are all my, my system, these services, I look at revealMD,
+
+18:31.400 --> 18:34.520
+okay, so that's, that's still starting, and it might take a while because it's actually
+
+18:34.520 --> 18:43.240
+installing an npm package over my phone, so, hopefully that will do something in the meantime,
+
+18:43.240 --> 18:47.400
+I think in the meantime we can also maybe start with a question, if already somebody has one,
+
+18:48.120 --> 18:53.960
+but I want to show like a little thing at the end still, so, but for that I need this to,
+
+18:53.960 --> 18:54.760
+this to kick off,
+
+18:59.640 --> 19:04.760
+it's really the most exciting talk ever, isn't it, we all started staring at like, at some logs,
+
+19:05.560 --> 19:20.920
+so, thanks for the talk, I have two questions, so the first thing is to understand the architecture,
+
+19:20.920 --> 19:27.560
+the composer thing, it's like a demon or service, right, that's it, yeah, so the composer is the
+
+19:27.560 --> 19:31.960
+thing that runs as a hosted service and orchestrates everything basically, okay, so I understood that
+
+19:32.040 --> 19:36.920
+correctly, the second thing is that very expected question, it's not really creative,
+
+19:37.480 --> 19:43.480
+so how hard would it be to, to, to support like, let's say Ubuntu or, maybe I know,
+
+19:43.480 --> 19:46.760
+let's say something like that, that's very expected question, thank you, so I've actually
+
+19:46.760 --> 19:51.400
+experimented with this a little bit already, so like first we would need to add support in OS build,
+
+19:51.400 --> 19:56.360
+right, and then you would need to add an image, so just to install dev packages and like set up like,
+
+19:57.320 --> 20:02.760
+what's the thing, the bootstrap, you know, and then you would need to add an image definition,
+
+20:02.760 --> 20:06.840
+okay, but what is an Ubuntu image, and then you would need to add it to composer to expose it
+
+20:06.840 --> 20:13.800
+a little bit, okay, but first you'd need to, yeah, write some stages that can handle dev packages,
+
+20:15.080 --> 20:19.960
+and, and I've been, I've experimented with it before, I've got it to the point where I, we can
+
+20:20.840 --> 20:27.160
+build a bootable Debian image, right, not UEFI, so, but like, you know, we've got it to that point,
+
+20:27.160 --> 20:34.200
+it just, it requires some more work in cycles, like theoretically it's, it's, it's, it can do it,
+
+20:34.200 --> 20:41.240
+right, like it's, it's just a matter of some work, yeah, I'll answer your question, oh yeah,
+
+20:41.240 --> 20:47.000
+and in the meantime, let's, like, look, it seems to have done something, so, all right, great, yeah,
+
+20:47.080 --> 20:53.800
+slides are up, so let's go to that, oh yeah, so this is the most efficient way to, to host, I think,
+
+20:54.440 --> 20:59.560
+you know, image-based workloads, single slides, this is where you can find us,
+
+21:01.800 --> 21:05.960
+so like, yeah, this is our GitHub project, we have a matrix channel, please can say hi,
+
+21:07.160 --> 21:10.600
+and then we have a website, and so if you go to service,
+
+21:11.160 --> 21:18.200
+um, so service and then for door, you can read a bit more about how the architecture fits together,
+
+21:19.320 --> 21:24.760
+and yeah, if you go to the Fedora service, you can find instructions on how to do it if you want,
+
+21:25.960 --> 21:29.640
+please do, there's currently only two workers attached to the staging service, so
+
+21:30.520 --> 21:35.480
+if, if it, if it's not DDoS by like two hours from now, I'm going to be disappointed.
+
+21:40.600 --> 21:42.600
+Thank you.
+
+21:50.200 --> 21:51.160
+All right, any more questions?
+
+21:54.680 --> 22:01.160
+So, um, I'm a bit hazy on the architecture, so maybe the question, it doesn't make much sense, but
+
+22:01.720 --> 22:08.600
+how much work would be, um, you know, how feasible is to do all this locally, like, for example, for,
+
+22:08.600 --> 22:14.760
+I want to build a distro, then tweak something, then build another image and run it locally in a tight loop,
+
+22:15.000 --> 22:19.000
+so that it's like the whole process that you described, starting from the
+
+22:20.040 --> 22:25.400
+definition with the local overrides all the way to the image that you have downloaded and built locally,
+
+22:25.480 --> 22:27.480
+can you all do it on a laptop on the plane?
+
+22:28.200 --> 22:31.160
+Yeah, yeah, so like this, um, so the first, uh,
+
+22:32.440 --> 22:38.440
+let me go back a little bit, so we have a copy composer, now it doesn't, um,
+
+22:38.920 --> 22:46.280
+so this is essentially the same thing, right? Like you, you can just, or maybe I'm not answering your question,
+
+22:46.280 --> 22:51.640
+but this is essentially like, uh, you can do it all on, on your own laptop. Of course, your own laptop
+
+22:51.880 --> 22:56.920
+can do cross architecture builds, um, currently, uh, but,
+
+22:59.000 --> 23:05.800
+yeah, is that? So basically I would run the service locally and then talk to a web server on my,
+
+23:06.760 --> 23:14.760
+it's a unique socket in this case. You can also set up the, the service of, um, locally, but it's,
+
+23:14.760 --> 23:17.240
+it's not necessarily supported very well, uh,
+
+23:19.000 --> 23:23.560
+but it's all there. It's, it's all, when you install copy composer or, sorry, when you install, um,
+
+23:23.720 --> 23:27.960
+OSBIL composer on your fedora machine or whatever, it's all, it's all shit.
+
+23:28.360 --> 23:30.360
+Thank you. Yeah.
+
+23:30.600 --> 23:39.160
+Hi. Uh, yeah, probably an annoying question, but so, uh, under the soon, there was like, uh, ISO installers.
+
+23:40.120 --> 23:43.160
+Can you be, can you be a bit more specific about
+
+23:44.200 --> 23:49.400
+what soon means in this, uh, in this context? Because that would solve like a use case that I have. So,
+
+23:49.400 --> 23:55.160
+like really creating a bootable USB drive that a, a technician can plug in and,
+
+23:55.960 --> 24:01.480
+yeah. So, so, uh, yeah, you're right. So like the ISOs here, sort of installer and live installer are,
+
+24:02.600 --> 24:07.960
+are absolutely like, in tennis or bare metal. So those are like that you would burn onto an USB or
+
+24:07.960 --> 24:14.520
+DPD or a CD and, uh, yeah, plug in and, and, uh, they have like the, the fedora, like the anaconda
+
+24:14.520 --> 24:20.440
+install around them. Um, yeah. And is there like a specific fedora release that's being targeted or?
+
+24:21.400 --> 24:27.400
+Oh, it's been, this has all been fedora in, um, since fedora 34, 34.
+
+24:27.400 --> 24:29.400
+Okay. So it's, it's been there for a while.
+
+24:29.400 --> 24:33.080
+Okay. But we're still like, we're still actively working on it and making it better,
+
+24:33.080 --> 24:36.040
+like more customizations like that files customization where you can like just
+
+24:36.600 --> 24:40.760
+basically have like an entry point as like a, you know, just like a one shot system v service.
+
+24:41.320 --> 24:45.720
+Um, that was, it's more like a recent thing that we were trying to do. And yeah, there's more
+
+24:45.720 --> 24:49.560
+customizations that I think you can set up your file system a little bit like partitions and stuff like
+
+24:49.560 --> 24:53.560
+this. Okay. Then I'm missing the suit. Thank you. Yeah. But try it. Yeah.
+
+24:57.080 --> 24:58.680
+I think we have time for one more.
+
+25:02.520 --> 25:08.520
+So maybe I misunderstood something, but the whole part of the demo, everything was done locally,
+
+25:08.520 --> 25:15.560
+right? That you showed us on your local laptop, which part was on the cloud? I thought everything
+
+25:15.560 --> 25:22.600
+was local host. Everything was local host, except when I switched to here, like in the terminal,
+
+25:22.600 --> 25:26.840
+what, so right at the start of the talk, I sent a request, um,
+
+25:30.040 --> 25:35.880
+to wait, hang on. Oh yeah. Here up top here, I sent a request to the fedora.
+
+25:36.520 --> 25:41.880
+This is this fedora staging service that we're running now. And that is building an image
+
+25:41.880 --> 25:48.200
+and then that's spit out a URL. Now, of course, I didn't download this one. I built the same thing
+
+25:48.200 --> 25:55.160
+earlier and downloaded it then to run it now because it's like 700 megs and the internet is not that
+
+25:55.160 --> 26:06.600
+good. So, um, but like, let me just show, uh, so like, this is like, uh, yeah, the slash
+
+26:06.600 --> 26:10.760
+composes endpoints shows you all of the composes that I've done. Um, and it's basically all the
+
+26:10.840 --> 26:18.120
+same thing for this talk. So, um, I think I might have downloaded this one like one before or
+
+26:21.480 --> 26:26.600
+yeah, I mean, so, so this, this one, like the actual image that the VM that I put it up was not
+
+26:26.600 --> 26:32.840
+built on this laptop that was built on this on the cloud. Yeah. That I can also, if I have a powerful
+
+26:32.840 --> 26:41.240
+machine, I could also do it locally, right? Um, so do you mean like, uh, if you want to build
+
+26:41.240 --> 26:46.120
+the image locally? Yeah. Yeah, you can do that. So that's, that's, um, that's done with, uh,
+
+26:48.520 --> 26:52.440
+with cockpit composer, I think is the easiest way to get started. Yeah. So that's, that would be a
+
+26:52.440 --> 26:58.520
+cockpit, cockpit app is I think they're called. Yeah. Okay. Thank you. Yeah. You're welcome. I think
+
+26:58.520 --> 27:00.760
+we're done with time. Thank you.
+

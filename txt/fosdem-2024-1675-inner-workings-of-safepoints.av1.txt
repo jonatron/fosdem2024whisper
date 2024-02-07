@@ -1,0 +1,264 @@
+Hi, I'm Jonas Stechberger.
+I'll be talking about the inner workings of safe points.
+Essentially, what are safe points?
+You essentially have this nice little VM and you stop it.
+And as you saw, we have local safe points that only stop
+one VM.
+One VM, the other one, just float across.
+And the vicinity and the other stretch has worked.
+So the local safe points, they are quite cool because we
+stop a single thread.
+The thread doesn't modify its stack anymore.
+And it's nice to do things like garbage collection that just
+wants to operate on the thread stack.
+And we also have global safe points.
+They are also quite interesting.
+So essentially, you'll stop all the threads.
+That's cool when you want to do code deoptimizations and
+other stuff.
+That's what we're talking about, safe points.
+Safe points give either the state of the whole VM a
+guarantee to be stable or the state of the whole thread is
+guaranteed to be stable.
+And they are like one of the building blocks of the JVM.
+And they get even more important.
+I'll link their chat below because newer garbage collectors
+like concurrent etc.
+see use safe points, especially the thread local safe
+points to do work concurrently and to ensure that we can do
+as much work alongside concurrently every now and then
+at returns of methods instead of having a stop of all
+garbage collector as we have before.
+So essentially, when do we ask to be in a safe point?
+So when do we check he should be going to a safe point?
+We take here a typical method.
+It's just multi-blast.
+And so what we see here, we go into a safe point either
+when we return from a function, which is pretty neat.
+Or when we are at the back edge of a non-counted loop.
+So here in this example, we check at a safe point every
+time here when we're here or when we are at the end of the
+function, but beware of inlining.
+And that's a problem here.
+When we inline a function, then we don't have a safe point
+at the end of this inline function because the function
+doesn't exist anymore for the JVM.
+And then of course, we sometimes have loops.
+Some of you have written such for loops.
+And the problem is some years before, this didn't have a
+safe point anyway inside.
+And especially if B got really large, it meant that the
+JVM was taking quite a lot of time to reach the next safe
+point.
+So people started to do loop strip mining.
+And the idea is essentially you split this loop that we had
+before into an outer loop that usually iterates over
+increments like the value by a thousand typically, and an
+inner loop.
+And we have a safe point here.
+And that's quite interesting.
+That's quite good.
+It's called loop strip mining.
+And this reduced the latency in your JVM quite nicely.
+I'm Johannes Pechberger.
+I usually talk about profiles and sometimes about safe points.
+I work with an amazing team of talented engineers at the
+submachine team.
+We're the third biggest contributor to this little
+OpenShade.
+DK project that you might have heard about.
+And I sometimes fix bugs in template integrators.
+So template integrators like the thing when people say, oh,
+Java code is integrated in the lowest level of
+trig compilation, then they talk about template integrator
+because the template integrator turned O2 not produce
+safe point checks at the return of functions.
+And that's not great when you use this fact.
+So I sometimes fix bugs in the OpenShade.
+OK.
+And sometimes people call this work.
+And their back part of this fix us to all older LTS
+releases.
+What I'm not talking about is I'm not talking about how
+safe points suck.
+Because they sometimes suck, especially when you have
+profiles that are safe from bias.
+So they only sample your threat out safe point borders.
+As Nidson Barker says, safe point bias profiles are
+tricky, sneaky, filthy, all of the above.
+And if you want to know more about safe points and why they
+suck in profiling, ask this guy in the front.
+He knows a little bit about it.
+But more on the real topic of my talk.
+It's on implementation because we're all here to see some
+C code.
+Yay.
+In the beginning, I want to tell you how they code work.
+So essentially what we want to know, so essentially how
+safe points work, we have to insert these checks somewhere.
+And then the JVM goes into a safe point handler.
+And that's all amazing stuff like doing garbage
+collection work.
+Or hopefully in the future doing some safe point based
+deck walking to make profiling a little bit easier and to make
+profiling a little bit faster.
+But essentially what we could do in the search code, we could
+ask at every return, at every point where we run in search
+of safe point polygester, if threat is at safe point, please
+call safe point process.
+The thing is, this is like, probably this would compile in
+your check-in if you include some errors.
+And then in the last part, we did nothing.
+And it's quite cool.
+And it's slow, of course, because we have this branch
+everywhere.
+But the cool thing is, for once, that's pretty rare, this
+occasion.
+And so we can do some tricks.
+But what's in integrated mode, how it looks like, and here
+with the C++ code, how it actually looks like, that your
+template interpreter generates some code that calls
+test instruction that essentially sets a conditional
+bit.
+And it just tests that the polyg word, that the
+poll bit, is not zero.
+So that's just a simple check.
+That's how it's implemented in template interpreter.
+So we could essentially just implement this.
+And it's implemented this way.
+But we see that the first thing is, use pretty rarely.
+Because usually, we're not going to be at safe point.
+Because if we would get into this at every return, at every
+loopback edge, we would be just like being at safe points.
+And we wouldn't do some work with our JBMs.
+So usually, at safe point fails.
+And this is cool, because we now know that we can essentially
+make this a slow path.
+So it doesn't matter that much how fast it is if we get a
+fast path really fast.
+And one idea here is we could just read from a pointer.
+Because reading from a pointer in the fast path is quite
+fast, especially if there's a pointer that's in the cache
+or somewhere.
+It's nice.
+And the thing is, when we read from a pointer, there are two
+options.
+We could either read some data.
+Good.
+It's just a simple morph instruction.
+Or we can get a segmentation fault.
+And that's one of the things that JBM does.
+It uses segmentation faults for its own advantage.
+Because segmentation faults, yeah, they are somewhat
+expensive, but a fast path is really, really fast.
+So the idea is here in our method where we insert a
+check.
+We just access a so-called polling page.
+Because when we disable the save point, the fast path is
+yeah, it points to a good page, this pointer.
+But when we enable it, it points to the bad page.
+And we have a segmentation fault.
+And then essentially what segmentation fault does, it
+looks and looks, hey, did we want to access a save point,
+such a save point page?
+And I'm like, cool, we're probably at a save point.
+And that's one of the reasons why when you disable save
+points, when you do save point handling stuff around your
+JBM and want to be sneakily, so capturing save points, you
+got a lot of them.
+That doesn't help with debugging when you're
+out in GUB, when you're out in GDB, because you get a lot
+of save points.
+But anyways, before we go further to look into C++
+code, I was told by someone in the audience that people like
+cute cat images.
+And the thing is, working with the OpenJK is interesting.
+But sometimes you have to sometimes calm down, take a
+cat, stroke it, have a nice time.
+And then you go back to learning how the OpenJK works.
+So I learned this because I wanted to fix a bug.
+So essentially how save points are initialized, we have
+here a bad page and a good page.
+And then we use the magic method protect memory.
+Essentially what it does, we call nprotect.
+And thereby we make the bad page neither readable nor
+writable.
+And the good page, we make it just readable.
+So we don't need to make it writable.
+So essentially we use the memory management unit of our CPU
+to implement save points.
+And that's pretty nice.
+So how, for example, C1 implements save points is
+quite, quite simple with this.
+It just accesses the pointer like it just accesses the
+value that's at this address.
+That's our page.
+So it's really just a single address.
+And that's a single moth, which is nice.
+And there's, of course, the question, how could we arm
+these?
+So what do we do here?
+And essentially what we do, we, for one, set the polling
+page here when you arm it to like the arm value or like
+the bad page.
+And of course, we're not doing any of this segmentation
+fall trick in template interpreters.
+So we're also setting the polling word so that the
+template interpreter can also check it.
+And what we do when we do a global save point poll, we
+essentially do this for every stretch.
+That's pretty simple here.
+And of course, sometimes we want drag save points
+because they can get quite annoying.
+And if some of you saw this 1 billion row change, then you
+probably saw that some of the winning contenders did this
+able save points because they can get quite annoying.
+But usually they aren't.
+So essentially there are a few ways you can, for one, use
+Jvi events.
+And I've built a website called Jvi Events Collection, where
+you can see all Jvi events available, also the events for
+trial and for all the JV case here.
+And you see here that there is a save point begin event, and
+you also have a save point end event.
+So you can check which save points are created.
+And also you can just pass x lock save point.
+You get lots of output.
+And I did this for like a Renaissance benchmark.
+And this is like the distribution that I get.
+And essentially most of the save points are in this case
+related to G1 because G1 was my selected
+garbage collector.
+If you want to learn more about me on my team, just go to
+this link.
+I was Johannes Pechberger here telling you a bit about the
+inner workings of save points.
+I hope you learn a bit.
+You can find me on Twitter on GitHub on my team at
+that machine.doctor.
+Oh, that was all from me.
+Yes, of course, Rief.
+Four precious minutes.
+Any questions here from the keynotes or any corrections of
+the OK developers?
+Can I ask a choker?
+So the question was before Java 5, how did it work?
+Any of my colleagues that were present at this time in the
+training came?
+Any of the OpenTree care developers here, any ideas?
+I don't.
+I only started two years ago.
+No problem.
+If these people don't know, then nobody knows.
+But if you have some ideas, come to Forstner next year and
+tell people about it.
+Yes, history lens.
+No, other questions?
+None?
+Good.
+Then, what's the pleasure of talking to you?
+And if you want to learn a bit more about Python, I'm
+tomorrow at 4 PM in the Python Dev Room, telling you about
+Python monitoring.
+And that's all from me.
+Thank you.

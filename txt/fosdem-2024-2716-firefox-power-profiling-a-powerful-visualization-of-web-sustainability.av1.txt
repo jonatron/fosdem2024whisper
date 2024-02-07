@@ -1,0 +1,1149 @@
+Okay.
+Welcome to Janssen.
+Final Fox Power Profiling.
+We'll listen to Florian Quez.
+Welcome.
+Applause
+Hello. I'm Florian Quez.
+I'm a performance engineer at Mozilla.
+For the last few years, I worked on understanding how much power is used by Firefox
+and how it's used, how we could reduce it.
+And today, I will be sharing how the tooling we've put in place to understand Firefox power use
+can be used to improve web sustainability.
+So first, I will explain what I mean with web sustainability.
+I mostly talk about carbon footprint when I'm thinking sustainability here.
+And there are three main components of the carbon footprint of browsing the web.
+The first and biggest one is the user device.
+Then the second component is whatever's not in front of the user.
+So that includes networking, server equipment.
+And then the power used on the device by the browser when browsing to see the web page the user wants to see.
+So let's look at each of the three.
+First, the user device.
+Usually, we think it's not within our control when we develop a website
+because you know it's the user who picks the device.
+We have nothing to do there.
+The emission we are talking about here is the embodied emission.
+Whenever someone is buying a new computer or a new smartphone,
+so it's the emissions to produce this device to manufacture it but also to ship it to the user.
+And even though we don't get to do anything about the actual emissions when creating the device,
+we can reduce the incentive for the user to replace the device.
+And the way we can do that is to ensure good performance
+because something feeling too slow is a strong incentive for someone to replace the device.
+And the other thing is ensuring web compatibility
+because if the device becomes incompatible, the user has to replace it or update it in some way.
+And on this topic, I would like to mention that Firefox is currently the only browser that is left supporting Windows 7 users.
+And we actually still have millions of users running Windows 7.
+So if you are thinking about sustainability, Web Compat is one of the first things and think about Firefox ESR.
+Second piece of carbon footprint is the emissions for the infrastructure.
+Anything server networking.
+I'm not going to talk a lot about this because it's already well covered.
+And there's a reason for that.
+It's that the financial cost of operating the services scales mostly with the emissions.
+So there's a strong incentive to optimize and there's already a lot of tooling available.
+And last and maybe not least, very often neglected,
+the emission caused by using the browser to display the web page.
+And the reason why it's neglected is that in people's minds, there's no good tooling available to look at those.
+Is that correct?
+Well, not really anymore.
+And this is what I will be talking about today.
+It's what we've done to change this.
+We'll be focused for today.
+So because the talk is 40 minutes long, I want to give you a structure.
+First, I will explain why as Mozilla, we care about this.
+Then I will explain our journey to measure power use locally,
+what we've done to be able to understand it.
+And then I will go deep into the topic of power profiling.
+But first, I will introduce the Firefox profiler so that even if you don't know it yet, you can make sense of it.
+Then I will explain what power profiling does and show examples.
+Examples are important because this is where we see why all of this makes sense.
+And then we will take a break from the structured presentation of slides.
+I will try to do a live demo if I have enough internet.
+And then I will explain what we call external power profiling, whatever that is,
+and give some more examples.
+So let's start.
+Why do we care about this as Mozilla?
+There are three main reasons.
+The first one is for sustainability.
+Mozilla met climate commitments of being carbon neutral,
+of reducing our footprint year over year,
+of leading openly by sharing materials, tools and methodologies.
+That's what I'm doing today.
+And of improving products from a sustainability perspective.
+There's a reason why this one matters.
+It's on the next slide.
+It's when we look at Mozilla's carbon footprint,
+the actual footprint caused by using our products on our users' devices is more than 90%.
+And by the way, when we say we are leading on sustainability,
+we are the only browser maker organization that actually publishes this kind of data.
+The others, they are shy about it.
+And we would like to encourage others to also publish this kind of data.
+Second reason for hearing about power use of Firefox,
+a very important one, it's for user experience.
+Nobody likes to use a computer that uses too much power,
+and there are multiple reasons.
+One, it's causing noise with the fans.
+If it's a laptop and it's super hot, it's painful.
+And then even the people who couldn't care less about climate change
+because they think it's somebody else's problem,
+they hate running out of battery.
+Life matters to everybody.
+And then last but not least, we do this for a better web.
+And there's a reason why we want to do this.
+It's Mozilla's mission.
+We are building a better internet.
+This is what we are here for.
+And because Firefox is made on web technologies,
+everything we do to make Firefox more energy efficient,
+and all the tooling we put in place, it's directly reusable for our web pages.
+Now let's dig into our journey to figure out local power use.
+I started a couple years ago.
+My task was to figure out how Firefox is its power,
+what should we do about it?
+It was not clearer than that.
+It's just, let's look into it.
+So when you want to understand the power use of something,
+the first thing you do is you take an energy meter, or what matter.
+So that's what I did.
+It's cheap, it's easy.
+It's pretty accurate in terms of the data it shows.
+It's also pretty useless for the case of software
+because software is not something that you start and it does the same thing all the time.
+You need to see evolution all the time, and I was not seeing anything.
+So next step is get a better what matter.
+I got some that is communicating to the computer through Bluetooth.
+It's sending me something like this so I can see a chart.
+It's much better.
+It's still not so great because I still can't correlate with what we were doing
+with the code in the browser.
+And at that point I wondered how is the competition doing it?
+And I found this blog post from Microsoft that I found very interesting.
+Back when they were working super hard on edge battery life,
+they were super proud of it.
+It was before they switched to Chromium.
+And one sometimes really caught my attention.
+That's the one highlighted in blue here.
+Power was measured on the surface book because it has integrated hardware instrumentation.
+So that's how Microsoft did it.
+They have their own brands of laptops.
+They put built-in power meter chips in those
+so that they could compare power use of edge with competing browsers.
+So that's not really something we can do as Mozilla.
+I don't have my laptops.
+But can I get some of those Microsoft laptops?
+Well, sure.
+So I actually found two that include those power meters.
+They are pretty old because they are back from when Microsoft was doing this kind of work.
+They still work.
+I tried to find newer devices but unfortunately all the devices where I found that
+a device like a power meter is exposed in the ACPI table
+actually doesn't seem to be actually present on the device.
+So the power meters were put in by manufacturers for prototyping
+and calibrating battery discharge rates
+and then not put into production devices.
+When we look at the tool called Perfmon on Windows on those computers,
+we get something like this.
+We see energy meters and we have 4 channels here,
+battery, CPU, GPU and the Wi-Fi chip.
+Which means we can measure the power use of each of those components.
+We can measure it.
+We see something like this.
+So we now have charts.
+We can try to correlate with stuff that happens.
+I'm not sure if you think like me but I really dislike this UI.
+I find it absolutely terrible.
+I can't make sense of it.
+Even the unit, I can't make sense.
+Like here I selected the CPU cores energy
+and it's using, last time it was measured, 5.0 something E plus 011.
+Whatever that means.
+While searching for those devices with built-in power meters,
+I had a good surprise.
+On some laptops, the names of energy meters were pretty familiar
+if you use Intel Power Gadget.
+Those are the rappel channels that are exposed by the CPU itself.
+There are some investigations.
+It turns out that all Windows computers with Intel CPUs
+expose the actual CPU as a built-in power meter
+and we can access it.
+Because another nice surprise, there's a documented API for it.
+I have not found any example of someone using the API
+but the API is documented.
+Which means I can now understand what the unit was.
+So the E plus 11, it was because it was Pico whatever.
+And we can correct many times per second.
+So I know that because I experimented with it.
+Very little overhead so I can correct many times.
+And the most important thing for us is it's accessible in user terms.
+I absolutely don't want anybody to run Firefox as root
+to be able to power profile it.
+So accessing as user land without providing users to install anything
+was very important for us.
+So all of this makes it pretty tempting to use for profiler counters.
+At this point, I started prototyping something, started hacking.
+And this is the screenshot of the very first power profiling prototype
+I got of Firefox.
+So we see the same name here, rappel channels.
+So it's not very user friendly as names here.
+And the units were not correct but the thing that matters a lot
+when seeing this screenshot is the shape here of the track.
+So this is the CPU package and you can see that it matches the shape
+of when we were using CPU.
+So the data seems correct.
+We were using CPU here too.
+And there's a shape that's moving here.
+PP1 is the GPU and there's a spike whenever we do something on screen.
+We were doing graphics work here and we had something here,
+something here, something here.
+So the shape is correct and this is a key validation
+because until then we were thinking we could not power profile
+because power profiling means running the profiler.
+Running the profiler means using power
+and we were afraid we would be profiling the profiler,
+which is not what we want.
+And this validates that it actually worked.
+So I decided to polish it and make it something we could ship.
+But I see I shared with you a screenshot of a profiler
+without introducing the profiler.
+It's a good time to introduce it.
+It's a profiler.
+It's built into Firefox.
+No additional tooling required.
+It's always there.
+The user interface is not there because we don't want to clutter things
+for all users.
+But it's trivial to make it show up.
+And it was created for performance work.
+And here by performance I mean making things faster.
+It's useful both for users so that they can make a useful bug report
+very quickly instead of saying something is slow.
+They can say, here's a profile of what happened.
+Please have a look.
+And useful for developers because those profiles are easily actionable.
+And it's one of the best profilers that exist currently
+and there's a good reason for that.
+We started investing heavily in it in the Firefox quantum days.
+And those days were when we decided that the engineering teams
+of Firefox being several times smaller than all of the competitor teams
+was definitely not a good reason for Firefox to be slower.
+So we needed better tooling.
+Profiler uses multiple sources of data.
+It's a sampling profiler which means that it uses a timer.
+And at a fixed interval it stops the execution of the program
+and will capture information.
+Typically it will capture stacks of all the threads we care about.
+And it will also capture counter values.
+So counters, for example, if we care about memory use,
+whenever memory is allocated or released,
+we'll increment or decrement a counter.
+And then when sampling we'll record the value of that counter
+at the time we sampled.
+And the last source of information is markers.
+Markers can be seen as annotations left by the developers
+so that whenever we see a profile we see what happens at the time.
+I had a screenshot of showing how to use the profiler,
+but I will try to do a demo instead.
+It will be more interactive.
+So this is Firefox Nightly Instance that is created fresh,
+no user profile.
+And I will go to profiler.firefox.com.
+It loads this web page
+and I will click the big Unable Firefox Profiler menu button.
+When I click this, I see a new toolbar icon that appears in my toolbar.
+It was already there.
+We are showing the icon when clicking that button.
+And I have settings here.
+In most cases the default settings will be good for what you want to do.
+So you can just click start recording
+and then you can start doing what you want to profile.
+So I will, for example, load the Wikipedia on page.
+And once I'm done doing the thing I want to profile,
+I can click the button in the toolbar again.
+The second oscillator, I have a new tab that opens which is my profile.
+The UI might be a bit intimidating at first.
+I will go through it with you.
+There are two main pieces of the UI.
+The first one is the top half here,
+which is what we call the timeline because everything is drawn against time.
+There's a time error here.
+And then there are panels at the bottom.
+In the timeline, you can see that we have what we call tracks here.
+And there are tracks for processes, like you see the parent process here.
+In Firefox, the parent process handles the user interface and the rendering.
+And you can see a process for each content process.
+So for example, I have the Wikipedia process here that I will select.
+And here there's activity.
+So I can make a selection and I can zoom into it
+by clicking this Manifold icon.
+So now we'll see in a lot more detail what happens.
+And the UI is very interactive.
+Whenever I move the mouse somewhere, I will see a tool tip showing me what happens.
+So here I'm seeing the stacks that were sampled.
+I see there's some JavaScript in here.
+I assume some of you are web developers
+and probably care more about what JavaScript runs
+so we can filter frames to JavaScript only.
+And here I'm seeing which JavaScript code was run by Wikipedia when loading the page.
+I also said we have markers, so I will show an example.
+In the panel at the bottom, I have a marker chart.
+And if I go here, I have DOM events.
+They show whatever event we are sent to the web page.
+And if I scroll down, I have many more.
+I won't go through them, of course, because we clearly don't have time.
+I just wanted to show the Yawek markers here
+that show whenever the thread was active,
+which is important for PogarUse.
+And the runable markers we have at the bottom here
+that show the name of the C++ task that was running,
+which is very important for Gecko developers
+when you send them one of the profiles.
+So that will be it for an introduction of the profiler itself.
+I will go back to the presentation
+and skip all the screenshot I had that show the same thing.
+And now we'll talk about actual power profiling.
+So I said we have a working prototype.
+Now we want to make it work for real.
+So it's built-in.
+Again, no extra tooling required.
+It supports the three major desktop platforms.
+We shipped it in Firefox 104.
+So that's already a little while ago.
+We got a lot of great feedback on it,
+especially from people who care about sustainability of the web.
+At best, my knowledge it's not been copied yet,
+but that might happen at some point.
+Platform support.
+On Windows 10, we support only the devices that include built-in power meters.
+On Windows 11, we have Intel CPUs.
+We have information about integrated GPU and memory power use.
+And on Windows 11, 22H2,
+we have about updates.
+We started seeing Windows supporting AMD horizon CPUs.
+And a good surprise here is there are separate information for each core,
+which means that if we can track which process was using which core for which thread,
+we can know exactly how much power is used by the code we are running.
+On Mac, we support both Apple Silicon CPUs and Intel CPUs.
+Different ways.
+For Apple Silicon, we actually have an API from the kernel
+that gives us information about the amount of energy used by each process.
+And I think Apple can do it because they control both the CPU chip and the kernel.
+It's very likely that whenever the context switch of thread,
+they record the value of the counter, and that's how we get the value.
+On for Intel, there's a very obscure system called that can be called only from assembly
+of a Raspberry Crash that gives us the value of a Rappel model-specific register.
+I'm very happy I didn't have to figure this out on my own.
+A former colleague did it several years ago.
+I could just copy-paste the code. That was nice.
+Last but not least, Linux.
+On Linux, we use Rappel Perfevance.
+Those used to be unrestricted, but then there was a side-channel attack.
+And the reason for that is if you look on Windows,
+you can access the power data up to once per millisecond.
+If you try to access it faster, you will get the same data returned again.
+On Linux, there's no rate limit like this,
+which means that you could create so often that you could get some information
+about the data being processed.
+So when this was discovered, it was then restricted to only be accessed by root.
+Thankfully, there's a command we can run as root that lets the kernel know
+that it's fine to not be paranoid about it.
+And that's the exact same command that needs to be run to use Linux Perfev,
+the built-in profiler for Linux.
+So I think it's fine.
+As long as users don't need to run Firefox as root, I'm still happy.
+So I will take this work around.
+MDCPUs are supported.
+A lot of running, it doesn't work on SNAP packages if you are an Ubuntu.
+The binary is provided by Mozilla Work.
+And I think that's because the packaging system puts some restriction
+on what's allowed or not.
+If you were about how to configure a profiler,
+I said in my previous demo that the default settings are right in most cases.
+If you want to put a profile, they are not right.
+Because obviously you want to also include the Power Use feature
+that's down here, the checkbox you see there.
+And also markers for all threads.
+And the reason for that is, we're waking up a thread as a cost in terms of power.
+And we want to know about it, even if it happens on threads, we are not profiling.
+So we want to know where ever it happens.
+And I think the power preset, of course.
+And the other thing we want to do is reduce the overhead.
+As I said, we were concerned we might be power profiling the profiler itself,
+which is useless.
+So what we are doing is increasing the sampling interval.
+Instead of sampling every millisecond, we sample every 10.
+We're using significantly the overhead of waking up.
+And when sampling, we don't capture the stacks.
+We only capture countervalues.
+We still have all the markers that still give plenty of information.
+For the presentation, I will give plenty of examples.
+And as I said, the profiler UI is very interactive.
+So here's a link to buy slides.
+And whenever you have a screenshot of a profile,
+I also have a link to the profile so that you can see the profile for yourself.
+One thing I should mention is that the share.firefox.devdomain doesn't work with IPv6.
+So you need to be on the first damn dwell stack Wi-Fi network
+if you want to be able to click right now.
+First example of wire profiling, I will go through it with you
+because I know the profiler was intimidating.
+It's the same thing as what I was doing before,
+which is loading the Wikipedia homepage.
+And we can see on the screenshot, near the top,
+it was not visible.
+So the screenshot here, we see it was not loaded yet,
+but there was CPU activity.
+Here something starts occurring, and here it's visually complete.
+So I made a selection here of the part of the profile that we care about.
+You see we have a parent process.
+We no longer have colors, and we no longer have stack samples
+because it's the power profiling settings.
+We still see the network requests.
+They are also shown here.
+And we have a new process power track here
+that gives us how much power is used by the parent process.
+We have a similar track here for the content process
+that tells us how much power is used at any given time
+and the amount of energy used.
+So here 134 mW.
+So that's how much power it takes to load Wikipedia,
+apparently, on that computer.
+Second example, this is profiling on Windows 11,
+and this is starting Firefox.
+And you can see how much...
+So this is the CPU activity when starting Firefox.
+You can see that here we had a window,
+and here it was visually complete,
+and the activity was done.
+So we can see how much power is used by the CPU cores.
+The built-in GPU, the entire CPU package,
+and here it's selected, and we see it used 10 mW
+to start Firefox on that specific Windows laptop.
+I'm not sure about you, but for me, whenever I have new tools,
+I like to play with them, and I like to test their limits.
+And I was wondering what's the tiniest thing
+I could power profile reliably.
+And this is the smallest thing I have found.
+I'm not sure if you've read what's written
+at the bottom of the slide, but basically,
+I was profiling Firefox doing exactly nothing.
+And it was not exactly nothing, actually,
+because when I looked at the profile,
+there were those small spikes.
+What are those spikes?
+And actually, it turns out there were the cursor blinking
+in the address bar.
+And if I select one of those spikes, like I did here,
+I can say that making the cursor happy
+on the address bar uses 1.5 mW.
+I was surprised. I didn't expect this to be that precise,
+but yes, it is that precise.
+Now is a good time for live demo, if it works.
+I assume many of you, when you came here,
+you wanted to see a map of the campus,
+especially if you came for the first time.
+And because you're in two open source,
+you probably use the open straight map.
+So I will try to figure out how much power it uses
+to search for the campus on the open straight map.
+So I will configure a profiler to use the power preset here.
+Start recording.
+Open a new tab.
+Type openstraightmap.org.
+It loads.
+I have a text field in the top right corner with a cursor in it.
+So I will type ulb and see what happens.
+So I'm in a university campus.
+This is very nice.
+I don't really recognize the shape of the building though.
+So I will zoom out to see if it's in the right place.
+Zoom out again.
+Oh, we're in the third door. Probably not correct.
+So I will additionally type process.
+Now that looks better.
+If I zoom into it, this is actually the building we are in.
+Okay, I will stop the demo for now
+and now we will look at the profile I'm capturing.
+Again, we have multiple tracks here.
+Google.com, I don't know why it's here,
+but I don't care about it.
+It was probably the background.
+I don't care about this either.
+So I have open straight map here,
+and I have the power and process here.
+I also don't care about how much memory we used.
+Okay, so this filter is down to what's useful.
+So I have a screenshot track here that
+that orientates me pretty quickly.
+So I was typing the address of the map.
+Here we have the home page that's loaded.
+And here I had my first results.
+Here it was animating when I was zooming out
+to try to figure out where I was.
+Okay, so let's look at power use now.
+So the part we might care about is
+when we actually loaded the right campus.
+So that's here.
+You see the network request here,
+and you see there's a spike here in power use,
+and similar here.
+So I will zoom into this time of a profile.
+And now this is what happens in the Firefox parent process.
+So we can see it used about 100 mW,
+and in the content process, about 33.
+So this is about 130 mW to load the search results,
+showing the campus here.
+But because we have a profile that's nice,
+whenever you have a profile,
+very often you explore other things,
+because it might be interesting.
+I'm most interested by the shape that I see here
+that seems pretty interesting in terms of power.
+So I will zoom into it.
+And we see there was syncycum power use here.
+When looking at the screenshot,
+there were animations going on.
+So it makes sense that the process during the rendering
+uses power.
+Here we used more than 300 mW
+in the parent process, plus 150 here.
+So actually zooming out to see where I was
+actually used a lot more power than searching for something.
+We can also see the bandwidth used.
+So this is the network request,
+and we see how much bandwidth was used in network bandwidth.
+So we can see here that zooming out took about 4 megabytes
+of network bandwidth.
+I will zoom out again.
+I see there's some activity here,
+and I'm curious about it.
+I see there are markers, so I will zoom into it
+and try to see what's going on.
+There are regular spikes here.
+I will select the content process here,
+because the markers and the content process,
+it's likely where the activity started.
+I will zoom a bit more on one of the spikes.
+And I said renewable markers,
+they're very interesting for browser developers
+because they let us know what's going on.
+I think I will try to zoom into it
+to make it more readable.
+So the marker here,
+and it's correct, correct blink callback timer.
+So this is actually the timer that used to blink the cursor
+that I had in the search field where I was typing
+ULB browsers.
+So we can look at how much power it used.
+And this is 0.17 mWh in the content process,
+plus 0.8 here.
+So a little bit less than 1 mWh was used
+when making that cursor appear.
+So what I was showing in the previous slide,
+we can actually do it, and it really works,
+really, really.
+And I think that will be it for the live demo.
+I will switch back to the slides.
+So I talked about many things already,
+so let's recap a little bit.
+We have power profiling that works
+on all the free major desktop platforms,
+Windows, Linux, and Mac.
+It's reliable, it's easy to use,
+you don't need to be rude to use it,
+you don't need to install anything,
+you just have everything in Firefox.
+So what about the free platform?
+Firefox is not shipping only on those three platforms.
+There's something called Android
+where we ship Firefox, and lots of users there too.
+So what about it?
+So far, we've not found good APIs
+that we could use for power profiling,
+but we had another idea,
+and this is what I will explain now
+when talking about external power profiling.
+If I'm taking a step back from what I was showing before,
+my first step was to look at how much power
+was used on the power sockets.
+And this gives us a little bit of a sense
+of how much power is used on the power sockets.
+And this gives us the full picture
+of how much power is used by the entire computer.
+But there's one problem.
+The maximum sampling rate is 50 hertz,
+which is in Europe the rate at which
+the current is oscillating for AC power,
+and they can't get any much faster data than that.
+We also got data at the extreme of a hand
+getting data from the CPU.
+Very precise data,
+but missing some of the computer.
+And it's even worse on the phone
+because we miss the entire screen or things like this.
+So the question was,
+is there anything in the middle we could look into?
+And yes, there is.
+If we are talking about mobile phones
+or also laptops, there's the charger.
+Maybe we could instrument the charger instead.
+And yes, we can.
+It turns out there are devices
+that are already on the market that are sold,
+and their purpose is to test chargers
+to verify how good the charger is.
+Check if the current
+and voltage of the charger is stable.
+And to be able to do that,
+they need to sample very quickly.
+That's very interesting for us.
+And those devices are affordable,
+at least if you compare them to the smartphone
+you used to test your web application on.
+Some can export data
+to a computer for USB or for Bluetooth.
+And one thing that's really important to note
+to understand how this works
+is when you charge your battery,
+when you unplug your charger,
+you want the battery to be completely full.
+So anything that was done by the smartphone
+while your battery was on the phone
+was done by the smartphone
+while your battery was already full,
+it's still using power from the charger
+because if it was taking from the battery,
+the battery would not be full when you unplug the charger.
+That means that if we wait enough for the battery
+to be completely full,
+and we still measure how much power goes through the charger,
+we actually measure how much power is used by the phone.
+And that's exactly what we want
+if we want to power profile.
+Another interesting detail is some of those power meters,
+they support more than 200 watts,
+which is more than enough
+to power profile any laptop
+that charges for USB power delivery.
+So here it's a MacBook that I was charging.
+So looking at power data
+from those kind of power meters
+is what we call external power profiling,
+and we shipped it in Firefox 121.
+So how did we make this work?
+Those devices that are
+charger testers,
+they are few that are available.
+There's only Windows software that comes with it.
+The software is in English,
+which means that
+if we hear on those Chinese characters,
+not sure what they mean.
+And there's poorly documented API
+that was nice when I wrote this.
+What actually that meant is that
+I found one device some day
+that has what they called an open API.
+Open API means there's one page
+of example C++ source code with Chinese commands.
+That was enough to get started.
+And then thankfully there are great
+and powerful reverse engineering tools.
+And I tested with this USB light
+that you can see on the slide here,
+but as various levels of brightness.
+And this was a stable load that
+could let me know which data to expect.
+And all the power meters on this slide
+are compatible with the Firefox profiler.
+They all produce nice power tracks.
+Well, some not so nice.
+Some produce very nice power tracks.
+And it's plug and play.
+If you run the script that's
+in this GitHub repository,
+you can see the device and start power profiling.
+You will see this power track appear out of magic.
+And it's nice that it just works
+because all the windows that came with those
+it's terrible, you don't want to try to use it.
+The readme file in this GitHub repository
+includes a list of supported devices.
+So that's basically the names of the device
+you saw in the previous pictures.
+Next to the name of each device,
+there's a link to an example profile
+of what you can get from it.
+And you can see that using...
+So that was...
+with this USB test light that I was using.
+Various levels of brightness.
+And you can see in the good example profile
+that there's what looks like a lot of noise here.
+It's actually not noise.
+If you zoom into the profile, you will see
+that it's a very regular pattern.
+And it exposes internal details of how the light
+is using power.
+It's sampling every milliseconds.
+And if you look at the bad example here,
+there's no noise, but it's just because it's sampling
+every 10 milliseconds, so it's taking an average.
+And the worst part about it is what's happening here.
+We are turning off the light.
+It should use zero power.
+But here we see a linear decline for 500 milliseconds.
+If I want to profile anything I'm doing with my software,
+a latency of 500 milliseconds
+is completely useless,
+so this device can almost go in the trash.
+In all the future examples I will be sharing,
+whenever you see something labeled USB power,
+it means power data coming
+from those kind of external power meters.
+Here's the first example of power profiling
+using this system.
+It's what we call an Android remote profile.
+Remote profiling means
+that the profiler was not running on the same device
+than what was used to start the profiler.
+So in this case, the profiler was running
+on an Android phone running Firefox.
+And I was controlling the profiler from my laptop
+that was also controlling the power meter.
+And when capturing the profile,
+both sources of data were merged,
+and we got this profile.
+We can again validate that it makes sense.
+You see the shape of the CPU user,
+the Android device.
+You see the shape of the power track.
+They match pretty well,
+which shows that we're actually measuring the right thing.
+And the baseline is relatively high here.
+It's probably because the screen was on at the time.
+And it's again a profile of loading the Wikipedia on page.
+We can see on the screenshots here.
+So as I said before,
+I have a link to all my profiles at the bottom of the slides.
+You can look at them now if you have a laptop in front of you.
+You can also look at them later
+if you look at the slides and want to see it again.
+I have more examples coming next.
+So I'm giving the links to the slides again.
+I will mostly be telling you two stories
+on how we use power profiling
+to understand what was happening.
+So the first story is I had one of my colleagues tell me,
+hey Florian, have you seen this new green leaf icon
+you see in the Windows Task Manager next to Edge?
+What is it? Can we have it too?
+So we're wondering what it is.
+It's screen washing.
+It's Microsoft doing something fantastic
+about the environment that we should know about.
+It turns out there's a Windows 11 API
+to let Windows know that a process is doing nothing
+that's immediately visible to users
+and that instead of optimizing
+for finishing as quickly as possible,
+the kernel should optimize
+and scheduling for resource use.
+We could use this API for Firefox 2.
+The power profile you see on screen here
+is the result when using a test case.
+And the first half of the profile,
+the test case was in a foreground tab
+and the test case is a stupid piece of JavaScript
+using as much CPU time as it can
+with an infinite loop.
+The second half of the profile,
+the tab was in the background
+and we can see the dramatic difference in power use.
+So yes, it actually does something.
+It's pretty significant.
+So putting background content processes
+in the eco quality of service
+on Windows 11 is something we shipped
+to Firefox 108, so that's quite a while ago.
+We have a first browser to do it
+if we exclude edge that did it
+when the API was introduced in Windows,
+of course.
+Chrome has followed a couple months later,
+so now I think everybody on the web benefits
+more or less, and this is great
+because it actually saves a lot of power.
+And I will explore a bit more
+how this works in the next few slides.
+So we try to do the same thing on Mac.
+So this is a profile on a Mac
+with an Intel CPU
+and we see the same nice
+decline in power use.
+And you will see here that I have a power
+reported by the CPU itself
+but also power from the USB power meter.
+So I checked also the power use by the entire laptop.
+So they all decline at the same point
+when we switch to the background.
+And you can see the numbers, they are pretty dramatic.
+The cores drop from 18 to 1.6 watts.
+And the entire Macbook
+from 30 to 10 watts.
+The numbers are even better
+on Apple Silicon, but this example
+is an Intel CPU to be able to compare
+with what I was showing for Windows.
+And next, I wonder
+so using less power when doing something stupid
+like an infinite loop is great,
+but that's usually not what you want to do
+with your code in your web pages.
+So what if the code was,
+the test case was doing an actual computation?
+So this is computing Fibonacci something.
+And you can see that when it's in the background,
+it uses dramatically less power
+to do the same thing.
+But also it takes a lot longer.
+So I have the numbers in the table here.
+It took more than three times as long.
+It used less CPU,
+the CPU used less energy,
+but the entire computer used more during that time.
+So if you can control the entire
+component system,
+typically in server environments where
+once you are done with the task you are doing,
+you can shut down the server,
+try to finish as quickly as possible.
+If you are like us in the situation
+of a web browser where there are things
+in the background that have no user impact,
+but you don't control what happens to the computer
+because it's the user's computer,
+then reducing the resources
+for everything that's in the background makes a lot of sense.
+And the way that this works
+on the CPUs that are not the CPUs,
+all the cores are the same,
+is probably by reducing the CPU frequency.
+And there's one slide where I'm trying to check this,
+because the profiler can also record CPU frequency.
+This profile was on Android.
+And you also see that whenever I have
+a spike in the CPU frequency,
+I have a small spike in power use.
+And when the CPU frequency remain high for a while,
+the power use was also high.
+So that kind of confirms the hypothesis here.
+Second story.
+This is a real life story.
+I was trying to fill in a survey
+that had many checkboxes,
+and I moved
+that web page to my external 4K display
+and put it in a maximized window
+so that I could see all the things that I was being asked to fill in.
+And I got distracted.
+Maybe by a baby or something.
+Came back a few minutes later,
+my laptop was super hot,
+the fan was extremely noisy,
+and I was wondering what's going on.
+Of course, I profiled.
+You could have guessed that.
+In the profile, I noticed something like this.
+So this is an artificial test case.
+I'm not seeing what the bad web page was.
+I could see that the color of the background
+was slowly changing with the gradients.
+With my eyes only, I could never see that.
+Like it was changing over the time of a few minutes.
+So completely useless animation.
+I tried to replicate this with animation
+that moves slightly faster than what we see it well.
+You can see very high CPU core use,
+high memory power use,
+high GPU power use,
+high everything power use.
+It's terrible.
+So if you think about it,
+I said an external 4K display,
+that means 8 million pixels.
+I'm in a modern MacBook that has a refresh rate of 120 Hz.
+That means we forced the laptop
+to compute the colors
+of a billion pixels per second.
+So no surprise that it was hot.
+Then I tried to explore my hypothesis
+because I'm saying it's because there are many pixels
+many times per second.
+Maybe we could check that it's correct.
+So on the next slide is the same test case,
+but I tried to reduce to a minimum the size of the window.
+We can see on the shape of the chart
+the impact that it has on power use.
+So on GPU power use, the impact was very dramatic.
+When the window was tiny,
+there was almost no power use left.
+You can see there are big spikes here.
+While I was resizing,
+this is because whenever we change the size of the window
+even by one pixel,
+we need to recompute the layout of the browser UI.
+So high CPU use while resizing,
+but very low otherwise once the window was small.
+I have all the numbers on the side.
+I won't read them outside, but you can look at the slides later.
+Another thing I did to test is there's a hidden preference
+in Firefox to limit the refresh rate.
+And I tried various refresh rates.
+And we can also see that the power use
+declines dramatically when reducing
+how many frames with display per second.
+So this validates the hypothesis we had,
+but it's just too many pixels too many times.
+So one thing to take away if you're a web developer
+and you're thinking about animating the background of a web page,
+think about it more than twice.
+It's absolutely terrible. You should not do it.
+And then I was thinking, okay, many pixels on screen.
+There's one case where we typically do it
+is if we are watching a video.
+And then it makes sense, right?
+So this is a profile of watching a YouTube video.
+First in a frame and then full screen.
+So you can see in a frame here the amount of GPU power use.
+And then full screen here.
+And there are spikes while we were entering
+and leaving full screen because there's a big animation
+and things we need to do with the UI.
+We can also see that the CPU power use was relatively low.
+I think this validates that graphic accelerations
+and hardware decoding were working well.
+So this is all good news.
+One last example about things to avoid as a web developer.
+Timers.
+Waking up a CPU is expensive,
+especially if you wake it up to do nothing.
+And using the web API, set time out,
+you can wake up the thread up to every 4 milliseconds.
+And this is what we see in this profile.
+This is a test case that just wakes up the CPU
+for the sake of doing nothing
+and sleeping again and waking it up again.
+And you can see a spike in power use
+whenever the CPU wakes up.
+And then the tab is put in the background.
+And when the tab is in the background,
+Firefox limits timers to 1s per second.
+And you can see this one tiny spike
+here in power use at the very end.
+So...
+This shows that throttling timers is a good idea.
+This is just about the CPU wakeups.
+If you are doing something using actual CPU time
+in those wakeups, this would dominate
+the power profile, of course.
+And if I have a few more minutes,
+I have a few more things that are worth sharing.
+One is Firefox as a built-in process manager.
+And if you see this icon here,
+whenever you have a name of a content process,
+which is typically what you will care about
+if you do a website,
+a profile icon will appear.
+If you click it, 5 seconds later,
+you will see a profile of the entire process.
+And if you are on an Apple Silicon machine
+where we have per-processed power data,
+you will see a power fraction
+showing how much power your website used at any given time.
+You might have seen in my slides and in my demo
+that whenever I was showing energy values next to it,
+there was a CO2 equivalent value,
+which is the equivalent of carbon emissions
+we would do...
+Those were created using
+the CO2.js library from the GreenWeb Foundation.
+This was a very welcome contribution we had.
+So thanks for that.
+I shared with you a very quick
+look at the bandwidth track
+while we were looking at the demo
+on the open-suit map.
+So the bandwidth track that you have
+that lets us know how much data has been transferred
+in regards to CO2 equivalents.
+This is a big question that I got
+after doing a preview stork in a different place
+a couple months ago.
+I was very much a participant that on the A floor
+our profiling is fantastic.
+We wished we had a tool like this
+for a very long time and it's great
+for optimizing for performance and sustainability.
+But you know what everybody else is looking at
+is how much data has been transferred
+because that's what everybody else was measuring
+until you had power profiling.
+And in the Firefox profiler,
+you already have all the information about networking
+because there's all the network requests that are shown.
+Could you just show how much data has been transferred
+and put a CO2 equivalent somewhere?
+What about it? Something like a great idea, so we did.
+We did it.
+This is shipping in Firefox 123
+which is currently in beta
+shipping in a couple weeks.
+So we did use that.
+Maybe the last thing is
+if you're out of luck
+and you can't power profile.
+And there could be a few reasons.
+Maybe you're on a virtual machine
+so you don't have direct access to the CPU hardware.
+Maybe you are using a snap package
+and then there's nothing you can do.
+You're not good at Linux and you're not good,
+so you can't do the magic command to let the kernel know
+that it's fine to let us know about how much power is used.
+There's a hidden feature in the profiler
+because it's not fully polished yet.
+If you open the DevTools console
+and type experimental.enableProcessCPUTracks,
+you will see new track appearing
+that say ProcessCPU.
+And you can see in this example that
+the shape of the power track
+and the shape of the CPU's track
+match extremely well.
+The one case
+where they won't match is if you do
+massive animations
+like the full screen animation I was showing before.
+But I said you should not do that anyway.
+So if you are not doing anything completely stupid
+that's feasible,
+that's
+something you could look into
+as an alternative.
+Another conclusion,
+power profiling is possible.
+It's easy, it's fun, I encourage you to do it.
+Play with it, it's really simple.
+This is why I did a live demo
+so that you see how simple it is to use it.
+But if you are really thinking about
+web sustainability,
+where you will have the biggest impact,
+even though it's less visible,
+is on-show web compatibility with all browsers
+and especially with all devices
+that still have supported browsers,
+so things Firefox ESR.
+And think about group web performance
+because even if something is still compatible,
+if it's super slow, people will want to replace their hardware
+and that's where we really lose in terms of sustainability.
+Thank you very much
+for the talk.
+We've got still roughly 5 minutes
+for Q&A more or less.
+If we've got questions, you can answer.
+Do we have questions?
+Please raise your hands
+so we can come to you
+with a microphone.
+So, have you ever thought
+about the question
+of whether you would like to
+talk about the Q&A?
+Yes, I have.
+So, have you ever thought
+like when someone
+loads a website
+in localhost
+and Firefox can detect
+that it might use too much power
+to actually show like a pop-up
+hey, your local
+host app is using too much power,
+check out Firefox
+Profiler and Power Meter.
+Would that be feasible to
+basically push devs
+to fix their own apps?
+Would that be
+a good idea?
+I have not understood.
+There's so much echo that I couldn't understand
+what you are saying.
+Yeah, there was too much echo in there.
+Yeah, so basically the question is
+have you ever thought
+to push the Firefox Profiler
+towards developers
+when they're running apps
+on localhost and they're using too much
+CPU
+to have like a message
+hey, check out Firefox Profiler
+it will show you
+your app is slow and why it's slow.
+Okay, so you're suggesting that we
+could detect the case of web developers
+because they are running something on localhost
+and they are definitely developers and then we should show warning messages.
+Yeah, and push like
+promote the profiler to devs
+directly this way.
+That's an interesting idea, not just for
+excessive power use but also when something
+is dramatically slow we could let them know
+hey, you know we have good performance tools, you should have a look at them.
+Thanks for the idea.
+More questions?
+You have another question?
+So
+thus, like optimizing
+for power usage
+differ a lot from
+optimizing for like
+CPU usage because I guess
+I mean the less CPU you use
+the less power you use and the less network you use
+the less power you use
+but are there like other things to
+consider when you're trying to optimize
+for power usage
+than just useless resources?
+So if I understood the question
+is there other things to optimize for
+to use less power over than CPU use?
+Is that the question?
+Yeah, of course.
+So the power use is typically
+first CPU that really dominates
+it's both CPU time
+and waking up the CPU
+then there's graphics power use
+which is what I was trying to show with the examples
+network power use
+but you don't consider it as much
+if you're setting data from the network over time
+that will use power because it will wake up the Wi-Fi chip for example
+but in terms of
+scale CPU dominates so much
+that's really where most people should focus their attention
+at least when thinking about web pages.
+So
+more questions?
+Another thing I should have mentioned is I have
+Firefox provider stickers on the table here
+and Firefox stickers so you might want to take them.
+Shiny, shiny, shiny.
+Thank you very much.
+Okay, thank you very much.
+Maybe
+another applause. Thank you.

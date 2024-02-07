@@ -1,0 +1,791 @@
+WEBVTT
+
+00:00.000 --> 00:16.160
+So, our next speaker is Antoine Perret, which is one of our local superstars.
+
+00:16.160 --> 00:24.200
+He's the CTO of Rosa, which is a super nice company in the health sector.
+
+00:24.200 --> 00:25.920
+Maybe he will tell us more about it.
+
+00:25.920 --> 00:33.280
+And he's going to talk about the heart of JavaScript, which is the JavaScript event loop.
+
+00:33.280 --> 00:40.320
+Background of applause for Antoine.
+
+00:40.320 --> 00:48.280
+Alright, so you probably, everyone here probably heard that sentence, right?
+
+00:48.280 --> 00:50.640
+Do not block the even loop.
+
+00:50.640 --> 00:58.720
+Okay, and you might have heard or read on the internet that you should prefer asynchronous code over synchronous code.
+
+00:58.720 --> 01:08.760
+So, question for you is, do you believe that as long as you're using asynchronous code, you're safe and you will never block the even loop?
+
+01:08.760 --> 01:13.120
+Who believes that async helps you get there?
+
+01:13.120 --> 01:14.000
+No one.
+
+01:14.000 --> 01:16.840
+Okay, okay, that is good, that is good.
+
+01:16.840 --> 01:24.680
+So, today we're going to look at this and we're going to ask is the question, hey, what does that mean not blocking the even loop?
+
+01:24.680 --> 01:34.840
+What does that mean not using synchronous APIs and whether or not using asynchronous API help us stay safe?
+
+01:34.840 --> 01:40.640
+So, I'm the co-founder and CTO of Rosa and Rosa is building a patient application.
+
+01:40.640 --> 01:44.680
+We want to help people live healthier for longer.
+
+01:44.680 --> 01:59.920
+And when you look at the kind of applications that we build, part of Rosa can be labeled as CPU intensive or there are some parts of our applications where we do some heavy computation.
+
+01:59.920 --> 02:07.320
+Okay, so we have a calendar application, we have registries that are deployed at hospitals, etc.
+
+02:07.320 --> 02:16.040
+And when you think about the kind of computation that we do, yes, sometimes you have to compute recurring appointments, so occurrences of recurring appointments.
+
+02:16.040 --> 02:21.640
+Sometimes we do have to compute hashes to store passwords securely.
+
+02:21.640 --> 02:27.160
+Sometimes we do have to parse large files such as iCal.
+
+02:27.160 --> 02:33.160
+And sometimes, of course, we do the diffing because we have the schedule of a health professional.
+
+02:33.160 --> 02:39.720
+We have a list of appointments and we want to know when that health professional is available.
+
+02:39.720 --> 02:42.240
+So today we're going to talk about the event loop.
+
+02:42.240 --> 02:49.200
+We are going to talk about how not to block the event loop and the questions that are that we are going to ask ourselves, does it scale?
+
+02:49.200 --> 02:56.760
+What does what if traffic does 3x, 10x and is there a possibility to have a denial of service?
+
+02:56.760 --> 03:04.280
+Because as soon as you block the event loop, you have a possibility to have a denial of service.
+
+03:04.280 --> 03:06.000
+So why was not created?
+
+03:06.000 --> 03:07.360
+What is the event loop?
+
+03:07.360 --> 03:12.120
+And then that is this of how we can hash secrets using B-crypt,
+
+03:12.120 --> 03:15.640
+thread pools to the rescue and what are the metrics of the event loop?
+
+03:15.640 --> 03:18.760
+That's on the agenda for today.
+
+03:18.760 --> 03:24.680
+All right, if you look at one of the first talk of Ryan Dahl, the author of Node.js,
+
+03:24.680 --> 03:28.640
+he's talking about non-blocking I.O.
+
+03:28.640 --> 03:38.400
+And he's comparing the situation in which you will query for a database and you will have a blocking I.O. system
+
+03:38.400 --> 03:43.760
+and then he compares that to the Node.js implementation where you have non-blocking I.O.
+
+03:43.760 --> 03:50.600
+And the reason why he wants to build that is because most of web applications are I.O. bound.
+
+03:50.640 --> 03:55.040
+They spend most of their time waiting for an external server to answer.
+
+03:55.040 --> 04:00.000
+They spend most of their time waiting for database to answer.
+
+04:00.000 --> 04:07.520
+So when you have a server in which you have blocking I.O., what you do is that you create for each connection,
+
+04:07.520 --> 04:13.360
+you will create a thread, meaning that you will have a memory overhead because each time you create a thread,
+
+04:13.360 --> 04:15.520
+you will have memory associated to that.
+
+04:15.520 --> 04:23.360
+And so you can't scale because each time you need to handle a connection, you need more memory.
+
+04:23.360 --> 04:26.280
+So the solution to that problem is to create an event loop.
+
+04:26.280 --> 04:32.120
+But as soon as you start to use an event loop, then you require non-blocking I.O.
+
+04:32.120 --> 04:36.200
+OK?
+
+04:36.200 --> 04:43.640
+So Node.js is born because most web apps are I.O. bound and because the CPU and I.O.
+
+04:43.720 --> 04:47.600
+live in two different scales of time.
+
+04:47.600 --> 04:56.040
+OK? So the CPU and the Jigga-Earths with the Jigga-Earths frequency means that the cycle of the CPU takes one nanosecond.
+
+04:56.040 --> 05:01.960
+And you have to compare that to a roundtrip between, say, California and the Netherlands,
+
+05:01.960 --> 05:06.400
+which will take approximately 150 milliseconds.
+
+05:06.400 --> 05:11.360
+But that is kind of tough to create a mental model around that.
+
+05:11.360 --> 05:13.880
+So let's make it easier.
+
+05:13.880 --> 05:15.600
+OK? So we are developers.
+
+05:15.600 --> 05:17.760
+We all love to drink coffee.
+
+05:17.760 --> 05:23.600
+OK? We also love some shows to watch some shows on Netflix.
+
+05:23.600 --> 05:30.560
+OK? So making yourself a coffee is like an operational CPU such as a new text lock or a lock.
+
+05:30.560 --> 05:33.240
+It is taking 25 seconds.
+
+05:33.240 --> 05:36.520
+OK? Making yourself a coffee takes 25 seconds.
+
+05:36.560 --> 05:43.960
+Looking at a Netflix episode will be something like 40, 50, an hour-ish,
+
+05:43.960 --> 05:46.760
+will last for an hour approximately.
+
+05:46.760 --> 05:51.960
+That is the world in which a CPU lives.
+
+05:51.960 --> 05:55.200
+Now, if you compare that to the world of I.O.,
+
+05:55.200 --> 05:59.480
+it is the equivalent of taking a five-week vacation.
+
+05:59.480 --> 06:05.240
+Or it is the equivalent of studying for five years at university.
+
+06:05.280 --> 06:13.720
+So the danger zone is when you take your CPU and you bring it to with you on vacation.
+
+06:13.720 --> 06:17.520
+So basically, the danger is when you block your main thread
+
+06:17.520 --> 06:21.120
+because you're performing a CPU-intensive operation
+
+06:21.120 --> 06:29.040
+while Node.js was designed with the idea that you would drink coffee and not go on vacation.
+
+06:29.040 --> 06:33.920
+Keep those figures in mind for the rest of the talk.
+
+06:33.920 --> 06:35.720
+What the heck is the event loop?
+
+06:35.720 --> 06:40.280
+Who is familiar with this representation?
+
+06:40.280 --> 06:42.400
+Good.
+
+06:42.400 --> 06:47.880
+Philip Provertz gave an excellent talk about this 10 years ago.
+
+06:47.880 --> 06:51.600
+And you can play with that tool on the Internet.
+
+06:51.600 --> 06:55.800
+It's getting a bit old, but it's still really, really good.
+
+06:55.800 --> 06:59.960
+OK? So let's have a quick look at what it does.
+
+06:59.960 --> 07:05.560
+So here what you see is that you have code that you wrote.
+
+07:05.560 --> 07:11.000
+OK? And we'll see what happens when JavaScript executes that code.
+
+07:11.000 --> 07:12.520
+It's quite simple.
+
+07:12.520 --> 07:16.360
+We have a set timeout with a five-second delay.
+
+07:16.360 --> 07:18.520
+And we have a console.log.
+
+07:18.520 --> 07:22.680
+So obviously, we all know that welcome for them will be first,
+
+07:22.680 --> 07:27.200
+printed to the console, and that after close to five seconds,
+
+07:27.200 --> 07:31.880
+because that is not a guarantee, we'll see powered by BEJS.
+
+07:31.880 --> 07:38.560
+OK? Let's play that video if it works, and the video can't be loaded.
+
+07:38.560 --> 07:39.840
+It's not a problem. OK?
+
+07:39.840 --> 07:46.440
+So basically what the video shows is it takes that block, puts it on the stack.
+
+07:46.440 --> 07:49.040
+When it's executed, because we have a set timeout,
+
+07:49.040 --> 07:56.840
+it will put the timer and play the five-second timer in the web API part.
+
+07:56.880 --> 08:03.960
+After, during that time, console.log for each one after the other.
+
+08:03.960 --> 08:07.880
+And you can also picture, have a mental model around the fact that in the end,
+
+08:07.880 --> 08:13.960
+there might be even several loops. OK?
+
+08:13.960 --> 08:19.040
+Multiple phases, timer, spending callback, ideally prepared, pulling,
+
+08:19.040 --> 08:22.120
+where we all know JS is going to ask the OS,
+
+08:22.120 --> 08:25.120
+hey, do you have any connection, network connection for me?
+
+08:25.120 --> 08:31.600
+Is any file, has any file being read? OK?
+
+08:31.600 --> 08:37.000
+And when you understand the different phases, you can answer questions such as this one,
+
+08:37.000 --> 08:42.800
+promise.resolve.then console.log promise versus process.nextStick,
+
+08:42.800 --> 08:46.360
+console.log nextStick, which one will be executed first?
+
+08:46.360 --> 08:51.640
+Well, it depends on where it will be picked up from at the level of the even loop,
+
+08:51.640 --> 08:55.320
+what phase of the even loop is involved.
+
+08:55.320 --> 09:00.400
+Node.js architecture is inherently multi-threaded.
+
+09:00.400 --> 09:04.160
+OK? So we all heard that JavaScript is single-threaded.
+
+09:04.160 --> 09:11.320
+What we mean by that is we have one single thread to execute your JavaScript code.
+
+09:11.320 --> 09:16.960
+But it doesn't mean that Node.js on its own is single-threaded.
+
+09:16.960 --> 09:22.080
+OK, how many threads or how many processes do we have in a Node.js application typically?
+
+09:22.080 --> 09:30.000
+One, two, three, three, anyone?
+
+09:30.000 --> 09:35.280
+Four, what about five-ish?
+
+09:35.280 --> 09:40.280
+Five-ish is a good number. OK, five-ish is a good number.
+
+09:40.280 --> 09:45.760
+Well, you have a thread for the main even loop, for the main stack.
+
+09:45.760 --> 09:50.200
+You can have threads or processes for the garbage collection.
+
+09:50.200 --> 10:00.160
+You will have libv, and then libv also takes care of handles a pool of four worker threads.
+
+10:00.160 --> 10:11.800
+OK, so you have at least five-ish processes or threads when you run your Node.js application.
+
+10:11.800 --> 10:14.880
+All right, that is a bit too complex for today.
+
+10:15.000 --> 10:24.800
+OK, and so we're going to simplify, and I've grouped different, I would say, parts of that architecture into blocks or squares of the same color.
+
+10:24.800 --> 10:28.480
+So we're going to look at the orange square.
+
+10:28.480 --> 10:35.520
+It's going to be the main stack together with the run on the same thread as the even loop in red.
+
+10:35.520 --> 10:37.760
+Then we're going to have one single queue.
+
+10:37.760 --> 10:41.280
+OK, we're not going to distinguish between micro task and task.
+
+10:41.280 --> 10:48.320
+And then everything else is going to be called Node.js API and will be assembled together.
+
+10:48.320 --> 10:52.600
+So that is what we are going to work with today.
+
+10:52.600 --> 10:56.760
+OK, good.
+
+10:56.760 --> 11:01.280
+So prefer asynchronous code over synchronous code.
+
+11:01.280 --> 11:06.080
+Let's first look at what it means when we use core modules,
+
+11:06.080 --> 11:14.200
+and then we're going to look at what it means when we use MPM modules that we can download from the internet.
+
+11:14.200 --> 11:18.760
+OK, so FS module reading a file.
+
+11:18.760 --> 11:26.160
+When you use the asynchronous API, read file with a callback, it is non-blocking.
+
+11:26.160 --> 11:31.080
+When you use the read file sync, it will be blocking.
+
+11:31.080 --> 11:32.640
+What is the difference?
+
+11:32.640 --> 11:40.160
+Well, the difference is that in one case, the sync version of it will run on the main thread,
+
+11:40.160 --> 11:48.160
+while the async version of it will be run on one of the worker thread, of one of the worker of the thread pool.
+
+11:48.160 --> 11:53.200
+It doesn't mean that at the OS level, reading the file will be non-blocking,
+
+11:53.200 --> 12:01.760
+but from the perspective of Node.js, it is non-blocking because it doesn't block the even loop of the main or the main thread.
+
+12:01.760 --> 12:07.520
+So the sentence, prefer a synchronous API over synchronous API,
+
+12:07.520 --> 12:12.000
+is absolutely relevant and true in the context of a core module,
+
+12:12.000 --> 12:20.320
+because it will run the code of the async version into a worker thread.
+
+12:20.320 --> 12:25.800
+But what about a pure JavaScript library? How does that work?
+
+12:25.840 --> 12:31.560
+To answer this question, we are going to use the example of Bcrypt.
+
+12:31.560 --> 12:38.040
+Bcrypt is a way to create a hash to securely store its secrets.
+
+12:38.040 --> 12:42.600
+And it is interesting because that operation can be quite intensive in terms of CPU,
+
+12:42.600 --> 12:49.400
+depending on the number of cycles that you will perform or how secure you want that secret to be.
+
+12:49.400 --> 12:54.320
+If you go on NPM, you will see that there are multiple implementations of Bcrypt,
+
+12:54.320 --> 12:58.600
+and there is one pure JavaScript implementation known as Bcrypt.js,
+
+12:58.600 --> 13:02.640
+and there is one C++ implementation which is known as Bcrypt.
+
+13:02.640 --> 13:08.440
+And so here it is interesting because both have sync and async APIs,
+
+13:08.440 --> 13:13.280
+and then we can compare what happens with the pure JavaScript implementation
+
+13:13.280 --> 13:18.160
+and what happens with the C++ implementation.
+
+13:18.160 --> 13:25.720
+So let's look at the pure JavaScript implementation.
+
+13:25.720 --> 13:34.320
+Hash sync versus hash, it is basically the same syntax as the FS module, right?
+
+13:34.320 --> 13:42.000
+And what we are going to do is to imagine that we have two servers that receive five requests.
+
+13:42.000 --> 13:51.280
+And the five requests that they receive is you take your CPU on a five-year study at ULB to obtain a degree,
+
+13:51.280 --> 13:55.360
+so you perform a super intensive operation,
+
+13:55.360 --> 14:02.560
+and then four requests that are basically quite fast, you just watch the Netflix episode.
+
+14:02.560 --> 14:08.720
+Okay, and we are going to compare what happens in both cases.
+
+14:08.800 --> 14:17.360
+Now, the trick is that Bcrypt is a smart and well implemented library.
+
+14:17.360 --> 14:25.600
+And the Bcrypt asynchronous API is implemented in a way that when it has to compute a large hash,
+
+14:25.600 --> 14:31.400
+when it has to compute a long operation, instead of doing all of it at once,
+
+14:31.400 --> 14:36.240
+it will chunk, it will split it into two smaller chunks.
+
+14:36.240 --> 14:39.760
+Okay, good.
+
+14:39.760 --> 14:44.800
+So synchronous on the left is synchronous on the right,
+
+14:44.800 --> 14:51.840
+and then we look at those five requests, the big one and the four faster one.
+
+14:51.840 --> 14:58.000
+So at some point, the endpoint with the hash computation is called,
+
+14:58.000 --> 15:01.360
+and we put on the stack the computation of the hash.
+
+15:01.440 --> 15:08.080
+Synchronous parts, we have that big square, blue square, that needs to be performed,
+
+15:08.080 --> 15:19.040
+and you see that as the computation goes, then the green is going to fill in the blue square
+
+15:19.040 --> 15:21.040
+to show progress.
+
+15:21.040 --> 15:26.640
+Okay, because on the asynchronous part, we have a chunk, that is a smaller square.
+
+15:27.280 --> 15:34.160
+At some point, the second request, the first red request, the first episode that you're watching,
+
+15:34.160 --> 15:36.160
+is reaching your server.
+
+15:36.160 --> 15:42.560
+And what happens is it has a callback, it has operations to be performed, and it will be queued.
+
+15:44.560 --> 15:53.360
+And notice that in the case of the asynchronous API, we're quite close to be done with the first chunk.
+
+15:54.080 --> 16:02.080
+The first chunk is done, and then the script will schedule the second chunk to be run.
+
+16:02.080 --> 16:10.080
+What it means is the stack will be empty, it will use Node APIs to schedule the next chunk,
+
+16:10.080 --> 16:16.080
+and then the Node APIs will push another callback to compute the second chunk.
+
+16:16.800 --> 16:24.800
+So we go on, and now you see that on the synchronous API, we continue to move forward with the computation,
+
+16:24.800 --> 16:28.800
+and on the asynchronous one, we are executing the callback one.
+
+16:30.800 --> 16:35.840
+Continue, same here, at some point the stack is empty, because the stack is empty,
+
+16:35.840 --> 16:42.320
+the event loop is picking the next task, put it on the stack, and we continue to perform the compilation.
+
+16:43.040 --> 16:51.040
+As each chunk is done, or the callback is executed for one of those red requests,
+
+16:51.040 --> 16:57.040
+when the stack is empty, we pick up the next task in the queue, and we go on, and we go on, and we go on.
+
+16:57.040 --> 17:03.040
+In blue, and then only you have callback one, callback two, callback three, callback four.
+
+17:03.040 --> 17:11.040
+While in the case of the async API, you chunk it, and because of that, you can't do anything.
+
+17:11.760 --> 17:19.760
+You chunk it, and because you chunk the work, then in between those chunks, your server can handle other requests.
+
+17:21.760 --> 17:29.760
+Now if you start to draw some lines and analyze the response time, so the point of view of the user,
+
+17:29.760 --> 17:37.760
+this is what it looks like, and then you have that kind of chart, where you can see the duration of
+
+17:37.840 --> 17:46.960
+the first blue, the big request, the duration of each of those red requests.
+
+17:48.480 --> 17:59.200
+In the first part, what you have is that each red request is delayed by the entire long compilation.
+
+17:59.920 --> 18:07.920
+On the b-crypt async part, on the bottom part, then it is delayed by at most one chunk.
+
+18:09.120 --> 18:13.120
+That's why you have smaller timing for the red request.
+
+18:15.120 --> 18:21.120
+What will happen if you do the same exercise with the native C++ implementation?
+
+18:21.280 --> 18:31.280
+Because it is a native implementation, because you can use the async API, it will behave the same way as the core module of FS,
+
+18:31.280 --> 18:37.280
+and it will be executed on a worker thread.
+
+18:37.280 --> 18:43.280
+If it's executed on a worker thread, here's what the timings might look like.
+
+18:43.440 --> 18:51.440
+You basically have a timing that corresponds to exactly the combination that needs to be done for the red request,
+
+18:51.440 --> 18:53.440
+and there's no delay at all.
+
+18:57.440 --> 19:03.440
+There's a small difference between the C++ and the JavaScript implementation.
+
+19:03.440 --> 19:13.200
+The C++ implementation will be faster, but here what matters is the fact that the code runs either on main thread,
+
+19:13.360 --> 19:15.360
+or in a worker thread.
+
+19:15.360 --> 19:21.360
+It's not important to compare the speed of the C++ or the JavaScript implementation in that case.
+
+19:23.360 --> 19:29.360
+Sometimes you do have to take your CPU on a vacation.
+
+19:29.360 --> 19:33.360
+Sometimes you do have to do a heavy combination.
+
+19:33.360 --> 19:41.360
+What if you do not have a native implementation, or you do to have a slow application?
+
+19:43.360 --> 19:47.360
+Well, if you really have no other choice than to take some vacation,
+
+19:47.360 --> 19:50.560
+my advice is be sure to have a pool.
+
+19:50.560 --> 19:52.560
+Be sure to take your swimsuit with you,
+
+19:54.560 --> 19:58.960
+because it is possible with libraries such as Piscina,
+
+20:00.240 --> 20:09.360
+Swimming Pool in Italian, to create pools in which you can have threads that can execute JavaScript code.
+
+20:09.760 --> 20:17.760
+The API is quite straightforward, and in the end what it means is that instead of having
+
+20:18.960 --> 20:26.960
+one stack to execute your JavaScript and then a set of other threads to execute native code,
+
+20:26.960 --> 20:34.960
+you can create other tracks, all the threads in which JavaScript code will be executed.
+
+20:35.360 --> 20:43.360
+For example, say you create two pools, you can create one pool with four threads to compute,
+
+20:43.360 --> 20:49.360
+for example, B-Crypt hashes, and you can create a second pool to compute recurring events.
+
+20:51.360 --> 20:59.360
+And in that case, what it means is that when your code will be pushed to the main JavaScript thread,
+
+21:00.240 --> 21:07.760
+the main thread is going to communicate with the pool and say,
+
+21:07.760 --> 21:10.480
+hey, execute and do that computation for me.
+
+21:10.480 --> 21:16.080
+And then the pool will distribute that computation among the different threads that it creates.
+
+21:19.840 --> 21:22.240
+So here is what it looks like when you use a pool.
+
+21:23.360 --> 21:25.840
+It's quite efficient, it's quite nice.
+
+21:25.840 --> 21:27.120
+Is it a silver bullet?
+
+21:28.080 --> 21:30.880
+Well, no, there are several things you need to take into account.
+
+21:32.000 --> 21:35.120
+You need to choose the number of threads wisely.
+
+21:36.720 --> 21:41.360
+You need to determine when you use a pool and make an analysis.
+
+21:43.520 --> 21:48.400
+You need to be sure that the machine on which you run your application has enough cores,
+
+21:49.280 --> 21:55.520
+because in some situations it can be counterproductive to create too many threads and have too many
+
+21:56.080 --> 21:57.200
+processes running.
+
+21:57.200 --> 22:02.240
+And of course, you will have to monitor and check the memory usage.
+
+22:04.240 --> 22:09.200
+All right, how do you know when you need to create a thread pool?
+
+22:10.160 --> 22:13.280
+For that, you need to measure how the event loop is behaving.
+
+22:13.280 --> 22:16.400
+You need to measure the health of your event loop.
+
+22:16.400 --> 22:20.160
+And one of those metrics is, for example, the event loop delay.
+
+22:20.160 --> 22:26.480
+Another one is the max CPU time, and there are tools to help you get there.
+
+22:26.480 --> 22:30.080
+I strongly recommend Dr.JS with ClinicJS.
+
+22:30.080 --> 22:36.720
+It will give you such a nice graph and show you when you have a delay in your event loop,
+
+22:36.720 --> 22:38.080
+when your event loop is blocked.
+
+22:40.480 --> 22:43.120
+Measuring that yourself is not complex.
+
+22:44.240 --> 22:49.840
+That is all you need to measure on your server or in your node application.
+
+22:50.400 --> 22:52.480
+The delay of your event loop.
+
+22:53.120 --> 22:57.360
+What you basically do is you set an interval with a one second delay.
+
+22:57.360 --> 23:05.120
+So every second you will execute the callback with a set immediate,
+
+23:05.120 --> 23:11.040
+and you will compare the time at which you plan it and the time at which it is actually executed.
+
+23:11.920 --> 23:15.120
+And that, the time difference between those two, the start and the end,
+
+23:15.120 --> 23:17.600
+will give you the delay in your event loop.
+
+23:21.120 --> 23:22.320
+Time to wrap up.
+
+23:22.320 --> 23:24.080
+So do not block the event loop.
+
+23:24.800 --> 23:29.440
+And what you really mean by that, it is not about async versus sync.
+
+23:30.080 --> 23:35.360
+It is more about not performing CPU intensive task on the main thread.
+
+23:36.320 --> 23:38.400
+Okay, so that is what you have to remember.
+
+23:38.400 --> 23:43.120
+As long as you do not execute CPU intensive task on the main thread,
+
+23:43.120 --> 23:45.680
+your application will be fast and smooth.
+
+23:45.840 --> 23:50.240
+So here is a couple of advice.
+
+23:51.040 --> 23:54.560
+And have some coffee, drink as much coffee as you want.
+
+23:54.560 --> 23:55.440
+Enjoy the show.
+
+23:56.080 --> 23:58.160
+Take some time off from time to time.
+
+23:58.160 --> 24:01.600
+And thank you for them and you will be for having us today.
+
+24:12.640 --> 24:13.760
+Are there any questions?
+
+24:16.160 --> 24:21.760
+One question there.
+
+24:28.960 --> 24:30.000
+You have to speak up.
+
+24:30.000 --> 24:35.280
+How does PCNAS react compared to Node cluster API?
+
+24:40.080 --> 24:46.080
+So the question is how does PCNAS differ from the Node cluster API?
+
+24:46.080 --> 24:52.800
+So my understanding is that the Node cluster API basically means that you are going to have
+
+24:52.800 --> 24:56.240
+multiple instances of the same application.
+
+24:56.240 --> 25:03.120
+Okay, why PCNAS, one instance of your application will have multiple threads.
+

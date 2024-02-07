@@ -1,0 +1,582 @@
+Which is wizards and barlocks.
+Welcome to my talk on manipulating time with GDB.
+Well, that's what I would have said
+if it wasn't for the RR talk that came right before me
+that taught everything that you're supposed to know
+that I was gonna say.
+So instead, let's talk about how you can help us
+make manipulating time with GDB even better, right?
+So let me give a quick summary
+of what I'm gonna be talking about.
+First, some introduction in case you didn't catch
+the previous talk, in case you didn't,
+you have no idea you were slipping in the talk or something.
+I don't know how you would, it was a pretty good talk.
+I'm then going to go into the technical details
+of how it works and as I explain how each little bit
+is working, I'll also explain to you why this little bit
+might be buggy.
+And then, I'll give you a couple links,
+a couple QR codes to where you can see the list of bugs
+that we have open, and then you can pick your favorite
+and I'll give you a little request to help us fix them
+and some contact information if you're not comfortable
+just throwing an email to the void of the mailing list
+and you would like to talk to someone
+who you think is a person.
+Right, so let's go from the start.
+What the hell am I talking about?
+Or first, who am I?
+Hello, I'm Guinevere.
+I've been hired by Red Hat to work on GDB.
+I've been doing it for almost three years
+and just recently I've been appointed
+one of the maintainers for GDB for one of the specific areas
+that does reverse debugging in GDB.
+And one of the things that I like to do
+is help people get into contributing to open source.
+I always wanted to contribute to open source
+when I was in university, but it always felt
+like an impossible task.
+I would need to be like some sort of genius to do it.
+And then as I started doing it professionally,
+I realized that there are some people
+who aren't geniuses like me who are doing it
+and I wanted to spread that around.
+And what is this GDB that I keep mentioning?
+In case you don't know, GDB is a very famous debugger
+for C, C++, it's been around for like 30 something years.
+Not sure how many, more than 30.
+But yeah, it is basically, if you're a time wizard,
+it's your best friend.
+It can slow down your program,
+it can stop it altogether and just,
+and as you can learn, as you just learned,
+it can also make it run backwards.
+I call it time travel debugging
+because it's much more fun than reverse debugging,
+let's be honest.
+It lets you undo instructions and full statements
+and even maybe sometimes start,
+go to the very start of the program.
+And it's very useful for a wide range of things
+from race conditions to just logical problems
+to just understanding the code that you don't understand.
+All of this was mentioned in the previous talk.
+If you didn't manage to catch it,
+I'll give a quick run over and then you can use
+what I teach here to go back in time
+and see the previous talk.
+So, since a lot of people were here in the previous talk,
+not many of you will be asking,
+many of you might be asking how is that possible,
+not many of you would be saying that's impossible,
+which was my joke.
+So I'm just gonna go and explain like,
+how is this possible?
+Because CPU is not meant to execute backwards.
+It doesn't have a way to just undo things.
+So let's go with a simple instruction.
+This is an x86 instruction,
+just adding one to a region of memory.
+And this one sounds like it would be very easy to undo,
+right?
+You just need to subtract one from the memory.
+You can do it arithmetically.
+Sounds like it.
+It's not quite that easy because whenever you use
+the arithmatic unit in the x86 CPU,
+it overrides some stuff.
+So you cannot just undo things logically.
+The best way to do it is to,
+instead just remember,
+hey, I'm looking at this address of memory.
+It is this long and it has this value.
+And then you save that in your program.
+But as I said, this is the arithmetic unit.
+So we also need to know the flags that were there before
+because it's gonna get overwritten.
+And every single instruction that happens,
+it will also increment the instruction pointer
+or the program counter.
+I use those interchangeably here.
+So we need to remember that.
+And if you basically created this in your program,
+inside your program,
+and then you added some markers here and there to say like,
+okay, between these ends is a single instruction,
+then you get exactly what GDB record pool does.
+This is the area that I'm most familiar with
+and it's the area that I maintain.
+It does exactly what I showed you and nothing more.
+So there are good things and bad things
+about using this version.
+A good thing is that it just comes with GDB.
+You don't need any extra things.
+It can fully reconstruct the program state
+to any previous state.
+It's not something that every single way to do it can do.
+But the bad thing is that it is really, really slow.
+If you think that the twice as slow thing
+that was mentioned in the RR is bad,
+try, I don't know, 20 or 40 times or even more.
+I'd never stopped to test how long it is.
+It's just unusably slow at this point.
+But it's really nice.
+We should make that better.
+And it's a little harder to support
+because we need to teach GDB every single instruction
+that we want to support for every single architecture.
+There's nothing that says only works in these architectures
+of that other than people putting their time
+into teaching the GDB disassembler.
+And as you can see, there are a lot of,
+as you can imagine, there are a lot of possible things
+that can go wrong.
+One of the things, like I said,
+we need to teach every single instruction
+to the disassembler.
+This is a QR code for a couple bugs
+that have been filed for missing instruction for this,
+missing instruction for that,
+missing instruction for this architecture.
+And also, if you like, making code neater,
+if you enjoy making it more readable,
+the disassembly code for x86 is a complete master.
+There's a single function with over 3,000 lines
+and unreadable other functions and members
+that are just a single letter.
+Please help.
+But that is just a single way to do it
+and a very small example.
+So let's look at a little bit of a longer one.
+Let's say we have an instruction here
+at this program counter.
+And then your program goes into this instruction
+and this instruction, which,
+so you can see that this was a jump
+and then it continues executing everything.
+You can see exactly where your program went through, right?
+And if we were saved exactly this information
+and just a couple bits more,
+like how long each instruction is,
+what kind of instruction it is and everything,
+we could have a very good idea
+of what path your program took through the code.
+And we could maybe not recreate everything,
+but we can understand like, hey,
+the bug is happening because there's some logic wrong
+at this point, which is making us take a wrong if somewhere.
+This is also the NGDB, is the bit trace recording.
+This relies on a feature of x86, I think Intel only,
+but don't quote me on that,
+which saves the whole path
+in a region of memory called the BTS.
+And then whenever the inferior,
+which is a program that's really debugging, is stopped,
+GDB looks at that region of area
+and does all that information of like,
+it's this big and it was this kind of instruction.
+It is again good because it's in the SQL tool
+and compared to the other version, it's pretty fast.
+It's no, I don't think there's any big slowdowns,
+maybe like two x and three x,
+which when we're talking about recording the whole
+execution is kind of all right.
+But like as I said, you cannot reconstruct everything
+and it's hardware dependent and it needs to be in the hardware.
+It's not like we can do anything to improve that.
+It has a couple of issues with test suite regressions,
+you hit some assertion errors
+and there's some usability problems
+with like not being very clear when you can
+or cannot do something,
+but it's not an area that I looked much more
+than what I needed to make this talk.
+So I'm not familiar with the problems.
+If anyone found it interesting, we can still chat.
+And well, I've been talking about,
+looking at each instruction at a time
+and you have this kind of execution style.
+What if you had, you made like a whole checkpoint,
+everything that's happening in your system
+at the very start of the program
+and then you keep going
+and then when you reach a certain point,
+you create a new checkpoint.
+So then you can fully recreate whatever is happening
+at an earlier stage and you can keep going.
+You cannot step a single instruction back,
+but you can step a lot and go forward some.
+This is what our R does.
+And this is why I got confused
+when we didn't say there was a live in theory
+because no, it has to have a live in theory.
+You create a checkpoint, you go forward,
+you create a checkpoint, move back and step forward.
+At least this is how I think our R works.
+And there's also a tool called UDB,
+which I've been told does that.
+It is proprietary.
+I have no idea how that works
+and I'm not all that interested in it.
+But yeah, and then what our R does,
+as you have all seen, is it creates a way for GDB
+to control the fewer.
+Yeah, it does that by creating a GDB server.
+I'll talk a little bit more about that later.
+But yeah, so those are the three main ways
+that I know of doing reverse debugging now.
+But once we recorded the thing, how do we use it?
+You using the GDB front end,
+which is the part that handles your commands and everything,
+you can do it two ways.
+Using reverse next, reverse step,
+and all those commands that were explained in the RR talk.
+Or you can actually just say to GDB,
+hey, I'm going to be going backwards
+using set execution direct reverse,
+and then just say next step or whatever,
+and it's going to understand what you want.
+Because actually behind the scenes,
+if you say reverse next,
+it is just doing that, setting it to reverse,
+and then executing the instruction,
+and then setting it back forward.
+So it does exactly the same thing.
+And when we handle the command,
+we try to make use of as much information as possible
+for going forward, as much of the logic as possible.
+And only when we know, okay,
+this part has to be different when we're going backwards,
+then we add a specific case like, okay,
+if going backwards and blah, blah, blah, then do this.
+And when we're doing that,
+and assuming that everything works until proven otherwise,
+what could possibly be buggy?
+And RR, like I said, it does a very smart thing.
+It tries to do as little as possible.
+It just creates a GDB server,
+which can control the infuer,
+the program that you're debugging, and just that.
+And then it's going to open a GDB server,
+and accept commands from another client,
+another GDB somewhere.
+And everything of command handling and understanding,
+and saying, okay, we're going to move these many instructions,
+or whatever that, that's all handled by GDB.
+All RR does is reset the information on the program.
+So yeah, what could possibly go wrong
+with this kind of setup, right?
+So, so many things.
+The fact that there had to be two whole talks explaining
+why this feature is nice and it exists,
+should tell you that this is not a very well-known feature.
+It's not something that you see many people using.
+And yet, there are over 30 bugs filed for it.
+In a feature that no one's using,
+that's kind of crazy to me,
+because if people were using,
+that would be just so many more.
+And along with things actually going wrong,
+there's also confusing things,
+and just user experience problems.
+So let's go over a couple of them.
+A command that's very, very useful
+if you're very used to GDB is the command until.
+You can tell it to go until a loop ends, for instance.
+It just does not work in reverse mode.
+Or, well, if you say reverse until, it just does not work.
+If you're setting the execution to reverse,
+it works just wrong.
+So yeah.
+And there are some commands,
+for instance, record instruction history,
+and function call history.
+These sound like it should work
+for all recording features, right?
+But yeah, no, they're only available for Btrace,
+and there's no way to tell as a user.
+There's nothing in the help text.
+There's nothing in the name of the command.
+There's not bug open for it,
+but there's a Stack Overflow question, that's the why.
+So yeah, that is part of the UX problem.
+And another UX problem.
+If you're used to GDB, ignore the last 30 seconds.
+But if you're not,
+at this start here, this is a GDB session,
+that says we are right before executing
+right before calling the function setup.
+So when you're going forward and you say step,
+you wanna step into the function setup.
+What this execution log is showing
+is that if you say reverse step,
+you do not step into the setup function.
+You step through the previous line that was not printed,
+because yes, that makes much sense.
+It's something that we've talked about
+in the mailing list before.
+It's not a trivial problem to solve,
+but it is a real problem.
+And there's another problem here
+in this very execution log.
+I say continue to move forward.
+And then GDB says no more execution history.
+And my very scientific testing of asking one friend
+has revealed that this makes it sound
+like you cannot execute forward anymore
+and you have to start again.
+You can, it's not gonna be stimulating,
+it's going to be running.
+So from the audience reaction,
+I think more people are confused by this.
+We have a couple of user experience problems.
+And if you like a challenge,
+if you don't want something easy to start,
+we have really hard issues.
+We have problem with multiple inferiors,
+because GDB can open multiple programs to be debugged.
+And there's no way for the recording
+to know which program is being recorded, actually.
+And there's lots of problems with handling signals
+and things like that,
+because this was introduced before GDB could do that.
+So no one ever looked back.
+GDB recording itself has a problem
+with multi-threading programs,
+because I showed you all the information,
+the memory, the region of memory, and the value.
+Where do I put the thread information there?
+Yeah, we don't record multi-thread stuff.
+So that's one reason to use RR.
+Until we fix that.
+So please help us fix that.
+I want people to use GDB.
+And as I said at the start, it is just unusably slow.
+We need some profiling to be done.
+We need to figure out why is it so slow
+and figure out how it can be faster,
+so that it can be more used
+and people can find more bugs for me to continue working.
+And then a question that some people might be asking is,
+where do I come in?
+Why am I giving you the talk?
+I said at the start that I like reverse debugging,
+and I like getting people interested.
+So if I said anything here,
+that's not like an interesting problem
+or an interesting thing that you would like to see
+how it works and how it can get fixed, just hit me up.
+And we'll chat and see where it goes.
+Does anyone have any more questions
+that I haven't answered yet?
+Okay, yeah.
+Yeah, in the previous talk in the era,
+it was supposed to enable some flag of the kernel,
+something like ourinary, or something.
+Would you know why is it necessary
+in the internals error needs to get the...
+Yeah, and also I said it was because of security reason,
+and I don't know if the person who has that,
+oh yeah, he's still here.
+Right, so the reason we need the perf flag
+is because as far as I understand it,
+again, I didn't look at our,
+but as far as I understand it,
+whenever a perf event happens,
+we get the checkpoint.
+So if a perf event would happen, we dump everything,
+and I think, yeah, so if you need that flag
+to make, to read into perf events
+and get that kind of internal information
+of another program, you would need that for RR as well.
+So I can't answer questions,
+so do you know, like can you provide some examples
+of perf events?
+When does it happen?
+I'm sorry, I can't because, again, it's not my area.
+I look at this as similar stuff, sorry.
+I think you were first.
+So as I understand, I may be conscious,
+but you record whenever there is writing
+on the off memory.
+No, when perf events happen.
+No, I'm not talking about,
+I'm talking about GP.
+It records every instruction.
+Yeah, every instruction, but for reverse,
+reverse, continue off.
+Reverse execution, yeah.
+Do, with watch point work, or is it?
+So the question is, can you use watch points
+even with GDB recording?
+And the answer is yes, you can.
+Most of GDB has no idea that a recording has happened.
+We sort of like separate what is handling commands,
+what is dealing with threads,
+what is dealing with the CPU itself,
+and somewhere along that stack,
+there is the part that goes,
+oh wait, you're trying to execute inverse.
+I'm not gonna send that to the CPU,
+I'm going to do it myself.
+And that facility has no information
+about like watch points and everything,
+and conversely, the watch point stuff
+has no idea that that's happening.
+It just will check later if that has happened.
+So yeah, everything that works forward,
+works backwards, except for changing
+the state of your program,
+because we're simulating based on what happened before.
+I think that was the question, yeah.
+How does it work with system calls?
+Does it work there somehow,
+or is it able to record kernel space or something like that?
+I'm sorry, I don't know.
+I've never tried seeing what happens.
+You won't be able to record the kernel space
+because whenever you step,
+whenever you execute step instruction
+over a Cisco instruction,
+you are never stepping into the kernel space.
+If you want to debug the kernel space,
+you need to basically debug the Linux kernel
+throughout QM for example.
+Then you can actually debug both the user space
+and kernel space, but otherwise no.
+So it's not gonna be able to handle
+like the side effects of a Cisco,
+but it knows that a Cisco has happened
+and does everything else basically, I think.
+I think Mark was first.
+So the multi-threaded case, can that ever work?
+Yes, I have a couple of ideas how.
+You can have basically like multiple separate histories,
+one for each thread,
+or you could have an extra field for each thing
+that says this is what thread X or for thread Y,
+or you could have, you can order things
+to like a single instruction per thread.
+There are a couple ways that I have not tested at all,
+and I don't know if any of them work,
+but I don't see a reason,
+like a theoretical reason why it would just be impossible.
+The thing is, you,
+one thing is the history, your log, what we record.
+The other thing is that we would need to serialize
+execution also because if you have two threads
+if you serialize it, it's still.
+You don't know which one changed memory,
+so how could you know if it was thread,
+two threads are just poking at memory, changing memory,
+how would you know which one it was?
+How would you know which instruction caused the side effect
+that you're seeing, so we would need to serialize,
+meaning the way this works is basically
+single-staff type instruction.
+So we would need like single-staff thread one,
+and then single-staff thread two,
+before that, you know, do a round-robin thing.
+Yeah, which would make actual,
+yeah, it would be even slower,
+but it would make my rate conditions more likely,
+so maybe it's a good thing, I don't know.
+Did you kind of just put back in a stop mode?
+Yeah, this is, like I said, complex issue.
+If you want a challenge, let's talk in the mail list.
+You would need to provide guarantee
+the both forward progress and everything.
+That's a real mess.
+Let's talk in the mail list.
+It's a little complicated for right now, I'm sorry.
+If you have multiple threads that
+where you were trying to find a base condition,
+then if you know
+what thread is using what memory,
+and you know that because you recorded that,
+then you can tell the user, hey,
+these threads are at that time competing for the same thing.
+Yes?
+I think you also need to track all the move-exes
+and stuff like that, because if you don't,
+then you don't know if they are really
+race conditioning or not.
+Okay, so I'm just gonna repeat
+in case anyone's watching from afar.
+The question or comment is saying that if we know
+all the threads that are trying to access the memory
+at the same time, we can tell the user
+that a race condition is happening.
+And in theory, yes, if we keep track of the move-exes
+and everything, but the problem, again,
+the recording part is very far away
+from everything else from GDB.
+So unless you manage to do this recording,
+and then later you also create a command
+that does that kind of querying into the data,
+there's no easy way to get that information
+available to the user.
+We're not set up to get this kind of low-level stuff
+right out easily.
+Yeah?
+I have a question.
+It's not a thread-based question.
+Thank you.
+But actually, I work a lot with microcontrollers,
+and for example, with flash memory,
+four megabytes of flash memory, something like that.
+And I'm just wondering whether how hard would it be
+to make also GDB time traveling work
+on such microcontrollers?
+I guess the memory space is kind of an issue.
+Yeah.
+First off, if you're debugging GDB
+in the microcontroller itself, which I don't think it would be
+because GDB is big, then memory becomes an issue.
+If you're not, I don't know if GDB server is set up to do that.
+And if it were, it would make the same memory issue.
+So we would need a facility to get the disassembling
+information into GDB itself and then send it back
+to the GDB server.
+The problem is because also because you have scalability,
+and then you have distribution and you need to...
+So yeah, that's a complex use case.
+This backhand, the...
+Recordful.
+Yeah.
+This is all inside GDB.
+So if you're remote debugging, you don't need to teach
+the server anything at all.
+It's all being recorded on GDB side.
+Oh really?
+Yeah.
+Huh.
+So you can use Linux GDB server with this and it works.
+Okay, I'm surprised.
+You can open OCD maybe in this case,
+but you need some kind of...
+So what you need is to teach GDBs reverse debugging engine
+about that instruction set.
+This only supports X86 and...
+I think it does ARM and something,
+Power or S390.
+There are a couple of architectures
+that are partially supported.
+You need to basically create your own disassembler
+from scratch, unfortunately.
+Yeah, there is a disassembly engine inside GDB,
+but it only creates text.
+And I try to backport it, but...
+So right now, you create your own disassembly
+from scratch, it's easier.
+Yeah.
+Oh yeah, sorry, we're out of time.
+So we can talk more at the hallway track.
+Or probably tomorrow,
+because I'm gonna be managing everything.
+But thank you for coming and I promise...
+If anyone would like to contact me,
+these are my contact information.
+Yeah, thank you.

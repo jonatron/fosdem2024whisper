@@ -1,0 +1,450 @@
+Welcome to the next speaker, a big applause for Robert who's going to present on fast
+cheap DIY monitoring with open source analytics and visualization.
+Okay, thank you.
+This is wonderful to see you all here.
+Big shout out to FOSTA.
+This is the first time I've ever been at FOSTA.
+First time I've ever done a talk here.
+It's totally awesome.
+So thanks a bunch.
+All right, we've got 20 minutes to talk about do-it-yourself monitoring with Click House.
+And just some intros, just a little bit about my qualifications to talk about this.
+My day job is I run a company called Altenity.
+We're a server provider for Click House, been around for a number of years.
+But more particularly, I've been working with databases for a really long time.
+I've been working with Click House as a user for about five years.
+Our company also does a fair amount of work in the ecosystem around Click House.
+Among other things, we are the maintainers of the community provider in Grafana for
+Click House.
+That's one of our projects.
+It's quite popular.
+It has about 14 million downloads.
+So let me jump in.
+I probably don't.
+Pretty much everybody here knows what, how many of you guys run monitoring systems here?
+Okay, it's easier to ask who doesn't.
+How many people use Grafana?
+Okay, excellent.
+That'll save some time.
+Okay, monitoring.
+You say answer questions.
+So stuff goes wrong.
+You want to figure out quickly what is going on.
+Or maybe things are going fine, but you want to do things like capacity planning.
+Monitoring helps you answer that question.
+I'm kind of old school, so I say monitoring.
+Nowadays, people tend to say observability.
+But I'll use the word monitoring just because I'm used to it.
+So back in the days of old, I've been around for a while, so I was on the last talk, talked
+about inheritances from Unix.
+When things broke on Unix, you would kind of go in and lay hands upon the machine and
+run VM stat or IOS stat and try and figure out what was going on.
+Well, those were the bad days.
+Nowadays, we tend to do things graphically.
+And there's a couple reasons for that.
+One, it's way better because if you're trying to find a problem like, hey, somebody is just
+like blowing out the CPU, you want to see durations, you want to be able to see a bunch
+of metrics together, it's much easier to see these things graphically.
+The other thing is that, as you all know, we're now working with systems, for example,
+that are based on containers, and you can't actually go in and lay hands on them very
+easily.
+Moreover, they can restart and then you lose what's on the local file system.
+So graphical monitoring, graphical display is critical.
+So what we're going to do in this talk is I'm just going to give you a few clues about
+how to build one completely from scratch.
+And basically, when you're talking about monitoring, you have a number of parts.
+This picture shows them.
+You start with metrics, logs, and traces.
+I probably don't have to explain what those are, but those are standard types of information
+that come out of systems.
+You're going to ingest them into some sort of database, which you can then run queries
+on and it will store them over time.
+And then you have some system for doing visualization.
+That's thing number one and alerting.
+So to tell you when bad stuff is going to happen.
+We'll mostly be talking about visualization today, but alerting is another important part.
+So the core of these systems is your store.
+So something that holds onto these metrics and allows you to do analyses on them of various
+kinds.
+And for this talk, we're going to talk about Click House.
+How many people here have heard of Click House?
+Excellent.
+Okay.
+Great.
+By the way, we have some of the core committers here for Click House.
+So if you have any questions, I'm sure you'll get answers.
+So Click House is kind of like, you could think of it as kind of like, bit like MySQL
+or Postgres, but it does analytics in the sense that it runs pretty much everywhere.
+It's open source, but it also has all the architectural features designed to read vast
+amounts of data very, very quickly.
+I won't bore you with this specific kind of marketing things here, but instead show you
+a slide that gives you a little better idea of what it is about Click House that makes
+it so fast.
+So our first thing, like most analytical databases, it stores data in columns.
+So you can think of them as being, every column being a big array that's split up in a bunch
+of files, but can be read very efficiently.
+Click House also allows, can make replicas of data very easily.
+So you can, by having more replicas, you have more things to query.
+You can handle more, you can handle, you know, more load on the, read load on the system.
+Another thing that Click House is extremely good at doing is compressing data and then
+reading it in parallel form.
+So all of these things taken together allow us to scan data, often, you know, hundreds
+of millions of rows, very, very efficiently.
+And I'll show you an example of that later in the talk.
+So then Grafana and Click House go together hand in glove.
+I think, I don't have, we don't have actual stats on this because you just never know
+what people are using.
+It's all open source.
+But Grafana is probably the most commonly used visualization tool with Click House.
+It's been available for years and just about everybody uses it, particularly for operational
+metrics.
+And I love Grafana.
+There are many tools out there, but Grafana is just the level of interactivity allows
+the fact that you can drill in, sort of look at different time ranges, bounce around between
+different metrics easily.
+It's really great to use.
+All right.
+So I'm going to build an example here in about five slides.
+So I'm going to just pick VM stat, which I showed in that previous slide.
+And what we're going to do is crunch the data, load it into Click House, and then show it
+in Grafana.
+So the question is how to do that.
+Well I'm just going to do it from scratch.
+So the first thing I'm going to do is collect VM stat data and turn it into a format that
+I can load into Click House.
+So this is a little Python program that does it.
+The important thing to note is not the details because they're probably not that great.
+I'm not a particularly good Python programmer.
+But the key thing is there's 14 lines of code here that crunches VM stat.
+And every five seconds we'll burp out some JSON.
+And what that JSON looks like is this slide right here.
+So pretty beautiful, right?
+This is data.
+This is data that we can get into Click House really easily.
+How do we do that?
+Well, first of all, we're going to make a table inside Click House to hold it.
+And there's relational databases want things to be in tabular forms.
+But it turns out Click House has a pretty expansive idea of what constitutes a tabular
+form.
+In this particular example, I'm going to do it the simplest way, which is I'm actually
+going to just create a table with a column for each of my data values.
+And so what you see here is a table definition that maps pretty much directly to the values
+that you get out of VM stat.
+And just a little bit of, you know, if you haven't used analytic databases before or
+aren't, you know, like a deep database person, we tend to think of these column values as
+being one of two types.
+Dimensions, which are characteristics of the thing that we're measuring, or the actual
+measurements themselves.
+And that's important because generally speaking, when we're scanning the data, we will group
+by the dimensions, like collect all the data by host, for example, over a certain period
+of time.
+And then the measurements of the things we aggregate.
+We take averages.
+We take max.
+We take min.
+So on and so forth.
+So that's just a quick intro, like a 60-second introduction to data modeling inside an analytic
+database.
+So the third thing we need to do is we've got the table.
+We've got the data.
+We need to make the data go to the table.
+So ClickHouse is very, very, has a bunch of different ways that you can load data.
+One of the simplest ways to do it is to, it has an HTTP interface, and you can simply
+push SQL commands and data to go with them up using Curl, which is a great talk on about
+two hours ago.
+So this is an example of the code.
+You can just say, in fact, that top level, if you're familiar with SQL insert commands,
+that's an insert command.
+ClickHouse has this kind of interesting variation on it where they have input formats.
+Instead of reading a bunch of values, which look like tuples, in this case, I'm actually
+going to read some data, which will be, for example, if I'm doing a post, it will just
+be in the payload.
+And it will actually be a bunch of JSON documents, each of which will turn into a row in the
+database.
+And this thing down here just shows you how to execute exactly that command using Curl.
+So, by the way, one of the things about this talk is everything I've done is there's an
+example out in GitHub.
+If you go ahead and Google, like if you're sitting right here and want to do it, you
+could just Google ClickHouse.
+Actually, I've got the link at the end.
+I'll show it to you.
+It's probably not worth it.
+So anyway, so we can load that data up.
+In the examples, you'll see that I actually wrote a little script that I can just run
+and put in the background.
+And then it will collect this data on each host that I'm measuring, sticking it into
+ClickHouse.
+Then what we do is we build a Grafana dashboard.
+So everybody, pretty much everybody in the room knows how Grafana works.
+What you're going to do is if you haven't done it already, install Grafana.
+You will need to add a plugin to talk to ClickHouse.
+There are two of them out there.
+There's the Altinity plugin that we maintain.
+That's the one, the Community plugin that's been around for years.
+There's a new one from ClickHouse, Incorporated.
+Pick a plugin, install it, put your connection parameters in, and then you can write a few
+queries.
+And within a few minutes, if you're at all familiar with Grafana, you can create a dashboard
+that looks just like this.
+This literally took about 15 minutes to create.
+And then go crazy.
+So you've got data loading.
+So using loading it up using Curl, putting a little script around it maybe so that it
+can sort of reliably load the data up and dump it.
+And then you can go look at it.
+But the cool thing here is that once you're in a database, you have this incredible freedom
+to use the data any way you want.
+Because ClickHouse is not a database like Prometheus, which is basically designed to
+hold metrics.
+ClickHouse is a general purpose analytic database.
+You can ask virtually any question of that data that can be expressed in SQL.
+It may go fast.
+It may go slow.
+But this is an example where we're asking a question like how many machines had a certain
+amount of load, like over 25% load for at least a minute in the last 24 hours.
+And we can sum the number of minutes.
+So this is just an arbitrary question, but it's just a few lines of SQL.
+We can get this question moreover if we have a Grafana attached to this, we can turn that
+into some sort of display on Grafana that will show it graphically.
+You then have something that you can really play around.
+And this is just the effects of running some popular commands like stress is a great command
+if you want to see something hog memory.
+What you can see in this graph here, that big blue part was the OS buffer cache, which
+was actually filled with a bunch of pages from previous processes.
+You can see that the buffer cache was pretty much blown away when these stress runs began.
+Up above you see the result of running sysbench CPU command.
+You can see the effect on the CPU usage.
+So at this point, this is a very simple example, but you actually have a fair amount of insight
+into what's going on these machines.
+So the next thing is to take a drink and to scale this up a little bit.
+This is a toy that I just showed you.
+Anybody can do it.
+It's just a few lines of code.
+So as you start to think about scaling this system, making it work across a bunch of hosts,
+a bunch of different types of metrics, maybe adding logs, the first question that probably
+comes up is, hey, I love open source, but do I have to write everything?
+And the answer is no, not if you don't want to.
+So there's a couple of projects that if you're going to go in and do this, you probably should
+be looking at.
+One is Fluent Bit.
+How many people have used Fluent Bit or Fluent D?
+OK, fair number.
+We use Fluent Bit quite a bit in our cloud stuff.
+So what Fluent Bit does is it basically has a bunch of plugins which will sample different
+kinds of metrics, turn them into a data format, and then put them somewhere else.
+So for example, you can get the same similar CPU metrics to what I just showed you.
+There is an input plugin for Fluent Bit which will grab those, and then you can turn around
+and post them to Clickhouse.
+And it works as a daemon, so you can just bring it up, let it run.
+And so as a result, you don't have to figure out how to parse all these different formats.
+Moreover, you don't have to worry about basic things like posting to HTTP.
+They take care of it.
+So that's a really useful project to look at and one that you should consider.
+Second thing is Open Telemetry, which if you were here two talks ago, is basically trying
+to create a common data model for all observability data, including metrics, including logs, including
+traces.
+And that gives you sort of like a universal broker, if you will, that can handle data coming
+from all kinds of different sources, maybe Fluent Bit, maybe custom stuff that you build,
+and then it will push it into databases like Clickhouse.
+And in fact, there is, OTEL as it's often called, has a provider for Clickhouse, which
+I believe is in the alpha stage.
+Some people are using it.
+It still has some performance issues, but one of the things it takes care of is building
+the data structures that you use to store your data and doing them in a kind of rational
+way.
+So in fact, that's to answer question one fully, if you were going to build this out,
+you might have a metrics pipeline that looks kind of like the following, where you have
+Fluent Bits, perhaps feeding this to an OTEL collector, that's this broker that Open Telemetry
+provides, pushing it to Clickhouse and then reading it to Grafana.
+I'm not saying this is the only way to do it or even that it's a good thing, that's
+what you have to decide, but you can do this.
+The pieces are out there and they're all open source.
+Second question, this is Fostum.
+You yearn to use Postgres or MySQL.
+Why not?
+Why is it we?
+Why don't we just use Postgres for this?
+Well, actually for the example I gave, the little one, you could use Postgres and it
+would make no difference whatsoever.
+But as you start to scale, it becomes really important to pay attention to how the data
+is actually represented and what kind of powers of query you have on top of it.
+And the key thing to notice here is that Postgres and MySQL are row databases.
+So they store the data as rows.
+There is a plug-in for Postgres, I guess, that is beginning to change that.
+But in general, if you read anything out of a row, if you touch anything in the row,
+you'll have to read the entire row.
+Whereas with Clickhouse, it's columnar, so if you read columns, say, out of 109 column
+table, you only touch the data for those three columns.
+Moreover, by putting things into columns, effectively a raise of a single data type,
+taking advantages of things like sorting, say time-based sorting, it tends to compress
+extremely well.
+You can literally compress a lot of these metrics by a factor of 100, so they will
+compress down to 1% of their previous value.
+Let me just show that graphically.
+So what they affect is, is that when you run queries with Clickhouse, they can be easily
+a thousand times faster than Postgres and MySQL because of columnar structure, because
+of compression, because of parallelization.
+And this illustrates it.
+This was a sample, literally reading three columns out of 109, scanning 200 million rows.
+The amount of data you would read in Postgres or MySQL was 59 gigs, everything.
+In Postgres, in Clickhouse, first of all, you read three columns, so that was literally
+3% of the data.
+You're already up 33x.
+Now those columns are compressed, so you're not just up 33x.
+The amount of data that you're reading is actually, has been reduced by a factor of
+almost 3,000 at this point.
+And then you can spread it across, you can spread those reads, say if they're coming
+off an SSD, you can be doing them across eight threads, so you could argue that that actually
+is going to reduce the amount of work for each thread by approximately 23,000.
+So these are, like, not just an order of magnitude, but orders of magnitude less IO.
+This is the reason why Clickhouse is great for this kind of problem.
+Third thing, how to handle data from a lot of collections.
+So for those of you that know Clickhouse, you saw that example and you thought this guy's
+an idiot.
+He is adding five rows at a time.
+And so data warehouses, the flip side of using columns is you touch a lot of files every time
+you load data.
+So what you want to do is load data, you want to buffer data into big blocks.
+So like maybe a million messages at a time.
+There are many ways to do this.
+Clickhouse has what's called async IO.
+But in general for a system like this, if you're starting to receive data from many
+collectors, you're starting to get into levels of traffic like 100,000 events, 200,000 millions
+of events per second, what you want to consider is introducing Kafka or Red Panda or a similar
+event stream.
+And Clickhouse, so the collectors write to Kafka.
+This then breaks the connection between your producers, which are getting monitoring data
+and Clickhouse, which is the consumer.
+Moreover, Clickhouse has very good integration with Kafka.
+So there's built in, there's multiple types of integration, but the most commonly used
+one is Kafka table agent.
+So that basically wraps a Kafka topic, able to read it so you can do a select off it and
+it basically reads off the queue.
+And then there's a trick where you use materialized views to do that read automatically and stick
+it on a table in the database.
+So as your architecture gets larger, you definitely want to include this so that you can then
+read large blocks of data very quickly.
+Final thing.
+So I talked about this basic mapping of the data.
+I modeled it as a table, which is exactly matches the data that's coming out of the JSON, but
+that's not the only way that Clickhouse can do this.
+So there's actually a number of options.
+And one of the most common ones, and one that I was playing around with just as part of
+this exercise, was to have a column that just contains the JSON as a string.
+And then what you can do is there are functions in Clickhouse to pull the values out one by
+one, but they're kind of painful to use.
+There's extra syntax.
+So what you can also do is basically as the data loads, you can just pull out particular
+values and turn them into a regular column.
+This is very simple to do with materialized views.
+And so what that means is actually if you're doing a demo for this talk, and it's like
+3 a.m. in the morning before the talk, what you can do is basically load the entire JSON
+document, pull a couple columns out to make your queries work, and leave the rest there.
+One of the secret powers of Clickhouse is it does schema management or schema evolution
+very, very efficiently online.
+So as time goes on and you see more stuff in that JSON string you'd like to read, you
+can just pull it out into new columns.
+That's a command that can be, those are commands that can be executed instantly.
+All right, we're down to zero seconds.
+We're almost done.
+So there are other options.
+So you can, if you have key value pairs, you can do pairs of arrays, like an array of keys,
+an array of values, and then Clickhouse has very efficient functions to match those up
+and to process them.
+You can also use maps, so those are like hash tables.
+And these are other ways that you can represent JSON.
+Clickhouse has a JSON data type, but it is experimental and actually do for rewrite.
+So I just found that there's actually, it's on the schedule, so I just found that out last
+night.
+So it's going to be implemented, re-implemented in a way better way.
+But in the meantime, there are lots of ways to process JSON and Clickhouse has many other
+features that make JSON very handy to process.
+Okay, where can you find out more?
+So lots of sources about this stuff.
+I'm listing them here.
+The sample code is up in GitHub that shows everything that I did here.
+If you just Google GitHub, Clickhouse SQL examples, it will probably be the first thing
+that pops up.
+And there's a directory in there called open source monitoring.
+So you'll see that.
+And then, yeah, Clickhouse official docs are very, very complete.
+The Altenony Grafana plugin for Clickhouse, Fluentbit, Open Telemetry.
+And then we do lots of blogs and YouTube videos about how to use this stuff, including
+doing monitoring.
+And that's it.
+So thank you very much.
+And if you want to get in touch with me, you can connect me on LinkedIn.
+I'm on Slack, CNCF, Clickhouse, AltenonyDB, Data on Kubernetes, just, you know, or if
+you connect, send me email, whatever.
+So any questions?
+Do we have any questions?
+Could you please stay a few minutes for the Q&A so that people understand the questions?
+Any questions?
+You showed us data coming from a script.
+Can we do the same thing with data coming from web applications, for example?
+Oh, from a web application?
+Yeah, absolutely.
+Anything that can generate metrics, you can push them to Clickhouse.
+And in that case, if you're generating metrics, I would definitely recommend going and looking
+at Hotel, because it has, for example, it has SDKs, which you can embed in your application,
+generate metrics that will be translated into a standard form, and then they can get pushed
+to Clickhouse.
+So did I understand correctly?
+There's an SDK for doing this.
+Yes, it's part of OpenTelemetry.
+That's one, or you can do it yourself.
+It's part of Telemetry.
+There's multiple solutions for this.
+Hi.
+So first things for the presentation.
+My question is, does it make sense to use Clickhouse for tracing, storing traces, and
+such things?
+Like traces and logs, other stuff?
+Yeah, tracing.
+Absolutely.
+So, processing and tracing is actually one of the major use cases for Clickhouse.
+And what's kind of interesting is you can use databases like a time series database or
+something like Prometheus.
+The cool thing about putting in Clickhouse is once you get it in, you have this whole,
+because you have a full SQL implementation in there, you have much more flexibility about
+what you can do with the data.
+That's thing number one.
+We also have people that we work with, some of our users, that just have standardized
+on Clickhouse as sort of the one size fits all.
+So that reduces the sort of operational complexity.
+Third thing is, Clickhouse is just really good at anything that's time ordered, including
+logs, including just practically any kind of data that's emitted over time.
+So it's a very powerful engine for this kind of thing.
+I focused on metrics because it was just one use case, but traces and logs also work very
+well.
+Very well.
+We have time for one.
+Thank you.
+I'm looking for a tool to do reprocessing.
+So once I ingest a lot of data into Clickhouse, I want to do sort of on demand some fancy
+complex calculation that's a bit too complex for a query and then store the data again
+in Clickhouse.
+Is there a good framework or tool for that?
+Yeah, I don't quite understand the use case.
+So you're saying you're going to push data in, run a calculation on it, put it somewhere
+else?
+Yeah, so I gather 100% of data, but I need only 1%, and on that I need to do some complex
+business-wide calculation.
+Right, okay.
+Yeah, there's a couple options.
+Within Clickhouse itself, I would recommend you look at materialized views, which are
+basically like insert triggers that will run a query and then put the result in another
+table.
+They can be used, they're normally used to, or the most common use case, is to do pre-aggregation,
+but actually they are a transform, just a generalized transform mechanism.
+So anything that comes in as an input block, you can run calculations on it using a query,
+mix in data from other, you can join on other tables and do anything you want and then dump
+it to a target table.
+And that's a very efficient mechanism.
+It gets invoked every time an insert comes in, the query runs on that block of data.
+If you have, it sounds like you have something a little bit different.
+Yeah, I can ask you.
+Yeah, come by later and we can talk through it.
+Thank you.
+Okay, I think that's a wrap up.
+Yeah, thank you.

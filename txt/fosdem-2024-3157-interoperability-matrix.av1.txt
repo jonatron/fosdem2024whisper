@@ -1,0 +1,240 @@
+So there may or may not be time for questions. There's a lot of detail. This is a 60 minute
+talk compressed down to hopefully 22ish minutes. So we will see how we go. But yeah, I'm here
+to talk about the technical details of interoperability. I'm also Travis. If you don't know me, I'm
+the director for standards development at matrix.org. I'm also on the spec core team.
+I run T2Bot and I work at element for trust and safety. I have a few jobs. But good news,
+there's already more that we can talk about. So Matthew had the talk this morning. If you
+haven't seen that or seen the recap of it about 10 minutes ago, covers DMA and the timelines
+in a lot more detail. To recap though, the DMA requires gatekeepers or large messaging
+providers to open up their APIs and their systems for interoperability. Encryption must be
+maintained between those providers. So you cannot break encryption for the sake of interoperating.
+You have to maintain it. These messengers have three options. You can become multi-headed
+similar to Beeper Mini where you have all the networks available in your one client.
+And you just kind of switch between them. You can create a bridge app where the user
+downloads a third thing and then you bridge locally on the device. That works. It's not
+great. Or you can speak a common protocol. We've been doing that for the last year.
+Probably longer. And oh yeah, they have to do this all by March 7th this year. So with
+that in mind, there are many projects involved as well. There is the more instant messaging,
+interoperability working group or MIMI at the IETF. They are trying to specify a standard
+that does this stuff. We are very frequent there. We are a direct contributor to this.
+I have written a MIMI protocol document in association with a few other people on the
+design team to try and simplify a lot of the components, particularly what linearized matrix
+is. Also, linearized matrix was originally created as this simplified version of matrix
+because it turns out that you don't necessarily need a ton of the fully compatible DAG stuff
+or even messaging history for interoperability. A lot of the existing providers just kind of
+want to throw messages around the place. They don't necessarily want to just kind of keep
+these things around. Obviously, of course, we have matrix. Hopefully, everybody here is familiar
+with that. But it is the decentralized and fully featured version of an interoperable protocol.
+What parts of interoperability do we have to worry about? A few. There is encryption. This
+kind of fits into a weird L shape. You have content format within that. But the encryption,
+we have to make sure that all the messages are secure. We have to make sure that everything is
+the same. Of course, we have to make sure that it is consistent across the providers. The content
+format, what do messages actually look like? We have to make sure that that is the same because
+the servers can't help us here. The clients have to agree on this. That is more of a challenge.
+We also need an authorization policy so people can be banned because they need to. Then we also
+have messages that people might not be allowed to send in certain rooms. Of course, we also have
+transport. The transport is just how the servers communicate because we have a room model that
+looks something like this. The room model is a combination of the encryption authorization
+policy and transport. We also have a definition of membership or participation, a little bit more
+on that in a minute. And also how the messages are found out themselves. In the very simplest
+scenario, we have clients talking to servers, servers talking to each other, and encrypted
+messages flowing between clients effectively. It gets more complicated when you add a third server,
+so we will do that later. Some of these problems are easier than others. Namely, transport. Super
+easy to solve. Pretty much everybody uses some form of HTTPS. Mimi wants to use MTLS. Linearized
+Matrix uses the same system that Matrix already does where you have a signed or a signing key that
+kind of gets thrown around a bit. It is unclear what the actual format over HTTP would be. Matrix
+uses JSON. Mimi wants to use some form of binary. Unclear what that actually is. We are also
+considering a binary event format specifically for this kind of thing. Protobuf and Seabor are
+kind of on the top. But to be determined, clients would not be expected to consume that binary
+format yet. I should probably just add that in. But yeah, we will end up using some sort of binary
+over HTTPS mechanism authorization exactly to be determined later. The other easy thing is
+authorization policy. Mimi does not define one. We have been working without one. We have just
+been assuming that people are able to send messages. Matrix obviously has one. Role-based access
+control is super popular amongst a lot of these discussions. There is those two MSCs there.
+4056 covers the decentralization part of RBAC. Then you also have 2812 where it basically
+rolls as state events. It is an early form of RBAC. Linearized Matrix uses the existing
+authorization rules. Matrix authorization rules clearly already work. People have been using them
+for almost a decade now. They should be fined. We will figure out what Mimi ends up with
+eventually, hopefully. The harder parts are encryption. Most messaging providers use lib
+signal or something that is a double ratchet. We also have a double ratchet-like implementation
+called OM. It was not previously interoperable with lib signal up until about 2 a.m. tonight. We
+now have inter-OM, which has that X3DH support as well as some of the other delts you need to be
+able to support that sort of interoperability. Megalom is what we use in group chats to try and
+alleviate the load. Otherwise, with OM, you have to send a number of events for the number of devices
+in the room, which obviously causes problems when you have multiple devices per user or multiple
+users in a room. Matrix HQ would be a nightmare. The double ratchet does rely on existing
+infrastructure in order to send keys. It has no concept of membership. It does not know who to
+send the keys to on its own. You have to tell it who to encrypt to and then also send those keys
+yourself. Some messaging providers, namely Google, have announced that they will be using MLS. We
+also obviously want to use MLS. REMLST.com is where we're tracking that progress. MLS does have
+a concept of built-in membership, so it does know who it needs to send messages to. It obviously
+doesn't send the messages itself, but more on that in a second, namely this slide. RFC 942.0,
+that is where the IETF has specified this. I have a really awful crash course guide because I am not
+a cryptographer, but there it is. But yeah, there is a binary tree, so you have a root key and you
+have multiple nodes underneath that. With that concept, you end up with a concept of membership
+where only users or members that have certain keys can see other keys. That is how you get to
+know who to send the keys to, particularly the decryption keys. Mimi has refused to implement
+any other encryption other than MLS. They are obviously considering it as part of double
+ratchet because we do need an onramp. But with the IETF, they tend to get a little bit stuck in
+the RFCs. We are also considering MLS, obviously, and so we want to extend it. Decentralized
+environments, namely matrix, will have to use DMLS or similar. Membership. As part of the
+discussions with Mimi, we have been having some arguments, we will say, about what it actually
+means to define membership. We have decided that users join rooms and clients encrypt messages.
+Both MLS and double ratchet deal with clients. When a user joins the room, all of their clients
+join as well. This is hopefully not a novel thing that is here, but it is written in stone now.
+So we need to synchronize these two concepts. We call users to have a participation state or
+exist on a participation list. And then clients have membership. So users, participation,
+clients, membership. We also have to make sure that these are atomic operations because otherwise
+somebody joins the crypto state, but they are not part of the actual user state. That causes issues.
+So Mimi has started proposing a bunch of MLS extensions to persist application
+state within an MLS group. Because MLS has those extensions that you can just store arbitrary
+things, making the blob even larger so you must store it in the media repo. These are new as of
+like a week and a half ago, but it is called AppSync. It is a generic mechanism. Conveniently,
+it would basically be mapped to state events in matrix. So you can just add arbitrary information
+to the group, namely with a key and some sort of content. And then there are some operations
+that apply where you can add, remove, update, that sort of stuff. But yeah, it is visible to servers,
+but servers can't see the actual encrypted messages part of MLS. They can just see that
+state changes are happening and potentially what's inside those state changes, which is why they
+would map to state events in matrix. Double ratchet and participation is a bit harder.
+Because double ratchet, again, doesn't have a concept of membership. It's not terribly difficult
+to map these. It's a little complicated sometimes. So there's a couple of MSCs there that list this
+sort of information, namely the crypto IDs Matthew was just talking about. And then yeah, we translate
+these concepts to Mroom member state events as well as device lists on matrix. But regardless of
+the protocol, we want to make sure that people currently on double ratchet have a way up to MLS.
+So it's a natural evolution of the application rather than forcing somebody to effectively fork
+their own client, which brings us a little bit into content format. So clients need to end up
+encrypting and decrypting the same thing. Otherwise, there's going to be issues. Because
+if you send a text message to somebody and they just don't know what to expect,
+then there's not going to see anything. So we need some form of extensibility because
+messaging also has a ton of features. And it's constantly evolving. Servers can't help with
+this because it's already encrypted. And of course, it should be as small as possible. It
+should require minimal processing power because not every client is a laptop. Or sometimes the
+laptop is a bit slow. So Mimi has worked on their own TLS encoded multi part MIME format. It looks
+a lot like multi part email. It's not the greatest, but it is a notional format while we try and work
+out the exact things. But matrix already has events and you can already define your own custom event
+types. And you can already add arbitrary content. But what if we made that way more extensible?
+So we introduce extensible events or MSC 1767. We use content blocks to persist information inside
+of an event. We specify the course blocks there. And then we also try to make sure that the
+client can render arbitrary event types that they don't know about. So we lose a little bit of
+richness in the sense that if a client does encounter an unknown event, that they have to
+figure out how to render that. And it might not render in the same way for everybody, but at
+least render the same information for everybody. And that's the critical part. So an extensible
+event looks a little bit like this. This is just a basic text message saying hello world. So if
+your client supports HTML, it picks the HTML format. If it doesn't support HTML, supports the
+basic format. But critically, you have a type of m dot message and you have a content block of m dot
+text. So if we add a little bit more richness to that and create a fake schema for polls that
+definitely doesn't exist, please see the MSC for a real schema. You have an unknown event type for
+some clients, namely org matrix poll start. So you still have that text content block. And then
+you also have this poll content block, which gives you a little bit more information about how to
+render these events. So if your client knows what that event type is, I can go into the content,
+pull out the org matrix poll content block, render that in its UI, and then the client can
+interact with it normally. Otherwise, you end up with just the text and it is suitably okay. It's
+not great. But you still have the same information from the poll. And so yeah, currently extensible
+events are JSON. But again, you could make this a binary format in the future. More events get
+rendered by more clients, which is great. You can create more custom event types. You can do all
+sorts of fun stuff to be determined exactly what all of this looks like. We're still in the process
+of specifying all of the pieces, particularly the core content blocks, and also a registry so you
+can actually implement a client that understands all of these things. So a little bit on room models.
+The Mimi room model looks like this. So when you add the third server, there's obviously a little
+bit more complexity. Mimi primarily uses a hub and spoke fan out. So you have one central server
+per conversation, not for the entire global network, that is responsible for distributing
+messages. So server B and C try to avoid talking to each other if they absolutely can. And they
+talk through server A instead. So server A is responsible for sequencing, which is important
+for MLS. It has those characteristics in play. And then yeah, the follower servers, as they're
+called, go through that. And encrypted messages still flow between the clients as normal. The servers
+can't see those messages. So then we have the question of what does linearized matrix look like?
+It's exactly the same thing, just different objects, which is particularly interesting when it comes
+to the fact that it was rejected. Because it uses just regular matrix events. It's the same room
+state. It's the same matrix event stuff. It's a stripped down version of the server to server
+API because you don't need all the DAG resolution stuff if you don't have a DAG. Also, your DAG
+is now a linked list. So you don't have any state resolution to do. You have the same authorization
+rules. You can use the same extensible algorithms for encryption. You can use MLS, double ratchet,
+your own thing if you're insane enough to do that. And then you have all of the same capabilities of
+matrix. And you have the history and all of that. But critically, you can support having a DAG capable
+server in the room. You don't need to give up your decentralization. You can end up with a hub
+server that basically acts as that linearization algorithm or does linearization algorithm. And
+it also still persists the events, still distributes them. So when you get into decentralization,
+namely how matrix works, you use a DAG. You have full mesh fan out where each server contacts
+every other server instead of going through a central hub. Conflicts of the DAG are used or
+done through state resolution. So if two people try to do the same thing, somebody has to win.
+And the good news is state resolution can also be used to linearize the DAG. So through use of a
+protocol converter, which may or may not be a dual stack server, you can then bring these centralized
+systems, even linearized matrix into matrix to just further route them. So protocol conversion,
+they aren't bridges. Bridges somewhat necessar- they're necessarily break the encryption because
+when you're converting to signal to matrix prior to our existing or to our new interoperability
+capabilities, you end up decrypting the network on both sides of the bridge and re-encrypting. So
+you're only really encrypting to the bridge and not beyond it. So protocol converter doesn't
+decrypt messages. It just converts the envelope format to another format. So that way you can
+just keep sending your messages. This may also include translating some of the concepts. For
+matrix, we have two device events, some other protocols, namely Mimi, just send everything
+over what they call events. So we would have to translate those concepts into the appropriate
+matrix APIs. Again, you can make this either with an app service or as a dual stack home server.
+So instead of having a multi-head messenger, you have a multi-head server. And then, yeah,
+use msc3983 or 3984 to bridge the particular crypto concepts if your server doesn't necessarily
+support those key formats. So this is what it looks like. You may have recognized it. I stole
+it from Matthew's slides. So if you have a gatekeeper on the left there, you can do a protocol
+conversion. And that might be attached to a single server. It runs through matrix. And then you run
+another protocol conversion to bring it into linearized matrix or Mimi, where you have that
+hub and spoke, namely that the bottom two servers there aren't talking to each other directly.
+So those two nodes might be the same physical server, just running dual stack and not doing
+protocol conversion. But that's all right. So there are a few missing pieces. We haven't talked
+about anything to do with identity. How do you convert a phone number or a name or an email
+address into something routable? Who knows? That needs to be defined. We currently have identity
+servers in matrix. They're a bit centralized. We're hoping that somebody in Mimi can actually
+solve this problem for us. We also have an interesting idea around consent. Presumably,
+you don't want to receive spam. So how do you make sure that the person that is messaging you
+is allowed to message you? We also have anti-abuse. How do you report these messages over federations
+or over servers? How do you make sure that the servers can implement their own anti-abuse measures
+using whatever identifiers they can? Mimi also is not necessarily defined the exact identifiers
+that they want to use. Matrix already has user IDs, room IDs, aliases, that sort of stuff. But
+who knows? Maybe something different would work. So room metadata. Again, where does the
+room name go? Who knows? We'll have to figure that out. Matrix state events would probably be fine.
+Same thing with ordering. MLS requires ordering. There's a discussion around whether or not the
+clients also need that ordering. So what's next? We have no idea. As Matthew has mentioned, again,
+I'm just stealing from his slides. So linearized matrix will probably get updated as an MSC
+because currently the MSC is one version behind from the IETF draft. And the gatekeepers will
+have to publish their plans by March 7th. We'll see what happens there. The protocol converter
+concept will continue to be refined, of course. Mimi will also make some form of progress,
+hopefully get refined as well. And yeah, funding the foundation is the best way to make this work.
+So, questions. Yes.
+What are the stakeholders in the Mimi and why are so different stakeholders, like,
+not using the matrix approach? And what are the different interests here?
+Yeah, so the question is what are the different stakeholders and why are we going after
+certain approaches, I believe. So there are several players in the Mimi space. So we have
+obviously ourselves. We also have wire. There's Google and I'm forgetting all of the other ones,
+but there's... Yeah, Cisco, Wicker, Phoenix, and a few others. There's a few hundred people in
+the Mimi working group. You can see their company association as part of the membership list.
+I would suggest going there. As for the different approaches, everybody wants
+everybody to use their thing. We're no exception. We just think that ours is better.
+But yeah, we've been doing this for a while. Matrix was originally built as an interoperable
+protocol. And here we are with a legal requirement to have interoperability. So, surely Matrix is
+designed for that, is kind of our thought.
+We used to rely heavily on canonical JSON to maintain the
+technicality of the company. How does that translate to the Mimi particular and get the
+intracorrel? Yeah, so the question is how... Like we've previously relied on canonical JSON.
+How does that translate to Mimi and just general approaches with interoperability? So,
+canonical JSON has all sorts of interesting issues with it. What happens if you have multiple
+keys? What happens if the keys use a weird former of UTF-8? That sort of stuff. It's a very complicated
+set of rules that can realistically never be fully defined. So with a binary format, namely,
+that's what Mimi's interested in, you don't necessarily need a canonicalization,
+because if you keep the signature for the event next to the event, rather than in the event,
+like we currently have in Matrix, you are able to just sign the series of bytes. And the bytes
+can be in whatever order. You can deserialize them, see them more easily, and then check the signature
+much faster. So that's kind of where the Mimi direction is going, is we want to avoid a canonicalization
+algorithm, but we do need the more specific standard for what's contained in those bytes.
+This is something to be supported either throughout the chain,
+yes, we are going to be pushing more towards keeping the, instead of trying to make everybody use
+the existing matrix thing, I would suggest that matrix kind of adopt more of that binary event
+signing instead. Yes.
+You had a slide with things you didn't talk about?
+Yes.
+In many places, primarily in the Mimi working group, that's where a lot of these conversations
+are happening, as well as on the design team for Mimi. But if you are interested in them,
+or you have ideas, feel free to pop by the Matrix spec room on Matrix, and we'll be happy to engage.
+Do I have time for one more question? All right.
+Yes. All right. So how do we avoid, basically if you have two protocol converters,
+say they're both talking to the same network, how do you avoid message duplication?
+Good question. We'll have to experiment with it. We will be trying to
+figure out exactly what that looks like. We kind of have to wait until March 7th to see
+what the actual gatekeepers, namely WhatsApp and Facebook Messenger, have to offer for that
+certain capability. Thank you, Travis. Thank you.

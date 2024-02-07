@@ -1,0 +1,572 @@
+Okay, I think we can roll it.
+And we are moving now to debugging HTTP 3 upload speed in Firefox and I'm more than
+happy to welcome Manuel Buschard for it.
+Hello.
+I'm Manuel Buschard.
+I'm Manuel.
+I'm working at Mozilla in the networking team called Necro and we work on Firefox networking.
+And in this talk I'm going about our debugging of HTTP 3 and HTTP 2 upload speed.
+And for this I'm going to give you some background information first.
+Then I'll cover the HTTP 2 upload speed problem that we investigated last year.
+And afterwards I'll go over to the HTTP 3 upload speed problem that we investigated afterwards.
+So yeah, first to the Necro team.
+We in general focus on security, privacy, but always also on performance.
+And our protocols that we work on is mostly HTTP but also DNS, web socket, web transport.
+And we also own the caching and the proxy feature.
+So this is what we generally work on.
+And when we think about networking performance, we usually think about it in terms of how
+long does it take from clicking a link to seeing the result.
+And for this we usually just need download speed.
+For other use cases like uploading large files like videos, we generally also need the upload
+speed.
+And in this talk I'm going about the HTTP 2 and HTTP 3 upload speed.
+Those protocols are more in focus.
+They are relatively newer than the HTTP 1.
+They got introduced in the past decade.
+And yeah, so for HTTP 2 upload, first what's the difference in HTTP 2 to HTTP 1.
+In HTTP 2 we allow to make multiple HTTP requests via one TCP socket.
+And this TCP socket is handled by the operating system.
+And real quick, the bug in our HTTP code that caused the slow upload was that we configured
+the socket to have a fixed size buffer of 110 to 80 kilobytes.
+And this fixed size buffer became a bottleneck in high bandwidth situations.
+And yeah, for the fix we just needed to adjust this TCP socket to not set the fixed size
+buffer and let the operating system handle the buffer size.
+And this shows that the operating system is responsible for the upload speed or the performance
+of upload.
+And this is a stark difference to HTTP 3 upload.
+And with this fix of just not setting the fixed size buffer, we can take a look at Chrome
+upload speed, Firefox before the fix, in red and in yellow Firefox after the fix.
+And we see that in certain configurations like high bandwidth and also from low to higher
+round trip times we have upload speed improvements up to like four times the speed.
+So we only have to wait a fourth of the time.
+And we are on par here with Chrome, which is using all the bandwidth you can use for
+the upload.
+So with this fixed last year, we took a more in depth look at upload speed in general.
+And we also had bug reports about slow HTTP 3 upload and with HTTP 2 seeing very good
+results, we made it a high priority for us as well and took a look there.
+So for the fix or seeing how much it changed, we introduced some high level telemetry.
+And these are person tiles of user reported upload speed.
+We have different versions, 114 on the left side is around one year ago.
+And in 115 to 16, we rolled out the HTTP 2 upload speed fix and we can see the improvements
+in the high level telemetry about upload speed.
+It's an improvement like in the higher parts, it's roughly doubled and not quite, but it's
+very visible.
+So now two difference to HTTP 3 upload.
+HTTP 3 upload is widely different.
+HTTP 3 uses a different transport layer.
+We don't use TCP anymore, but Qwik was standardised alongside with HTTP 3 and just relatively
+recently.
+So the standardisation was finalised in 2021, which is two to three years from now, right
+now.
+And Firefox also included HTTP 3 upload around the time in 2021.
+The work started in 2019, which is all relatively recent in comparison to TCP and HTTP 2.
+HTTP 2 is around a decade now, all.
+And the problem is different here because the operating system is responsible for the
+TCP stack.
+It is responsible for sending all the data performant and in Qwik we have to implement
+the same congestion control in Firefox and the Firefox application, so it's not the
+responsibility shifted to Firefox or the application.
+TCP is already decades old, it was done about 50 years ago and it's operating since 30
+years and got a lot of eyes on it.
+And our Firefox implementation is really new and we were kind of the first ones to look
+into upload speed performance here, so we had a lot of low hanging fruits here to work
+on.
+And I wanted to visualise this a bit, like we have HV 2 and HV 3, which are very similar.
+In HV 3 we rely on Qwik and Qwik is also implemented by us.
+In HV 2 we have TCP and TCP is provided by the operating system.
+So I want to go into a few findings that we had in our presentation, in our IO graphs
+and other tooling that we took.
+The most useful tool for us was IO graphs where we just printed within the application,
+like with logging, when we send packets, when we receive packets, how big our congestion
+is and everything.
+So the first problem we have, what does this graph show?
+So this graph is our congestion window over time.
+What is the congestion window?
+So the congestion, well, I would like to go over this.
+We don't want to overload the network.
+And overloading the network is called like congestion control, well, not overloading
+the network.
+And this is the responsible of the transport layer, which is TCP or Qwik.
+And all the bugs that we had were in this congestion control, or most of the bugs.
+And the congestion window that we have is the estimate of how fast we can upload right
+now.
+And this changes over time.
+With every packet that we receive, we think we can upload more.
+So we have a graph like here where we steadily increase the congestion window over time with
+all the packets that we receive.
+And when we detect that packets got lost, we are assuming that the network is overloaded
+and we reduce the congestion window by half.
+And this is like one of the early graphs that we had.
+And orange are like the bytes in flight that we have.
+They circulate from top to bottom.
+Increasing again, blue is the congestion window.
+And what we see at the drop points is that the congestion window doesn't half.
+We would expect it to half during a congestion event.
+Instead it drops almost to zero.
+And this was one of the bugs that we had.
+We just dropped to zero.
+Each packet that we detected was lost, half the congestion window.
+And normally you would only do this once, but we did it multiple times for each packet.
+So essentially we dropped to almost zero on all congestion events here.
+This was one of the first fix.
+Later...
+Yeah.
+Later.
+This is the same graph.
+With the congestion window problem fixed, we had to investigate further.
+There were more problems.
+Here, like all these drops of packets going down, we want to stay with our bytes in flight
+as high as possible, with our upload speed as high as possible.
+But we dropped down quite some times.
+And if we...
+Yeah.
+For this problem, we need a bit of background information.
+And this background information was this slide, which I apparently put a bit later.
+And I'll go back to the background about Cric first before going over the next problem.
+So Cric got introduced.
+Sorry about the mix up here.
+Cric, the new transport layer protocol.
+What is Cric?
+Cric is on the same layer as TCP, but conceptually you can have multiple TCP connections at once
+over one quick connection.
+And we have other benefits, like TLS being integrated, so that the connection setup phase
+takes less time, only one round trip time instead of two round trip times.
+Yeah.
+And now we get back to the introduction of the concept of congestion control.
+Traction control is for us handles like not overloading the network from all participants
+in the internet.
+So everyone makes sure that we don't overload the network and keep it usable for everyone.
+And the congestion window is one of the concepts that we looked at the first graph and also
+in the second graph.
+This is our estimation at how much can we upload at a time.
+What is our upload speed to the destination server?
+And so our estimation depends on us receiving packets.
+And we want to increase the congestion window only if we are sure that we are using the
+congestion window.
+Like we are sending as much data as we have in the congestion window because otherwise
+we are not sure if our estimate is correct if we are sending less data than what is that
+we estimate we could.
+And this detection on whether a packet was sent during the utilization of the congestion
+window like sending as much data as we could.
+This had a bug as well and made us mark packets as not utilizing the congestion window for
+50 to 75 percent of the packets which meant that we didn't increase the congestion window
+as fast as we could.
+This is another simple incremental fix for our HPE 3 upload speed problem.
+And after fixing this the graph looks like this.
+It has a steeper curve, steeper line.
+Here we also see that the first problem that we had got fixed.
+We don't drop to zero with the congestion window but have it halfway here.
+With these steady increases we can also see them in our high level telemetry that we introduced
+for our HPE 2 upload speed problem.
+In HPE 3 in the higher network bandwidth we have already an increase of three times.
+We are three times as fast as before tackling the problem from around 31 megabits per second
+to 93 megabits per sentence.
+This is the 95 percentiles.
+This is a network speed of better than 95 of all clients.
+Also visible from the high level telemetry.
+For the current state we are still working on this.
+We have more bugs that we are aware of and are also in contact with or in collaboration
+with contributors who can upload or request logs from them to have a look at their network
+condition.
+This is the diagram from before but from the contributors log where we can identify which
+problems are present from our machines in comparison to their network location.
+With the logging mechanism which we also included in Firefox this became a bit easier
+about logging.
+A few of the further works that we are currently still aware of is that the
+upload has a few CPU bottlenecks.
+Mostly profiling.
+The QuickStack made us aware that not the cryptography part of Quick is taking most of the time
+but some other parts which is unexpected.
+We have already identified a few code tests that can be improved and are improving these.
+We will also continue with profiling this.
+We also have similar to the HDP case we have a fixed size buffer.
+This will get to be a problem at some point at much higher bandwidth than with HP2 upload
+speed problem because we have a buffer that is 8 times as high, 1 megabyte instead of 128 kilobyte.
+We are also aware of the problem that when we are in package reordering networks we detect
+these package reordering as losses too frequently.
+There are ways around this in TCP specifications like REC or Forward Egg that we are taking a look at
+and investigating which one we want to implement and which proves to be the best of the options.
+We are also setting up CIS to catch regressions in the future and also have a detailed view
+from different networking conditions, how they look.
+We have seen where we got improvements in HDP3 already, it is now at a similar level to the HDP2 upload.
+It is looking already a lot better but we are still on it and we are aware of a few bugs and we will investigate further.
+We want to make it as good as we can to see all the benefits that HDP3 can provide for us.
+A lot of this was in cooperation with contributors reporting bugs.
+One specific bug is the HDP3 upload speed bug.
+If you want to take a look at our work there you can follow the investigations there.
+You can reach us at the Metrics channel if you want to get in contact with the NECO team.
+We have a NECO specific documentation also about creating logs.
+If you are interested in the NECO team we are making ourselves a bit more transparent by providing our meeting nodes
+and having a blog.
+If you need help with fixing bugs or want to get in contact like contributing,
+we also are going to provide office hours where you can talk to us directly and get in touch.
+Thanks for listening.
+Thank you.
+We might have time for one or two questions.
+Hi, thanks for talking.
+I just wanted to ask if there is any chance of Quick being brought into the Linux kernel or Windows kernel or wherever else Firefox runs.
+The question is whether Quick is going to be implemented in the operating system with the Shokut APIs.
+I am expecting that it will be implemented at some point.
+We do have, I have seen some TLS integration.
+This is one of the stoppers probably that TLS has to be integrated into the kernel as well.
+Quick is so new that it didn't have time to be integrated into the operating system.
+I think as soon as operating systems provide APIs we will start using them.
+They are not here right now but in the future I would assume yes.
+Two years of being standardized is like nothing.
+TCP is like for 30 years already.
+Last question, I see a lot of people coming in and for sure Manu will be available outside, no?
+Yes.
+Making promises is your name.
+My question is just which congestion control did you implement in Firefox?
+Yes.
+We are using Qubic by default.
+We have also implemented new Reno and we are looking also at BBR because this is also exciting for our lack.
+It's better for lower latencies.
+We didn't have a plan to implement it right now but it's like in the future we probably will tackle that too.
+Thank you so much Manu.
+I didn't count some of them but I took photos and we can count at different rates.
+I saw the sticker you have on your water bottle.
+Yalazila.
+Yalazila.
+Yalazila.
+Yalazila.
+Yalazila.
+Yalazila.
+Yalazila.
+And I think also this is a no?
+Yes.
+No.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes.
+Yes, yes.
+Yes.
+This is all about the politics.
+I'd say about the politics.
+Call me to be disturbed.
+I'd like to work with you.
+Yeah, except...
+I used to... my mother told me how to...
+You know, like when they had to mess up with this.
+Yeah, I mean, it's funny when we're not having a discussion.
+Do you think there's a few...
+...sci-fi sites?
+No.
+Yeah.
+I don't know about that.
+Sorry, it was on.
+Yeah.
+Yeah.
+Yes.
+You're stuck with me for two minutes or so.
+Carmen needs another adapter and we are looking over it.
+It's coming.
+We're fixing everything.
+Is anyone that already got the t-shirt from the booth or the collapsible mug?
+Oh, good.
+You're saving the world.
+I'm there for it.
+I also like it.
+Someone else is doing steps today.
+This is how you stay in shape.
+You moderate the dev room, you run.
+All good.
+We are first.
+Also a big thank you to Konstantina.
+She organized the booth, by the way.
+Konstantina and Mozilla, if you want to...
+Yes.
+Yes.
+Do you want to?
+She brought more stickers here,
+especially this stock is related to MDN.
+We have the sticker here, if you want.
+And we have the cute llama.
+I heard it.
+Gold.
+It's here, waiting.
+One is mine.
+And if you want to learn more about
+llama, the project, not the animal,
+we have a guide here
+with all things related to Mozilla and AI.
+Grab the...
+And the first one is from the first talk
+about support.
+Grab these papers
+and you can have more information.
+Are we ready?
+Let me go then.
+Without further ado, ladies and gentlemen,
+Chris will
+introduce us to the MDN curriculum.
+Yay!
+Hi.
+APPLAUSE
+So, hello everyone.
+Nice to see you all.
+Thanks for coming.
+My name is Chris Mills and I'm going to take you through
+a new MDN project
+soon to be released called the MDN Curriculum.
+Take you through a little bit about
+who I am to begin with.
+I describe myself
+as a death metal hippie.
+I love documentation
+and I love the open web
+and I love tinkering with open standards.
+I used to work for Mozilla.
+For quite a while I was the content lead
+and team manager for MDN.
+But I left
+and did some other stuff and now I've come back
+as a contractor and this is the current thing
+that I've been working on with the MDN team.
+Another thing to add is that
+I'm a heavy metal drummer
+so if you want to ask me a question later on
+please speak slowly.
+A little bit about this talk.
+We are going to talk about, first of all,
+some of the problems that myself and I
+was perceived with Frontend Development
+in 2024, particularly
+in terms of education
+and the skills that new web developers
+are bringing to the table when they come
+and get jobs.
+I'm going to take you through the thoughts
+of how a curriculum,
+a new curriculum could solve some of these problems
+and some of the research that we did
+to try and prove out some of our theories about this.
+I'll then talk to you a little bit about the actual curriculum
+that we came up with and kind of its structure,
+its approach, some of its goals
+and then I'll talk to you about possible next steps,
+some of the things that we can then go on to do
+with this curriculum as a basis.
+Now, first of all, I'm going to talk to us about,
+talk to you about something that we're very good at
+in open source communities,
+problems and complaining.
+Yay, Mr. Brexits, back in the UK government,
+I'm so pleased.
+No, not those kind of problems.
+Really, we're talking about problems with Frontend Development,
+kind of what skills are
+new web developers missing when they come
+into the industry? What's the effect of web,
+what's the state of web education,
+what kind of effects are these problems
+having on, you know, the web
+in general and the quality of sites that we build?
+One thing that
+I've talked to quite a lot of hiring managers
+about, and this will also
+be mentioned in the research that I'll talk about later,
+is just lack of general core
+principles of new developers coming into the industry.
+I mean, a short anecdote that I'll share with you
+is a couple of years ago,
+a friend of mine called me into his company,
+he worked for a large agency at the time
+and he wanted me to talk to all of his Frontend teams
+and he wanted me to talk to all of his Frontend teams
+about accessibility.
+Really basic accessibility, you know,
+just kind of use headings and paragraphs
+and use alt text, that kind of stuff.
+And I went in there
+and did a 20 minute talk
+and I was thinking, do I really need to talk
+to these folks about this?
+And it was like a revelation to them.
+They were all like, whoa,
+so that's why you have to do this stuff?
+I was just blown away. I was like,
+I thought we'd kind of largely won this battle
+and moved on. It kind of blew my mind
+about how little they knew about this stuff.
+And I kind of feel that
+with a lot of the new developers community industry,
+you know, they're not really learning
+core languages and old school standards
+as much as just kind of, well,
+I want to get a job so I'm going to learn React
+and I'm not going to turn this into a massive winch,
+but you know, that kind of results
+in not knowing these core principles
+and best practices quite as well as
+perhaps they could.
+The next thing to talk about is lack of core language skills.
+This is another thing that hiring managers
+have talked to me about a lot.
+So people learn React
+and other frameworks,
+but they don't maybe take the time
+to learn the core JavaScript language
+as much as they could. So, you know,
+they can build
+websites that work great and have a good
+look in UIs, but maybe
+their problem-solving skills
+aren't quite as good as
+they could be when they suddenly need to get
+brought onto a problem that requires
+not writing some code inside a framework.
+And also, we kind of
+worry that maybe this is not so good
+for people's long-term employability,
+because, you know, if they just learn React,
+what then happens if all of a sudden
+the company goes, well, now we're going to do all of this stuff
+in a different framework, or, you know,
+another framework suddenly becomes really popular
+and every employer wants to use it on their projects.
+This is probably the biggest one that
+I've heard from employers is just
+general lack of soft skills from UIs.
+So, and I know,
+you know, you could make the argument that
+this kind of stuff comes of experience,
+but it really would be great to try and promote
+that learners spend more time
+thinking about skills such as research
+and kind of
+basic critical thinking and problem-solving
+and also
+working on having this constant learning
+mindset that you kind of need to have
+to succeed in this industry, because things are just
+always changing all the time.
+So, who's to blame for any of these problems?
+Well, not really anybody, I would say.
+I'm not going to point the finger at anyone in particular,
+because, you know, you've got all of this
+ideological thinking that says everything
+should be accessible all the time, and this should happen,
+and then this should happen. But actually,
+people just want to get a job,
+so it's no wonder that people go, well,
+all of these job adverts are saying,
+I need to know this framework, so I'm just going to take
+the quickest path I can to get employment
+and be able to pay my mortgage and buy food.
+Coding boot camps
+that I've reviewed largely tend to focus
+on this kind of stuff, you know, and again,
+I'm not blaming them, I'm not saying it's a terrible thing,
+but they tend to be, the
+attitude tends to be, you know, we will take you
+from nothing to getting your first job in three months
+or six months or whatever, and that's
+a perfectly reasonable way
+to frame what you're offering to people,
+but there is the problem that
+maybe the best practices and the background skills
+aren't maybe being as taught as well as they could be,
+and of course, courses become out of date
+very quickly.
+Particularly, this tends to be a problem
+with
+university courses that I've come across.
+I know a lot of lecturers that really struggle
+to kind of keep up with all of the stuff that they've got to do,
+which isn't just learning about technology,
+they struggle to put the time in
+to keep their skill set current
+with all of the stuff that's going on in the industry.
+So, I think that's a good point.
+I think that's a good point with all of the stuff that's going on in the industry.
+And then, I'm also going to
+just say a few things about
+interview processes, and again, this definitely isn't
+the fault of
+the actual learners trying to come into the industry.
+But because
+people don't tend to have a
+consistent set of skills,
+a lot of interview processes
+tend to kind of be, well,
+we're looking for this kind of unicorn
+that knows these ten things really well,
+that are all really complicated.
+And all of the people that we're talking to have kind of got
+about four of these things definitely
+shown up on their CV.
+So, we've got to do a whole bunch of whiteboard interviews
+and coding interviews and huge, long,
+convoluted interview processes to check
+whether this person
+can do this job that we're trying to hire for.
+Another interesting
+thing to make mention of AI,
+which has already been talked about today,
+is it fascinated me that in the last
+maybe six months to a year
+or so, I've started to hear
+multiple hiring managers talk about the fact that
+oh, we had to put a load of
+extra processes in and the interviews have become
+even more complicated now because
+a lot of our candidates are trying to cheat
+using AI. I've literally heard about people
+having chat GPT open in another window
+whilst they're doing an interview and just typing
+all of the interview questions into it and then
+parroting back the answers to the interviewers.
+And it's like, that's a bit
+nightmarish and
+it's difficult to really think about what to do about
+that. But I kind of think, well, if these people
+were maybe more confident
+in their skill sets in the first place, maybe
+they wouldn't have to think to rely on that quite as much.
+Another
+interesting thing is that
+something that we're sort of looking
+to do with some kind of curriculum
+would maybe to have
+some kind of industry standard benchmark
+certification, eventually. This is kind of
+pie in the sky, often the future.
+But maybe this certification could kind of say,
+you know, anybody that's got this
+certification,
+it's a trusted certification, you know,
+in the same way that
+industries such as law or architecture
+have trusted bodies who have
+these certifications that everybody gets to prove
+that they know what they're talking about.
+But we don't really have that for our industry.
+And
+employers don't really trust some random
+certificate from some, you know,
+whatever boot camp, you know, I'm not
+saying those boot camps are bad or not trustworthy,
+but employers just have a hard time
+trusting them.
+And as makes perfect sense,
+they value demonstrable
+experience and portfolios a lot more.

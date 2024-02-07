@@ -1,0 +1,1643 @@
+WEBVTT
+
+00:00.000 --> 00:13.720
+Okay, let's get started.
+
+00:13.720 --> 00:19.480
+So hello and welcome to Backtracy and the quest for prettier Ruby backtraces.
+
+00:19.480 --> 00:21.840
+So who am I to be here today?
+
+00:21.840 --> 00:26.800
+My name is Yvon Zhe and I'm currently a senior software engineer at Datadog.
+
+00:26.800 --> 00:32.200
+I've been in love with Ruby since I started using it professionally around 10 years ago.
+
+00:32.200 --> 00:38.120
+And I am a really big fan of going into an exploring language run times like C-Ruby,
+
+00:38.120 --> 00:41.640
+J-Ruby, Truffle Ruby, Java VM and others.
+
+00:41.640 --> 00:44.720
+And I've been attending FOSDEM every year since 2017, but
+
+00:44.720 --> 00:47.560
+this is my first time speaking, so I'm excited.
+
+00:47.560 --> 00:49.000
+So I also-
+
+00:49.000 --> 00:57.000
+Yes, pray for the cable.
+
+00:57.000 --> 01:02.200
+I'm also excited to play about concurrency, application performance and
+
+01:02.200 --> 01:06.960
+making tools that help us kind of look at our apps in different ways and
+
+01:06.960 --> 01:12.440
+new ways and try to uncover new insights about performance by looking at them in a different way.
+
+01:12.440 --> 01:17.680
+So that's how I ended up working on this thing, the Datadog profiler for Ruby.
+
+01:17.680 --> 01:20.720
+So if you're curious, come talk to me about Ruby Performance.
+
+01:20.720 --> 01:23.200
+I like to talk a lot about that.
+
+01:23.200 --> 01:27.480
+So, but for today, what we're going to talk about is what's the backtrace?
+
+01:27.480 --> 01:28.920
+How can we get one?
+
+01:28.920 --> 01:33.960
+Then how does the Ruby stack work in reality?
+
+01:33.960 --> 01:37.600
+Then we'll talk a bit about the backtracy gem, this is not good.
+
+01:37.600 --> 01:42.440
+I will be talking about accessing the internal VM APIs to do some of
+
+01:42.440 --> 01:45.320
+the weird things that the backtracy gem does.
+
+01:45.320 --> 01:50.680
+Then we'll play with backtracing in action and then we will talk about maybe
+
+01:50.680 --> 01:54.680
+a new feature in Ruby 3.4 which is having class names in backtraces.
+
+01:54.680 --> 01:55.880
+So what's a backtrace?
+
+01:55.880 --> 01:57.000
+How to get one?
+
+01:57.000 --> 02:00.240
+If you're a Ruby developer, you probably know what the backtrace is, but
+
+02:00.240 --> 02:05.280
+quick reminder, it's mostly like a trail of what methods were called and
+
+02:05.280 --> 02:08.600
+are still waiting to return at some given point in the app.
+
+02:08.600 --> 02:11.960
+And it's also called like a stack trace in some languages because it
+
+02:11.960 --> 02:13.840
+represents what's on the thread stack.
+
+02:13.840 --> 02:17.360
+So backtrace, stacktrace is usually kind of the same thing.
+
+02:17.360 --> 02:22.760
+And okay, if we have this A that we call A, that calls B and
+
+02:22.760 --> 02:25.040
+then raises an exception and then you get a backtrace.
+
+02:25.040 --> 02:29.480
+So we probably see this way too often and maybe you have some nightmares when
+
+02:29.480 --> 02:33.680
+you see this, but hopefully it will help you figure out your issues in your app.
+
+02:33.680 --> 02:36.640
+So there's multiple ways of getting a backtrace in Ruby.
+
+02:36.640 --> 02:38.960
+One of them is rescuing an exception.
+
+02:38.960 --> 02:42.840
+And an interesting thing is that actually the backtrace gets set on the exception
+
+02:42.840 --> 02:46.080
+when the exception is raised, not when it's created.
+
+02:46.080 --> 02:48.600
+Because you can create an exception but not raise it immediately.
+
+02:48.600 --> 02:52.320
+And so the backtrace only gets set when you raise it.
+
+02:52.320 --> 02:56.680
+And you can get a backtrace by just getting a thread and asking for it.
+
+02:56.680 --> 03:00.760
+Or you can use the color API, which is part of kernel.
+
+03:00.760 --> 03:04.000
+So it's part of every Ruby object, so it just can type color and
+
+03:04.000 --> 03:07.080
+you will get the stack trace of the method that called U.
+
+03:08.600 --> 03:12.480
+So you might have noticed that were backtrace and backtrace locations.
+
+03:13.240 --> 03:19.720
+The methods that end with locations return an array of these location objects that
+
+03:19.720 --> 03:23.360
+includes absolute path, base level, level, etc.
+
+03:23.360 --> 03:27.600
+So basically it gives you a nice domain object to represent the stack trace.
+
+03:27.600 --> 03:29.880
+Whereas the other method just kind of represents,
+
+03:29.880 --> 03:32.200
+just to return you the strings that Ruby prints.
+
+03:32.200 --> 03:33.720
+So that's the difference.
+
+03:33.720 --> 03:37.320
+There's also some Ruby VMC APIs to getting a backtrace.
+
+03:37.320 --> 03:41.200
+A few ones for different kind of use cases.
+
+03:41.200 --> 03:44.320
+And actually these two at the top will come back to this in a bit.
+
+03:45.520 --> 03:47.680
+So talking about the stack itself,
+
+03:47.680 --> 03:53.200
+how does the Ruby stack work under the cover specifically for the C Ruby runtime?
+
+03:53.200 --> 03:57.360
+So the idea is that a Ruby thread usually has two stacks.
+
+03:57.360 --> 04:00.320
+One is the Ruby stack that we usually see on our application and
+
+04:00.320 --> 04:01.600
+the other is the native stack.
+
+04:01.600 --> 04:08.360
+So the stack that the VM, which is a program built in C, has.
+
+04:08.360 --> 04:12.280
+And we can actually look at both of them in a really weird way,
+
+04:12.280 --> 04:14.480
+which is let's crash Ruby.
+
+04:14.480 --> 04:16.240
+And this thing is a weird thing.
+
+04:16.240 --> 04:22.240
+So I'm telling Ruby to send a segmentation fault to itself, which will crash Ruby.
+
+04:22.240 --> 04:24.640
+And then when we crash Ruby, what we get is this thing,
+
+04:24.640 --> 04:28.840
+which is the output of the Ruby crash handler, which includes a lot of nice things.
+
+04:28.840 --> 04:32.840
+So if you ever get the crash in Ruby, please do include this when reporting bugs.
+
+04:32.840 --> 04:34.240
+It's really useful.
+
+04:34.240 --> 04:36.760
+And the first thing it shows is it shows the Ruby stack.
+
+04:36.760 --> 04:42.200
+So here on the bottom, we see, okay, we have this each that represents our
+
+04:42.200 --> 04:43.200
+each on our code.
+
+04:43.200 --> 04:48.840
+Then we have the block, then collect, then the block, then the call to kill.
+
+04:48.840 --> 04:51.480
+So probably not a big surprise.
+
+04:51.480 --> 04:54.040
+One thing that is interesting, and you can see there at the top,
+
+04:54.040 --> 04:59.080
+is that Ruby actually, at least this Ruby version that I'm using,
+
+04:59.080 --> 05:03.520
+uses C methods to implement each collect and kill.
+
+05:03.520 --> 05:06.720
+And so you see that internally Ruby is actually keeping track of that and
+
+05:06.720 --> 05:08.680
+knows that there are C methods for that.
+
+05:08.680 --> 05:09.440
+This is not very good.
+
+05:11.640 --> 05:14.320
+And this is actually the native stack,
+
+05:14.320 --> 05:16.200
+which is also printed in that whole big thing.
+
+05:16.200 --> 05:18.160
+So please ignore the lot of text.
+
+05:18.160 --> 05:21.160
+The thing that you're caring about is this column in the middle,
+
+05:21.160 --> 05:25.080
+which is the names of the C functions that the Ruby VM is actually using.
+
+05:25.080 --> 05:27.640
+And you can actually, if you squint hard and ignore a few of them,
+
+05:27.640 --> 05:29.520
+you can see our app here.
+
+05:29.520 --> 05:31.200
+So we can see each showing up.
+
+05:33.520 --> 05:35.160
+We can see each showing up.
+
+05:35.160 --> 05:37.560
+And then we can see the block, the call to yield.
+
+05:37.560 --> 05:40.800
+Then we can see the collect showing up, RBE array collect.
+
+05:40.800 --> 05:42.080
+Then we can see yield.
+
+05:42.080 --> 05:43.400
+And then we can see kill.
+
+05:43.400 --> 05:45.240
+So we can see all of our methods.
+
+05:45.240 --> 05:50.280
+And you can additionally see these two methods, which are the Ruby code itself
+
+05:50.280 --> 05:51.640
+that we're writing.
+
+05:51.640 --> 05:56.560
+And those methods are RBVM exec and VM exec core is the Ruby VM actually
+
+05:56.560 --> 05:59.680
+executing the byte code, the Ruby byte code for our application,
+
+05:59.680 --> 06:03.560
+which is kind of the glue code that is between the other functions that you see
+
+06:03.560 --> 06:04.720
+there.
+
+06:04.720 --> 06:07.800
+And then at the top you see the code for the VM to handle a crash.
+
+06:08.920 --> 06:12.080
+So this is the two stacks.
+
+06:12.080 --> 06:16.480
+So let's focus on the Ruby stack and kind of ignore the native stack mostly.
+
+06:16.480 --> 06:18.720
+So how is it represented inside the VM?
+
+06:18.720 --> 06:23.360
+So inside the VM there are a bunch of structures in memory that represent
+
+06:23.360 --> 06:25.280
+the stack, so how do they look?
+
+06:25.280 --> 06:28.120
+And so hang on, I will show three slides of C code and
+
+06:28.120 --> 06:30.720
+then we can come back to actual Ruby code.
+
+06:30.720 --> 06:35.240
+Please don't kind of like stab your eyes out or something.
+
+06:36.640 --> 06:41.680
+So yes, when it shows up, there's a in VM core, it's like a VM header where
+
+06:41.680 --> 06:44.280
+a lot of the internal Ruby interesting things are.
+
+06:44.280 --> 06:47.720
+And there's like this RB thread struct that includes a bunch of things.
+
+06:47.720 --> 06:50.240
+And this is what Ruby holds for a thread.
+
+06:50.240 --> 06:53.680
+And inside that we have this RB execution context thing,
+
+06:53.680 --> 06:58.080
+which keeps a pointer to this other structure with this RB execution context
+
+06:58.840 --> 07:03.400
+which has a few more things on the thread that were separated for reasons.
+
+07:03.400 --> 07:07.520
+And inside here we actually see the size of the stack and
+
+07:07.520 --> 07:09.280
+the information about the stack.
+
+07:09.280 --> 07:13.360
+And then we have this array of RB control frame T elements.
+
+07:13.360 --> 07:17.960
+And this is a pointer into an array that then has these entries,
+
+07:17.960 --> 07:20.400
+the RB control frame struct.
+
+07:20.400 --> 07:24.200
+So basically these entries are what represent a stack frame in the VM.
+
+07:24.200 --> 07:27.640
+So if you see five lines in your stack frame,
+
+07:27.640 --> 07:29.440
+there will be five of this.
+
+07:29.440 --> 07:32.480
+And you see that there are some things in here, like if you're wanting to see
+
+07:32.480 --> 07:34.520
+IC which is the instruction sequence.
+
+07:34.520 --> 07:38.120
+So this is like the Ruby byte codes for that method or block or
+
+07:38.120 --> 07:39.440
+whatever that's getting executed.
+
+07:39.440 --> 07:42.200
+You see like self, the object on each which was called.
+
+07:42.200 --> 07:45.560
+You actually see like JIT return which was added to support YJIT and
+
+07:45.560 --> 07:47.960
+the other JIT so that they use that.
+
+07:47.960 --> 07:49.920
+And there's a few more things that we'll ignore.
+
+07:49.920 --> 07:53.600
+But yeah, this is how the Ruby VM represents the information that's on
+
+07:53.600 --> 07:55.360
+the stack internally.
+
+07:55.360 --> 08:00.080
+So whenever a method gets called, a frame is pushed to represent this new
+
+08:00.080 --> 08:01.400
+method that got called.
+
+08:01.400 --> 08:06.000
+So there's this VM push frame method that, like the interesting part is here
+
+08:06.000 --> 08:08.200
+on the right, which is like, we're setting it up.
+
+08:08.200 --> 08:10.040
+We say, we have the self object.
+
+08:10.040 --> 08:13.080
+Like there's some things that we want to care to track.
+
+08:13.080 --> 08:15.360
+So that adds one more onto the stack.
+
+08:15.360 --> 08:19.280
+And you would not be surprised if I told you that this stack gets popped and
+
+08:19.280 --> 08:23.440
+there is a VM pop frame method that actually function in C.
+
+08:23.440 --> 08:24.640
+That actually takes care of this.
+
+08:24.640 --> 08:28.880
+So fine, this is kind of what you might be expecting.
+
+08:28.880 --> 08:32.520
+So let's talk a bit about the backtracing gem.
+
+08:32.520 --> 08:34.600
+Yes, maybe this is good.
+
+08:34.600 --> 08:35.680
+I'm doing timing.
+
+08:36.960 --> 08:41.000
+So the backtracing gem is this really weird gem that I create.
+
+08:41.000 --> 08:44.120
+And let me tell you why I created it.
+
+08:44.120 --> 08:46.720
+I created it because of something like this.
+
+08:46.720 --> 08:50.680
+So if I show you this, main, print stacks, new initialized times,
+
+08:50.680 --> 08:52.920
+block initialized backtrace.
+
+08:52.920 --> 08:56.400
+If you squint at it a bit, maybe you can speculate on what's going on.
+
+08:56.400 --> 09:00.040
+But it's kind of hard for you to get a lay of the land and
+
+09:00.040 --> 09:05.080
+understand what's this weird example thing doing without looking at the source code.
+
+09:05.080 --> 09:07.560
+You need to be looking at the source code and then it makes perfect sense.
+
+09:07.560 --> 09:08.760
+It's here, it's here, it's here.
+
+09:08.760 --> 09:11.720
+But if you're not looking at source code, it doesn't make a lot of sense.
+
+09:11.720 --> 09:13.840
+So this is something I was thinking of.
+
+09:13.840 --> 09:18.200
+Like can we actually improve stack traces and
+
+09:18.200 --> 09:22.120
+give you more information so that you can read the stack trace and
+
+09:22.120 --> 09:25.440
+get more information without actually going to one or more files.
+
+09:25.440 --> 09:29.760
+Because this could be across ten files and you would have to follow along.
+
+09:29.760 --> 09:32.480
+So actually this is the code, you don't have to read it very much.
+
+09:32.480 --> 09:36.600
+The interesting thing is that we have this method print stacks that gets called here
+
+09:36.600 --> 09:39.600
+that creates an instance of print stacks that then initialize and
+
+09:39.600 --> 09:43.320
+then inside there's the times and then we print the backtrace.
+
+09:43.320 --> 09:45.320
+But I've shown you the code.
+
+09:45.320 --> 09:50.600
+So the idea is that Ruby what you saw was printed with the Ruby backtrace.
+
+09:50.600 --> 09:53.720
+And with the backtrace.jm you can instead get this.
+
+09:53.720 --> 09:56.320
+You get the class names.
+
+09:56.320 --> 10:01.120
+You get like a dot on print, hello, Fosdem and here you can see like the namespace.
+
+10:01.120 --> 10:04.120
+So here you see that like we're calling you on the class and
+
+10:04.120 --> 10:06.080
+then this is like an instance method.
+
+10:06.080 --> 10:08.080
+And then we're calling integer times and
+
+10:08.080 --> 10:11.680
+then we're having a block inside initialize and then backtrace location.
+
+10:12.320 --> 10:15.120
+This is kind of the thing I wanted to experiment with.
+
+10:15.120 --> 10:18.320
+Maybe it won't look exactly like this, maybe it will look different.
+
+10:18.320 --> 10:22.240
+But try to get more context so that you can look at it and you will go like,
+
+10:22.240 --> 10:25.680
+I think I see what's going on even without opening up your editor and
+
+10:25.680 --> 10:28.600
+maybe navigating to the ten different files.
+
+10:28.600 --> 10:31.240
+So this is what I mean about prettier backtraces.
+
+10:31.240 --> 10:35.640
+I wanted to experiment with adding more things, things such as like class and
+
+10:35.640 --> 10:40.800
+module names, things such as like show a dot or a hashtag if the method is or
+
+10:40.800 --> 10:44.480
+like an instance or a class to be able to quickly distinguish that.
+
+10:44.480 --> 10:49.160
+Maybe distinguish like singleton methods, so methods that you define on a specific
+
+10:49.160 --> 10:52.280
+object versus just like a regular method from that class so
+
+10:52.280 --> 10:55.240
+that you can see this is a weird thing that showed up on this object.
+
+10:55.240 --> 10:57.160
+Maybe that's relevant.
+
+10:57.160 --> 11:00.760
+You could distinguish refinement, which is this weird thing,
+
+11:00.760 --> 11:05.440
+which is like methods that show up based on like some context thing.
+
+11:05.440 --> 11:09.880
+You could maybe show method arguments, maybe that's useful sometimes for
+
+11:09.880 --> 11:13.080
+you to distinguish between a few of your methods.
+
+11:13.080 --> 11:17.520
+Maybe even show C function names or like file names and line numbers.
+
+11:17.520 --> 11:23.440
+Because one thing you might have realized is that I shown you that array and
+
+11:23.440 --> 11:26.680
+the collect and whatever methods are implemented with C code.
+
+11:26.680 --> 11:29.160
+But you never see the C file and
+
+11:29.160 --> 11:31.520
+the C line where they are implemented in your backtrace.
+
+11:31.520 --> 11:34.480
+So if you want to actually follow that into the VM and
+
+11:34.480 --> 11:38.480
+understand what's going on or maybe you just are working on a Ruby native gem,
+
+11:38.480 --> 11:43.280
+you actually don't see that information, Ruby hides it and doesn't even keep it.
+
+11:43.280 --> 11:47.840
+Another thing is like maybe even have some visibility into the native sex and
+
+11:47.840 --> 11:52.560
+what might be going there because you might be debugging like this postgres or
+
+11:52.560 --> 11:55.760
+my SQL driver which is going into C code.
+
+11:55.760 --> 11:58.400
+So how far did I get?
+
+11:58.400 --> 12:02.520
+Well, I got this working, this working, this working, this working.
+
+12:02.520 --> 12:04.680
+This is not, I haven't tried it yet.
+
+12:04.680 --> 12:07.840
+This is a really awful hack, so let's say maybe.
+
+12:07.840 --> 12:08.960
+And this is not working yet.
+
+12:08.960 --> 12:13.240
+So I'm still kind of experimenting with how far we can get.
+
+12:13.240 --> 12:16.080
+So a question is like how does backtrace work?
+
+12:17.480 --> 12:24.320
+So the TLDR is basically I've shown you how things get stored inside Ruby.
+
+12:24.320 --> 12:28.600
+So we basically just like go in there and get what we need out of Ruby without
+
+12:28.600 --> 12:33.240
+Ruby really having any APIs to do this thing, which is fun.
+
+12:33.240 --> 12:36.200
+So but these are internal VM APIs.
+
+12:36.200 --> 12:41.280
+So they are like in private headers and they are not available to gem.
+
+12:41.280 --> 12:43.800
+So how does this work?
+
+12:43.800 --> 12:45.240
+How can we access this information?
+
+12:45.240 --> 12:50.120
+And this is like the cool thing about like that this prototype allowed me to play with.
+
+12:50.120 --> 12:53.840
+So let's talk a bit about accessing Ruby VM internal APIs.
+
+12:55.080 --> 12:57.600
+So what's the backdoor?
+
+12:57.600 --> 12:59.960
+There's actually two different backdoors for
+
+12:59.960 --> 13:03.360
+accessing this VM internal C headers in C Ruby.
+
+13:03.360 --> 13:05.160
+One is the hidden Mjith header.
+
+13:05.160 --> 13:09.320
+So you might have heard about the Mjith experimental JIT compiler.
+
+13:09.320 --> 13:12.920
+So from Ruby 2.6 and 2.3.2 it was a part of Ruby.
+
+13:12.920 --> 13:16.280
+And it actually generated some C code and then compiled it.
+
+13:16.280 --> 13:19.840
+And that C code actually needed a header with some of the internal things.
+
+13:19.840 --> 13:24.000
+And so what the Ruby developer did was very silently,
+
+13:24.000 --> 13:27.240
+they went into this folder which is like a weird name and
+
+13:27.240 --> 13:31.200
+they created this RBM JIT header which is nobody supposed to use.
+
+13:31.200 --> 13:33.960
+And put that information there.
+
+13:33.960 --> 13:36.960
+So we can actually search this information from there and then use it.
+
+13:38.160 --> 13:41.640
+So yes, it's great just for the private use of the Mjith compiler.
+
+13:41.640 --> 13:45.160
+And if you import this, it's like weird working with it and
+
+13:45.160 --> 13:47.360
+a bunch of things doesn't work very well.
+
+13:47.360 --> 13:51.400
+Because it was not supposed to be used by anyone other than the Mjith compiler.
+
+13:51.400 --> 13:56.160
+But it includes like a copy of all the things we're looking at so we can make it work.
+
+13:56.160 --> 13:59.720
+Backdoor number two, which is like one of my weirdest backdoors,
+
+13:59.720 --> 14:02.680
+which is the device Ruby course of gem.
+
+14:02.680 --> 14:07.840
+So the idea is since the Ruby VM doesn't have any of the headers it needs.
+
+14:07.840 --> 14:09.080
+Thank you.
+
+14:09.080 --> 14:12.000
+This gem actually just kind of copypites all of the Ruby headers.
+
+14:12.000 --> 14:16.280
+So it has a folder and it has like some folders for every Ruby release and
+
+14:16.280 --> 14:20.280
+then kind of someone just copypites every header in there for every release and
+
+14:20.280 --> 14:22.200
+then release the new version of the gem.
+
+14:22.200 --> 14:24.560
+It's very crude, it works for all Ruby.
+
+14:24.560 --> 14:27.560
+So 3.3, now that's Mjith is gone in 3.2.
+
+14:27.560 --> 14:31.160
+And it also works like as far back as like Ruby to one or two zero.
+
+14:31.160 --> 14:33.480
+But yeah, you could do something like that.
+
+14:33.480 --> 14:37.440
+So the backdoor is like once we know what's the shape of these VM internal
+
+14:37.440 --> 14:40.040
+structures we can access them in backtracing.
+
+14:40.040 --> 14:43.440
+And if you remember this slide where I said I'll come back to this one,
+
+14:43.440 --> 14:47.400
+RB profile frames and RB profile thread frames, now is the time.
+
+14:47.400 --> 14:51.880
+So what I did in backtracing is that I started by copypasting
+
+14:51.880 --> 14:57.440
+RB profile frames into the backtracing code, just going into the Ruby VM like copypaste.
+
+14:57.440 --> 15:01.360
+And obviously when you copypaste from like an open source project,
+
+15:01.360 --> 15:05.280
+make sure you understand what's the license and if you can do that,
+
+15:05.280 --> 15:06.680
+you can do that with Ruby.
+
+15:06.680 --> 15:08.640
+And so I did this.
+
+15:08.640 --> 15:12.240
+It's fine, but make sure to like have the copyright headers and
+
+15:12.240 --> 15:13.720
+all that information.
+
+15:13.720 --> 15:17.040
+And then I added a bunch of features to experiment with it and
+
+15:17.040 --> 15:19.480
+get all of the things I was talking about.
+
+15:19.480 --> 15:25.000
+And actually, it was really interesting, this approach was really,
+
+15:25.000 --> 15:28.640
+I found it a really great way of prototyping something without having to
+
+15:28.640 --> 15:31.480
+depend on a custom build of the Ruby VM.
+
+15:31.480 --> 15:34.520
+Because I actually started by modifying the Ruby VM, but
+
+15:34.520 --> 15:39.040
+then I have a Ruby VM that works only for me and that features only for me.
+
+15:39.040 --> 15:42.080
+Instead, if I do this, I can tell you gem install backtracing and
+
+15:42.080 --> 15:43.000
+you can get it as well.
+
+15:43.000 --> 15:47.440
+So it's like an interesting approach to like playing with something that
+
+15:47.440 --> 15:50.360
+you would otherwise not play, but be careful.
+
+15:50.360 --> 15:53.880
+So obviously there's a lot of small details to get right.
+
+15:53.880 --> 15:57.960
+I am glossing over a ton of things needed to kind of get this weird thing.
+
+15:57.960 --> 16:01.720
+So for instance, you might want to access some VM internal structure, but
+
+16:01.720 --> 16:04.400
+you might not know exactly how to access it.
+
+16:04.400 --> 16:08.080
+So sometimes you need to kind of go read the Ruby API very carefully and
+
+16:08.080 --> 16:12.000
+see, this object that Ruby hands me actually internally has a pointer to
+
+16:12.000 --> 16:15.120
+the other thing, which has a pointer to the other thing, which eventually is what
+
+16:15.120 --> 16:15.480
+I want.
+
+16:15.480 --> 16:18.760
+So sometimes you need to do a bit of squinting at Ruby and
+
+16:18.760 --> 16:21.440
+understanding like how are you going to get access to this information.
+
+16:22.440 --> 16:27.560
+Like in some cases, like the copy pasted code also called other private VM
+
+16:27.560 --> 16:30.720
+internal APIs that are not exposed by the VM.
+
+16:30.720 --> 16:33.880
+So when I copy pasted, I compile it and then I try to run it.
+
+16:33.880 --> 16:36.160
+It doesn't work because those APIs aren't there.
+
+16:36.160 --> 16:38.200
+They aren't visible to gems.
+
+16:38.200 --> 16:41.640
+So again, like a lot of details here.
+
+16:41.640 --> 16:45.480
+Sometimes you just copy paste more and you keep copy pasting until it works.
+
+16:45.480 --> 16:49.000
+Sometimes you need to re-implement some things yourself because it's easier than
+
+16:49.000 --> 16:52.520
+you look at it as like okay, I don't need all of the things.
+
+16:52.520 --> 16:57.880
+But you need to play it a bit with it until you understand how you get it to work.
+
+16:57.880 --> 17:00.040
+But it has some really cool side effects.
+
+17:00.040 --> 17:05.000
+So for one, I was able to get this to work as far back as Ruby 2.3 with a lot of
+
+17:05.000 --> 17:08.160
+conditional compilation things in C.
+
+17:08.160 --> 17:12.080
+And even as I've done some experiments, even as far back as Ruby 2.1,
+
+17:12.080 --> 17:13.880
+so I think you could do this.
+
+17:13.880 --> 17:17.640
+And it was kind of cool because this includes back porting of
+
+17:17.640 --> 17:19.560
+RbProform frames features.
+
+17:19.560 --> 17:24.160
+So I copy pasted from Ruby 3 version and actually they have added a few features and
+
+17:24.160 --> 17:25.960
+some bug fixes and whatever.
+
+17:25.960 --> 17:29.000
+And so by copy pasting this and then using it on Ruby 2.3,
+
+17:29.000 --> 17:34.240
+I was actually having features that were not present in Ruby 2.3 from the modern
+
+17:34.240 --> 17:36.720
+version of the code, which was really cool.
+
+17:36.720 --> 17:41.080
+I also did not do it alone thanks to KJ from Zendesk that did a lot of work on
+
+17:41.080 --> 17:42.160
+Backtracing.
+
+17:42.160 --> 17:44.960
+And so let's quickly take a look at, interesting.
+
+17:45.960 --> 17:47.680
+Is it one full color?
+
+17:47.680 --> 17:48.840
+I don't know.
+
+17:48.840 --> 17:52.040
+So let's take a look at how we can use Backtracing.
+
+17:52.040 --> 17:55.160
+So you can go on the website, you can install the gem.
+
+17:55.160 --> 17:58.360
+As I said, it's the magic of doing this thing in this weird way,
+
+17:58.360 --> 18:01.800
+is that it works for you, for everyone, just install.
+
+18:01.800 --> 18:07.000
+It has this API which is Backtracing Locations, which gives you an array of
+
+18:07.000 --> 18:10.760
+locations, which is Backtracing's version of Ruby's location.
+
+18:11.080 --> 18:15.480
+So you get a lot of nice methods with the different things that Backtracing got,
+
+18:15.480 --> 18:19.240
+but Backtracing has a lot more things, and I will show you in a bit.
+
+18:19.240 --> 18:21.880
+Then you also get color locations, like Ruby,
+
+18:21.880 --> 18:25.360
+you get just for the colors of this current thread.
+
+18:25.360 --> 18:27.080
+And some use cases you can do with this.
+
+18:27.080 --> 18:31.000
+So you can obviously probe what information is there and
+
+18:31.000 --> 18:32.280
+you can implement your own printer.
+
+18:32.280 --> 18:36.560
+So there's a lot of information about the different names of the methods.
+
+18:36.560 --> 18:39.960
+And for this very simple example, actually they have all the same names,
+
+18:39.960 --> 18:44.320
+but sometimes Ruby has these notions of different names.
+
+18:44.320 --> 18:48.880
+So you can access all of them, you can access the objects that this was called on,
+
+18:48.880 --> 18:50.520
+you can access the class, a bunch of things.
+
+18:50.520 --> 18:54.080
+So you can use this, and then you can implement your own printer.
+
+18:54.080 --> 18:57.040
+That imprints a very nice stack trace.
+
+18:58.320 --> 19:01.720
+You can obviously use this to just get the pretty stack trace.
+
+19:01.720 --> 19:05.760
+So by default, Backtracing prints exactly as Ruby does, but
+
+19:05.760 --> 19:11.360
+if you call fancy to S, you get the one with the class names and a few other fancy things.
+
+19:11.360 --> 19:16.160
+And you can also call this weird Backtracing gem from C code, it has a bunch of APIs.
+
+19:16.160 --> 19:19.440
+And in particular, it has a special low overhead API for
+
+19:19.440 --> 19:21.640
+profilers and tools like that.
+
+19:21.640 --> 19:23.800
+So if you're interested in building something like that,
+
+19:23.800 --> 19:28.320
+you can use Backtracing to get the stacks and not have to care about.
+
+19:28.320 --> 19:33.280
+And actually one gem that's using Backtracing is this Ruby mem profiler
+
+19:33.280 --> 19:37.520
+that was created by KJ and I helped a bit as well.
+
+19:37.520 --> 19:42.040
+And so it's like an open source gem by Zendesk, which uses the Backtracing
+
+19:42.040 --> 19:45.680
+API to build a flame graph of memory so
+
+19:45.680 --> 19:49.240
+you can investigate memory usage and memory leaks and
+
+19:49.240 --> 19:53.280
+reduce the memory footprint of your application or even fix memory leaks.
+
+19:53.280 --> 19:57.960
+So we actually, me and KJ, we gave a talk at RubyKaigi about this thing called
+
+19:57.960 --> 20:00.480
+Hunting Production Memory Leaks with HIP sampling.
+
+20:00.480 --> 20:02.240
+So if you're curious, check that talk out.
+
+20:03.560 --> 20:08.600
+So some other use cases that we've been playing with on Backtracing.
+
+20:08.600 --> 20:13.560
+So you can actually access native function debug info.
+
+20:13.560 --> 20:18.200
+There's actually a lot to be said about how you get debug info from native libraries on
+
+20:18.200 --> 20:21.760
+Linux and different OSes and debug symbols and warf and whatever.
+
+20:21.760 --> 20:25.840
+I will not go into much into that because that's a nightmare.
+
+20:25.840 --> 20:30.560
+But I have a working prototype which actually you can see for each.
+
+20:30.560 --> 20:32.800
+You can see, okay, each belongs to Array.
+
+20:32.800 --> 20:36.760
+But you can also see it's implemented in this libruby.so object.
+
+20:36.760 --> 20:39.320
+You can see I'm using Ruby 3.1.
+
+20:39.320 --> 20:43.240
+And you can see that the C function name is rbarrayeach.
+
+20:43.240 --> 20:47.240
+And then in the future, we could even get more of the bug information,
+
+20:47.240 --> 20:53.280
+assuming it's still available and see the file name, the line number, etc.
+
+20:53.280 --> 20:59.000
+And allow you to smoothly go from Ruby code to C code as if, yeah.
+
+20:59.000 --> 21:02.880
+And theoretically, this native information doesn't have to just be C.
+
+21:02.880 --> 21:05.720
+So if you have a Ruby gem that is built in Rust and
+
+21:05.720 --> 21:08.520
+the Rust binding would have the correct debug information,
+
+21:08.520 --> 21:12.360
+you could go directly from your Stacktrace to, it's this Rust line.
+
+21:12.360 --> 21:16.400
+So it's really nice to, that's why I'm looking into having this information.
+
+21:17.720 --> 21:21.400
+Another idea that I have that I still haven't experimented,
+
+21:21.400 --> 21:24.080
+I haven't tried really hard to do it, which is,
+
+21:24.080 --> 21:27.120
+could we build a Backtrace Stacktrace for exception?
+
+21:27.120 --> 21:31.640
+So that when you have an exception in your app, you get the nicer objects
+
+21:31.640 --> 21:34.720
+which Backtrace provides you and you can get the full information.
+
+21:36.320 --> 21:38.560
+I haven't tried it yet, want to do it.
+
+21:38.560 --> 21:40.440
+So, just kind of a recap.
+
+21:40.440 --> 21:44.400
+What did I learn from all of this experimentation and playing?
+
+21:44.400 --> 21:47.840
+One thing is that the Ruby VM itself is very interesting and
+
+21:47.840 --> 21:50.200
+I would say surprisingly approachable.
+
+21:50.200 --> 21:54.360
+So my prior C experience was university projects and
+
+21:54.360 --> 21:56.440
+really, really tiny personal stuff.
+
+21:56.440 --> 22:00.040
+So I would not classify as a C developer ever.
+
+22:01.480 --> 22:05.920
+And I like everyone that goes to uni, I just kind of listed C in my CV
+
+22:05.920 --> 22:08.160
+because I did it at this one or two courses.
+
+22:08.160 --> 22:12.960
+But really, I was not a C developer and I still could follow along a lot of stuff.
+
+22:12.960 --> 22:16.120
+And especially if you go there and you add a printf and
+
+22:16.120 --> 22:19.920
+you start playing, changing the code a bit, it's like, you see things happening.
+
+22:19.920 --> 22:21.940
+It's really interesting.
+
+22:21.940 --> 22:27.560
+And also the power of having a working prototype to show off a crazy idea.
+
+22:27.560 --> 22:33.080
+And this had really two side effects that I was kind of hoping for,
+
+22:33.080 --> 22:35.280
+but didn't quite expect it would happen.
+
+22:35.280 --> 22:39.160
+One is that we actually at Datadog ended up using a similar approach for
+
+22:39.160 --> 22:40.680
+the Datadog Ruby Rufaller.
+
+22:40.680 --> 22:43.840
+And with Backtrace, I kind of proved to the team,
+
+22:43.840 --> 22:45.960
+I was like, yep, it works, I've got it working.
+
+22:45.960 --> 22:48.760
+This is one thing we could do if we wanted to.
+
+22:48.760 --> 22:52.160
+And the other thing is that the Ruby Core team also kind of liked the show class
+
+22:52.160 --> 22:54.240
+names in Stack Traces thing.
+
+22:54.240 --> 22:57.720
+And this kind of started an interesting discussion.
+
+22:57.720 --> 23:01.800
+And this leads us to the final item, which is class names in Backtraces
+
+23:01.800 --> 23:03.880
+coming soon in Ruby 3.4.
+
+23:03.880 --> 23:05.160
+Question mark.
+
+23:05.160 --> 23:09.320
+So actually in the Ruby issue tracker, this is now being discussed.
+
+23:09.320 --> 23:14.720
+This number 19117 include the method owner in Backtraces, not just the method name.
+
+23:14.720 --> 23:20.440
+This was opened by Jean-Bossier, had this proposal after we were discussing this at
+
+23:20.440 --> 23:21.600
+RubyKaigi.
+
+23:21.600 --> 23:25.200
+And then Mame implemented like it has a working prototype for
+
+23:25.200 --> 23:27.760
+this that it has a PR for Ruby.
+
+23:27.760 --> 23:29.880
+And actually if you just build it, it works.
+
+23:29.880 --> 23:34.640
+Like as kind of what we were saying, now you get this information of like the full
+
+23:34.640 --> 23:37.960
+class and you see that this is an instance method and you see like the dot on
+
+23:37.960 --> 23:39.040
+the class method.
+
+23:39.040 --> 23:41.920
+So we had this extra information for
+
+23:41.920 --> 23:46.000
+developers to just out of the box.
+
+23:46.000 --> 23:47.640
+Obviously this is still being discussed.
+
+23:47.640 --> 23:52.160
+So if you like this idea, you want to see this in Ruby 3.4 and use it in your app.
+
+23:52.160 --> 23:56.480
+Just try it out, go and leave feedback on this issue.
+
+23:56.480 --> 24:00.200
+And that was kind of it that I have had to tell you.
+
+24:00.200 --> 24:09.600
+So yeah, email if you want to talk to me,
+
+24:09.600 --> 24:13.360
+a knox on whatever they call the social network, my blog.
+
+24:13.360 --> 24:20.520
+I have a few other talks and here like yes, go get feedback because Ruby developers are
+
+24:20.520 --> 24:24.360
+actually calling for feedback in that ticket.
+
+24:24.360 --> 24:27.160
+And I actually, thanks to my employer, they developed for
+
+24:27.240 --> 24:28.880
+allowing me to work on these things.
+
+24:28.880 --> 24:33.520
+And I actually, if you're interested in coming work on the data about Ruby Jam,
+
+24:33.520 --> 24:36.880
+ping me because we are hiring right now for the Ruby Jam.
+
+24:36.880 --> 24:39.400
+And it's really different kind of Ruby that we do.
+
+24:40.840 --> 24:41.520
+Yeah, questions?
+
+24:43.760 --> 24:44.280
+Hello.
+
+24:44.280 --> 24:47.280
+Yeah.
+
+24:47.280 --> 24:50.600
+I think you mostly answered it but the class shown in the trace,
+
+24:50.600 --> 24:51.420
+Yeah.
+
+24:51.420 --> 24:55.280
+3, 4, and 3, 4 and backtracing, it is the owner of the method.
+
+24:55.280 --> 25:02.480
+Like we can statically, because in J-Bruity the only way we get the piled backtrace is
+
+25:02.480 --> 25:08.040
+by cramming a bunch of data into the class name or the file name or whatever it's on
+
+25:08.040 --> 25:09.040
+the JVM's trace.
+
+25:09.040 --> 25:10.040
+Yeah.
+
+25:10.040 --> 25:11.040
+I can't make that dynamic.
+
+25:11.040 --> 25:15.040
+Once I set that stone to the method, it's going to stay that way.
+
+25:15.040 --> 25:18.800
+But if it's the method owner, then at the point where I can pile it,
+
+25:18.800 --> 25:21.800
+I can just throw that extra information in there and pull it out.
+
+25:21.800 --> 25:22.800
+I think that's right.
+
+25:22.800 --> 25:26.600
+Yeah, I believe the disimplementation is exactly the method owner.
+
+25:26.600 --> 25:30.960
+I think in backtrace, yeah, I experimented with having both, but it's much harder.
+
+25:30.960 --> 25:34.480
+And I think part of the discussion going on in the ticket is also,
+
+25:34.480 --> 25:38.160
+what about dynamically defined stuff and whatever?
+
+25:38.280 --> 25:44.400
+So I think the implementation is like, oh, when it gets, and I think, yeah.
+
+25:44.400 --> 25:49.120
+In some cases, it might not show, because it's kind of hard to get this information
+
+25:49.120 --> 25:53.480
+even in CRuby and expose it in a very efficient way.
+
+25:53.480 --> 25:57.560
+But in a lot of cases, it's like a regular method on a regular class and it gets it.
+
+25:57.560 --> 25:58.560
+So yeah.
+
+25:58.560 --> 26:03.560
+More of a product question instead of a technical one.
+
+26:03.560 --> 26:04.560
+Yes.
+
+26:04.560 --> 26:10.560
+You say it came from the, you wanted to have access to what was being called.
+
+26:10.560 --> 26:11.560
+Yeah.
+
+26:11.560 --> 26:16.560
+Is that something you personally, or is that something that was shared across the team
+
+26:16.560 --> 26:19.560
+and then something related to that?
+
+26:19.560 --> 26:23.560
+Essentially, I'm not working with anything compared to that.
+
+26:23.560 --> 26:24.560
+Yeah.
+
+26:24.560 --> 26:26.560
+Will I get something out of it myself?
+
+26:26.560 --> 26:28.560
+I have a small company.
+
+26:28.560 --> 26:29.560
+I think so.
+
+26:29.560 --> 26:35.560
+And then I really, so my other background other than Ruby is Java.
+
+26:35.560 --> 26:40.560
+And in a Java backtrace, you usually get the class and the method.
+
+26:40.560 --> 26:45.560
+And I've always found it easier to, in a lot of cases, easier to think about.
+
+26:45.560 --> 26:48.560
+Like, oh, this is the class and this isn't the method on my class.
+
+26:48.560 --> 26:50.560
+Then just like the method names.
+
+26:50.560 --> 26:58.560
+Obviously, in Ruby, if you have a very well-structured code base, you know that app flash foo flash
+
+26:58.560 --> 27:00.560
+dot rb is going to be foo bar.
+
+27:00.560 --> 27:01.560
+Like, you know.
+
+27:01.560 --> 27:05.560
+But sometimes code is not actually that simple.
+
+27:05.560 --> 27:07.560
+There are like, so near parts of the application.
+
+27:07.560 --> 27:11.560
+So that's the part where I feel like this kind of thing comes in handy.
+
+27:11.560 --> 27:13.560
+And I kind of missed it from Java.
+
+27:13.560 --> 27:17.560
+And I had worked with Java tools and I was thinking like, I want this thing from Java.
+
+27:17.560 --> 27:19.560
+Can I have it?
+
+27:19.560 --> 27:26.560
+The, actually, other thing I can add is that because for methods in the Ruby VM, right now,
+
+27:26.560 --> 27:30.560
+Ruby never shows you, like, where array is in the VM.
+
+27:30.560 --> 27:33.560
+It kind of, it kind of blames you.
+
+27:33.560 --> 27:36.560
+I can show it very quickly.
+
+27:36.560 --> 27:44.560
+If I go back to the way, way, way, way beginning, you can kind of see this here.
+
+27:44.560 --> 27:51.560
+So this thing, have you noticed that Ruby is lying there and there and there?
+
+27:51.560 --> 27:53.560
+Is Kiehl defined in line three?
+
+27:53.560 --> 27:54.560
+Is Collect defined in line three?
+
+27:54.560 --> 27:55.560
+Is it defined in line three?
+
+27:55.560 --> 27:56.560
+No.
+
+27:56.560 --> 28:02.560
+So when you have a C func, like a C API or native API being called from Ruby,
+
+28:02.560 --> 28:06.560
+Ruby lies and just basically decides, it's the caller.
+
+28:06.560 --> 28:07.560
+So that's the thing.
+
+28:07.560 --> 28:13.560
+And actually, at some point, I had to debug this really weird case where Ruby was calling inspect
+
+28:13.560 --> 28:15.560
+and I really didn't understand it.
+
+28:15.560 --> 28:19.560
+And I had a bunch of like, new inspect, new inspect, new inspect going into the VM.
+
+28:19.560 --> 28:21.560
+And I really didn't understand it.
+
+28:21.560 --> 28:24.560
+And I actually got out backtracing to just get that stack trace.
+
+28:24.560 --> 28:29.560
+And I understood that it was like this weird case when you have a no methods error on like
+
+28:29.560 --> 28:33.560
+some Ruby version, Ruby will actually call inspect on your objects.
+
+28:33.560 --> 28:38.560
+And in some cases, it will, after calling inspect, it will throw the inspect away.
+
+28:38.560 --> 28:41.560
+Which was like, I was like, why is, whatever.
+
+28:41.560 --> 28:46.560
+But sometimes, like it gives you a lot more viewing, a lot more context if you know exactly
+
+28:46.560 --> 28:49.560
+where the methods are getting called and the classes.
+
+28:49.560 --> 28:51.560
+So here you would see process skill, et cetera.
+
+28:51.560 --> 28:54.560
+So it's much clearer in my opinion.
+
+28:54.560 --> 28:55.560
+Yeah.
+
+28:55.560 --> 29:00.560
+Did you try to apply the same approach on heap dumps?
+
+29:00.560 --> 29:05.560
+Apparently, you're just inspecting the internal C structures.
+
+29:05.560 --> 29:09.560
+So at least theoretically, it should be possible to inspect the heap dumps.
+
+29:09.560 --> 29:10.560
+Yes.
+
+29:10.560 --> 29:16.560
+So like, I'm not, it's been a while since I've looked at the JSON output of heap dump.
+
+29:16.560 --> 29:19.560
+So I'm not sure if it has this information, but it could.
+
+29:19.560 --> 29:24.560
+And actually, even if it doesn't have it, I don't think actually you don't need to go
+
+29:24.560 --> 29:26.560
+as far as backtracing and accessing the internal stuff.
+
+29:26.560 --> 29:30.560
+Because you can do like objects.pac.each to implement your own heap dump.
+
+29:30.560 --> 29:35.560
+And when you do have xpac.each, you have access to the objects where things are defined.
+
+29:35.560 --> 29:38.560
+I was talking about the dump files.
+
+29:38.560 --> 29:40.560
+The JSON file, yeah.
+
+29:40.560 --> 29:43.560
+I mean, not the JSONs that you can get from.
+
+29:43.560 --> 29:46.560
+I mean like a crash, like a heap dump of a crash of the VM.
+
+29:46.560 --> 29:47.560
+Yeah, yeah, it could.
+
+29:47.560 --> 29:48.560
+It's the same thing.
+
+29:48.560 --> 29:49.560
+Like the structures are there.
+
+29:49.560 --> 29:50.560
+So you could do this.
+
+29:50.560 --> 29:55.560
+Like you could even do like a GDB script or whatever debugger script that accesses the same things
+
+29:55.560 --> 29:56.560
+and reads it.
+
+29:56.560 --> 30:02.560
+And actually just one thing, if you ever heard of the RbSpy profiler, which is like built by Julie Evans
+
+30:02.560 --> 30:07.560
+originally, like RbSpy is kind of doing the same from, but from the outside the process.
+
+30:07.560 --> 30:11.560
+It's like, it's a rough process that it's like reading Ruby memory, reading those things
+
+30:11.560 --> 30:12.560
+and then showing information.
+
+30:12.560 --> 30:18.560
+So I actually at some point tried to prototype this in RbSpy and then I just got bored and did something else.
+
+30:18.560 --> 30:19.560
+Yes.
+
+30:19.560 --> 30:31.560
+If we want to start looking into the C code of the VM, is there a documentation or somewhere we can start to not reading all of the code?
+
+30:31.560 --> 30:33.560
+Yes.
+
+30:33.560 --> 30:34.560
+There is.
+
+30:34.560 --> 30:41.560
+There is actually a really nice repository that I think is like there is like a, I think it was built by
+
+30:42.560 --> 30:50.560
+I'm going to say Koichi, like one of the core Ruby developers that have like a nice introduction to the VM.
+
+30:50.560 --> 30:58.560
+I don't know exactly the name of the repo, but like email me and I have that in my bookmarks and I will send it to you because it exists.
+
+30:58.560 --> 31:02.560
+Actually, it might, like let me quickly do something.
+
+31:02.560 --> 31:04.560
+Maybe there's a...
+
+31:04.560 --> 31:06.560
+A challenge.
+
+31:06.560 --> 31:07.560
+Yeah, it's that thing.
+
+31:07.560 --> 31:08.560
+Exactly.
+
+31:08.560 --> 31:09.560
+Ruby Act Challenge.
+
+31:09.560 --> 31:17.560
+And I think in the backtracy repo, there's actually some links at the bottom and it might be there because I included in the repository a bunch of links of
+
+31:17.560 --> 31:20.560
+interesting things I found to read this information.
+
+31:20.560 --> 31:25.560
+And so if you go to the GitHub repo, the bottom, it might be there, but yes, it's Ruby Act Challenge.
+
+31:25.560 --> 31:27.560
+So Google it, you probably find it.
+
+31:27.560 --> 31:29.560
+Thank you.
+
+31:29.560 --> 31:30.560
+Thanks, everyone.
+
+31:30.560 --> 31:31.560
+Thank you.
+

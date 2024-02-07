@@ -1,0 +1,249 @@
+Hi everyone, my name is Dorian Dabasi and I work at Red Hat.
+I currently work on enabling the audio stack and other features in the automotive team.
+And today I'll be talking about the Piperia Audio Backend in QEMO.
+So just a brief overview about what Piperia is.
+Piperia is a multimedia service for handling booths audio and video.
+But in this presentation I'll be focusing on the implementation that was done in QEMO
+and I will also focus on its use cases in the embedded platforms.
+So for a start, what's the QEMO's audio backing?
+It's a software component that's responsible for managing the audio streams and also providing
+audio functionality to the emulated platform and in our case QEMO.
+And it's also responsible for handling the audio imputes and the outputs on your virtual
+machine that's running on QEMO.
+The Piperia Audio Backend, it provides an interface that would allow the sharing of these audio
+streams from the guest operating system to your host using the Piperia native APIs and
+libraries.
+So how does it work?
+Here this is an illustration of what the stack looked like.
+First we have the application that's running in the guest is sending the audio data to
+Piperia through MMFD and DM above and we have the Piperia Daemon that's communicating with
+the session manager and it's also responsible for handling the media routing and in charge
+of talking and talking to the AOSA driver on the guest channel.
+And in QEMO you can see that we have the emulated sound card driver which could either be AC97
+GOS or Intel HDA.
+It's providing the audio software emulation and then like any other host application that's
+running in your host user space, QEMO with the native Piperia Backend would be playing
+these audio streams to the host Piperia Daemon directly.
+So now it's playing those audio streams to the Piperia Daemon in the host user space
+but it's not going through any of the post audio compatibility layer or in the case of
+maybe AOSA, the AOSA plugin.
+So the Piperia Daemon process would now handle the media routing to the corresponding libraries
+like AOSA library and routed to the sound driver that's in the host channel.
+So after many iterations of the patches, the Piperia Audio Backend was merged in QEMO
+in May 2023 and it was added to the QEMO version 8.1 release and currently it supports
+Piperia version 0.36 although there's been a latest release in Piperia which is a Piperia
+1.0 release and that's like a huge milestone for Piperia.
+So after the QEMO 8.1 release there was some improvements that were made to the backend
+thanks to McHundry and Volca for their support while optimizing this backend.
+QEMO, it has a number of audio backends and you can find the latest audio backend which
+is Piperia among the list of available audio drivers.
+So depending on your architecture, the Audio Dev Help option should show you the list of
+audio drivers and you can see Piperia there.
+The Piperia Audio Backend, it uses similar structures like the other audio backends although
+the difference is that it's being implemented with the Piperia native C libraries.
+So these are the Piperia Audio Backend properties that can be configured on your command line.
+So first we have the Audio Dev command and we specify the Piperia backend that we want
+to use and also specify the ID of the Piperia backend and then you can specify the name
+of the Piperia backend, the stream name and the latency for the output stream and you
+could also specify the same for your input stream depending on the latency that you want.
+So this is a description of what the QAPI schema looks like for the Piperia Audio Backend.
+You can see the name there which is the Piperia Key Target Object and it's used to specify
+the target object to link to although it's not necessary if you do not specify an object
+name to set.
+And for the stream name, this parameter is a stream media name that is being used when
+you're creating a new stream and if you don't set a stream name, it should use the ID of
+the Piperia backend which is a PW sound.
+For the latency, in order to set your desired latency, you could set anyone that you want
+although the default latency is 46 milliseconds for Piperia Audio Backend.
+So there are other parameters like the mixing engine, the frequency, the channels and the
+formats.
+These parameters are common to the other audio backends like Paul Sodu, Jack and Ausa.
+But one thing to note is that in QEMU, it currently supports just one channel or two
+channels.
+That's money or stereo setup.
+So you can configure either one or two channels and in Piperia, when you're using a single
+channel, the content of your buffer is basically S1 samples, S2, S3 and each of the samples
+would be the buffer samples.
+Now when you have two channels, the format would be expecting the buffer to be like one
+sample on the left and one sample on the right and like continuously like that.
+So each of the samples that's the one on the left would be going to the left speakers and
+then the samples on your right would be going to the right speakers.
+So in the case of two channels, the sum of the samples would be the sum of the left samples
+and the right samples which is the stride.
+And then the buffer size there, it's specified in microseconds just in case you want to configure
+a buffer size.
+And the default format that can be used is S16, although the Piperia Audio Backend has
+a range of formats that it supports.
+And for frequency, you could set a default frequency of 44.1 milliseconds.
+So to use the Piperia Audio Backend, you need an audio device and this audio device is an
+emulated sound card.
+It's a legacy PCI device that's been plugged directly into the PCI ExpressRid bus.
+So this is an example of how the audio device is being configured in the command line.
+So first we have the device option which we're specifying an Intel HD device and we'll specify
+a codec option like HD Duplex for streams from your host speakers and your host microphone.
+And maybe if you wanted to only allow access to just your speakers, you could use the HD
+output option or if you just want access only to your microphone, you could use the HD
+microphone option.
+So here you can see that when specifying the sound card device to use, I used the ID that
+was specified in the Piperia Backend.
+That's you telling the sound card device to use the Piperia Backend.
+So this is how the properties of the Intel HD Audio Device are being declared inside
+the code.
+You can look up how the properties of the other devices like GOS and AC97 are being
+declared inside the code.
+So Quemo allows you to configure multiple audio backends and this is very useful in embedded
+platform development.
+So let's say for example that I'm emulating an infotainment system using Quemo and I want
+to configure a stream only for notifications on the mono channel and then I want to configure
+another stream only for music on two channels.
+This multiple audio backend configuration, it will allow you to specify different parameters
+for each of the created stream.
+So this is a visual representation of what the backend would look like with two Piperia
+Audio Backends.
+So you can see that each node in the guest is representing a created stream and you can
+see that the nodes which are the colored boxes and you can also see the host speaker nodes.
+So for playback, the output ports of the Quemo node which is on the right, the output
+ports for the Quemo node which is on the right, I've been routed to the speaker nodes
+on the host and then the input ports that's coming from the host microphone, I've been
+routed to the input ports on the guest.
+So this is also very useful when maybe you want to isolate the audio that's coming from
+different processes that are running in your guest.
+So now we'll take a technical deep dive into how the Piperia Audio Backend works.
+So what happens in playback?
+For playback, we first activate the stream and using this Piperia Streamset Active API
+call, it will set the stream mode into streaming and then next we call the buffer get free
+function.
+This function is used to know in advance the available number of bytes for writing data
+to the buffer and this also improves the playback latency by a factor of two.
+And later I will show you some latency measurements.
+So next what we want to do is to lock the tread loop because I'm using the tread loop
+mechanism and this mechanism ensures that we are doing the Piperia API calls only from
+one single tread at a time.
+So you don't want to be accessing this Piperia resources from multiple threads because it
+could cause a risk condition.
+So next what we want to do is to get the number of bytes that are available for writing data
+to the buffer.
+How we get this value is that we subtract the number of bytes that are actually inside
+the ring buffer from the effective Piperia Backend buffer size.
+And to get these bytes that are inside the ring buffer, we use the sparring buffer get
+rights index API call.
+So now what we do next is to use the sparring buffer write data to actually do a mem copy
+of buffer data from the source audio device to a temporary buffer with the index being
+the offset and then we update the write pointer.
+So here at this point there is the possibility of buffer on the run sometime occurring and
+although this happens in very rare cases, this is like a situation where the audio buffer
+levels has dropped below a certain threshold and it sometimes cause audio distortion or
+stuttering and like we cannot really guarantee that okay this guest would be producing the
+audio samples fast enough.
+So in Piperia we had a robust solution to fix this issue which was to handle this buffer
+on the runs by plain silence.
+You can look up the code on how we handle the buffer on the runs.
+So next what we do is to get a buffer that can be filled for the playback stream and
+then we copy this audio data from the temporary buffer to the Piperia buffer using the sparring
+buffer read data API call.
+Although I'm just giving you a summary of what the sparring buffer read data API call
+does but it does much more than that.
+And then next we queue the buffer for playback and this continue to happen in a loop until
+all the buffers have been played.
+So for the capture side what happens?
+It's more or less the opposite of what's happened in the Piperia backend and in this
+case like it's kind of similar but not because it's the opposite.
+So in this case what we do first is that we like activate the stream and then we use the
+buffer get refunction to know in advance the available number of bytes that we can write
+and then we use the tread loop lock again to ensure that we're just doing the API calls
+from one single tread at a time.
+But the difference here is that this time around instead of using the sparring buffer
+write data API call we're using the sparring buffer read data call and this time we're
+doing a mem copy of buffer data from the temporary buffer to the source audio device.
+So with the index being the offset we would update the read pointer afterwards.
+Then what we want to do next is to get a buffer that can be consumed for the capture streams
+and then we copy the audio data from the Piperia buffer to the source audio device using the
+sparring buffer write data API call.
+Next we queue the buffer for capture and then this continues in a loop until all the buffers
+are being consumed for capture.
+So as regards to the volume controls in order to be able to adjust your volumes through the
+virtual machine to be effective on the host we use the Piperia volume control API calls
+and this volume control code would allow for purpose synchronization of the volume changes
+that are made on the guests to be effective on the host.
+So when this volume changes have been applied on the node output monitor parts of the guests
+it will synchronize with the host.
+So for Piperia I use the Piperia stream set control API call and this is used to set the
+effective volume.
+Although one thing to note in Quemo was that it had volume levels of 0 to 255 and in the
+back end because the Piperia API has volume levels from a floating range of 0 to 1 where
+0 is the silence and 1 is representing without attenuation I had to do a linear conversion
+of these levels so did a linear conversion of 255 levels to Piperia floats in range of
+0 to 1.
+So regarding the features of the Piperia back end these features are not like the features
+of Piperia in general it's not only limited to its design to handle multimedia processing
+on the Linux but it also transcends to applications that have been built with the Piperia C API
+of which a use case now is the Piperia audio back end in Quemo.
+So on into the Piperia low latency features the Piperia back end has been developed to
+significantly reduce the latency in many ways and one of the ways is by setting the Piperia
+keynote latency property and we set it in the back end to be 75% of the time period for
+faster updates and the other way in which we reduced latency was to use the buffer get
+free function which improved the latency by a factor of 2.
+And I think to note about the latency is that the Piperia back end latency is mostly determined
+by a combination of the buffer size and the sample rate of the back end and this is usually
+called the quantum.
+So another feature of the audio back end is that it's providing a reduced footprint and
+also reduced dependencies in comparison to the other audio back ends that we have in
+Quemo and for the native Piperia back end we get to benefit from Piperia features such
+as the less CPU usage and the memory as well.
+So here I made some benchmarkings of the round triple latencies for the different audio back
+ends and all these latencies were being measured with a jack Iodili and a loopback cable.
+So listed here are the round triple latencies as reported by jack Iodili and the sample
+rate of the device that I used is set to 44.1 kilohertz.
+So as you can see there, yeah, I have to agree that jack is like topping the charts in low
+latency as expected but that's not my focus.
+You can see that the low latency that Piperia offers is quite low and then next we have
+the pulse audio and SDL competing with each other.
+So about debugging, while I was working on this audio back end, the GDB was very useful
+because in case you want to examine the state like registers and memory and you want to
+maybe set break points and watch points you could use it and you could also leverage the
+Quemos internal tracing infrastructure.
+So I added a couple of Piperia audio back end trace events that you can use.
+So these trace events you can configure it on the command line and example of these trace
+events is the Piperia writes trace events.
+When you set it, it will show you the length of bytes that's to be written to the buffer.
+It will also show you the available number of bytes that can be written.
+And one thing to note here with Quemos is that this, when if you use this, if you enable
+this Piperia write trace event, it produces a lot of outputs given that we are copying
+bytes every millisecond.
+So you should expect to have a very big log file in case you want to enable those trace
+events.
+And then there is the other tool that is very handy, the Piperia debug login.
+You can use it to set different debug levels from 0 to 5 and these levels would help you
+to see and have control of the behavior of the Piperia back end or if you were maybe
+using like debugging your own Piperia application.
+So here I added some helpful links.
+The first one which is my blog about the Piperia back end and its usage in Quemo.
+The next one was Get Hoffman's blog about the sound configuration changes that were
+made in Quemo.
+And then we also have like the Quemo invocation that's in case maybe you want to see and know
+how to use these audio back ends or maybe some other audio back ends, you could look
+up the Quemo invocation and how to use it.
+Then I also added the Piperia's wiki page on performance measurements.
+So it includes scripts that you could use to measure the latency in the different audio
+back ends like Piperia, Paul, Sodja and Jack.
+And you could also use it to measure the context switches and the CPU cycles, etc.
+So at this point here I would like to give a shout out to Intema and the Piperia maintainer
+who assisted me while I was working on this back end.
+Thank you.
+Do you have any questions?
+Any questions?
+Questions?
+What was?
+Oh yeah.
+I'm not curious what applications you tested with the incubators.
+So you're asking what applications in Quemo that I tested with this and how they behave.
+Okay, you could test a couple of applications that's like trying to play audio which maybe
+you're watching YouTube on your guest.
+But I mostly use the loopback cable and the Jack Iodili tool to measure latency.
+At least that's very effective because you could use it to measure like the CPU cycles
+as well.
+The latency and you could also measure other like features that you're interested in.
+Any other questions?
+Thank you very much.
+Thank you.
+Thank you.

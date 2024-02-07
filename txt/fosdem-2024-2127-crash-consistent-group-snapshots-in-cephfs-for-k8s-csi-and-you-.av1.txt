@@ -1,0 +1,403 @@
+Hi everyone.
+My name is Leonid.
+This is my colleague, Patrick.
+And today we're going to talk about Snapshot consistency with you.
+So before we dive into Snapshot consistency, let's discuss consistency on its own.
+Now here's some data storage, has a bunch of data written on it.
+Is this data consistent?
+We don't know.
+And the reason that we don't know is because consistency is not an intrinsic property of
+data.
+We have to consider a system that comprises of an application and its logic and a storage
+system and the data that is written.
+And only then, including the logic, we can reason about the data and we can define whether
+it's consistent or not.
+So the application is running fine, data is written, everything is consistent.
+What happens if the application dies?
+We don't know whether the system is in a consistent state or not.
+So actually it is possible to write an application and to write a storage provider in a way that
+by doing some smart decisions during the runtime, then the application can reach a consistent
+state after restarting, after a crash.
+This is called crash consistency.
+Now how is crash consistency related to snapshots?
+And the truth is that the snapshot, or rather the snapshot that we're talking about, which
+is a crash consistent background snapshot, is equivalent to a crash.
+The application cannot tell between restarting after a crash or restarting after you recovered
+from a snapshot.
+So let's look at the system.
+We have an application in storage and it was a poor selection of a storage.
+We cannot reach consistency in the system.
+Even if the application is a high quality, well designed app.
+Same thing other way around.
+If you are using an industry leader storage provider but the application just doesn't
+care or is poorly written, you're not getting consistency.
+If you have a well written application and an industry leader storage provider, it is
+still a question whether the consistency or rather crash consistency is reachable.
+And it is only reachable if we consider a contract that an application and storage adhere
+to and then when they both do things right, together they can reach crash consistency.
+And the scope of this talk would like to refer to this kind of application and storage as
+enterprise.
+There are many ways to unpack this term so bear with us for this scope of this talk.
+An enterprise app and an enterprise storage from our perspective are those that adhere
+to a contract.
+Now what is this contract?
+Or rather in our case what is interesting is what is it that we need to do itself as
+a storage provider that we automatically combine with an enterprise app that is already written
+with this contract in mind and together we provide a crash consistent system.
+And I remind you we want a crash consistent system because this is what enables consistent
+snapshots.
+To understand that we need to understand right ordering.
+Rights A and B here, they are ordered if and only if.
+Right B begins after the app has received and processed an acknowledgement from the
+data storage that right A has been successfully completed.
+Now it is important to note that the acknowledgement has to come from the storage and not from
+the OS because usually your applications are interacting with the operating system and
+it is the operating system that gives you the first acknowledgement after a right.
+These applications are aware of that.
+They know that they need to do to use things like flush or direct IO to know that the acknowledgement
+is originating at the storage level to perform ordered rights A and B.
+Now that we understand what ordered rights are, let's inspect what the storage needs
+to do.
+So we have two ordered rights.
+Right B hasn't begun before A has been acknowledged.
+And in order to understand what storage should do or shouldn't do, let's look at different
+types of background snapshots that the storage might have taken.
+So it could be that we've taken a snapshot before A and it's a consistent snapshot.
+It's a snapshot that has no knowledge about neither A or B.
+It could be that the snapshot already captured A and we know this is possible because there
+is a window of time when A has already been completed and B hasn't yet started because
+application was waiting for the acknowledgement.
+So this is a consistent snapshot.
+And finally there could be a case where the snapshot contains both and B. This is also
+a consistent snapshot.
+What the storage or enterprise storage provider must absolutely promise to the app is that
+snapshot 4 is not possible.
+There cannot be a case that a snapshot contains operation B but somehow lost operation A.
+That's basically the contract to preserve the order of rights.
+So we're going to ask Patrick to discuss how this relates to CEP.
+So within the context of CEPFS, we're going to first start looking at how snapshots work.
+So on the left we have MDS0, managing two trees of interest in the file system, SV1
+and SV2 and two clients, client 1 and client 2.
+So how do we take a snapshot in CEPFS?
+Well there will be an operation sent to MDS called MakeSnap and that will snapshot a particular
+tree within the file system.
+In CEPFS you're allowed to snapshot a particular directory and everything under it, not just
+the entire file system.
+When a snapshot is taken it sends a notification to all the clients that the snapshot has been
+taken for a particular I know that the client is interacting with.
+And once that's all done the snapshot's complete.
+If you want to take another snapshot of another volume you have to do another operation.
+There's no compound snapshot operation.
+So we send a second snapshot out of the other volume and again notify the clients for any
+I know that they may be interacting with.
+When clients interact with RATOS, the underlying distributed object storage of CEPFS, they
+create snapshots implicitly when they write to the objects that hold the files data.
+And they do that by including a snapshot vector of the snapshot IDs that have been taken on
+the files.
+And those are what is transmitted to the clients in the snap updates.
+And here lies the rub.
+If this, with CEPFS snapshots we have eventual consistency.
+Because what, when a snapshot is taken on the file data depends on when the client gets
+the update from the MDS.
+So they're eventually consistent, not synchronous.
+To really highlight this we'll look at a case study.
+So here we have two clients in an MDS.
+Operation B on client two is dependent on the completion of operation A on client one.
+Let's say this is like a database application, a distributed database.
+The MDS is starting a snapshot and it sends the notifications to the clients and expecting
+the apps.
+Client one initiates operation A after it's been notified of the snapshot.
+And so operation A is not part of the snapshot.
+Meanwhile client two has not gotten the notification from the MDS yet or is not processed yet.
+But it has already started operation B. It was just a simple write to a file.
+Well operation B is in the snapshot because it processes the notification afterwards.
+This is a problem and creates inconsistency.
+Op B is in the snapshot but op A is not.
+Looking at this another way you may have a utility that's trying to create a snapshot
+on the file system and it tells the MDS to make the snapshot it does.
+But then induces operation A on the client.
+Expecting operation A to not be part of the snapshot because as far as it knows it's already
+been taken.
+But that's not the case.
+Operation A is in the snapshot because the client has not been notified yet of the snapshot.
+So this is also inconsistent.
+So the solution we've implemented is fairly common within enterprise storage systems in
+the industry that are trying to address this issue of crash consistent snapshots which has
+become a larger thing right now with Kubernetes CSI requirements is to introduce an IO pause.
+And IO pause ensures this ordering by preventing any operations from going on within the tree
+of interest while the snapshot is percolating among the entire file system and all of its
+clients.
+So the way this looks in practice is op A is started and IO pause is established.
+Point one is trying to induce client two to execute operation B. But operation B cannot
+execute because the IO pause is enforced.
+Looking at it a little differently you know we could have op A and op B happen before the
+IO pause.
+They're both part of the snapshot.
+This is consistent.
+And then we may also have a situation where op A is sent to the MDS before the IO pause
+just before the IO pause is established.
+Op A waits through the entire course of the IO pause.
+When the IO pause is lifted operation A is allowed to complete and then the notification
+is sent back to the client that the operation is done and op B is started.
+This is also consistent.
+We'll also look at a super operation, a compound monolith called a mix snap, a variant of mix
+snap which will also establish this IO pause for you.
+But we'll also look at the underlying mono operations you can do to establish this IO
+pause.
+And that will be the mechanism you can use to actually to establish these crash consistencies.
+So I'll move back onto the approach.
+Thanks Patrick.
+So we now realize that all we need to do is an IO pause and let's see how we do it.
+Now we were considering a couple of approaches and one of the approaches apparently is a
+monolith solution.
+We would define some new comment that would mean consistent snapshot and you would configure
+it somehow and start it off and it could be either sync across file systems and even
+across a file system which is a CFFS and an RBD volume.
+If you have multiple different types of volumes configured for your Kubernetes applications
+with this approach you will still be able to create a consistent snapshot across all
+those things.
+So in order to expose this to the user we introduce a concept of QS set and QS routes.
+So a QS set is basically just a collection of mount points that you'd like to QS your
+IO to.
+In the world of Kubernetes there would be a set of volumes that you would like to QS
+your IOS to.
+It's reasonable to give users this entity of QS set because you don't want them to
+chase around all the different sub volumes whether they are QS or not.
+We're interested if a group of volumes are together QS and that's what we are waiting.
+So a QS set implements this state transition.
+Now internally your mount points they map to some path inside CFFS file system and this
+is where the magic happens.
+This is where we actually QS in IO and we refer to that as a QS route.
+We have also thought about the condition where a QS route may be a part of multiple QS sets
+at the same time because we don't want to interact too much with the logic of automated
+snapshots like Kubernetes that might somehow involve consistent snapshot with some volume
+that is part of two different unrelated processes.
+The way we resolve it is really simple.
+As long as the route is part of at least one active QS set IO to this route is QS.
+So let's talk about the API.
+This is the comment that we're suggesting.
+QS we give it a file system name.
+We name our set ID so that we can refer to it later and then you are including as many
+mount points as you wish into the set.
+You can also ask this comment to be synchronous by minus minus a weight and so it won't return
+until the QS has been achieved.
+Once that is done you can go on creating snapshots.
+These are regular snapshots.
+This is the snapshots that you do in CFFS.
+Nothing changed about those.
+So we've created three snapshots for three mount points that we've added to the QS set
+and then we again refer to the QS comment but this time we're asking it to release the
+pause.
+If we successfully QS hopefully we haven't done anything else if there was a failure and
+then the release also succeeded then we know that those three snapshots are consistent because
+the pause has been confirmed active for the whole duration of this process.
+And here's your monolith.
+Hopefully almost for free we're having also a monolith approach so like a one liner for
+system administrators who don't need to interface with the internals.
+We're suggesting a minus minus consistent switch to the snapshot.
+We're changing the semantics of this comment a little bit by being able to provide all
+the mount points in the same time.
+And then this is going to do everything under the hood.
+It's the same thing.
+It's going to do it for you.
+Now we have a tool and we can shoot our leg with it of course because we can DOS our application.
+And we thought about this and we've built in DOS protection inside the QS database.
+We've done this by implementing two watchdog timers.
+The first watchdog timer is a timeout.
+So when we consider the set it's going to spend some time QSing.
+Why?
+Because there are ongoing operations, right?
+And before we can acknowledge QSing we have to let applications finish whatever they have
+been doing right now.
+So under the hood the QSing is managed automatically for you over each and every mount point.
+And so all the mount points have this timeout to reach the QSing.
+And then if at least one of the mount points fails to reach QSing within the timeout then
+the whole set is timed out and whichever QS that were achieved are released immediately.
+Now the next thing, the second timer is the QS expiration timer.
+And for that we need a QS set that actually succeeded to QS.
+Now we know that in order to succeed to QS we have seen all the mount points successfully
+QS within the configured timeout.
+But then if we forgot about the set or something crashed, something bad happened and we never
+released it or never cancelled it and the expiration timeout elapsed then the set is
+going to enter the expired site and again everything is going to be released automatically
+for you.
+Why do we have two timers and not just one?
+And the reason is because you're going to have different considerations when you will
+try to come up with the values for those timers.
+The QSing phase really depends on your system.
+It depends on how many mount points, what kind of applications you're running, what
+kind of operations they're doing with the storage because that means how long you should
+wait for the system to QS and you are allocating some reasonable amount of time for that.
+However the QS state is already on you.
+When the system did reach the QS state and you have the notification about this then
+you can say, okay I know that I need to do just a single snapshot so I don't need more
+than let's say 10 seconds.
+Whatever, right?
+Two different considerations that you need to take into account when figuring out these
+two timer values.
+This is the API, I've simplified it a little bit in the previous slides, this is the API
+where we're not going to go into all the details but it's basically a Swiss knife.
+You should have all the options that you want.
+And with that let's ask Patrick to discuss the design.
+So let's just take a quick look at the high level design of the entire system.
+So here we have an administrative client which in the wild is probably going to be the Kubernetes
+CSI driver.
+That's going to be interacting with the CEPH manager which is specifically the volumes
+plug-in within the CEPH manager.
+That volumes plug-in will be actually executing the commands on one of the MDSs in the file
+system.
+We'll call it the QS leader or rank zero in reality.
+And then that will be also coordinating with any other ranks in the file system.
+We'll call them MDSB and C.
+And then finally the file system clients which are talking to the MDSs.
+To talk to the volumes plug-in the API will be the regular CEPH command line interface
+that we all know and love.
+The API will be exposed at that level.
+And the volumes plug-in will be talking to the MDSs using the LibcFFS API.
+The MDSs will replicate the QS database amongst themselves so they all have a view of the
+same QS database.
+And then the QS protocol will be used to actually QS the IO and stop the clients from doing
+IO on a given subtree in the file system.
+So we're going to actually talk about that part next.
+So how do we actually QS IO on a subtree?
+Before we can get into that we'll take a small step back and look at some context and background
+regarding what CEPHFFS client capabilities are.
+So in CEPHFFS it's somewhat different in a number of distributed file systems in that
+the MDSs and the clients are maintaining a cooperative cache.
+Clients have an elevated status within the file system context in that they also can
+cache metadata, not just data of the file system.
+And not just cache it, they can also have rights to mutate that metadata locally without
+involving the MDSs immediately.
+So to give a specific example we have here MDS0 has a given file that it's authoritative
+for 0x19tb.dat and client.1 on the right has a capability for that file.
+And the access rights that it has on that file, delegated to it by the MDS is to read,
+write, cache reads and buffer writes to that file.
+It has shared extended attributes meaning it has a local cache of the entire extended
+attribute map for the file and it knows that the extended attribute will not change for
+that file without being told by the MDS.
+Similarly also for the link count of the file.
+This allows the client to respond to certain stat calls locally without actually talking
+to the MDS.
+Capabilities themselves are modeled loosely after leases, an academic paper I put in the
+slides and leases are mostly different for having a time-based duration whereas for capabilities
+within CEPFS they have an undefined time duration.
+So now to look at exactly how we're going to QSIL.
+So now we have this issue of clients having these capabilities and maybe trying to continue
+doing writes to the file or modifying metadata so we have to recall those capabilities.
+So here we have two MDSs, zero and one and a QS database replicated between them.
+On the right we have client one with a number of caps for a given tree of interest that
+we're trying to QS, rooted at SV.
+When we want to QS, the QS database launches a QS subvolume operation, it's an internal
+operation on the MDS, it will start that on MDS zero.
+That in turn launches some suboperations, QS subvolume inode and it will do that on
+every inode in the given sub tree that that particular MDS is authoritative for.
+So the inodes are colored according to the MDS authority.
+So just the first two inodes at the top of the tree the QS subvolume inode calls will
+be performed on.
+We'll look at what that does in the next slide.
+QSDB will also launch it the same operation on MDS one.
+It'll launch QS subvolume inode operations on the inodes that it's authoritative for.
+And then once all this is complete, it's done.
+So what does QS subvolume inode do?
+We have this, the operation being executed on as an example, OX19DB.dat.
+We have a client on the right with the capability to read, write, buffer and cache data for
+the file.
+It has exclusive writes on the X-Satters so it can even make local changes to the X-Satters
+without telling the MDS immediately about them and returning to the client.
+And it has a shared link count.
+Now when I start the QS subvolume inode operation, it actually behaves similarly to many client
+requests that are already executed within the MDS.
+We're using the internal facilities that already exist to do this.
+The operation requires a number of locks, internal locks on the inode, not the internal
+not the POSIX facing locks that normal file system users are familiar with.
+These are internal locks on the inode and they control which metadata the operation
+has permission to change on the inode.
+So we're acquiring the auth lock, the link lock, file lock, etc. for reading or exclusively.
+And by doing so, the MDS will reconcile this with what writes have already been given to
+clients, that is what capabilities have been issued.
+And if necessary, it will revoke capabilities before those locks can be acquired.
+So when this operation tries to acquire those locks, it sends a revoke to the client.
+The client updates its local capabilities according to what the MDS is allowing it now
+to have, possibly fleshing data if it changed the file size for example or added in an extended
+attribute.
+You may flush that along with an update message to the MDS saying yes, I've updated the capability,
+I don't have these access rights anymore.
+And now you see that it has no file permissions.
+Its X-hatter is now shared instead of exclusive and the link count continues to be shared.
+So after this has occurred, the operation is considered done and any future ops on the client
+associated with this inode will block because these locks are still held.
+Why?
+Because this is a long running operation.
+Unlike most ops in MDS, which it will acquire these locks, perform some metadata mutation
+and then drop the locks, this is necessarily a long lived operation because it needs to
+continue to prevent clients from getting capabilities on the file or executing metadata operations,
+which will also try to get the locks from executing.
+So the get adder would block or any other client operation that would acquire those
+locks.
+So now to close out the talk, we'll take a quick look at the QIES set state diagram
+and focus only on the happy path.
+You know, it's a typical state diagram, lots of error paths, right?
+So we have a new set, we're adding a number of routes to the set and once it's in that
+state it's going to enter the QIESing.
+So at that point we're going to be launching all our QIES sub volume inode operations and
+acquiring all these locks, capabilities will be revoked, new operations will be blocked.
+When all of those operations have their locks and they're complete but not dead, then we
+can enter the QIES state.
+So all of these, that'll trickle back up the stack when we're querying the database
+we'll be able to see that the set is QIESed.
+At that point we're going to take our snapshots on all the routes that we need, more than
+one probably and when the snapshots are complete we can then release the set.
+So then we'll go into the releasing state, all of those QIESa volume inode operations
+will be killed and the locks automatically released allowing clients to be reissued caps
+or any blocked metadata operations to be kicked and resumed.
+Once those operations are all dead then the set will enter the release state and the QIESet
+is considered terminal and done.
+So that is the basics of the QIESets and again there's a number of error states shown
+on the slide, a canceled QIESet or an expired one, etc.
+So with that that's the end of our talk, we're going to leave time for questions.
+Again I'm Patrick Donnelly, this is Usob, I said your last name right, right?
+Don't often say his last name.
+These are the pull requests we have open still for our work, they've not yet been merged
+into the main branch so this is not yet live and even the development version of CEP.
+And we have some documentation that you can also review, some preliminary documentation,
+some details may change but for the most part it's reaching a very concrete state.
+That's it, thank you.
+Any questions?
+Yes?
+Will CEP mistakes snapshot and store it in like dot snap or underscore snap type within
+the folder?
+You mentioned that all I.O.
+in that part onwards will be pleased so will like leads on previously taken snapshots also
+be frozen or that.
+For the most part, alright so the question is if I've quiesced I.O. on a subtree can
+I continue to access snapshots of that, past snapshots of the subtree and the answer is
+probably not because of the way the locks work on the I.O.s it may also incidentally
+protect how the access through the snapshot version of the I.O.
+Then there is like we didn't introduce the shallow volume people like maybe we can mount
+the snapshots for backup system to just read the contents.
+Not at this time so we're looking also into a variant of quiescing where it allows most
+read only access to the files.
+Right now it's very much a stop the world for the most part I.O. pause so you won't
+even be able to execute most reads on the file system.
+Or like some stat calls may still be able to respond well written stat calls on the
+clients because they still retain certain read only capabilities.
+In the future it will work for the ASX vector like we can access read only snapshots.
+That is the hope in the future we'd be able to do that yeah to support that.
+Any other questions?
+Neil.
+So now you have the set command to quiesce volumes is it also possible to run FS3s on
+the client side if you have set FS kernel mount for example that would quiesce the volume
+for all other clients.
+Do I answer that one?
+So the question was whether we're going to be able to use kernel if it will work for
+kernel clients.
+Exactly if you call FS3s on the client side instead of running set command.
+As of now we haven't planned to support the FS3s command but it will look into it.
+I think it's pretty reasonable to consider it even for the first operation.
+Now one of the good stuff about what we're doing right now is that it's intrinsically
+backward compatible because we're building on the set capabilities kernel clients will
+be able to reach the quiesce.
+Now how you trigger the quiesce it's another question and we'll consider this definitely.
+Other questions?
+Okay thank you very much.
+Was it pleasant?

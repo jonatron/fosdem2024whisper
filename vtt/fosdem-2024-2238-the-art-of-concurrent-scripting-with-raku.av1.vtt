@@ -1,0 +1,905 @@
+WEBVTT
+
+00:00.000 --> 00:09.800
+Alright, thank you, thank you Theo for all the organization.
+
+00:09.800 --> 00:16.560
+I want to thank my employer Instacart for sending me here and thank you everybody here for coming
+
+00:16.560 --> 00:17.560
+to this talk.
+
+00:17.560 --> 00:22.000
+Quick survey, how many people have written some code in Rocko before?
+
+00:22.000 --> 00:23.000
+Oh good.
+
+00:23.000 --> 00:25.720
+How many people use it kind of regularly?
+
+00:25.720 --> 00:26.720
+Okay.
+
+00:26.720 --> 00:30.080
+How many people write bash scripts?
+
+00:30.080 --> 00:34.440
+Okay, excellent.
+
+00:34.440 --> 00:38.760
+So my name is Brian Duggan, I'm a logistics engineer at Instacart.
+
+00:38.760 --> 00:40.240
+We do grocery delivery.
+
+00:40.240 --> 00:45.680
+I would like to say basically everything is a race condition for us.
+
+00:45.680 --> 00:52.320
+I'm also a Rocko module author and I like to write scripts in Rocko.
+
+00:52.320 --> 00:54.160
+So this is a brief outline of the talk.
+
+00:54.160 --> 00:55.160
+First some motivation.
+
+00:55.160 --> 00:57.120
+What am I talking about?
+
+00:57.120 --> 01:02.680
+I'm going to go over concurrency in Rocko, just a basic overview.
+
+01:02.680 --> 01:07.840
+And then I'll show you some tricks for migrating some stuff from bash to Rocko, how things
+
+01:07.840 --> 01:13.480
+look in bash and how the same thing would look in Rocko, and then how using some of the concurrency
+
+01:13.480 --> 01:19.880
+primitives can help your problem solving abilities.
+
+01:20.400 --> 01:22.760
+Okay.
+
+01:22.760 --> 01:25.760
+So a few words about scripting.
+
+01:25.760 --> 01:30.560
+I tried to enumerate some of the characteristics of what we call scripting.
+
+01:30.560 --> 01:33.560
+So I'm really talking about shell scripting.
+
+01:33.560 --> 01:37.800
+And I think when I'm writing a shell script it's usually something to solve.
+
+01:37.800 --> 01:39.560
+I'm going to do something pretty quickly.
+
+01:39.560 --> 01:42.880
+I don't want very many dependencies.
+
+01:42.880 --> 01:45.160
+It should be easy to understand.
+
+01:45.840 --> 01:50.280
+And it should be pretty reliable because has anybody had the experience of writing a script
+
+01:50.280 --> 01:54.080
+and it lasts for several years when you thought it was going to last for a few minutes?
+
+01:54.080 --> 01:55.080
+Okay, yes.
+
+01:55.080 --> 01:56.080
+Good.
+
+01:56.080 --> 01:57.080
+All right.
+
+01:57.080 --> 01:58.080
+We are together.
+
+01:58.080 --> 01:59.080
+Okay.
+
+01:59.080 --> 02:03.560
+So another thing that I've noticed a lot about shell scripts is they're supposed to be
+
+02:03.560 --> 02:05.600
+pretty simple.
+
+02:05.600 --> 02:07.520
+You know, you basically run some commands.
+
+02:07.520 --> 02:10.120
+Maybe you check their exit status.
+
+02:10.120 --> 02:15.560
+Maybe you have a little bit of control flow in your scripts.
+
+02:15.560 --> 02:21.760
+If you're fancy you might write a PID file and use the file system to do atomic write
+
+02:21.760 --> 02:27.520
+and rename so you get some guarantees that you don't have two of the same copy of your
+
+02:27.520 --> 02:30.480
+script running at the same time.
+
+02:30.480 --> 02:32.640
+For the most part they look like this though, right?
+
+02:32.640 --> 02:37.440
+They're basically like this sort of standard procedural flow.
+
+02:37.440 --> 02:38.560
+You have some decisions.
+
+02:38.560 --> 02:39.720
+You go forwards.
+
+02:39.720 --> 02:47.080
+You don't usually see, if you're really fancy you might use trap to capture some signals.
+
+02:47.080 --> 02:49.440
+You might try to time out some commands.
+
+02:49.440 --> 02:51.120
+Has anybody used time out by the way?
+
+02:51.120 --> 02:54.320
+I just learned about it recently.
+
+02:54.320 --> 02:55.880
+You might have some progress indicators.
+
+02:55.880 --> 03:01.160
+You don't usually see things like async await or event loops or message queues or definitely
+
+03:01.160 --> 03:10.880
+not threads, definitely not mutexes or shared memory or anything like that.
+
+03:10.880 --> 03:15.920
+With scripts we assume that we don't really need real programming.
+
+03:15.920 --> 03:17.440
+We're just doing something simple.
+
+03:17.440 --> 03:21.040
+We want to get it done.
+
+03:21.040 --> 03:25.200
+There's this idea that the world is just not that complicated.
+
+03:25.200 --> 03:30.720
+I think in reality the world actually is that complicated.
+
+03:30.720 --> 03:35.840
+This is how I vision our scripts are on the right where we have this vision of this like
+
+03:35.840 --> 03:42.880
+perfect linear world where things are well organized, running one after another.
+
+03:42.880 --> 03:48.560
+But in reality the world is kind of a mess.
+
+03:48.560 --> 03:57.160
+As a wise man once said earlier today, minimizing concurrent code leads to crappy programs.
+
+03:57.160 --> 04:02.160
+Let's talk about Raku.
+
+04:02.160 --> 04:08.600
+For a deeper dive about the implementation of concurrency in Raku, I recommend that you
+
+04:08.600 --> 04:17.120
+watch Jonathan Worthingson's talk many years ago about parallelism, asynchronic and concurrency
+
+04:17.120 --> 04:18.200
+in Raku.
+
+04:18.200 --> 04:21.480
+He gives some really good definitions of those three words.
+
+04:21.600 --> 04:26.680
+I'm just going to say the definitions without going into too much detail.
+
+04:26.680 --> 04:34.040
+But parallelism is the idea of choosing to do multiple things at once.
+
+04:34.040 --> 04:38.440
+Asynchrony is reacting to things that will happen.
+
+04:38.440 --> 04:44.240
+Concurrency is competition to access and mutate some shared resource.
+
+04:44.360 --> 04:49.600
+Raku has great support for those.
+
+04:49.600 --> 04:55.320
+Being a multi-paradigm language, it doesn't impose any particular strategy on you for
+
+04:55.320 --> 04:56.800
+dealing with concurrency.
+
+04:56.800 --> 05:01.440
+We've had some conversations earlier today about Elixir, which has the actor model.
+
+05:01.440 --> 05:05.920
+There's a go track where you have a lot of threads running at the same time.
+
+05:05.920 --> 05:11.040
+Many languages have different models of concurrency, and Raku tries not to be too dogmatic and
+
+05:11.040 --> 05:13.880
+lets you do whatever you want.
+
+05:13.880 --> 05:16.840
+You have to deal with race conditions yourself.
+
+05:16.840 --> 05:21.520
+If you want to get started writing some Raku and experimenting with concurrency, instead
+
+05:21.520 --> 05:26.960
+of say hello and say world, you can just put the word start in front of say hello.
+
+05:26.960 --> 05:33.960
+What that does is it schedules the execution of that statement on another thread.
+
+05:33.960 --> 05:38.080
+Congratulations, you've just made a race condition.
+
+05:38.080 --> 05:41.440
+The output from this program is not deterministic.
+
+05:41.520 --> 05:46.960
+You might get hello world, you might get world hello if world runs before the second
+
+05:46.960 --> 05:51.680
+thread runs, or you might just get world if the second thread doesn't have a chance to
+
+05:51.680 --> 05:54.720
+start before the program exits.
+
+05:54.720 --> 05:59.760
+You can experiment and find out for yourself why other languages impose these models and
+
+05:59.760 --> 06:03.280
+it's to manage things like this.
+
+06:03.280 --> 06:07.360
+The simplest thing is you say, okay, I want to avoid this race condition.
+
+06:07.360 --> 06:11.280
+The easiest thing to do is you can just add the word await.
+
+06:11.280 --> 06:13.280
+We heard earlier about async await.
+
+06:13.280 --> 06:15.680
+There's no async, there's just await.
+
+06:15.680 --> 06:24.840
+Wait until it finishes, wait until the promise finishes before going on to the next statement.
+
+06:24.840 --> 06:32.360
+There are a number of high level, so the documentation of concurrency in Raku breaks it down as follows.
+
+06:32.360 --> 06:38.200
+You have these high level APIs, you have low level APIs, and then there are also some other
+
+06:38.600 --> 06:43.120
+built in event sources that are not mentioned on the concurrency page.
+
+06:43.120 --> 06:47.520
+The high level APIs basically have promises, which are what we just saw, where you're
+
+06:47.520 --> 06:52.160
+scheduling some execution and it's going to finish at some point in the future.
+
+06:52.160 --> 06:57.480
+You have channels, which are basically one to one message queues between different threads
+
+06:57.480 --> 06:59.080
+of execution.
+
+06:59.080 --> 07:02.000
+You have supplies, which are one to many message queues.
+
+07:02.000 --> 07:05.640
+Then you also have this nice thing called proc async, which is a great way to deal with
+
+07:05.640 --> 07:06.640
+external processes.
+
+07:07.320 --> 07:10.920
+We're going to see a little bit more of that today since this talk is mostly about scripting,
+
+07:10.920 --> 07:14.640
+where you're managing external processes.
+
+07:14.640 --> 07:16.360
+There are also low level APIs.
+
+07:16.360 --> 07:18.720
+If you want to deal with threads, you can.
+
+07:18.720 --> 07:25.600
+If you want to deal with locks, then congratulations, you have access to the kernel's implementation
+
+07:25.600 --> 07:31.080
+of mutex, which may be hardware implementations even.
+
+07:31.080 --> 07:35.280
+We also have atomic types and atomic operators.
+
+07:35.760 --> 07:40.240
+Again, these are sometimes implemented even at the hardware level.
+
+07:40.240 --> 07:47.080
+You can even use the scheduler if you want to change the concurrency paradigm that you're
+
+07:47.080 --> 07:56.640
+using by writing another scheduler that implements the strategy for scheduling, for queuing different
+
+07:56.640 --> 07:57.640
+threads.
+
+07:57.640 --> 08:03.160
+I'm going to go through some of the different built in event sources and do some very practical
+
+08:03.160 --> 08:04.440
+examples.
+
+08:04.440 --> 08:08.240
+Some things you might see in your scripts, file system changes.
+
+08:08.240 --> 08:09.880
+All these things are built into the core.
+
+08:09.880 --> 08:16.040
+TCP or UDC sockets, of course time changing provides a great event stream.
+
+08:16.040 --> 08:23.880
+IOPype lets you watch different Unix pipes and respond based on incoming data.
+
+08:23.880 --> 08:29.120
+I'll also talk a little bit about parallel execution with race and hyper and phasers.
+
+08:30.120 --> 08:38.080
+Let's do a quick trip from bash to racu.
+
+08:38.080 --> 08:39.400
+Easiest way to go.
+
+08:39.400 --> 08:44.920
+Take your bash script in front of every line, put the word shell, and congratulations, you
+
+08:44.920 --> 08:51.600
+have now ported your bash script to racu.
+
+08:51.600 --> 08:59.080
+Shell is built in and even better than that, there is an entire language for quoting.
+
+08:59.080 --> 09:03.880
+You don't have to deal with all of the horribleness of trying to escape your quotes when you're
+
+09:03.880 --> 09:10.840
+having subcommands and they all have quotes for all of their different arguments.
+
+09:10.840 --> 09:14.200
+Probably the most interesting one is the one at the top, the two angle brackets.
+
+09:14.200 --> 09:19.320
+This is sort of like a lot of languages have a way of taking words separated by white space
+
+09:19.320 --> 09:21.480
+and turning them into an array.
+
+09:21.480 --> 09:28.560
+That's what this does except if you have something in quotes, that becomes its own element.
+
+09:28.560 --> 09:32.880
+Starting echo, starting database dump in quotes makes an array with two elements.
+
+09:32.880 --> 09:36.280
+The first one is echo and the second one is starting database dump.
+
+09:36.280 --> 09:41.120
+Those get passed then as an array to the shell command.
+
+09:41.120 --> 09:43.960
+There's some extra fancy stuff going on there behind the scenes.
+
+09:43.960 --> 09:50.440
+Here's a little script that starts your database dump.
+
+09:50.440 --> 09:56.840
+One of the goals of racu is that easy things should be easy and hard things should be possible,
+
+09:56.840 --> 09:57.840
+as Larry has said.
+
+09:57.840 --> 10:01.360
+Of course, you don't have to say shell echo.
+
+10:01.360 --> 10:05.520
+You can use the word say to print things to the screen.
+
+10:05.520 --> 10:09.480
+Say starting database dump, run your shell command.
+
+10:09.480 --> 10:14.360
+Here we have our first little glimpse of asynchrony with this thing where I'm saying say now minus
+
+10:14.360 --> 10:15.960
+init now.
+
+10:15.960 --> 10:18.560
+What this does is pretty clever.
+
+10:18.560 --> 10:24.560
+What's happening here is init is a phaser and this runs during the initialization phase
+
+10:24.560 --> 10:26.800
+of your racu program.
+
+10:27.000 --> 10:28.120
+Anybody use go here?
+
+10:28.120 --> 10:29.120
+Go programmers?
+
+10:29.120 --> 10:31.760
+Go has something similar.
+
+10:31.760 --> 10:35.160
+Go has something called deferred execution.
+
+10:35.160 --> 10:39.640
+You might use it in a go program to say, hey, when you're exiting the subroutine, don't
+
+10:39.640 --> 10:43.840
+forget to execute this database transaction, something like that.
+
+10:43.840 --> 10:45.880
+There are a lot of phasers.
+
+10:45.880 --> 10:51.320
+Basically, you can use those to schedule code.
+
+10:51.320 --> 10:55.040
+I don't know about you, but one of the most annoying things is having a script that starts
+
+10:55.080 --> 10:59.800
+doing something and then you sit there waiting and watching and nothing is happening on the
+
+10:59.800 --> 11:01.280
+screen.
+
+11:01.280 --> 11:06.920
+I like to have at least a clock saying how much time has passed.
+
+11:06.920 --> 11:11.200
+For something like a database dump, if you do it a lot, then you'll know and then you
+
+11:11.200 --> 11:13.080
+could even turn it into a progress bar.
+
+11:13.080 --> 11:18.160
+Then you'll be able to estimate how much time something is going to take.
+
+11:18.160 --> 11:20.760
+We can do this easily with a supply.
+
+11:20.760 --> 11:24.080
+We make a supply, we call supply.interval1.
+
+11:24.120 --> 11:31.040
+This makes a clock that gives us a new value every one second.
+
+11:31.040 --> 11:37.920
+Then we make a tap on the supply by saying my dollar timer equals clock.tap.
+
+11:37.920 --> 11:46.880
+Then the code there.say is saying what the argument is to the tap.
+
+11:46.880 --> 11:50.800
+Basically it'll say 1, 2, 3, 4, 5.
+
+11:50.800 --> 11:53.240
+Then that's running on a separate thread.
+
+11:53.240 --> 11:57.600
+While PGDump is running, you're seeing time go by.
+
+11:57.600 --> 12:00.360
+That's really nice.
+
+12:00.360 --> 12:05.040
+Then there's some other nice built-ins to make it even a little bit prettier.
+
+12:05.040 --> 12:08.520
+Since we want to have a script that doesn't have a lot of external dependencies, you can
+
+12:08.520 --> 12:15.320
+use the very clever polymod, one of my favorite methods, which basically does a sequence of
+
+12:15.320 --> 12:21.160
+mod and div operations and turns your seconds into minutes and seconds.
+
+12:21.160 --> 12:28.400
+Then you can format it and then you have a nice little clock.
+
+12:28.400 --> 12:29.800
+Then you might say, hey, that's so great.
+
+12:29.800 --> 12:31.800
+I want to do this on all my shell commands.
+
+12:31.800 --> 12:33.560
+I always want to see a little clock.
+
+12:33.560 --> 12:35.360
+Well, guess what?
+
+12:35.360 --> 12:39.440
+You can use, so in Python they're called decorators.
+
+12:39.440 --> 12:42.800
+In Raku, it's the wrap command.
+
+12:42.800 --> 12:44.960
+Basically we can say shell.wrap.
+
+12:44.960 --> 12:52.080
+Then basically this will call our timer before we call call same to do the original shell
+
+12:52.080 --> 12:53.080
+command.
+
+12:53.080 --> 12:55.920
+Then it'll close it and then it'll say done.
+
+12:55.920 --> 12:59.800
+Now you've got your nice script that you just copied and pasted and added shell to the beginning
+
+12:59.800 --> 13:00.800
+of them.
+
+13:00.800 --> 13:07.280
+Now all of your commands have a little clock saying how long they're going to take.
+
+13:07.280 --> 13:09.960
+Let's talk quickly about timeouts.
+
+13:09.960 --> 13:11.360
+This is the timeout command in bash.
+
+13:11.360 --> 13:13.800
+You can give it an argument that's the number of seconds.
+
+13:13.800 --> 13:17.920
+Timeout 1 and then in this example we're doing a DNS call.
+
+13:17.920 --> 13:20.000
+We're looking up example.com.
+
+13:20.000 --> 13:26.880
+So we say timeout1hostexample.com and if it fails then the exit code is nonzero.
+
+13:26.880 --> 13:30.040
+So otherwise we say DNS seems okay.
+
+13:30.040 --> 13:34.760
+The way we do that in Raku is with a promise, actually a couple of promises, one that expires
+
+13:34.760 --> 13:38.680
+after a second and then another one that does whatever you're doing.
+
+13:38.680 --> 13:44.120
+And then you make a third promise which resolves when either one of those two finishes first.
+
+13:44.120 --> 13:50.720
+So we could say promise, we await promise.anyof and then start shell host command and then
+
+13:50.720 --> 13:52.520
+start sleep 1.
+
+13:52.520 --> 13:54.680
+So we do those two things in separate threads.
+
+13:54.680 --> 13:57.600
+Whichever one finishes first we'll know if we timed out.
+
+13:57.600 --> 14:01.880
+It doesn't quite work though because shell is going to fork something off and when you
+
+14:01.880 --> 14:06.280
+fork something even if your Raku program exits it's going to keep going.
+
+14:06.280 --> 14:13.120
+So there is a better way to do that and that is to use proc async instead of shell so that
+
+14:13.120 --> 14:17.280
+you don't have this sort of tree of processes.
+
+14:17.280 --> 14:20.760
+So we say timeout equals promise.in1.
+
+14:20.760 --> 14:27.520
+My dollar proc is a proc async new host example.com and then you await either any of proc.start
+
+14:27.520 --> 14:33.280
+which finishes when the process finishes or dollar timeout and then you can call proc.kill
+
+14:33.400 --> 14:36.800
+if timeout is true.
+
+14:36.800 --> 14:42.440
+Okay so I'm going to do a few more examples here to show you how to build up how we use
+
+14:42.440 --> 14:47.280
+some of these other primitives to help you think about problem solving concurrently.
+
+14:47.280 --> 14:52.480
+So supply.tap another way of saying that these are exactly the same.
+
+14:52.480 --> 14:58.080
+Instead of saying supply.tap you can say start, react, whenever, supply which is a lot of
+
+14:58.080 --> 14:59.080
+words.
+
+14:59.280 --> 15:05.320
+Start in a new thread, react makes another like a reactor or an event loop and then whenever
+
+15:05.320 --> 15:11.320
+it says hey let's make a tap on this supply.
+
+15:11.320 --> 15:14.160
+So let's watch a directory for changes.
+
+15:14.160 --> 15:19.640
+Whenever anything changes in there we're going to turn our markdown file into hdml.
+
+15:19.640 --> 15:24.120
+Dollar star cwd is the current path.
+
+15:24.160 --> 15:31.880
+You can call watch and then you can grep for certain files and then call md to hdml whenever
+
+15:31.880 --> 15:32.880
+one of them changes.
+
+15:32.880 --> 15:35.640
+I have a few more examples quickly.
+
+15:35.640 --> 15:40.840
+The slides will be available for you to look at more slowly if I run out of time.
+
+15:40.840 --> 15:42.880
+So let's look at ping.
+
+15:42.880 --> 15:43.960
+Ping is great.
+
+15:43.960 --> 15:48.400
+One of the things that sadly is missing from ping is that it prints all these nice statistics
+
+15:48.400 --> 15:50.520
+at the end but it doesn't print the median.
+
+15:50.520 --> 15:52.120
+What if you want the median ping time?
+
+15:52.120 --> 15:54.680
+You only have the min, max and the average.
+
+15:54.680 --> 15:59.160
+Well let's compute it by watching the output of ping and then keeping track of the output
+
+15:59.160 --> 16:01.560
+and then printing it at the end.
+
+16:01.560 --> 16:05.600
+And so here you can see what's really nice about the react whenever construct is that
+
+16:05.600 --> 16:09.560
+you can have a whole bunch of whenever inside your react.
+
+16:09.560 --> 16:14.560
+So we have a little leave phaser which is going to kill the process when we exit.
+
+16:14.560 --> 16:19.560
+We have our process which is going to do the ping and then whenever there's a timeout
+
+16:19.560 --> 16:21.720
+we're done.
+
+16:21.720 --> 16:26.080
+Whenever we get a line we parse it and then we add it to this lines array.
+
+16:26.080 --> 16:30.360
+Whenever we get a signal, so signal makes a stream that when signals are sent to the
+
+16:30.360 --> 16:37.640
+process you can also finish and then we can compute the median at the end.
+
+16:37.640 --> 16:45.880
+So can we make it even fancier and ping multiple hosts at the same time with our program?
+
+16:45.880 --> 16:49.200
+So let's see if we can make something that looks kind of like this.
+
+16:49.200 --> 16:55.000
+Multi-ping, where multi-ping gets a list of hosts and then it makes this little bar graph
+
+16:55.000 --> 16:59.760
+by watching the output of ping and then you can sort of see like which one of these hosts
+
+16:59.760 --> 17:04.600
+is responding more quickly at the same time.
+
+17:04.600 --> 17:10.920
+This is a really short program to write and basically what you do is you start a loop using
+
+17:10.920 --> 17:12.640
+a channel.
+
+17:12.640 --> 17:15.160
+And so this runs in a separate process.
+
+17:15.160 --> 17:20.600
+Whenever the channel.receive is going to block, whenever it receives something you take that
+
+17:20.600 --> 17:29.920
+something and you print it out to the screen and then you basically start your processes.
+
+17:29.920 --> 17:34.840
+There are a few sort of nice things here, nice features of Raku that make this even a little
+
+17:34.840 --> 17:36.240
+bit easier.
+
+17:36.240 --> 17:42.160
+So this little percent is a way of constructing a hash and what's kind of cool is that constructing
+
+17:42.160 --> 17:46.560
+a hash looks exactly the same way as destructuring.
+
+17:46.560 --> 17:50.760
+If you've programmed in JavaScript, you know they have this really nice argument destructuring
+
+17:50.760 --> 17:55.360
+syntax and it's equivalent to the construction syntax.
+
+17:55.360 --> 17:58.680
+So you can basically make these channels that communicate between threads and you can send
+
+17:58.680 --> 18:00.480
+structured data in between them.
+
+18:00.480 --> 18:06.520
+And you can also have type checking and things like that and so it's really nice.
+
+18:06.520 --> 18:08.440
+And that's your output.
+
+18:08.880 --> 18:13.040
+Similarly if we wanted to dump a whole bunch of MySQL or Postgres databases at the same
+
+18:13.040 --> 18:18.800
+time, if we don't care about the output it's even easier.
+
+18:18.800 --> 18:24.120
+And the way we can do that is by using a statement prefix called race which basically says take
+
+18:24.120 --> 18:31.200
+this loop and run the body of the loop concurrently.
+
+18:31.200 --> 18:34.480
+And you can give a parameter of the batch, the number to run concurrently and the degree
+
+18:34.480 --> 18:36.600
+of concurrency.
+
+18:36.600 --> 18:42.960
+And then in a few lines of code we've made PG multidump which can dump several databases
+
+18:42.960 --> 18:44.960
+at once.
+
+18:44.960 --> 18:49.920
+Okay so in conclusion we've seen some examples of tracking progress of a command, timing
+
+18:49.920 --> 18:54.680
+out a command, using asynchronous techniques to respond to file system events, using asynchronous
+
+18:54.680 --> 18:59.760
+techniques to respond to lines emitted from a command, instant parallelism, we saw some
+
+18:59.760 --> 19:05.880
+locks and for further reading there's stuff on the ecosystem and also the Rocky documentation
+
+19:05.880 --> 19:08.160
+about concurrency is excellent.
+
+19:08.160 --> 19:11.160
+So that's it, thank you.
+
+19:11.160 --> 19:19.720
+I think we may be out of time, I don't know if we have time for a question.
+
+19:19.720 --> 19:22.200
+One question.
+
+19:22.200 --> 19:24.200
+Or multiple questions at the same time.
+
+19:24.200 --> 19:31.200
+I'll take your one question.
+
+19:31.200 --> 19:40.200
+You get an example of watching a file system event and kicking off a process based on that.
+
+19:40.200 --> 19:41.200
+Yes.
+
+19:41.200 --> 19:42.200
+Sorry I don't have a word I need here but is there a sort of a program paradigm or capability
+
+19:42.200 --> 19:47.200
+for testing whether something has finished being written to before you start off your
+
+19:47.200 --> 19:48.200
+file system?
+
+19:48.200 --> 19:57.200
+If the file is really big then the file appearing might not have been finished and it's written
+
+19:57.200 --> 20:02.200
+yet and you kicked off something to convert to HTML before it's done so.
+
+20:02.200 --> 20:06.800
+Yes so it does get, I think I know where you're going with this especially because if you're
+
+20:06.800 --> 20:12.200
+using an editor then it's not that there's a single event where the file changes and
+
+20:12.200 --> 20:16.960
+it'll often be the editor will be doing a write and rename or it'll start writing and
+
+20:16.960 --> 20:18.400
+so you want to be careful about that.
+
+20:18.400 --> 20:21.480
+So there are some things to do that.
+
+20:21.480 --> 20:24.680
+You can throttle your supplies is one thing.
+
+20:24.680 --> 20:28.600
+If you're spawning a process you can say proc.ready and that will tell you when it's
+
+20:28.600 --> 20:32.600
+ready so that before you start sending things to it.
+
+20:32.600 --> 20:41.440
+And then basically it's hooking into the notification API for the file system so any events from
+
+20:41.440 --> 20:48.160
+the file system there's going to be a file changed, file renamed and then you, so the
+
+20:48.160 --> 20:50.320
+limit is only whatever the file system provides.
+
+20:50.320 --> 20:51.320
+Yeah sure.
+
+20:51.320 --> 20:54.160
+All right thank you.
+

@@ -1,0 +1,247 @@
+Hello everyone. So I will talk a little bit about Image Builder. I want to talk a little
+bit about how it works, how the stack of Image Builder fits together, show off some of the
+things it can do. But before all that, I'll try to explain why it exists. So Image Builder
+builds bootable operating system images, the base images. It runs on your local machine
+or as a hosted service. So we also run and operate a service for Image Builder. Now
+building bootable operating system images is not that hard of a problem. You just put
+a few bits in the right place, some default correct, hopefully configurations. And most
+of the hard work is done by the package maintainers, the people who maintain a kernel, the people
+who maintain system data. They make sure it all fits together. But at a certain scale,
+consistency and reliability are very important. Because you need to build images for different
+purposes. I'm talking now from the point of view of a distribution. You need to build
+images for different purposes, for different architectures, for different target environments
+like AWS, GCP, Azure, local virtualization, bare metal. And you don't want to have these
+differ too much from one another. These images. You don't want to have them differ too much
+from one another between those different variables. You want to reason about them and produce
+them in roughly the same manner. You want to produce and reproduce them often without
+manual interference. So as part of pipeline. So you need infrastructure around it as well.
+And because I also mentioned like target environments, specifically the cloud platforms, well, every
+cloud platform today often offers something like an image builder as well. I guess AWS
+EC2 image builder. But yeah, then you're sort of like locked into what the cloud provider
+provides. Or you just end up using their images maybe full stop. So it's nice to have tooling
+that is sort of cloud agnostic. Or like specific cloud agnostic, vendor agnostic. And as a final
+point, while image based workloads are also becoming the norm. You know, everybody uses
+containers. People build images for a single specific workload. And really one of the things
+for end users that we're trying to solve is to make VM images almost as easy to deal with
+as container images. So image builder was created to address some of these problems.
+Right? So this is the stack. And I want to walk you through the stack just to quickly give an
+idea of what each component does and why it's there. I will start at OS build. The lowest base
+layer on which everything is based. So at the very bottom, we have OS build, which is a low
+level tool that executes a manifest. Now what is a manifest? The manifest describes exactly
+what goes into the image and then also how to package it. This manifest makes images
+audible because you have a manifest of exactly what's in it and reproducible. Since you have the
+exact steps that were used to build the image described inside of it as well. So not just the
+contents, but also like how do I get from those contents to the actual image? It is mostly
+distribution agnostic. So it doesn't necessarily have a notion of like what makes up a specific
+distribution. So what is a Fedora? 38 image, right? Doesn't really know. But of course it needs to
+support some package manner. So it currently supports RPM and Pacman packages. So theoretically,
+the distributions that it can build are things like Fedora, Arch, CentOS, et cetera. And as a final
+note, OS build starts from a pristine tree, so like an empty directory, and then builds it up piece by
+piece. But to clarify this, let's take a little look at a manifest. So I'm going to need to...
+That's maybe too much. So as you can see, this is sort of what a manifest looks like. First off,
+you have sources because the content needs to come from somewhere. So this is maybe a little bit.
+Okay, so these are just RPM packages indexed by their checksum, so that they're nice and
+addressable. Now here you can see three pipelines. I will not go through all of them, it's just like
+very quickly tell you what's inside of this manifest. So the first pipeline actually builds a
+container because we built the end artifact, so the end image inside of a container. And the reason
+that happens is because you kind of want the same tooling that will end up in the image building the
+image itself. So like the RPM version in the image, you kind of want to install those RPMs using the
+same version because otherwise you might get into a mess. So then the second pipeline is the
+second pipeline that actually puts all the bits in the correct place in the tree. So first it
+sets up the kernel, like I think it's proc kernel command line, then an RPM stage, so it installs
+a bunch of RPMs, then it sets up the locale, hostname, things like this. It relabels the tree, so
+as soon as it's happy. And then in the final pipeline, it actually goes ahead and packages the
+image up. So in this case, it just ends up being a raw disk file, right? So the most basic disk file
+and also like it sets up the file systems and stuff like this. So I guess just a takeaway is
+pipelines stages very precise way of describing what exactly should go into that end artifact.
+So now I need to like, yeah, go back a bit. Okay, that looks better. So, but like I said OS build
+doesn't actually know what makes up a specific distribution. So we have the image definitions.
+The image definitions contain all the information needed to describe an image of a specific
+distribution of a specific architecture for a specific target environments. So it describes
+things like the base package sets, the default configurations, how exactly architectures differ,
+you know, like install these packages if it's arch, install these packages if it's x86. And
+like all the differences between those different, you know, that whole matrix of like architectures,
+target platforms, that's contained within the image definitions. It integrates tightly with
+Composer. So if I don't know if you remember the stack from earlier, now we're at the gray layer.
+So we had OS build images and then Composer. And Composer is really the part that brings it all
+together. It takes user input in a format that I'll get into shortly. It takes package repositories,
+just as a source for the packages, like, you know, the kernel needs to come from somewhere.
+And the aforementioned image definitions to generate the manifest, which is then provided to OS build.
+Right, so Composer takes all of the input from the necessary places,
+generates a manifest, and then OS build executes that manifest. Because like I, like you probably
+saw, there's a manifest, they're okay to read, but if you had to write those by hand, that would not
+end up very well. It's a tiresome job. And as a final point as well, it also orchestrates all the builds.
+It manages the job queue and workers, which you know, like you can queue image builds and then,
+because image builds takes a long time often. So, and that's just an important point to be able to
+run this like in a host, as a host service, as part of infrastructure, etc. So okay, what does,
+what does Composer need? And as you can see, it's already a lot simpler than the manifest that we
+had before, right? So say that I want to build a Fedora 39 image. Okay, so I just asked for a Fedora
+39 image. I want it to be x86, QCOW. I provide it with some repositories, which are just the default
+Fedora 39 repositories. Optionally, some customizations, right? So like in this case, I also want to
+install cockpit. I want like the base system with cockpit installed. And that's it. That's all Composer
+needs. It will take it, grab the image definitions, figure out what the manifest looks like, and then
+pass it to us. Okay, so how to make this even easier and like how do we actually like give this to,
+to end users? I will walk through like two tools that we have. And then I will
+show off the hosted service that we have running. I just realized I didn't spin up a VM, which I
+need to spin up. Okay, so Composer CLI. So Composer CLI takes this format called a blueprint. Now a
+blueprint kind of describes, again, like how to customize the image. As you can see, there's nothing
+anymore of like which architecture you want, which distribution you want. This is intended as like the
+on premise tool, and it's all inferred from the host. So like if you're running on a Fedora 38 system,
+it will build Fedora 38. If it's an ARM system, it will build ARM, etc. All that's left is
+customizations. And as you can see, it can be quite powerful, right? So like here, what happens is,
+I source this from a colleague of mine. But as you can see, it puts in place a system,
+the a little system, the service, then it asks ImageBill to also enable that system, the service,
+and that system, the service sets up a second disk on boot, right? And also it embeds a user.
+So yeah, what's left here is just really just the customizations. And this is how you would
+then like push that blueprint. The workflow is a bit cumbersome, but like you push the blueprint,
+you start the blueprint, you ask for the image type, which in that case is a Q-Cow. So
+important point, you use that same blueprint to build a Q-Cow, build an installer, build a
+cloud image, so that you get, you know, you really just have to specify what you want is common.
+And like ImageBill would say, care of the rest.
+And there's also like a little cockpit application.
+So
+can I, oh I need to,
+if it went to,
+ah there we go. So this is a cockpit application which allows you to define
+blueprints, build images. It's again targeted for on-premise use,
+as you can see, I probably should have removed this question. But yeah, so like it allows you to
+define those blueprints I showed earlier and build images from them. I think if you
+click, right click here, and you can see like some of the, okay, like the blueprint, like an output
+type, so there's a bunch of output types that we support. Yeah, voila. So now, okay, so actually
+the point why I actually mainly did this talk was, which is, so we also run as a Fedora,
+as a, as a hosted service, and for a specific hat company we've been running a service for a while now,
+but we are also figuring out like, okay, how do you actually run services, like software as a service
+for the community, right? Like how do you involve from our community? We want community users,
+we want community feedback, they often use software in like different or interesting ways.
+So yeah, that's what we wanted to offer support for that. So if you go to console.stagels.fodora
+infocloud.org, so it's currently just a staging service, but production is coming soon.
+It will, it will tell you like, okay, this is how you like, if you make an account there, then you
+can use the API in that way, etc. Currently it's just an API, but UI is also on the road now.
+So what's currently supported in that staging service, staging service, it's KVM, BeastFair,
+AWS, and like, on the right hand side, there's all images that we currently
+build, but we just need to set up some service, some stuff in the service and
+enable them and expose them. Also just 8x86 for now, but Arch is relatively easy to add,
+and in a production service, we'll definitely have Arch as well.
+So what does a request to this hosted service look like? And at the very start, right before the
+talk started, I actually sent off this exact same request to the image building service.
+So this is what a complex request, more complex request looks like. So there's the distribution
+I'm asking for Fedora38, X86, it's a QCOW2, don't mind the name, it's a bit weird, but QCOW2,
+please upload it for me to AWS S3 so I can download it afterwards. We host, like, we share images
+with a pre-signed URL, which are like valid for a couple of hours. So, and then it comes,
+like, then we get to the interesting bits, like, so can this hosted service, for which you don't
+need to, like, have any setup on your local machine. Also, integrate with other Fedora services
+that are currently available. So perhaps some of you know, copper, you know, like, very easy to
+build your own RPMs, you just upload your spec files and sources and it will go ahead and build your,
+do everything for you, like, the difficult bits for you, so, and host your RPMs even. So here
+I'm asking, like, okay, can you also in FCE, YAM repose, whatever, like, make this repository
+available so that I can install stuff from it. So that's this customization. Then install these
+packages, right, like, I want copper, I want firewall D, because, I don't know, and then NPM as well.
+Why? Because I have this awful startup script, which installs revealMD, which is, like, the thing
+that's running these slides now, installs demo slides, which come from this demo copper up there.
+Change is to root, runs revealMD, yeah, just it runs, it's a VM that runs slides, yeah. And then
+the second thing is, like, okay, set up a service for me, which, you know, it's a one-shot type of
+service, it runs that startup script that's defined above, and, yeah, run it after the network comes
+online, because I want it, it's a server, it's a service that also starts the server, right, so,
+and then I want to enable the cockpit service, I want to enable the revealMD service, so that's
+the little service that I defined above, and then, yeah, for firewall customizations, I want to open
+this specific port, because that's what revealMD listens on, and I want to enable the cockpit
+service as well, right, so, like, when the machine boots up, cockpits enabled, and these slides will
+hopefully be hosted now. Right, so let's go back to the terminal there, so, as you can see, so
+that's the same request, and I sent it off earlier, and it was building, so let's see what happens now.
+I hope it didn't fail, because that would, okay, no, so like, the build succeeded, right, as you
+can see, this monster of assigned URL, which is technically a secret, it's valid for six hours,
+so, yeah, you can just download it, and, yeah, I mean, that's it, it's really that easy, if there's
+like a whole bunch more customizations available than the ones listed here, but once you've read
+the spec a bit, you figure out how to write a JSON file, it's there, and then you can get a
+whole bunch of images out of it for free, so, let's run that image, right, so like, this is how
+I'm running that image, you can't see that, so, this is how I'm running that image, okay, so I'll
+just go ahead and do that off-screen, how am I for time, yeah, good,
+okay, so I've now booted it up, okay, so I asked it to install cockpit,
+and, okay, yeah, of course, yeah, just sort of, just sort of,
+okay, so let's just take a look at the networking, I asked it to like enable the
+cockpit service, and also, explore this additional port, it has done that, super,
+then I go to services, so these are all my, my system, these services, I look at revealMD,
+okay, so that's, that's still starting, and it might take a while because it's actually
+installing an npm package over my phone, so, hopefully that will do something in the meantime,
+I think in the meantime we can also maybe start with a question, if already somebody has one,
+but I want to show like a little thing at the end still, so, but for that I need this to,
+this to kick off,
+it's really the most exciting talk ever, isn't it, we all started staring at like, at some logs,
+so, thanks for the talk, I have two questions, so the first thing is to understand the architecture,
+the composer thing, it's like a demon or service, right, that's it, yeah, so the composer is the
+thing that runs as a hosted service and orchestrates everything basically, okay, so I understood that
+correctly, the second thing is that very expected question, it's not really creative,
+so how hard would it be to, to, to support like, let's say Ubuntu or, maybe I know,
+let's say something like that, that's very expected question, thank you, so I've actually
+experimented with this a little bit already, so like first we would need to add support in OS build,
+right, and then you would need to add an image, so just to install dev packages and like set up like,
+what's the thing, the bootstrap, you know, and then you would need to add an image definition,
+okay, but what is an Ubuntu image, and then you would need to add it to composer to expose it
+a little bit, okay, but first you'd need to, yeah, write some stages that can handle dev packages,
+and, and I've been, I've experimented with it before, I've got it to the point where I, we can
+build a bootable Debian image, right, not UEFI, so, but like, you know, we've got it to that point,
+it just, it requires some more work in cycles, like theoretically it's, it's, it's, it can do it,
+right, like it's, it's just a matter of some work, yeah, I'll answer your question, oh yeah,
+and in the meantime, let's, like, look, it seems to have done something, so, all right, great, yeah,
+slides are up, so let's go to that, oh yeah, so this is the most efficient way to, to host, I think,
+you know, image-based workloads, single slides, this is where you can find us,
+so like, yeah, this is our GitHub project, we have a matrix channel, please can say hi,
+and then we have a website, and so if you go to service,
+um, so service and then for door, you can read a bit more about how the architecture fits together,
+and yeah, if you go to the Fedora service, you can find instructions on how to do it if you want,
+please do, there's currently only two workers attached to the staging service, so
+if, if it, if it's not DDoS by like two hours from now, I'm going to be disappointed.
+Thank you.
+All right, any more questions?
+So, um, I'm a bit hazy on the architecture, so maybe the question, it doesn't make much sense, but
+how much work would be, um, you know, how feasible is to do all this locally, like, for example, for,
+I want to build a distro, then tweak something, then build another image and run it locally in a tight loop,
+so that it's like the whole process that you described, starting from the
+definition with the local overrides all the way to the image that you have downloaded and built locally,
+can you all do it on a laptop on the plane?
+Yeah, yeah, so like this, um, so the first, uh,
+let me go back a little bit, so we have a copy composer, now it doesn't, um,
+so this is essentially the same thing, right? Like you, you can just, or maybe I'm not answering your question,
+but this is essentially like, uh, you can do it all on, on your own laptop. Of course, your own laptop
+can do cross architecture builds, um, currently, uh, but,
+yeah, is that? So basically I would run the service locally and then talk to a web server on my,
+it's a unique socket in this case. You can also set up the, the service of, um, locally, but it's,
+it's not necessarily supported very well, uh,
+but it's all there. It's, it's all, when you install copy composer or, sorry, when you install, um,
+OSBIL composer on your fedora machine or whatever, it's all, it's all shit.
+Thank you. Yeah.
+Hi. Uh, yeah, probably an annoying question, but so, uh, under the soon, there was like, uh, ISO installers.
+Can you be, can you be a bit more specific about
+what soon means in this, uh, in this context? Because that would solve like a use case that I have. So,
+like really creating a bootable USB drive that a, a technician can plug in and,
+yeah. So, so, uh, yeah, you're right. So like the ISOs here, sort of installer and live installer are,
+are absolutely like, in tennis or bare metal. So those are like that you would burn onto an USB or
+DPD or a CD and, uh, yeah, plug in and, and, uh, they have like the, the fedora, like the anaconda
+install around them. Um, yeah. And is there like a specific fedora release that's being targeted or?
+Oh, it's been, this has all been fedora in, um, since fedora 34, 34.
+Okay. So it's, it's been there for a while.
+Okay. But we're still like, we're still actively working on it and making it better,
+like more customizations like that files customization where you can like just
+basically have like an entry point as like a, you know, just like a one shot system v service.
+Um, that was, it's more like a recent thing that we were trying to do. And yeah, there's more
+customizations that I think you can set up your file system a little bit like partitions and stuff like
+this. Okay. Then I'm missing the suit. Thank you. Yeah. But try it. Yeah.
+I think we have time for one more.
+So maybe I misunderstood something, but the whole part of the demo, everything was done locally,
+right? That you showed us on your local laptop, which part was on the cloud? I thought everything
+was local host. Everything was local host, except when I switched to here, like in the terminal,
+what, so right at the start of the talk, I sent a request, um,
+to wait, hang on. Oh yeah. Here up top here, I sent a request to the fedora.
+This is this fedora staging service that we're running now. And that is building an image
+and then that's spit out a URL. Now, of course, I didn't download this one. I built the same thing
+earlier and downloaded it then to run it now because it's like 700 megs and the internet is not that
+good. So, um, but like, let me just show, uh, so like, this is like, uh, yeah, the slash
+composes endpoints shows you all of the composes that I've done. Um, and it's basically all the
+same thing for this talk. So, um, I think I might have downloaded this one like one before or
+yeah, I mean, so, so this, this one, like the actual image that the VM that I put it up was not
+built on this laptop that was built on this on the cloud. Yeah. That I can also, if I have a powerful
+machine, I could also do it locally, right? Um, so do you mean like, uh, if you want to build
+the image locally? Yeah. Yeah, you can do that. So that's, that's, um, that's done with, uh,
+with cockpit composer, I think is the easiest way to get started. Yeah. So that's, that would be a
+cockpit, cockpit app is I think they're called. Yeah. Okay. Thank you. Yeah. You're welcome. I think
+we're done with time. Thank you.

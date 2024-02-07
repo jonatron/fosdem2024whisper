@@ -1,0 +1,1145 @@
+WEBVTT
+
+00:00.000 --> 00:09.520
+So hello everyone, I know this is the end of the day, the end of the first day, so thank
+
+00:09.520 --> 00:13.440
+you for being so many to attend the talk.
+
+00:13.440 --> 00:18.880
+I won't be too much into kernel details in that talk, that should be relatively easy
+
+00:18.880 --> 00:19.880
+to follow.
+
+00:19.880 --> 00:25.400
+Yes, I'm sure this is a kernel dev room, this is not about Go, so don't be worried about
+
+00:25.400 --> 00:27.880
+the logo.
+
+00:27.880 --> 00:32.560
+I also do apologize if some of you attended Jeff's presentation from yesterday, so the
+
+00:32.560 --> 00:36.120
+same topic, the presentation from today will be pretty similar.
+
+00:36.120 --> 00:39.760
+But still, so what is Peru?
+
+00:39.760 --> 00:45.360
+This is, so the name comes from packet where are you, and this is an EBPF-based tool to
+
+00:45.360 --> 00:51.240
+debug packets going through the Linux networking stack.
+
+00:51.240 --> 00:58.920
+So we see why we wanted to work on that tool in the first place, how Peru works, and what
+
+00:58.920 --> 01:06.920
+are some of the features, and how can we actually use it in real life to debug real problems.
+
+01:06.920 --> 01:12.240
+So the problem is that nowadays we have a lot of things to debug regarding to networking
+
+01:12.240 --> 01:17.320
+stuff in general, so when you use containers with namespaces, Kubernetes, all these kind
+
+01:17.320 --> 01:22.960
+of things, you typically have packets arriving on the interface, and then being forwarded
+
+01:22.960 --> 01:30.360
+to a pod through a pair of these interfaces, and there's that big thing in the middle,
+
+01:30.360 --> 01:37.280
+that's a penguin, that also stands for the Linux networking stack, and from the point
+
+01:37.280 --> 01:40.680
+of view of someone trying to understand what's happening, it often looks like a black box
+
+01:40.680 --> 01:44.960
+that's difficult to analyze and to understand fully.
+
+01:44.960 --> 01:49.920
+So how do we get some visibility into that?
+
+01:49.920 --> 01:55.360
+We've got a number of things happening in the Linux networking stack, a few things,
+
+01:55.360 --> 01:56.360
+that gives an idea.
+
+01:56.360 --> 02:03.320
+It's very tricky to get to the right place, so where is my packet?
+
+02:03.320 --> 02:05.800
+So that's the problem we have.
+
+02:05.800 --> 02:09.600
+So usually when something goes wrong, we use TCP-DOM.
+
+02:09.600 --> 02:11.400
+Right, TCP-DOM is good.
+
+02:11.400 --> 02:13.920
+TCP-DOM is a great tool that's very useful.
+
+02:14.280 --> 02:22.880
+TCP-DOM works well here and there, and sometimes the stuff happens here, and that's great.
+
+02:22.880 --> 02:29.480
+Sometimes though, it happens in the penguin, and sometimes in the pod as well.
+
+02:29.480 --> 02:31.320
+So what do I do with it?
+
+02:31.320 --> 02:33.240
+Can TCP-DOM help in that case?
+
+02:33.240 --> 02:36.880
+Not really, not so much.
+
+02:36.880 --> 02:39.400
+There are some other tools to debug things.
+
+02:39.400 --> 02:44.000
+There is printk, well, comes with a number of drawbacks too.
+
+02:44.000 --> 02:45.760
+I need to recompile my kernel.
+
+02:45.760 --> 02:48.920
+It's quite slow to process, to adjust every time.
+
+02:48.920 --> 02:52.040
+I need to add new printk's.
+
+02:52.040 --> 02:58.520
+I may possibly have to add a lot of printk's if I have no idea where my packet's going.
+
+02:58.520 --> 03:02.920
+If I do things wrong, my kernel will panic, that's not great.
+
+03:02.920 --> 03:05.560
+And how do I filter on specific packets?
+
+03:05.560 --> 03:06.680
+It's difficult to do.
+
+03:06.680 --> 03:09.080
+It's far from ideal.
+
+03:09.080 --> 03:10.400
+We've got some other traces too.
+
+03:10.400 --> 03:16.120
+Perf is, for example, a good tool to trace kernel functions that's something else, and
+
+03:16.120 --> 03:21.200
+I can just look into that function and look what's happening in there.
+
+03:21.200 --> 03:26.920
+But for networking, really, it's hard to do this filtering on the packets that I really
+
+03:26.920 --> 03:28.360
+want to follow.
+
+03:28.360 --> 03:36.480
+It's also hard to extract the network-related information out of other things that Perf returns.
+
+03:36.480 --> 03:39.200
+And in the first place, how do I know what function I'm interested in?
+
+03:39.200 --> 03:41.120
+Where is the stuff happening?
+
+03:41.120 --> 03:42.240
+Where is my packet drop?
+
+03:42.240 --> 03:46.320
+Where is my packet masqueraded?
+
+03:46.320 --> 03:50.360
+Where the interesting events are occurring.
+
+03:50.360 --> 03:58.160
+So what if we could have something that gets a bit of all the functions in the kernel that
+
+03:58.160 --> 04:00.480
+will be processing my packets?
+
+04:00.480 --> 04:10.480
+And what if I could get callbacks and run programs when these functions are called?
+
+04:10.480 --> 04:15.160
+And if I could also filter these callbacks to make sure that I only process the packets
+
+04:15.160 --> 04:17.760
+that I'm interested in.
+
+04:17.760 --> 04:23.240
+So that's where we introduce Peru, which is based on the BPF.
+
+04:23.240 --> 04:27.760
+So I assume most people in the room have some familiarity with BPF.
+
+04:27.760 --> 04:30.400
+So I won't go too much into the details.
+
+04:30.400 --> 04:37.480
+Just as a few reminders, that's this execution environment inside of the kernel where you
+
+04:37.480 --> 04:41.080
+can inject programs from user space.
+
+04:41.080 --> 04:46.200
+They're going through the verification to make sure that everything is safe and won't
+
+04:46.200 --> 04:47.840
+crash your kernel.
+
+04:47.840 --> 04:54.360
+You go for the JIT compiler to turn these programs into native instructions and get
+
+04:54.360 --> 04:56.080
+some good performance too.
+
+04:56.080 --> 05:02.520
+And then you run your programs on some hooks where you attach your program in the first
+
+05:02.520 --> 05:06.080
+place with a diagram that looks something like this.
+
+05:06.080 --> 05:13.600
+So we have a program here that we will hook to a probe on IP local deliver, which is a
+
+05:13.600 --> 05:18.840
+function that takes SKB as an argument.
+
+05:18.840 --> 05:23.560
+So that's a socket buffer that represents the packet in the networking stack.
+
+05:23.560 --> 05:29.120
+And we scan the LVM, or with GCC nowadays, but most of them we scan.
+
+05:29.120 --> 05:34.840
+We turn that into an L file that contains the BPF program as bytecode.
+
+05:34.840 --> 05:39.680
+And then we use a loading program that can be in code, that can be in C, that can be
+
+05:39.680 --> 05:47.400
+in Rust, whatever, to extract the bytecode from that L file and inject it into the kernel
+
+05:47.400 --> 05:49.600
+through the BPF system code.
+
+05:49.600 --> 05:55.280
+Once in the kernel we get the BPF, the VFI are in to make sure that the program is safe.
+
+05:55.280 --> 05:57.040
+We compile the kernel.
+
+05:57.040 --> 05:59.360
+We don't have to, but most of them we want something fast.
+
+05:59.360 --> 06:01.800
+So we compile the kernel.
+
+06:01.800 --> 06:02.880
+We compile the kernel, right?
+
+06:02.880 --> 06:06.480
+We compile the program into native instructions.
+
+06:06.480 --> 06:14.280
+And when my packet is coming in, and IP local deliver is called, then it triggers the execution
+
+06:14.280 --> 06:16.440
+of the program.
+
+06:16.440 --> 06:21.280
+And I can communicate with my agent in user space through the use of eBPF maps to store
+
+06:21.280 --> 06:22.280
+data.
+
+06:22.280 --> 06:27.960
+So, for example, to store metadata about my packet and retrieve them in user space to
+
+06:27.960 --> 06:30.640
+know what's happening.
+
+06:30.640 --> 06:35.040
+That's great, but how do we keep track of all those packet processing functions?
+
+06:35.040 --> 06:40.160
+So I have IP local deliver, I have a lot of other functions that are doing packet processing
+
+06:40.160 --> 06:41.160
+too.
+
+06:41.160 --> 06:47.760
+That's where we leverage BPF, which is BPF type format, which is a metadata format with
+
+06:47.760 --> 06:48.760
+different information.
+
+06:48.760 --> 06:55.640
+So a bit like dwarf, but producing objects that are much smaller than dwarf and that target
+
+06:55.640 --> 07:01.160
+BPF specifically for a number of use cases.
+
+07:01.160 --> 07:06.160
+So we can have BPF information for one BPF program in one object file.
+
+07:06.160 --> 07:10.760
+We can also have it for the Linux image itself, which is...
+
+07:10.760 --> 07:16.160
+So this BPF object is usually exposed in the C-SFS file system.
+
+07:16.160 --> 07:18.160
+It looks a bit like this.
+
+07:18.160 --> 07:23.360
+We have a very simple program, sorry, a very simple function.
+
+07:23.360 --> 07:28.400
+It's going to get marked that takes socket buffers and argument.
+
+07:28.400 --> 07:34.040
+I turn this, I extract the BPF information from that object file that I compile into a
+
+07:34.040 --> 07:35.040
+BPF program.
+
+07:35.040 --> 07:40.440
+And this is the BPF information on the right side.
+
+07:40.440 --> 07:42.240
+So it works like this.
+
+07:42.240 --> 07:48.280
+It says, I've got a struct SKBuff with the different offsets of the different attributes.
+
+07:48.280 --> 07:55.360
+I also defined another type, which is a pointer to that type ID too, which is my struct.
+
+07:55.360 --> 08:04.800
+I also defined the prototype of a function that takes the SKB, so the pointer to the
+
+08:04.800 --> 08:06.880
+SKB as an argument.
+
+08:06.880 --> 08:11.480
+And I gave it a name, which is SKBGetMap.
+
+08:11.480 --> 08:17.720
+And because I have the BPF information about the kernel image, and because this BPF describes
+
+08:17.720 --> 08:24.280
+all the functions in the kernel, I can process that in user space to extract a list of all
+
+08:24.280 --> 08:28.160
+the functions that take an SKB as an argument.
+
+08:28.160 --> 08:32.000
+And that gives me the list of the packet processing functions in the kernel.
+
+08:32.000 --> 08:37.040
+So now I have a list of all the functions that I want to hook to.
+
+08:37.040 --> 08:40.240
+So that answers to the three criteria we had.
+
+08:40.240 --> 08:45.480
+How to get all the functions, where we can with BPF, how to get callbacks, we can with
+
+08:45.480 --> 08:50.320
+EBPF and K-Probes in the kernel, and how to filter packets.
+
+08:50.320 --> 08:55.920
+This way using EBPF, and that's it was a packet filtering mechanism in the first place, that's
+
+08:55.920 --> 08:59.160
+relatively easy to implement.
+
+08:59.160 --> 09:00.760
+So how does it look like in practice?
+
+09:00.760 --> 09:03.800
+So I've got two terminals.
+
+09:03.800 --> 09:06.840
+It's not live demo, sorry.
+
+09:06.840 --> 09:15.680
+I use a rule, an IP table rule to drop packets, TCP packets, 1111, which is cloudflare DNS
+
+09:15.680 --> 09:17.280
+for example.
+
+09:17.280 --> 09:26.680
+And I call Peru, so here I have Peru destination host 1111 and TCP and destination port 80.
+
+09:26.680 --> 09:33.840
+And after I call Peru, it tells me that it loads all the, it loads my program and attaches
+
+09:33.840 --> 09:35.920
+all the K-Probes that I'm interested in.
+
+09:35.920 --> 09:41.400
+So that's 1500 probes in that case.
+
+09:41.400 --> 09:44.440
+And then in the first terminal, I type a curl 1111.
+
+09:44.440 --> 09:49.760
+What happens below is that I get a list of all the functions that process my packets.
+
+09:49.760 --> 09:55.960
+So I see a list on the right, IP local arts, IP local arts, NF hook slow, and so on and
+
+09:55.960 --> 09:56.960
+so forth.
+
+09:56.960 --> 09:57.960
+Sorry.
+
+09:57.960 --> 10:04.560
+Eventually I get K-free SKB mem, which is the function that is called once my SKB is
+
+10:04.560 --> 10:08.400
+free because it's been dropped by the IP tables rules.
+
+10:08.400 --> 10:13.160
+The IP tables rules I can also see through the code to NF hook slow.
+
+10:13.240 --> 10:17.680
+So that gives me information about what's happening in terms of function.
+
+10:17.680 --> 10:22.960
+It gives me information about the process that's been creating this packet in the first
+
+10:22.960 --> 10:28.680
+place because on the, on the column in the middle, you can see that it's a curl process.
+
+10:28.680 --> 10:33.280
+I get also information about the SKB, which is not useful by itself.
+
+10:33.280 --> 10:38.600
+This is the address of the SKB, but it allows me to be sure that this is one SKB that's
+
+10:38.600 --> 10:39.600
+being processed in the list.
+
+10:39.600 --> 10:43.880
+If I have several packets in this output, they will have different addresses.
+
+10:43.880 --> 10:49.800
+It allows me to filter by SKB when I post process this information.
+
+10:49.800 --> 10:58.000
+And once I exit from my Peru session, then it detaches all the processes we're loading.
+
+10:58.000 --> 10:59.600
+Okay.
+
+10:59.600 --> 11:03.680
+So what fancy features do we have beyond the basic usage?
+
+11:03.680 --> 11:06.400
+We have quite a number of options for Peru.
+
+11:06.400 --> 11:08.800
+So this is Peru dash dash help.
+
+11:08.800 --> 11:12.120
+I won't go through all of them, but through a number of interesting ones.
+
+11:12.120 --> 11:17.800
+So before we go into the options, you might have noticed that the way I told you to focus
+
+11:17.800 --> 11:25.640
+on the packet with the 1111 destination was just the same syntax as for TCP.
+
+11:25.640 --> 11:31.720
+And we do have a support for pickup filters in Peru.
+
+11:31.720 --> 11:38.160
+And the way this works is, so if I don't pass any filter, things are pretty much straightforward.
+
+11:38.160 --> 11:44.360
+I'm using my BPF program, uh, compared from Peru loaded, uh, into the kernel.
+
+11:44.360 --> 11:52.400
+Now if I do have a filter, I turn this into some CBPF bytecode using the leap pickup.
+
+11:52.400 --> 11:54.520
+CBPF is not exactly the same thing as a BPF.
+
+11:54.520 --> 11:57.480
+So I cannot use it just like this.
+
+11:57.480 --> 12:04.080
+So Peru uses another tool underneath, which is CBPFC.
+
+12:04.080 --> 12:05.080
+Hang on.
+
+12:05.080 --> 12:17.000
+And it turns, uh, this CBPF bytecode into a BPF bytecode.
+
+12:17.000 --> 12:22.000
+And then we get this CBPF bytecode and we inject it into the regular program.
+
+12:22.000 --> 12:23.000
+Okay.
+
+12:23.000 --> 12:25.720
+We've got everything in place.
+
+12:25.720 --> 12:28.120
+We load it into the kernel and that's it.
+
+12:28.120 --> 12:31.920
+That should be, it's easier after that.
+
+12:31.920 --> 12:32.920
+Okay.
+
+12:33.920 --> 12:34.920
+Okay.
+
+12:34.920 --> 12:38.600
+Some other features, uh, we can trace the kernel itself.
+
+12:38.600 --> 12:42.080
+We can, uh, we can trace kernel modules as well.
+
+12:42.080 --> 12:47.680
+We've got a few options to trace either a specific kernel module or all modules.
+
+12:47.680 --> 12:53.360
+Uh, so if you process packets with functional, take SKBs in your module, you can also, uh,
+
+12:53.360 --> 12:56.880
+follow what's happening in them.
+
+12:56.880 --> 13:00.280
+We've got a choice of backends for, uh, for Peru.
+
+13:00.280 --> 13:05.400
+So there are two currently, which is the regular K probes and the multi K probes.
+
+13:05.400 --> 13:06.840
+So what do the multi K probes do?
+
+13:06.840 --> 13:11.760
+They allow you to, uh, well, you don't really realize it when using Peru, but they allow
+
+13:11.760 --> 13:16.000
+Peru to load a bunch of K probes, uh, all at the same time.
+
+13:16.000 --> 13:21.520
+So instead of loading your probes one after the other, you create an array of probes and
+
+13:21.520 --> 13:26.840
+you pass this array with the size of the array to the BPF system code and then everything
+
+13:26.840 --> 13:28.920
+goes nearly at once.
+
+13:28.920 --> 13:30.120
+So it's faster.
+
+13:30.120 --> 13:32.200
+How much faster exactly?
+
+13:32.200 --> 13:37.400
+So if I could Peru on my laptop with, uh, the backend K probes, a legacy one, which
+
+13:37.400 --> 13:43.360
+is, uh, available, which has been available for a long time, the new one is for five
+
+13:43.360 --> 13:47.680
+dot 18, uh, plus only.
+
+13:47.680 --> 13:51.280
+So I get, um, a few seconds to attach other probes.
+
+13:51.280 --> 13:58.240
+That's seven seconds here, but it takes one minute, 37, uh, seconds to, uh, to attach,
+
+13:58.240 --> 13:59.480
+to detach other probes.
+
+13:59.480 --> 14:01.160
+That's not great.
+
+14:01.160 --> 14:08.080
+Now if I do multi K probes, uh, that's nearly instantaneous for attaching everything.
+
+14:08.080 --> 14:12.840
+Like there's, there's no difference on that test and once again for the touching everything.
+
+14:12.840 --> 14:15.800
+So that's quite faster.
+
+14:15.800 --> 14:17.800
+That's a good improvement.
+
+14:17.800 --> 14:23.760
+Um, here are a few other interesting functions.
+
+14:23.760 --> 14:26.000
+Um, they're all in the same box.
+
+14:26.000 --> 14:28.040
+They are not exactly related to each other.
+
+14:28.040 --> 14:35.640
+Uh, so we can filter also by a namespace for Peru, like looking for packets in one given
+
+14:35.640 --> 14:37.080
+namespace and not the others.
+
+14:37.080 --> 14:38.080
+That's totally possible.
+
+14:38.080 --> 14:43.480
+That's, I think that's relatively easy to do from the BPF perspective because I believe
+
+14:43.480 --> 14:48.400
+the, the namespace is directly available from the SKB itself.
+
+14:48.400 --> 14:55.920
+Uh, we can filter, uh, TC programs themselves, which are not regular canal functions, uh,
+
+14:55.920 --> 14:59.680
+just like, uh, the one we have in the networking stack.
+
+14:59.680 --> 15:03.840
+Uh, but because your TC programs can affect the packet processing, that's also interesting
+
+15:03.840 --> 15:06.200
+to, to follow what's happening on them.
+
+15:06.200 --> 15:13.240
+And, uh, the way it works is by using some specific BPF, uh, programs, looking on what
+
+15:13.240 --> 15:21.280
+is what we call the EF and three FX it mechanisms to plug directly onto, uh, those, uh, TC programs.
+
+15:21.280 --> 15:25.880
+So we're looking at BPF programs with other BPF programs.
+
+15:25.880 --> 15:27.880
+Yes, it works.
+
+15:27.880 --> 15:34.160
+Uh, we can also track SKBs that change.
+
+15:34.160 --> 15:35.160
+So when does it change?
+
+15:35.160 --> 15:42.160
+So for example, if I, uh, clone my SKB or copy my SKB, so the way we do that is, uh,
+
+15:42.160 --> 15:50.400
+when the option is enabled, we, uh, hook onto SKB clone, SKB copy at the end of the functions
+
+15:50.400 --> 15:51.400
+actually.
+
+15:51.400 --> 15:57.520
+And we, uh, we say, okay, this packet was interesting when I entered the function.
+
+15:57.520 --> 16:02.780
+And when I exit the function, I mark it as a packet of interest in a BPF map.
+
+16:02.780 --> 16:08.920
+So in addition to filtering the, uh, the packets that I usually want that I provided the, uh,
+
+16:08.920 --> 16:16.120
+fitter in the first place for, I also check for each, uh, for each packet if it's present
+
+16:16.120 --> 16:19.160
+in the map of the packets that I want to additionally follow.
+
+16:19.160 --> 16:24.840
+So that helps me, uh, following packets that may have changed.
+
+16:24.840 --> 16:31.600
+We've got some interesting options for, um, changing the display or adding more information
+
+16:31.600 --> 16:32.600
+on display.
+
+16:32.600 --> 16:35.720
+So I can add, uh, meter data on the socket buffers.
+
+16:35.720 --> 16:37.680
+I can add, uh, the full SKB.
+
+16:37.680 --> 16:39.440
+I can add the call stack.
+
+16:39.440 --> 16:40.600
+Here's an example.
+
+16:40.600 --> 16:44.960
+I can add the, uh, the, the, the four to pull for the packets.
+
+16:44.960 --> 16:50.400
+So in this example, we have, uh, two functions that, uh, process my packets here.
+
+16:50.400 --> 16:56.160
+And, uh, below each function that is displayed, we have the full, uh, call stack for the functions.
+
+16:56.160 --> 17:00.200
+So that's quite helpful to understand exactly what's happening in the kernel and how it
+
+17:00.200 --> 17:03.040
+goes, uh, in terms of processing.
+
+17:03.040 --> 17:08.720
+So to real life examples that we've had, uh, when working on Cydium trying to debug things
+
+17:08.720 --> 17:15.120
+on Cydium, which is a, a CNI for communities with, uh, a number of things related to networking
+
+17:15.120 --> 17:17.800
+and sometimes, uh, complex cases.
+
+17:17.800 --> 17:24.360
+The first one is, uh, MTU configuration, uh, error, uh, which we had to debug at some
+
+17:24.360 --> 17:25.360
+point.
+
+17:25.360 --> 17:30.760
+Uh, so we have a, sorry, we have a very simple setup with the packets arriving on the interface
+
+17:30.760 --> 17:37.240
+and the MTU on the, uh, on the node interface, not the same as the one on the VETH interface.
+
+17:37.240 --> 17:43.480
+And, uh, it was, uh, relatively easy to find out in the, uh, the output from Peru that
+
+17:43.480 --> 17:52.000
+the MTU, uh, is not the same, uh, that, well, is lower than the length of the packets.
+
+17:52.000 --> 17:57.160
+So the only thing I had to do to get this is to, uh, to, um, add the output to the information
+
+17:57.160 --> 18:04.640
+to get the, uh, the information about the, the packet that comes in.
+
+18:04.640 --> 18:10.400
+Another slightly more complex example is, um, so I had, that was in kind, so I had Docker
+
+18:10.400 --> 18:11.720
+network in the middle.
+
+18:11.720 --> 18:19.640
+I had, uh, this configuration with a pod trying to curl to the outside and, uh, hitting an
+
+18:19.640 --> 18:24.880
+IP table rule, uh, leading to masquerading the packets.
+
+18:24.880 --> 18:29.040
+So my packet gets masquerading with the address of the node interface.
+
+18:29.040 --> 18:30.360
+That goes to the internet.
+
+18:30.360 --> 18:31.360
+Okay.
+
+18:31.360 --> 18:32.360
+That worked fine.
+
+18:32.360 --> 18:36.760
+So in the second scenario, we checked that the packets were also, uh, currently masqueraded
+
+18:36.760 --> 18:39.920
+or not masqueraded when going to the node.
+
+18:39.920 --> 18:45.320
+And we have a second rule, actually, that was not displayed on the first, uh, case, which
+
+18:45.320 --> 18:54.320
+should, um, prevent packets going to the other node to, uh, from being masquerading.
+
+18:54.320 --> 18:58.960
+And so the packet should go straight to the other interface, should not change, uh, its
+
+18:58.960 --> 19:03.960
+IP address, but the packet never arrived.
+
+19:03.960 --> 19:04.960
+So what happens?
+
+19:04.960 --> 19:07.320
+So if you write the title, maybe you have an idea already.
+
+19:07.320 --> 19:13.840
+Uh, we thought that the packet was not being masqueraded as we expected.
+
+19:13.840 --> 19:20.040
+We thought that, uh, the IP tables rules were not being applied and we could have maybe
+
+19:20.040 --> 19:25.000
+found the issue, uh, differently, but, uh, Peru helped us to quickly confirm in that
+
+19:25.000 --> 19:28.840
+case of the masquerading is indeed, uh, occurring.
+
+19:28.840 --> 19:33.760
+So that's what you can observe on that, um, sample, uh, output.
+
+19:33.760 --> 19:38.840
+We can see that we're hitting NF hook slow and we can also observe for the same SKB
+
+19:38.840 --> 19:42.200
+that the, uh, the IP address, uh, is changing.
+
+19:42.200 --> 19:43.560
+So this is the same SKB.
+
+19:43.560 --> 19:47.920
+I just trimmed the, uh, the addresses of the SKB cause it was taking too much space, but,
+
+19:47.920 --> 19:49.680
+um, they're the same.
+
+19:49.680 --> 19:56.960
+So once we had this information, once we knew that the, uh, the IP tables rules was, uh,
+
+19:56.960 --> 20:02.520
+not sure taking place that we hit the, the net filter hook, we went back to the rules.
+
+20:02.520 --> 20:08.200
+So we were supposed to exclude the traffic, the closer nodes for masquerading.
+
+20:08.200 --> 20:15.680
+Turns out that the IP sets containing the entries, uh, indicating which nodes be, uh,
+
+20:15.680 --> 20:19.520
+excluded from masquerading were missing the entry of the node on the left on the first
+
+20:19.520 --> 20:20.920
+diagram.
+
+20:20.920 --> 20:26.480
+So that get me busy for, for, for some time a few weeks ago, but, uh, we did it.
+
+20:26.480 --> 20:31.960
+So Peru in brief, it's an BBF base tool to debug what's happening inside of the Linux
+
+20:31.960 --> 20:34.040
+networking stack.
+
+20:34.040 --> 20:39.160
+Hooks on kernel functions using, uh, processing SKBs.
+
+20:39.160 --> 20:42.840
+It's very good to pick up things where it's been a post shot in a way.
+
+20:42.840 --> 20:46.800
+Uh, you've got more visibility on what's happening directly in the stack and not just at the
+
+20:46.800 --> 20:48.320
+interfaces.
+
+20:48.320 --> 20:53.640
+We can use pick up, pick up filter, uh, style syntax to, to filter packets that we want.
+
+20:53.640 --> 20:55.000
+So we don't get everything.
+
+20:55.000 --> 20:58.640
+We just focus on the flows that we're interested in.
+
+20:58.640 --> 21:03.040
+We can try STC programs, can and models functions, uh, modified SKBs.
+
+21:03.040 --> 21:06.320
+Uh, so that's quite, quite flexible.
+
+21:06.320 --> 21:10.600
+Uh, we can, um, a number of information, a number of information, including packet level
+
+21:10.600 --> 21:17.880
+metadata, uh, the call stack, um, and it's proven very useful to solve a number of complex
+
+21:17.880 --> 21:22.360
+networking issues, uh, that we've encountered so far.
+
+21:22.360 --> 21:28.360
+So quick note on some other tools that are not exactly the same, uh, but that also uses
+
+21:28.360 --> 21:33.080
+this principle of, uh, creating a lot of probes to hook into the kernel and look at what's
+
+21:33.080 --> 21:34.080
+happening.
+
+21:34.080 --> 21:39.000
+There is sweet snoop, which is, um, really convenient to debug what's happening in the
+
+21:39.000 --> 21:43.880
+kernel when doing kernel development because it focuses on the written values of the function
+
+21:43.880 --> 21:49.840
+you're trying to, to, to observe or also the written values of most function in the kernel.
+
+21:49.840 --> 21:53.440
+If you're trying to just detect what functions are returning errors.
+
+21:53.440 --> 21:57.800
+IPF-Dress2 is very similar to, uh, to Peru.
+
+21:57.800 --> 22:02.160
+Uh, there are some features that, uh, are different between the two, but otherwise they
+
+22:02.160 --> 22:05.240
+are doing the same focusing and tracking the packets.
+
+22:05.240 --> 22:11.160
+TetraKone is a security events detection, uh, sorry, is a tool focusing on security
+
+22:11.160 --> 22:17.720
+events detection and, um, it uses, it also supports these, uh, multi-K probes, multi-U
+
+22:17.720 --> 22:18.720
+probes mechanisms.
+
+22:18.720 --> 22:28.400
+Uh, it uses EBPF to detect malicious activity on the system and to block it, uh, for, for,
+
+22:28.400 --> 22:29.400
+for security purpose.
+
+22:29.400 --> 22:32.640
+So this is the end of the presentation.
+
+22:32.640 --> 22:37.000
+I'd like to thank Adity and Matt Ness, who did a great presentation a few years ago, uh,
+
+22:37.000 --> 22:42.640
+at KubeCon on the topic, and, uh, I reused some of the materials, so, uh, I'm very thankful
+
+22:42.640 --> 22:43.640
+to them.
+
+22:43.640 --> 22:45.760
+Thank you to the Peru contributors.
+
+22:45.760 --> 22:47.320
+Thank you to everyone.
+
+22:47.320 --> 22:48.760
+Of course, thanks for the team, the talk.
+
+22:48.760 --> 22:49.760
+I hope you enjoyed it.
+
+22:49.760 --> 22:54.120
+If you have questions and if we have time, uh, I would really, I hope just to be open
+
+22:54.120 --> 22:57.120
+to questions.
+
+22:57.120 --> 23:05.600
+Thank you for the talk.
+
+23:05.600 --> 23:11.560
+Does it work well with, uh, GCO, GRO, like the segmentation of laws when the packets
+
+23:11.560 --> 23:12.960
+are merged and dissected?
+
+23:12.960 --> 23:18.480
+Uh, GCO, GRO should see the, should get the SKB as an argument, so they would appear on
+
+23:18.480 --> 23:22.120
+the list of functions that you, uh, that you get from the output.
+
+23:22.120 --> 23:33.120
+So yeah.
+
+23:33.120 --> 23:41.120
+Can you, uh, just print, uh, the SKBs or also trace, inspect those in, inside?
+
+23:41.120 --> 23:47.440
+Like, for example, I've seen this particular, uh, value inside the SKB, the changes and
+
+23:47.440 --> 23:49.040
+causes some kind of bug.
+
+23:49.040 --> 23:51.600
+Can, can I trace it?
+
+23:51.600 --> 23:56.120
+So you can, you can get the SKB, you can dump the full SKB.
+
+23:56.120 --> 24:01.600
+I don't think we have a filtering mechanism to, uh, do some additional processing in Peru
+
+24:01.600 --> 24:05.840
+on the SKB to only raise when you have that value.
+
+24:05.840 --> 24:12.840
+What you could do is, uh, filter new packet flow, dump the full SKB, and then probably
+
+24:12.840 --> 24:19.360
+post process to extract the ones that have this, uh, erroneous values, I suppose.
+
+24:19.360 --> 24:21.920
+But you, you can get the, the full content of the SKB.
+
+24:21.920 --> 24:26.360
+So from that, maybe that would help.
+
+24:26.360 --> 24:27.880
+So thank you for the presentation.
+
+24:27.880 --> 24:33.160
+Um, do you have a, an idea of the performance of your tool?
+
+24:33.160 --> 24:35.000
+And are you satisfied of that performance?
+
+24:35.000 --> 24:39.360
+And do you see some opportunities to make it even more efficient to be able to use it
+
+24:39.360 --> 24:40.360
+in production?
+
+24:40.360 --> 24:43.280
+No, I don't know.
+
+24:43.280 --> 24:49.080
+So one clarification is that, uh, it's not my, I've not contributed to it.
+
+24:49.080 --> 24:50.640
+Well, I picked two typos.
+
+24:50.640 --> 24:54.480
+Um, so I've not run any benchmarks myself.
+
+24:54.480 --> 24:58.440
+I know there is some impact due to the use of K-probes because you're loading so many
+
+24:58.440 --> 24:59.920
+K-probes at the same time.
+
+24:59.920 --> 25:03.800
+So it does have some impact on performance on the system.
+
+25:03.800 --> 25:11.520
+Um, I don't think we've tried to use it in environments where, uh, performance was a
+
+25:11.520 --> 25:13.920
+hard constraint for us so far.
+
+25:13.920 --> 25:16.560
+Uh, how could we improve that?
+
+25:16.560 --> 25:19.880
+Um, I'm not really sure.
+
+25:19.880 --> 25:24.680
+We haven't really given much thought into it at this point.
+
+25:25.680 --> 25:30.840
+Well, there's obviously the, the issue of loading and detaching the programs that is
+
+25:30.840 --> 25:35.520
+greatly improved in the multi-K-probes interface, but that's something different at the runtime.
+
+25:35.520 --> 25:38.520
+Uh, exactly.
+
+25:38.520 --> 25:40.520
+Yeah.
+
+25:40.520 --> 25:44.920
+Um, thank you for the talk in the first place.
+
+25:44.920 --> 25:50.720
+Um, and my question is which behavior can I expect with packet rewrites or encapsulation,
+
+25:50.960 --> 25:56.400
+uh, network address translation and so on, is the packet evaluated in every probe or
+
+25:56.400 --> 26:00.240
+can I, can I trace the packet even before the rewrite rule?
+
+26:00.240 --> 26:07.160
+So for example, I filter to the revitn IP address or I filter to the address before, uh, we
+
+26:07.160 --> 26:12.160
+explain encapsulation or whatever, or IPsec processing and so on.
+
+26:12.160 --> 26:19.160
+Um, so the way I see it, if you use the option to track the SKG, the SKG, the SKG, the SKG
+
+26:20.720 --> 26:27.720
+is, even if the, the metadata changes, you should be able to trace them, uh, uh, even
+
+26:28.320 --> 26:29.320
+after.
+
+26:29.320 --> 26:36.320
+So maybe if you set a given destination IP, you wouldn't be able to trace the packet before
+
+26:36.400 --> 26:41.440
+it gets that IP because that would be like guessing what will happen.
+
+26:41.440 --> 26:47.720
+But after it changes, yes, if you have, um, you know, tracking of the packets and that
+
+26:47.720 --> 26:52.760
+you, that Peru, I did it to the map for you, then you would keep following that SKB after
+
+26:52.760 --> 26:53.760
+that.
+
+26:53.760 --> 26:54.760
+Yes.
+
+26:54.760 --> 27:00.760
+Does it also track the revitn packet so I, um, trace the original IP if it gets encapsulated
+
+27:00.760 --> 27:02.280
+other destination IP?
+
+27:02.280 --> 27:06.920
+If you, so does it track, even if it gets encapsulated and if the IP changes, well yes,
+
+27:06.920 --> 27:08.800
+because it's the same SKB, right?
+
+27:08.800 --> 27:14.920
+So if you're, if you're basing, basing your, your, your tracking on the SKB address, then
+
+27:14.920 --> 27:19.640
+yes, it doesn't matter if you change the IP.
+
+27:19.640 --> 27:20.640
+Okay.
+
+27:20.640 --> 27:21.640
+Thank you.
+
+27:21.640 --> 27:22.640
+Okay.
+
+27:22.640 --> 27:23.140
+Thank you.
+

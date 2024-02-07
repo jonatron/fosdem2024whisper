@@ -1,0 +1,547 @@
+Okay, let's get started.
+So hello and welcome to Backtracy and the quest for prettier Ruby backtraces.
+So who am I to be here today?
+My name is Yvon Zhe and I'm currently a senior software engineer at Datadog.
+I've been in love with Ruby since I started using it professionally around 10 years ago.
+And I am a really big fan of going into an exploring language run times like C-Ruby,
+J-Ruby, Truffle Ruby, Java VM and others.
+And I've been attending FOSDEM every year since 2017, but
+this is my first time speaking, so I'm excited.
+So I also-
+Yes, pray for the cable.
+I'm also excited to play about concurrency, application performance and
+making tools that help us kind of look at our apps in different ways and
+new ways and try to uncover new insights about performance by looking at them in a different way.
+So that's how I ended up working on this thing, the Datadog profiler for Ruby.
+So if you're curious, come talk to me about Ruby Performance.
+I like to talk a lot about that.
+So, but for today, what we're going to talk about is what's the backtrace?
+How can we get one?
+Then how does the Ruby stack work in reality?
+Then we'll talk a bit about the backtracy gem, this is not good.
+I will be talking about accessing the internal VM APIs to do some of
+the weird things that the backtracy gem does.
+Then we'll play with backtracing in action and then we will talk about maybe
+a new feature in Ruby 3.4 which is having class names in backtraces.
+So what's a backtrace?
+How to get one?
+If you're a Ruby developer, you probably know what the backtrace is, but
+quick reminder, it's mostly like a trail of what methods were called and
+are still waiting to return at some given point in the app.
+And it's also called like a stack trace in some languages because it
+represents what's on the thread stack.
+So backtrace, stacktrace is usually kind of the same thing.
+And okay, if we have this A that we call A, that calls B and
+then raises an exception and then you get a backtrace.
+So we probably see this way too often and maybe you have some nightmares when
+you see this, but hopefully it will help you figure out your issues in your app.
+So there's multiple ways of getting a backtrace in Ruby.
+One of them is rescuing an exception.
+And an interesting thing is that actually the backtrace gets set on the exception
+when the exception is raised, not when it's created.
+Because you can create an exception but not raise it immediately.
+And so the backtrace only gets set when you raise it.
+And you can get a backtrace by just getting a thread and asking for it.
+Or you can use the color API, which is part of kernel.
+So it's part of every Ruby object, so it just can type color and
+you will get the stack trace of the method that called U.
+So you might have noticed that were backtrace and backtrace locations.
+The methods that end with locations return an array of these location objects that
+includes absolute path, base level, level, etc.
+So basically it gives you a nice domain object to represent the stack trace.
+Whereas the other method just kind of represents,
+just to return you the strings that Ruby prints.
+So that's the difference.
+There's also some Ruby VMC APIs to getting a backtrace.
+A few ones for different kind of use cases.
+And actually these two at the top will come back to this in a bit.
+So talking about the stack itself,
+how does the Ruby stack work under the cover specifically for the C Ruby runtime?
+So the idea is that a Ruby thread usually has two stacks.
+One is the Ruby stack that we usually see on our application and
+the other is the native stack.
+So the stack that the VM, which is a program built in C, has.
+And we can actually look at both of them in a really weird way,
+which is let's crash Ruby.
+And this thing is a weird thing.
+So I'm telling Ruby to send a segmentation fault to itself, which will crash Ruby.
+And then when we crash Ruby, what we get is this thing,
+which is the output of the Ruby crash handler, which includes a lot of nice things.
+So if you ever get the crash in Ruby, please do include this when reporting bugs.
+It's really useful.
+And the first thing it shows is it shows the Ruby stack.
+So here on the bottom, we see, okay, we have this each that represents our
+each on our code.
+Then we have the block, then collect, then the block, then the call to kill.
+So probably not a big surprise.
+One thing that is interesting, and you can see there at the top,
+is that Ruby actually, at least this Ruby version that I'm using,
+uses C methods to implement each collect and kill.
+And so you see that internally Ruby is actually keeping track of that and
+knows that there are C methods for that.
+This is not very good.
+And this is actually the native stack,
+which is also printed in that whole big thing.
+So please ignore the lot of text.
+The thing that you're caring about is this column in the middle,
+which is the names of the C functions that the Ruby VM is actually using.
+And you can actually, if you squint hard and ignore a few of them,
+you can see our app here.
+So we can see each showing up.
+We can see each showing up.
+And then we can see the block, the call to yield.
+Then we can see the collect showing up, RBE array collect.
+Then we can see yield.
+And then we can see kill.
+So we can see all of our methods.
+And you can additionally see these two methods, which are the Ruby code itself
+that we're writing.
+And those methods are RBVM exec and VM exec core is the Ruby VM actually
+executing the byte code, the Ruby byte code for our application,
+which is kind of the glue code that is between the other functions that you see
+there.
+And then at the top you see the code for the VM to handle a crash.
+So this is the two stacks.
+So let's focus on the Ruby stack and kind of ignore the native stack mostly.
+So how is it represented inside the VM?
+So inside the VM there are a bunch of structures in memory that represent
+the stack, so how do they look?
+And so hang on, I will show three slides of C code and
+then we can come back to actual Ruby code.
+Please don't kind of like stab your eyes out or something.
+So yes, when it shows up, there's a in VM core, it's like a VM header where
+a lot of the internal Ruby interesting things are.
+And there's like this RB thread struct that includes a bunch of things.
+And this is what Ruby holds for a thread.
+And inside that we have this RB execution context thing,
+which keeps a pointer to this other structure with this RB execution context
+which has a few more things on the thread that were separated for reasons.
+And inside here we actually see the size of the stack and
+the information about the stack.
+And then we have this array of RB control frame T elements.
+And this is a pointer into an array that then has these entries,
+the RB control frame struct.
+So basically these entries are what represent a stack frame in the VM.
+So if you see five lines in your stack frame,
+there will be five of this.
+And you see that there are some things in here, like if you're wanting to see
+IC which is the instruction sequence.
+So this is like the Ruby byte codes for that method or block or
+whatever that's getting executed.
+You see like self, the object on each which was called.
+You actually see like JIT return which was added to support YJIT and
+the other JIT so that they use that.
+And there's a few more things that we'll ignore.
+But yeah, this is how the Ruby VM represents the information that's on
+the stack internally.
+So whenever a method gets called, a frame is pushed to represent this new
+method that got called.
+So there's this VM push frame method that, like the interesting part is here
+on the right, which is like, we're setting it up.
+We say, we have the self object.
+Like there's some things that we want to care to track.
+So that adds one more onto the stack.
+And you would not be surprised if I told you that this stack gets popped and
+there is a VM pop frame method that actually function in C.
+That actually takes care of this.
+So fine, this is kind of what you might be expecting.
+So let's talk a bit about the backtracing gem.
+Yes, maybe this is good.
+I'm doing timing.
+So the backtracing gem is this really weird gem that I create.
+And let me tell you why I created it.
+I created it because of something like this.
+So if I show you this, main, print stacks, new initialized times,
+block initialized backtrace.
+If you squint at it a bit, maybe you can speculate on what's going on.
+But it's kind of hard for you to get a lay of the land and
+understand what's this weird example thing doing without looking at the source code.
+You need to be looking at the source code and then it makes perfect sense.
+It's here, it's here, it's here.
+But if you're not looking at source code, it doesn't make a lot of sense.
+So this is something I was thinking of.
+Like can we actually improve stack traces and
+give you more information so that you can read the stack trace and
+get more information without actually going to one or more files.
+Because this could be across ten files and you would have to follow along.
+So actually this is the code, you don't have to read it very much.
+The interesting thing is that we have this method print stacks that gets called here
+that creates an instance of print stacks that then initialize and
+then inside there's the times and then we print the backtrace.
+But I've shown you the code.
+So the idea is that Ruby what you saw was printed with the Ruby backtrace.
+And with the backtrace.jm you can instead get this.
+You get the class names.
+You get like a dot on print, hello, Fosdem and here you can see like the namespace.
+So here you see that like we're calling you on the class and
+then this is like an instance method.
+And then we're calling integer times and
+then we're having a block inside initialize and then backtrace location.
+This is kind of the thing I wanted to experiment with.
+Maybe it won't look exactly like this, maybe it will look different.
+But try to get more context so that you can look at it and you will go like,
+I think I see what's going on even without opening up your editor and
+maybe navigating to the ten different files.
+So this is what I mean about prettier backtraces.
+I wanted to experiment with adding more things, things such as like class and
+module names, things such as like show a dot or a hashtag if the method is or
+like an instance or a class to be able to quickly distinguish that.
+Maybe distinguish like singleton methods, so methods that you define on a specific
+object versus just like a regular method from that class so
+that you can see this is a weird thing that showed up on this object.
+Maybe that's relevant.
+You could distinguish refinement, which is this weird thing,
+which is like methods that show up based on like some context thing.
+You could maybe show method arguments, maybe that's useful sometimes for
+you to distinguish between a few of your methods.
+Maybe even show C function names or like file names and line numbers.
+Because one thing you might have realized is that I shown you that array and
+the collect and whatever methods are implemented with C code.
+But you never see the C file and
+the C line where they are implemented in your backtrace.
+So if you want to actually follow that into the VM and
+understand what's going on or maybe you just are working on a Ruby native gem,
+you actually don't see that information, Ruby hides it and doesn't even keep it.
+Another thing is like maybe even have some visibility into the native sex and
+what might be going there because you might be debugging like this postgres or
+my SQL driver which is going into C code.
+So how far did I get?
+Well, I got this working, this working, this working, this working.
+This is not, I haven't tried it yet.
+This is a really awful hack, so let's say maybe.
+And this is not working yet.
+So I'm still kind of experimenting with how far we can get.
+So a question is like how does backtrace work?
+So the TLDR is basically I've shown you how things get stored inside Ruby.
+So we basically just like go in there and get what we need out of Ruby without
+Ruby really having any APIs to do this thing, which is fun.
+So but these are internal VM APIs.
+So they are like in private headers and they are not available to gem.
+So how does this work?
+How can we access this information?
+And this is like the cool thing about like that this prototype allowed me to play with.
+So let's talk a bit about accessing Ruby VM internal APIs.
+So what's the backdoor?
+There's actually two different backdoors for
+accessing this VM internal C headers in C Ruby.
+One is the hidden Mjith header.
+So you might have heard about the Mjith experimental JIT compiler.
+So from Ruby 2.6 and 2.3.2 it was a part of Ruby.
+And it actually generated some C code and then compiled it.
+And that C code actually needed a header with some of the internal things.
+And so what the Ruby developer did was very silently,
+they went into this folder which is like a weird name and
+they created this RBM JIT header which is nobody supposed to use.
+And put that information there.
+So we can actually search this information from there and then use it.
+So yes, it's great just for the private use of the Mjith compiler.
+And if you import this, it's like weird working with it and
+a bunch of things doesn't work very well.
+Because it was not supposed to be used by anyone other than the Mjith compiler.
+But it includes like a copy of all the things we're looking at so we can make it work.
+Backdoor number two, which is like one of my weirdest backdoors,
+which is the device Ruby course of gem.
+So the idea is since the Ruby VM doesn't have any of the headers it needs.
+Thank you.
+This gem actually just kind of copypites all of the Ruby headers.
+So it has a folder and it has like some folders for every Ruby release and
+then kind of someone just copypites every header in there for every release and
+then release the new version of the gem.
+It's very crude, it works for all Ruby.
+So 3.3, now that's Mjith is gone in 3.2.
+And it also works like as far back as like Ruby to one or two zero.
+But yeah, you could do something like that.
+So the backdoor is like once we know what's the shape of these VM internal
+structures we can access them in backtracing.
+And if you remember this slide where I said I'll come back to this one,
+RB profile frames and RB profile thread frames, now is the time.
+So what I did in backtracing is that I started by copypasting
+RB profile frames into the backtracing code, just going into the Ruby VM like copypaste.
+And obviously when you copypaste from like an open source project,
+make sure you understand what's the license and if you can do that,
+you can do that with Ruby.
+And so I did this.
+It's fine, but make sure to like have the copyright headers and
+all that information.
+And then I added a bunch of features to experiment with it and
+get all of the things I was talking about.
+And actually, it was really interesting, this approach was really,
+I found it a really great way of prototyping something without having to
+depend on a custom build of the Ruby VM.
+Because I actually started by modifying the Ruby VM, but
+then I have a Ruby VM that works only for me and that features only for me.
+Instead, if I do this, I can tell you gem install backtracing and
+you can get it as well.
+So it's like an interesting approach to like playing with something that
+you would otherwise not play, but be careful.
+So obviously there's a lot of small details to get right.
+I am glossing over a ton of things needed to kind of get this weird thing.
+So for instance, you might want to access some VM internal structure, but
+you might not know exactly how to access it.
+So sometimes you need to kind of go read the Ruby API very carefully and
+see, this object that Ruby hands me actually internally has a pointer to
+the other thing, which has a pointer to the other thing, which eventually is what
+I want.
+So sometimes you need to do a bit of squinting at Ruby and
+understanding like how are you going to get access to this information.
+Like in some cases, like the copy pasted code also called other private VM
+internal APIs that are not exposed by the VM.
+So when I copy pasted, I compile it and then I try to run it.
+It doesn't work because those APIs aren't there.
+They aren't visible to gems.
+So again, like a lot of details here.
+Sometimes you just copy paste more and you keep copy pasting until it works.
+Sometimes you need to re-implement some things yourself because it's easier than
+you look at it as like okay, I don't need all of the things.
+But you need to play it a bit with it until you understand how you get it to work.
+But it has some really cool side effects.
+So for one, I was able to get this to work as far back as Ruby 2.3 with a lot of
+conditional compilation things in C.
+And even as I've done some experiments, even as far back as Ruby 2.1,
+so I think you could do this.
+And it was kind of cool because this includes back porting of
+RbProform frames features.
+So I copy pasted from Ruby 3 version and actually they have added a few features and
+some bug fixes and whatever.
+And so by copy pasting this and then using it on Ruby 2.3,
+I was actually having features that were not present in Ruby 2.3 from the modern
+version of the code, which was really cool.
+I also did not do it alone thanks to KJ from Zendesk that did a lot of work on
+Backtracing.
+And so let's quickly take a look at, interesting.
+Is it one full color?
+I don't know.
+So let's take a look at how we can use Backtracing.
+So you can go on the website, you can install the gem.
+As I said, it's the magic of doing this thing in this weird way,
+is that it works for you, for everyone, just install.
+It has this API which is Backtracing Locations, which gives you an array of
+locations, which is Backtracing's version of Ruby's location.
+So you get a lot of nice methods with the different things that Backtracing got,
+but Backtracing has a lot more things, and I will show you in a bit.
+Then you also get color locations, like Ruby,
+you get just for the colors of this current thread.
+And some use cases you can do with this.
+So you can obviously probe what information is there and
+you can implement your own printer.
+So there's a lot of information about the different names of the methods.
+And for this very simple example, actually they have all the same names,
+but sometimes Ruby has these notions of different names.
+So you can access all of them, you can access the objects that this was called on,
+you can access the class, a bunch of things.
+So you can use this, and then you can implement your own printer.
+That imprints a very nice stack trace.
+You can obviously use this to just get the pretty stack trace.
+So by default, Backtracing prints exactly as Ruby does, but
+if you call fancy to S, you get the one with the class names and a few other fancy things.
+And you can also call this weird Backtracing gem from C code, it has a bunch of APIs.
+And in particular, it has a special low overhead API for
+profilers and tools like that.
+So if you're interested in building something like that,
+you can use Backtracing to get the stacks and not have to care about.
+And actually one gem that's using Backtracing is this Ruby mem profiler
+that was created by KJ and I helped a bit as well.
+And so it's like an open source gem by Zendesk, which uses the Backtracing
+API to build a flame graph of memory so
+you can investigate memory usage and memory leaks and
+reduce the memory footprint of your application or even fix memory leaks.
+So we actually, me and KJ, we gave a talk at RubyKaigi about this thing called
+Hunting Production Memory Leaks with HIP sampling.
+So if you're curious, check that talk out.
+So some other use cases that we've been playing with on Backtracing.
+So you can actually access native function debug info.
+There's actually a lot to be said about how you get debug info from native libraries on
+Linux and different OSes and debug symbols and warf and whatever.
+I will not go into much into that because that's a nightmare.
+But I have a working prototype which actually you can see for each.
+You can see, okay, each belongs to Array.
+But you can also see it's implemented in this libruby.so object.
+You can see I'm using Ruby 3.1.
+And you can see that the C function name is rbarrayeach.
+And then in the future, we could even get more of the bug information,
+assuming it's still available and see the file name, the line number, etc.
+And allow you to smoothly go from Ruby code to C code as if, yeah.
+And theoretically, this native information doesn't have to just be C.
+So if you have a Ruby gem that is built in Rust and
+the Rust binding would have the correct debug information,
+you could go directly from your Stacktrace to, it's this Rust line.
+So it's really nice to, that's why I'm looking into having this information.
+Another idea that I have that I still haven't experimented,
+I haven't tried really hard to do it, which is,
+could we build a Backtrace Stacktrace for exception?
+So that when you have an exception in your app, you get the nicer objects
+which Backtrace provides you and you can get the full information.
+I haven't tried it yet, want to do it.
+So, just kind of a recap.
+What did I learn from all of this experimentation and playing?
+One thing is that the Ruby VM itself is very interesting and
+I would say surprisingly approachable.
+So my prior C experience was university projects and
+really, really tiny personal stuff.
+So I would not classify as a C developer ever.
+And I like everyone that goes to uni, I just kind of listed C in my CV
+because I did it at this one or two courses.
+But really, I was not a C developer and I still could follow along a lot of stuff.
+And especially if you go there and you add a printf and
+you start playing, changing the code a bit, it's like, you see things happening.
+It's really interesting.
+And also the power of having a working prototype to show off a crazy idea.
+And this had really two side effects that I was kind of hoping for,
+but didn't quite expect it would happen.
+One is that we actually at Datadog ended up using a similar approach for
+the Datadog Ruby Rufaller.
+And with Backtrace, I kind of proved to the team,
+I was like, yep, it works, I've got it working.
+This is one thing we could do if we wanted to.
+And the other thing is that the Ruby Core team also kind of liked the show class
+names in Stack Traces thing.
+And this kind of started an interesting discussion.
+And this leads us to the final item, which is class names in Backtraces
+coming soon in Ruby 3.4.
+Question mark.
+So actually in the Ruby issue tracker, this is now being discussed.
+This number 19117 include the method owner in Backtraces, not just the method name.
+This was opened by Jean-Bossier, had this proposal after we were discussing this at
+RubyKaigi.
+And then Mame implemented like it has a working prototype for
+this that it has a PR for Ruby.
+And actually if you just build it, it works.
+Like as kind of what we were saying, now you get this information of like the full
+class and you see that this is an instance method and you see like the dot on
+the class method.
+So we had this extra information for
+developers to just out of the box.
+Obviously this is still being discussed.
+So if you like this idea, you want to see this in Ruby 3.4 and use it in your app.
+Just try it out, go and leave feedback on this issue.
+And that was kind of it that I have had to tell you.
+So yeah, email if you want to talk to me,
+a knox on whatever they call the social network, my blog.
+I have a few other talks and here like yes, go get feedback because Ruby developers are
+actually calling for feedback in that ticket.
+And I actually, thanks to my employer, they developed for
+allowing me to work on these things.
+And I actually, if you're interested in coming work on the data about Ruby Jam,
+ping me because we are hiring right now for the Ruby Jam.
+And it's really different kind of Ruby that we do.
+Yeah, questions?
+Hello.
+Yeah.
+I think you mostly answered it but the class shown in the trace,
+Yeah.
+3, 4, and 3, 4 and backtracing, it is the owner of the method.
+Like we can statically, because in J-Bruity the only way we get the piled backtrace is
+by cramming a bunch of data into the class name or the file name or whatever it's on
+the JVM's trace.
+Yeah.
+I can't make that dynamic.
+Once I set that stone to the method, it's going to stay that way.
+But if it's the method owner, then at the point where I can pile it,
+I can just throw that extra information in there and pull it out.
+I think that's right.
+Yeah, I believe the disimplementation is exactly the method owner.
+I think in backtrace, yeah, I experimented with having both, but it's much harder.
+And I think part of the discussion going on in the ticket is also,
+what about dynamically defined stuff and whatever?
+So I think the implementation is like, oh, when it gets, and I think, yeah.
+In some cases, it might not show, because it's kind of hard to get this information
+even in CRuby and expose it in a very efficient way.
+But in a lot of cases, it's like a regular method on a regular class and it gets it.
+So yeah.
+More of a product question instead of a technical one.
+Yes.
+You say it came from the, you wanted to have access to what was being called.
+Yeah.
+Is that something you personally, or is that something that was shared across the team
+and then something related to that?
+Essentially, I'm not working with anything compared to that.
+Yeah.
+Will I get something out of it myself?
+I have a small company.
+I think so.
+And then I really, so my other background other than Ruby is Java.
+And in a Java backtrace, you usually get the class and the method.
+And I've always found it easier to, in a lot of cases, easier to think about.
+Like, oh, this is the class and this isn't the method on my class.
+Then just like the method names.
+Obviously, in Ruby, if you have a very well-structured code base, you know that app flash foo flash
+dot rb is going to be foo bar.
+Like, you know.
+But sometimes code is not actually that simple.
+There are like, so near parts of the application.
+So that's the part where I feel like this kind of thing comes in handy.
+And I kind of missed it from Java.
+And I had worked with Java tools and I was thinking like, I want this thing from Java.
+Can I have it?
+The, actually, other thing I can add is that because for methods in the Ruby VM, right now,
+Ruby never shows you, like, where array is in the VM.
+It kind of, it kind of blames you.
+I can show it very quickly.
+If I go back to the way, way, way, way beginning, you can kind of see this here.
+So this thing, have you noticed that Ruby is lying there and there and there?
+Is Kiehl defined in line three?
+Is Collect defined in line three?
+Is it defined in line three?
+No.
+So when you have a C func, like a C API or native API being called from Ruby,
+Ruby lies and just basically decides, it's the caller.
+So that's the thing.
+And actually, at some point, I had to debug this really weird case where Ruby was calling inspect
+and I really didn't understand it.
+And I had a bunch of like, new inspect, new inspect, new inspect going into the VM.
+And I really didn't understand it.
+And I actually got out backtracing to just get that stack trace.
+And I understood that it was like this weird case when you have a no methods error on like
+some Ruby version, Ruby will actually call inspect on your objects.
+And in some cases, it will, after calling inspect, it will throw the inspect away.
+Which was like, I was like, why is, whatever.
+But sometimes, like it gives you a lot more viewing, a lot more context if you know exactly
+where the methods are getting called and the classes.
+So here you would see process skill, et cetera.
+So it's much clearer in my opinion.
+Yeah.
+Did you try to apply the same approach on heap dumps?
+Apparently, you're just inspecting the internal C structures.
+So at least theoretically, it should be possible to inspect the heap dumps.
+Yes.
+So like, I'm not, it's been a while since I've looked at the JSON output of heap dump.
+So I'm not sure if it has this information, but it could.
+And actually, even if it doesn't have it, I don't think actually you don't need to go
+as far as backtracing and accessing the internal stuff.
+Because you can do like objects.pac.each to implement your own heap dump.
+And when you do have xpac.each, you have access to the objects where things are defined.
+I was talking about the dump files.
+The JSON file, yeah.
+I mean, not the JSONs that you can get from.
+I mean like a crash, like a heap dump of a crash of the VM.
+Yeah, yeah, it could.
+It's the same thing.
+Like the structures are there.
+So you could do this.
+Like you could even do like a GDB script or whatever debugger script that accesses the same things
+and reads it.
+And actually just one thing, if you ever heard of the RbSpy profiler, which is like built by Julie Evans
+originally, like RbSpy is kind of doing the same from, but from the outside the process.
+It's like, it's a rough process that it's like reading Ruby memory, reading those things
+and then showing information.
+So I actually at some point tried to prototype this in RbSpy and then I just got bored and did something else.
+Yes.
+If we want to start looking into the C code of the VM, is there a documentation or somewhere we can start to not reading all of the code?
+Yes.
+There is.
+There is actually a really nice repository that I think is like there is like a, I think it was built by
+I'm going to say Koichi, like one of the core Ruby developers that have like a nice introduction to the VM.
+I don't know exactly the name of the repo, but like email me and I have that in my bookmarks and I will send it to you because it exists.
+Actually, it might, like let me quickly do something.
+Maybe there's a...
+A challenge.
+Yeah, it's that thing.
+Exactly.
+Ruby Act Challenge.
+And I think in the backtracy repo, there's actually some links at the bottom and it might be there because I included in the repository a bunch of links of
+interesting things I found to read this information.
+And so if you go to the GitHub repo, the bottom, it might be there, but yes, it's Ruby Act Challenge.
+So Google it, you probably find it.
+Thank you.
+Thanks, everyone.
+Thank you.

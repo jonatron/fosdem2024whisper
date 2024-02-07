@@ -1,0 +1,447 @@
+You can't hear me at the back.
+Do not hesitate to ask for me to speak louder.
+So I'm Alex and I'm a co-founder of the DeFloor Association, which is a non-profit self-hosting
+collective.
+We're a member of the Chateau Network in France.
+And so what that means is we're doing self-hosting and we're trying to promote self-hosting as
+an alternative to putting everything in large data centers and relying on cloud providers.
+The thing is actually doing this is relatively hard and mostly it's hard because we want
+systems that are reliable, which are available most of the time.
+And if you have computers at home, you have a lot of issues.
+In particular, the computers we're using at DeFloor are these kind of computers, very
+cheap old desktop computers.
+They're not meant to be servers and we expect that they could crash at any time.
+These are some other examples that we had and those are still used actually.
+So these are also old desktop computers and we have some system which is based on only
+these kinds of machines.
+So they can die.
+We also have issues possibly with the internet where the electricity connection because we're
+at home so we don't have redundancy.
+It can go at any time.
+And to alleviate these issues, what we do is that we do distributed systems and we have
+a multi-site geo-replicated cluster.
+And so in our case, the DeFloor cluster is in three places.
+There's some nodes in Brussels here, some nodes in Lille and some nodes in Paris.
+And basically the aim is to build a system that makes use of some cheap hardware which
+is disseminated in all of these locations and they can basically relay one another when
+there's an issue somewhere and the whole thing stays up even if there are issues in
+individual locations.
+And so this is one of the reasons why I call this a low-tech platform because we're using
+what we have at hand, cheap machines and regular internet connections.
+One of the main components in this platform is object storage.
+And so I will not enter too much into why object storage except that it's very adapted
+to flexible deployments which are kind of inspired by what is done in the cloud.
+And indeed, Amazon S3 was created as a cloud product and in 2006 was introduced.
+And it became since then a de facto standard and many applications are compatible with
+this object storage.
+And so it makes sense to base our infrastructure on this kind of software because we can just
+like plug and play all kinds of various things which are already able to use this kind of
+storage layer as a backend.
+There were many actually alternative implementations of S3.
+MENU is one of the most common ones.
+I think CEPH is also an implementation.
+What we discovered is actually that these implementations are not very well suited to
+geo-distributed deployments.
+So deployments where nodes are in remote locations because in such case you will have higher latency
+between the nodes and it can cause issues and the system is basically a bit slower.
+And sometimes it's even really unusable.
+So Garage was made specifically for this use case.
+We make use of distributed systems theory, CRDT in particular, which I will talk about
+later.
+And this is basically the aim is to provide a drop-in replacement for Amazon S3 or S3-compatible
+storage systems which is available, possible to run directly on this kind of geo-distributed
+cluster and the data will be replicated at several locations and it's kind of transparent
+and it's supposed to be reasonably fast, not completely slow down all the replications
+which are running on it.
+One of the main ways we were able to achieve this outcome was to use CRDT and weak consistency.
+So this is a bit theoretical explanation of what is going on in Garage and I will have
+another slide talking about this later.
+But basically we're trying to avoid so-called consensus algorithms like RAF or PAXOS because
+these algorithms have issues and are actually very sensitive to latency.
+But just to list the issues in a clear way, the first of them is software complexity.
+I think RAF is actually a complex piece of software and it can be implemented badly and
+if you do it wrong it can lead to various unacceptable outcomes.
+And of course the issue of performance which I've talked about already.
+Those algorithms like RAF are using a leader so the leader is becoming a bottleneck for
+most requests in the system.
+So if you cannot really scale if you have a naive strategy with just one leader in the
+system it's also sensitive to higher latency because if the leader happens to be a node
+in a very far away location, well everything has to transit from there and then come back.
+And so if the leader happens to be the wrong node everything is going to be much slower
+in the system.
+And also if the system is disrupted and the leader goes down the system will have to take
+some time to reconverge and it's actually something that can take a long time especially
+if the latency between nodes is high and those are not able to communicate very efficiently.
+And so for this reason we made Garage a completely different design which is based entirely on
+CRDT internally which kind of solves most of these issues.
+Object storage is very likely very similar to basic key value store except that the values
+are objects like big blobs of data.
+And so here we have an example where we have the key which is there's no notion of a file
+system hierarchy so we will just have the entire path in the key with the slash it doesn't
+have any specific meaning.
+And the value is like some metadata here it's inspired from the HTTP headers because it's
+very strongly based on the HTTP semantics and then you have the binary data for each
+of your files.
+It happens that this semantics key value actually maps very well to CRDT and this is why we
+were able to make this work.
+So just to convince you in one slide that this is actually a worthwhile trade off this
+is one of the best results we have for Garage and it's a performance comparison for Garage
+versus Migno.
+So it's a simulated deployment where we have nodes which are simulated on a single machine
+and we add some artificial latency between the nodes.
+And so here we have nodes with 50 milliseconds so pretty long delay between them and so basically
+we can see that they take some duration which is a multiple of the round trip time latency
+but for Migno it's a very high multiple so some very common requests like remove object
+or put object will take like more than one second and for Garage we were able to bring
+this down to somewhere between 300, 500 milliseconds.
+So quite an improvement.
+So the main focus of this talk is to basically discuss recent developments in Garage because
+so we were here at Fosdame two years ago and I think maybe lots of people in the room
+are already aware of Garage.
+So yeah two years ago we were at the beginning of a grant by NGI Pointer and which was the
+first grant and it allowed us to bring this version 0.6.0 which was the first like public
+beta version that we launched.
+So it was like a point where we considered that we had some basic feature which was pretty
+good actually and we could ask people to come and actually many people were interested
+and this is the point where we started also to have some external contributions to the
+project.
+So we did Fosdame about at the time.
+In April we did version 0.7 and so version 0.7 was so focused mostly on observability
+and integration with the ecosystem.
+So we added support for metrics and traces using OpenTelemetry which is a standard for
+exporting observability data.
+We also added some flexibility because while we had originally built the system like supposed
+to have three copies of everything so we would expect to have nodes in three different data
+centers actually people were also willing to use the system with less copies so we added
+one or two copies and we also had some weaker consistency which was useful to like make the
+system faster or help recover data in some scenarios.
+We also added integration with Kubernetes for discovery of nodes so that the cluster
+is able to set up automatically the links between each nodes and we also added an administration
+API which is useful to like set up the cluster.
+It's basically a very simple REST API where you can create buckets which are stored spaces,
+create access keys, give rights to access keys, etc.
+I will just show a little bit about the monitoring part.
+So this is a graphnet dashboard that we made for Garage and as you can see it's actually
+pretty complete.
+We can monitor so here is the request going on through the S3 API endpoints and here's
+the request going through the web endpoints because Garage supports serving buckets directly
+as websites which is something we make heavy use of at Le Fleur.
+Here we have the error rate and more interestingly here we have some internal metrics so like
+this is the data which is being read and written to the disk on the nodes.
+This is some internal metrics for the communications between nodes RPC and these are some queues
+so how much data is remaining to be processed and so yeah just quick note here the GCQ is
+common points where people are like why is this queue not going to zero?
+It's normal that it's not going to zero because items are staying in the queue for 24 hours
+before they're processed just for information.
+So basically this queue should almost be to zero and this one too and if it's not then
+probably your system is under too much load.
+And we also have tracing so if you want to go further into like how Garage is handling
+a request you can use this feature.
+So here we're exporting traces to Yeager and this is a trace of a pretty standard list
+objects API call and so we can see that the list objects is first reading some data to
+get some access information on the access key and the buckets.
+So this is some very fast call because all this information is copied on the node and
+it can just read it locally and then it's going to do some actual requesting on remote
+nodes for the list of objects that should return and we see here that it's sending a
+request to two nodes and the request is taking a bit of time before it completes and then
+so yeah I think this is a pretty slow cluster and it's taking 100 milliseconds but on faster
+hardware it can be of course much faster.
+So this was 0.7 and then we did 0.8 so that was at the end of the NGI pointer grant and
+for 0.8 we had a pretty high focus on making the performance better.
+So first thing we did was like change the metadata engine because we were using sled
+and it had a lot of issues I'll talk about that and we did some various performance improvements
+across the board making basically some pretty good improvements in this kind of area and
+in terms of features we added CODAS so this is not a feature from Amazon but it's a feature
+which you can add on Garage is like limit the size of a bucket to a maximum size of
+objects or maximum number of objects and it's pretty useful in a multi-tonnets setup where
+we'd like to lend some storage space to someone but have them restrain to some fixed capacity
+and of course some regular developments on quality of life improvements etc.
+So yeah just to talk a little bit about the metadata engine so we were using sled which
+is a metadata key value store embedded key value store which is written in Rust so we
+thought yeah it's written in Rust it's pretty good Garage is also written in Rust so let's
+just integrate them and at the point when we started Garage sled was like one of the most
+popular key value stores for Rust but actually it's not very well maintained anymore and it had
+many issues so it was making very large files on disk because it was like just writing and writing
+and writing and probably it was some internal way to optimize performance but it was not very
+satisfactory for us to have like data files that were 10 times too big. The performance was also
+pretty unpredictable on spinning hard drives it was actually very bad and also from a developer
+perspective it has some API limitations and this has prevented us from implementing some specific
+features in Garage and hopefully when we get rid of sled we can actually do that. So as an
+alternative we added LMDB so LMDB is a key value storage which is used I think in OpenLDAP
+and some other software and it's a pretty established piece of software at this point so we
+consider it pretty stable it has good performance and it maintains a reasonable size of files on
+disk so this is the default now and we also have SQLite as a second choice originally we had not
+optimized SQLite that much so it was not recommended we had not made another bunch of tests but
+probably now it's okay to use as well and just to show some comparison we did some benchmarks
+and basically LMDB is much faster pretty much twice as fast as sled not really twice but
+actually significantly faster and for all these common API endpoints and SQLite was not optimized
+at that time I cannot I do not have the data updated for now. Another optimization we made is
+block streaming so the idea here is that Garage will store your data so when it receives an object
+it will split the object into pieces of by default 1 megabyte and then store these pieces on data
+servers all around the cluster and then when you want to read the data well your API request is
+going to go through some Garage node which is going to receive the request is going to look at
+the objects the metadata and determine okay we have to get this part this part this part from
+these different nodes in the cluster so it's going to do an internal RPC request to the storage
+node which has the actual 1 megabyte data block and so this is how it was working before basically
+this first node that was receiving the API request it would like just read the 1 megabyte into RAM
+and not send anything to the client before so basically here the client is just waiting for
+the data to arrive and the data is being transferred here between these two nodes between inside the
+cluster and so basically the client is just waiting for some stuff to happen inside the cluster
+where it could just have received some data earlier and so the optimization we made was
+actually pretty simple but it's pretty big change in the code it was to start sending the data as
+soon as it arrives to this intermediate node and so here we just have a small buffer of data which
+is received and waiting to be sent back to the client and so by doing this pretty small change
+we actually managed to reduce the time to first byte measurement so this measurement is when you
+do a request to Garage to receive to get an object you will specify the path of the object send
+your HTTP request all the headers etc and then you will wait for the server to reply the server
+will give you some headers saying okay the object is coming and then he will start streaming some
+data and so this measures the time between you the point where you start sending a request and the
+moment where the first actual bytes of the data file are coming back and here we are in a actually
+again it's a simulated deployment but we have pretty slow networking so 5 megabits per second so
+it's actually very slow and so before the optimization garage was here so we would have to
+wait pretty much two seconds before some data was coming because the like a one megabyte file was
+being transferred out this very slow connection before it could be returned. Minio has some average
+performance here and with the optimization garage is very fast and we're able to return the first
+bytes of the data and so this is important because for instance for websites you want to display the
+content as fast as possible and even if it's a big file then maybe the first bytes are very relevant
+so for an image you can have a preview in the first bytes for an HTML file we can have pretty much
+everything and so minimizing this time is very critical to user experience. So I think we pretty
+much managed to do this and we also did some other various improvements on the code pass and
+garage so on the bottom we have 0.7 then we have 0.8 beta 1 beta 2 here we removed some F-sync and
+it's completely optional to have F-sync and we're almost matching so here is like raw throughput
+when you're reading and writing big objects continuously to garage the throughput is still
+a bit worse than Minio but it's actually getting pretty close so there's still room for improvement
+in this domain and it's yeah we haven't done much more work on this but it's definitely something
+that could still be optimized I believe. So then it was the end of the NGI pointer grants so we did
+a bunch of conferences in France this was not me this was other people from Duffleur and then we
+started another grant by NGI 0 through NLNet and this led to the release of 0.9 and so 0.9 was
+actually a pretty big release so yeah we had a support for multiple AGDs per node and this is
+actually a pretty big feature because now you can have one garage node which is directly talking to
+the hard drive and you don't have to do some pooling at the file system level or some RAID system
+basically you will just format each of your drives independently as a file system and each of them
+has a directory, a mount point and garage will just use all of these mount points and like share
+the data between the drives. This is probably the model which allows for the best performance on
+the server with multiple drives. We also added some features for S3 compatibility so we added
+support for basic lifecycle and lifecycle is a feature where it allows you to clean basically
+some stuff which is going on in the bucket and so for instance in S3 you can start uploading
+an object using a multi-part upload so multi-part upload means you're initiating the upload at one
+point and then you're going to do individual requests to add pieces of the file and then
+once you're finished you do a complete request and then the files get uploaded that gets stored
+completely in the system and so it could happen that these multi-parts upload they get
+aborted in the middle you never get to finish the the the requests and in this case there's
+some data that's lying around in the cluster and so if you configure a lifecycle using this is a
+very standard S3 API if you support if you configure a lifecycle in your brackets you can
+basically get rid of all this tail data after say a delay of one day or something like that.
+And another thing we added for S3 compatibility is retries of multi-parts upload and this was
+actually because in S3 if you fail a part you can because maybe your network was broken you can
+try again this part and you can still complete your multi-part upload and in the first versions of
+garage we did not have that and you would have to restart the upload from the beginning now you
+can resume only a single part. LMDB is now by default we're deprecating SLED and we have this
+new layout computation algorithm which I will talk a little bit about. So as I said garage is meant
+to work on geo-distributed clusters so you have nodes which are in different geographical locations
+we call them zones in garage so here we have three different zones and the data is going to be
+replicated and each file has to be on different zones for optimal redundancy. So here is an
+illustration if we have five zones for example the blue file will be in Belgium France and
+Switzerland so in three different places and the red file will also be in three different places
+not necessarily the same here it's UK France and Germany. And the idea is that we do this using this
+kind of pre-computed layout which is a table which will say okay the cluster the data in the
+cluster is divided in 256 parts and each of these parts is assigned to a fixed set of three servers
+and for each part we have to decide so three servers which are in different places in the cluster
+and we have to also balance the quantity of data that is going to go on each server. So basically
+for 0.9 we added an algorithm which is able to do this in an optimal fashion so basically this
+table is computed once when you set up the cluster or when you add some new nodes and then it's
+propagated to everybody and everybody then knows this table and knows where to look for the data.
+We actually published a paper if you're interested in the details of the algorithms that we use.
+Okay so that was 0.9 and then we went on and worked on 0.10 and 0.10 is actually a beta version and I
+think we will not have a stable 0.10 because it's not worth it to like update to 0.10 and then update
+again to 1.0 when it's going to be out so I think we will just leave the 0.10 at beta and do the
+0.1.0 in May but so I'll just talk a little bit about the 0.10 beta. It's mostly focused on fixing
+some consistency issues that would happen like when you were adding some servers in the system or
+removing some servers and so I will enter into a bit of distributed system theory to try to explain
+why exactly it's an issue and what is the solution that we made. So since I've said that
+garage is not based on consensus it means that we have to work with inconsistent primitives
+so this means we have to work with conflict-free, replicated data types, CRDTs and so these are
+not transactional, they are pretty much very very weakly consistent, very freeform to use
+and there's this last-writer wind register which is pretty much the fundamental building block of
+garage and so CRDTs alone are not enough to insert consistency so what we add is some read after
+write guarantee which is implemented using quorums and I will try to explain, I hope you will
+understand how it works, I think it's not so complicated but it's a bit theoretical so yeah,
+hold on. So read after write means if a client one is doing an operation right and the system
+returns to the client okay your write is saved in the system and then another client is sending a
+read for this data after the write is returned okay then the client two will read a value which is
+at least the value x that was written or a newer value this is what this means and so in practice
+it means that the system is basically evolving between these states so for instance we have
+the state here where the system is not storing anything and then we can store some value a or
+we can store some value b and if this is like a basic set if you have stored a on one node and b
+on another node then when the two nodes like merge together they will have stored a and b okay but
+let's do an example here for the writes so these are the three storage nodes and we're supposing that
+a node, a client is sending a write operation for value a so the value a is going to be sent to the
+network to these three nodes and at some point like maybe the purple node is going to receive the
+value a so it's going to move from not knowing anything to knowing the value a then the green
+node is also going to move from not knowing anything to knowing a when it receives the messages
+and so those two nodes are going to return to the client who did the operation okay I've stored
+the value a so at this point the client says so I've received two responses this is two over
+three so it's what we call a quorum and at that point the client says okay the data is stored in
+the system even if the third node has not received it yet and so this is the point where we can start
+a read request and so the read will basically is the client will ask all of the three nodes to return
+the value that they have stored and maybe the first node that will return its value is the red node
+and the red node has stored nothing so the read will first receive a value of nothing but then it
+will wait for another response and the other response will necessarily come from one of these
+two nodes and so it will necessarily read the value that was written and so it will just merge these
+two so this is why we use CRDTs to do this merge operation and consistency is guaranteed
+and maybe at some later point through some synchronization mechanism the red node will catch
+up and also receive the value so we have this in algorithmic form but okay and so the issue we have
+with this is that we're relying very strongly on these quorum properties so if we have three copies
+of data a quorum is at least two nodes of the three but what happens when you remove some nodes and
+add some other nodes in the intersystem so we will have some some data which was stored maybe on the
+nodes in red here and in the new system the data is being moved and it should be stored on the green
+nodes and so now if you do some quorum some right quorum on the red nodes and some some read quorum
+on the green nodes there is not necessarily an intersection of one node that has seen the read
+and the right and basically the consistency is broken so the question is how do we coordinate
+in this situation and how do we ensure that even when the cluster is rebalancing data we
+insert consistency and so the solution is a bit complex but basically we need to keep track of
+what data is being transferred between the nodes we use multiple right quorum so we're going to
+use quorums to write on the old set of nodes and the new set of nodes and switching reads to the
+new nodes only once the copy is finished so this is something we implemented for the in the context
+of the ngi grants we did some testing using a tool which is called jepsen which is very good for
+validating these kind of things and so as you can see in garage 0.9 we had consistency issues in most
+of our runs and in point 10 we have all runs are green except one which failed but at least there was
+no run where the data was plain wrong and it's actually this is very good result for us
+okay so this was point 10 now we're at fosdem and we're going looking forward to making a version
+one in april or may basically we're going to focus on security and stability there's a security
+audit that is going to be done by radically open security miscellaneous features should be improved
+this would be added and improvements may be in the user experience refactoring stuff
+and that's it for 1.0 hopefully we'll have that out in april this year
+and beyond so we have this survey which is going on in the community right now
+and so this is a list of the most requested features by the users of garage and actually
+there's a lot of work to do so the first thing is a web interface for cluster management so I guess for
+like visualizing the state of the cluster and setting up a new bucket as new access
+then it's s3 versioning which is so it's a feature of amazon s3 where you can have a you can save the
+historical data in the bucket and it's pretty good for like a backup system where you don't want to
+override data accidentally and this is a pretty crucial feature that we would need to have
+ACLs are here monitoring and various other things and so this is the point where I'm calling for
+help actually because there's a lot of work and I cannot do it myself so if anyone wants to step
+in and help us with this please do so we can probably find some some more funding actually we
+do have some funding in progress for someone who would like to do a phd on this system in
+in relationship with the garage so if anyone wants to do a phd in France working on some stuff
+come to us we have this application going on and we also can probably ask some money to nlnet
+which have funded us once and nji also once so we can probably get some more money if there's some
+specific task that that is planned and we have somebody who is willing to do it
+okay and so I will just spend the last few minutes of this talk to explain a little bit about how you
+can operate garage for people who have not run it or who are willing to scale their clusters to bigger
+systems so this is the basically what I would call the main screen of garage so when you interact
+with the cluster just start always by doing garage status and it will tell you if everything is fine
+so this is a five node cluster and everything seems to be fine but maybe you will have like failed
+nodes so this means that the connection could not be established and something is wrong and you should
+fix it garage is made like a some cake of different pieces like this on top we have the s3 api we
+also have some custom api which I'm not talking about in this talk and this is three api is actually
+implementing using some internal key value store for metadata and some block manager for the actual
+data of the big objects and then we have some systems here which maintain consistency in the system
+and so maybe to be a bit more specific about what's going on we have these three metadata
+data tables here so the first one is like the list of objects in the system the second is the list of
+versions of objects and so it's a bit different because an object can have a version which is
+currently in the cluster and a version which is currently being uploaded so for the same objects
+multiple versions can exist and then this version will also reference a bunch of data blocks so this
+is the table which has the reference to actual data blocks and so all of these tables are sharded
+across the nodes and in particular for the block reference table if a node has the has the shard
+for some references it means it's also responsible for storing the blocks associated with these
+references so basically from this metadata table we have a local counter for how many references
+for each block and then we have this rescind queue and scheduler which is responsible for ensuring
+that the locally stored data blocks are actually matching the number of blocks which have a reference
+in the in the store so yeah we have this block rescind for data blocks and this merkle merkle
+tree based system for the metadata and so if you do this garage stats command so there's not
+status it stats never command you will get some information about the internals of what's going
+on so these are the metadata tables and you can see here objects version and block reference
+so these are the number of items in the table and there are also the number of items in the
+merkle tree which is always a bit bigger and then you have here the number of rc entries for the
+block table so the number of blocks which actually have a reference in the system so here we have
+42,000 data blocks but we have actually 334,000 block references so this means that blocks are
+almost referenced by 10 different objects each on average and then we have some information on the
+actual nodes so the partitions here means basically is how many of the lines in the tables are
+affected to each of these nodes so if you have more more partitions you're going to use more
+storage space basically on that node it's proportional and this is a metric which is
+given by the node actually it's it's measuring on disk how much space is available it's not
+the use space it's the available space for the data partition and the metadata which is not
+necessarily on the same drive and so from all this information garage is able to basically tell you
+how much data you can still store on the cluster so here for 600 gigabytes and if you go even further
+you can get this list of workers so workers are basically background tasks which are running in
+garage all the time and so you have these tasks which are block readings so these are copying
+data blocks between nodes when they're missing and these are synchronization tasks for each of the
+metadata tables and you can change a bit the parameters of these tasks for so for instance for
+the the block re-synchronization you have re-sync tranquility and re-sync worker count
+and tranquility is a metric which can be increased to make the system go slower and use less i o if
+if it's serring you're saturating your i o you can increase the tranquility and if you want it to go
+faster you can just put it to zero and then there's also the worker count so you can set it up to
+eight and then you have eight parallel threads which are sending and receiving data blocks in the
+network there are some potential limitations if you're running extremely extremely big clusters
+probably you cannot run with more than about 100 100 nodes i mean you can but then the the data will
+not be very well balanced between the nodes and this is because we're using only 256 partitions
+we could probably compile a bigger version in garage but it's currently not the case
+and on the metadata side if you have one big bucket which is containing all your objects well you
+will have a bottleneck also because the first table the object table is going to store the list of
+objects on only three of all of your cluster nodes so if you have lots of data split your data over
+different buckets and also on the side on the side of the data blocks so the data is split into
+so if you have a hundred megabytes file in your block size is one megabytes your
+your file is going to be split into a hundred different files so we will have a lot of small
+files on disk you can increase the block size to reduce the number of files and if you have more
+files the processing of the queue can also be kind of slow and this is of course also
+dependent on your networking conditions and so just some advice for actual deployments
+for the metadata if you're going to do a very large cluster we recommend doing some mirroring
+on two fast NVMe drives possibly ZFS is a good choice garage itself does not do check summing
+on the metadata so it's good to have a file system that does it for you lmdb is the recommended
+storage engine and for data block it's a bit different and we have other recommendations we
+recommend using an XFS file system because we actually do some check summing for each blocks
+because we always compute hashes of the blocks in garage so you do not need to have a file system
+which is doing this this check summing again it would be wasteful so just format your partitions
+as XFS which is one of the fastest file systems and store your data directly on this if you have
+a good network and some nodes with a lot of RAM you can increase the block size to 10 megabytes
+at minimum and you can tune these two parameters according to your needs and of course you can do
+some more like global tuning split your data over several buckets use less than a hundred
+nodes if possible or come to us and we can work out a solution and you can use also gateway nodes
+which are good way to like have have nodes which are so have the request go faster because if you
+if you have a local gateway on the same server as the client it can basically route the request
+directly to the data server and you can possibly avoid run for time we have not made any deployment
+bigger than 10 terabytes on the side of the floor but actually some people have as we learned from
+the survey and so if some people are in the room it would be great to share your experience
+and with this I think I've talked enough garage is available as a open source software on the
+website of the floor at switch and in Rust and we have a matrix channel and email you can contact us
+and I'm taking some questions
+um
+so the question was if you store websites on garage can you integrate with dns and basically we copied
+the semantics of amazon where you can have a bucket whose name is the the domain of a website
+and so garage will route requests to the data according to the host header of the htp request
+and basically you just have to to configure your dns server so this is something you have to do as
+of at sort of garage but you configure your dns server to write the request to your garage server
+and then garage will just select the good bucket with the good content based on the name of the
+bucket and you should add some reverse proxy probably in the middle if you want to tell us because
+garage does not do tls yeah it's because when one of those website servers goes down then you need
+to reroute to some yeah so at the floor we have a solution but it's external to garage so it's more
+tooling
+yeah so in all the examples you mentioned you have effectively one node for one zone
+what if is that by design or can you have multiple nodes per zone or how does that
+I think it's uh it's uh so the question was in the examples we have uh one
+node on each zone and can we have more than one node and so I think it's yeah it's just the
+examples were not very good but yeah of course we can have multiple nodes in a single zone I think
+maybe in this in this graph no this is not the good one but there is a there is an example where
+we have several nodes in the same zone it's not a problem yeah and if you have let's say everything
+else calls and you only have the one zone that's remaining will the node still try to balance the
+data between themselves or is that effectively a you're in trouble so the question is how is
+data get being balanced between the nodes if you have like one zone where it's have only one node
+and maybe the node is smaller and so garage is trying to preserve this property of having three
+copies in different places you can you can ask it to have only in two places but by default it's
+three places and this means that if you have only three zones and one is a smaller server then you
+have smaller capacity of the cluster yes yes so the question yeah so the question is why did we
+integrate multiple disk support instead of having multiple nodes in the same zone and I think one
+of the most important reasons is that this way you can reduce the total number of garage processes
+and entries in this in this table basically because this table has only so many rows and if you
+have start having many different nodes it's not going to be well balanced so reducing the number
+of nodes helps us be better balanced basically yes I saw many of your design matching the one of
+open stack swift and I was wondering if you investigated using it okay so the question is
+there's many design points which are matching open stack swift and have we investigated using it
+I personally have not used open stack swift and I have not looked so much into it yes
+so the question is despite putting this much effort in multi multi node deployments is it
+still worth running the system on a single node I think it's it's so many people are doing it and
+I think one of the reason people are doing it is because garage is pretty simple to set up and to
+use so I think it's definitely possible I think there are also other solutions which are good
+for single node setups so yeah try it out and figure what's works best for you and okay so I think
+we're done for this talk thank you

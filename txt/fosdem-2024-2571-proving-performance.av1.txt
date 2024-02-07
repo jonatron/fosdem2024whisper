@@ -1,0 +1,466 @@
+So now we have Nikolai Vasquez who's come all the way from Atlanta to tell us about
+how we can improve performance in our Rust programs and give him your attention and it's
+going to be a really good talk.
+Take it away.
+Thank you very much.
+So, yep.
+Hi, I'm Nikolai Vasquez.
+Some of you might be familiar with my work in the Rust community such as the static assertions
+crate or recently Devon which is a benchmarking library that I'll be discussing in this talk.
+And so this title I realize is a bit of a misnomer.
+You can't really prove performance.
+Like there's just various factors that make this impossible such as for example there's
+various system conditions that could affect performance depending on machines and you
+could be working over different data sets.
+And so rather than considering this as proving performance, this is more like getting a vibe
+for performance.
+And so by show of hands how many people are familiar with measuring performance of their
+code?
+All right, so the vast majority.
+Great.
+All right, so you're all experts and you don't need me.
+So I know you probably know this but when we discuss what performance means in software,
+we're usually talking about how fast it is but to me in broader terms performance is
+more about how software uses resources to achieve a desired result.
+So along with thinking about the time that's being spent in our software, we should also
+be considering the amount of memory that it's using.
+I think that's a very important aspect of performance.
+And so making good software can be a balancing act of trade-offs between time and space and
+so it can be a bit difficult.
+As developers, the way that we write code can have a pretty direct impact on the performance
+of our software.
+So for example, we could be using really inefficient algorithms with a time or space complexity
+of O of n squared O of 2 to the n or whatever that yellow line might be.
+We might also be repeating computations instead of saving previous results.
+We could be choosing to use slower operating system APIs.
+So for example, waiting on sockets in Linux with the select system call versus ePoll.
+But also, performance can be bad for reasons that are out of your direct control as a developer.
+So at a micro level, for example, the CPU might not have cached the data that you're
+requesting and instead it will have to reach for main memory.
+The CPU might also expect the wrong branch to be taken and it won't speculatively execute
+the correct branch as well as the CPU might be waiting on previous computations before
+executing subsequent code.
+And then at the macro level, looking out, other cases might be that the network has
+really poor latency or bandwidth.
+Other processes could be using excessive amounts of RAM and that can cause DOS to swap memory
+to disk or your storage might be on a slow device like spinning hard drives instead of
+SSDs.
+So when it comes to performance, why do people choose Rust?
+I believe that the central reason to pick Rust for performance is it's in its community.
+I find that the community's culture of performance has led to many zero cost abstractions ranging
+from async away in the compiler to very fast standard library APIs.
+And we also see this culture in third party libraries.
+So people will try to make their code work really well and constrain environments in
+the embedded space or people will focus their attention on how well they're using time and
+space.
+So how fast their code is and how much memory it's using.
+And as well as the community has developed many tools to measure performance.
+So this really does speak to the culture.
+And now that we have a sense for what performance is, how do we go about measuring it?
+So for the sake of simplicity, I'll only be covering things that can be implemented with
+the Rust standard library.
+I'm not going to be covering.
+For example, hardware performance counters because each operating system has different
+APIs for that and usually accessing them requires root privileges and that can be difficult.
+So let's consider a simple operation such as allocating a vector of 180 integers.
+We could try timing it by using the standard libraries instant type and this is generally
+considered an all right approach.
+But the results may be surprising.
+It might just say zero nanoseconds.
+And so why is this happening?
+Well, it turns out that the compiler is smart enough to realize that the value wasn't actually
+used and so it optimizes out the allocation.
+And so when you're benchmarking, you really should pretend or at least trick the compiler
+into believing that the value is being used and so the standard library provides a black
+box function and you can use that to prevent the compiler from optimizing code that you
+want to run.
+And I find that a lot of people don't reach for this when they should.
+And so now that we're using this, we're actually getting higher timings that are more realistic
+and this is evidence that we're actually now measuring the allocation time.
+But why 500 nanoseconds?
+How consistent or accurate is this timing?
+Well, it turns out that if we run our code repeatedly, the times can fluctuate greatly.
+So the numbers might vary because of noisy system conditions or some of the things that
+I mentioned earlier.
+And you might wonder, well, OK, then how can we get a better sense of our code speed?
+And you could dive into existing solutions.
+What I generally recommend for practicality's sake is you should use an existing library
+that implements this correctly.
+And so recently I created this library, Devon, that is for exactly this.
+I wanted to make a tool that makes it very easy to do correct measurements and be able
+to compare various pieces of Rust code.
+And so to me, I would say Devon is so easy that it's a comfy bench marking library because
+a Devon sofa is like a comfy bench.
+And so that's why I named it that.
+You can read a bit more about it on the announcement blog post that I have on my website.
+But I'll also dive into what Devon can do for us today.
+And so I wanted to make Devon really easy to use.
+And I wanted the way to register benchmarks to be very simple.
+So I came up with this very simple yet powerful attribute macro that behind the scenes will
+generate the code that's needed to benchmark a function.
+And this might look familiar because this is also how you register unit tests in Rust.
+And like unit tests, registering benchmarks with Devon can also be done anywhere, not
+just in the same crate as your benchmarking runner.
+And you can also, well, I also take advantage of this feature within Devon by measuring internals
+of Devon with Devon, which is kind of meta.
+And so given the previous benchmark that we wrote, it's pretty straightforward to adapt
+it to Devon.
+We just stick it in a function and then mark it as bench.
+And then Devon will be able to run that.
+And after executing our benchmark, Devon presents us with pretty succinct information about
+how it ran.
+On this, we can see that the best speed was measured at about 70 nanoseconds.
+And this realistically represents how fast the function would perform under ideal conditions.
+And we also see that the worst case was measured at about 200 nanoseconds.
+And so there's various things that could play into that.
+It might not be necessarily the code itself, but the situation around the code.
+And then we also have median and mean, which represent the average time that the function
+took to run.
+And we can also see that these values are pretty close to the fastest sample.
+So we can be fairly confident that this function will generally perform at this speed, at least
+on this machine.
+And so to give some insight into how Devon is running this code, we see that it's reporting
+the number of samples and total iterations.
+And this represents how many timings, samples represents how many timings Devon has measured.
+And then iterations is the number of repetitions across all the timings or all the samples.
+And if we divide the iteration count by the sample count, we end up getting what I call
+the sample size, which is how many iterations per sample.
+And so we see that each sample took about 64 iterations.
+This is chosen dynamically at runtime based on how much time is spent in earlier samples.
+And this number can be higher for faster functions, or it can be as low as just one iteration
+per sample for really slow functions.
+But if we want to measure not only the time to allocate a vector, or sorry, if we only
+want to measure the time to allocate a vector and not the time to deallocate it, then the
+way this would work in Devon is you simply return the created value from the benchmark
+function.
+And this will defer freeing the vector until after the sample is finished being timed.
+And since Devon will automatically black box the returned value, we can actually remove
+the black box from our function.
+And this just makes it a lot easier to read.
+And so since we're measuring vector allocation but not deallocation, now our benchmark results
+are about half the time that we measured before.
+And so far we've only been benchmarking allocating vectors that contain 100 integers, but we
+can also benchmark across other cases.
+So we can use the args option to measure across one, five, 10, 1,000, you name it, any value
+that can be provided as an input.
+And this, I find it's generally very good practice to measure across various cases to
+get a better sense of how your code's running.
+And we can see that generally as expected, as the size increases, the benchmark also slows
+down.
+But interestingly enough, for cases that are at 10 or smaller, there's not really a difference
+in performance.
+And so really the differences, I would say, are more like systemic noise because it doesn't
+really make sense that creating five values in a vector takes longer than creating 10,
+at least not consistently so.
+And we also notice that this function really starts to slow down a lot at bigger sizes.
+And so that aligns with whatever hypothesis we might have had about this benchmark before.
+But we can also compare the performance across multiple types by making the function generic.
+And then we can provide a types option to pass all the cases.
+So now this benchmark is not only running the standard libraries vector type, but it's
+also comparing that against SmallVec using all the same cases as before.
+And for those who aren't familiar, SmallVec is a type that's designed to be faster for
+smaller sizes.
+And it does this by storing values on the stack instead of doing a heap allocation.
+But once there's not enough space on the stack, it'll fall back to using the standard libraries
+vector, or rather it'll use the heap like the standard libraries vector.
+And so to make what's happening a bit clearer, Devon's not actually doing anything special
+to the function.
+This is just normal generic code that's pretty common to write.
+Instead Devon is using the function as is to generate the benchmarking code for each
+type that's passed into the attribute.
+And so once we run this, we have this nice tree output and table where we see that Devon
+has grouped the types as separate trees under the benchmark function's name.
+And we can also see from these measurements that, at least for this specific operation
+collecting from a range, SmallVec is faster than the standard libraries vector when the
+number of items fits on the stack.
+However, once a size grows beyond fitting on the stack, once SmallVec needs to do heap
+allocations, interestingly enough the standard libraries vector is faster.
+And I imagine this is because the standard libraries vector can do nice optimizations
+like specialization, which if any of you can make that stable, please.
+I've been waiting forever.
+But also when we think about software performance, like I mentioned earlier, we shouldn't only
+be considering speed and we should also be considering the amount of space that's being
+used.
+And normally if you're profiling a long running program, keeping track of allocations with
+a tool like DHAT, the cost there is relatively low because it gets amortized generally over
+the life of the program.
+And the nice thing about tools like DHAT is that it'll collect back traces to tell you
+exactly where your allocations are happening.
+So it does give you a lot of information.
+However, in microbenchmarks, when the time spent tracking allocations, like that can
+have a noticeable impact.
+So taking back traces can take microseconds, whereas the code we want to measure may just
+be a few nanoseconds.
+And so we would be totally blowing out the timings.
+And in a sense, by observing the behavior of our program, we've now also affected our
+measurements.
+So is it possible to gather insights without affecting measurements?
+Is it possible to reduce the amount of time spent here?
+Well, I actually managed to do that.
+So Devon has a custom allocator that will only track the number of bytes allocated and
+the number of allocations during benchmarks.
+This applies to allocations, the allocation, reallocation of grow or shrink.
+And the way that you use this is you override the global allocator with Devon's allocrofiler.
+But you can also pass a custom allocator if in reality you are going to be using a faster
+allocator such as meme alloc.
+And so it's fairly flexible.
+So once we've registered this allocator and we rerun the same benchmarks as before, we
+can see which cases are allocating and how many times.
+And notice that we are not seeing the allocation listed here because, like I mentioned before,
+we're returning the created value from the benchmark.
+And so that's being dropped after the sample is run.
+And I also want to note that the timings here are the same as before we did any allocation
+profiling.
+I managed to optimize this to a point that its footprint is pretty indistinguishable front
+noise by using thread local storage and then optimizing that further, at least in the case
+of Mac OS.
+So if we look a little closer, we can see that, yeah, for smaller sizes, indeed, small
+back is not going to be performing any heap allocations and is strictly doing its operations
+with the stack.
+We can also tell Devon the number of bytes we're processing or number of items we're
+processing.
+And this allows us to get a pretty different perspective.
+The way we do this gets a little more complicated.
+We change our function to take a venture argument and then we call the counter method on that
+and we pass it an instance of bytes count.
+In this case, we're saying that we're counting n 32-bit integers and then we pass a closure
+to benchmark our function from iterator implementation.
+So, we then see that Devon will output the number of bytes being processed in terms of,
+in this case, megabytes or gigabytes per second.
+And for a lot of people, this might be an easier data point to get an intuition for
+the speed rather than just the strict timing numbers.
+For some people, saying growing numbers for better performance is just easier to think
+about.
+So to recap what I just covered, Devon has various features that really set it apart
+from existing solutions.
+I find that its API is just a lot simpler.
+It's easier to remember.
+I also really like how the compact output makes it pretty easy to consider various cases.
+And as well as because you can parameterize your benchmarks across various cases, you
+can really just get a sense for the difference in performance depending on the scenario.
+So I also really like that by going with an attribute macro, I realize that, oh, well,
+if you make the function generic, you can just pass the types in because you're just
+parsing whatever you want as the options.
+And so you can have benchmarks over various collections of the standard libraries, so
+linked list, VEC, hash set, et cetera.
+And you can see how different operations really differ between those collections.
+So such operations that are pretty common like clear might be a lot slower on a linked
+list whereas on a VEC, it's pretty instant.
+And another feature that helps me a lot is thinking of the numbers in terms of throughput.
+I find that it tends to just be easier to understand than durations.
+As well as something that I find no existing tool out there does is you can track the number
+of heap allocations at the same time that you're measuring the time being spent running
+your benchmark.
+As well as one feature I didn't mention here because I thought it might be a little complex
+to cover is you can do some interesting things like run benchmarks over multiple threads
+and this allows you to measure the effects of contention on atomics and locks.
+So if you're developing a low-level synchronization library, you might find this to be pretty useful.
+I also want to cover what motivated me to pursue this.
+I found that a lot of existing tools in space were pretty good but their APIs had some, in
+my opinion, unnecessary complexity and so I wanted an API that didn't go too far beyond
+the complexity of the code that you're benchmarking itself.
+And I really appreciated that by trying this new API, open up new possibilities such as
+what I mentioned before with benchmarking generic functions, it was relatively straightforward
+to implement that which was a bit of a surprise.
+So some food for thought if you're developing your own libraries.
+And I also found that the default way that some other tools run is pretty slow and I
+get why they're trying to do a lot of statistical analysis to remove outliers.
+But there are some cases where you do actually want to know when the code was especially
+slow because if you're benchmarking over various inputs, it's possible that one case
+just happened to create a really large string.
+And so you want to be able to get a sense for everything that happened, not just the
+best case scenarios in my opinion.
+And if you do want to run your benchmarks for longer, have larger sample sizes, more
+samples, there's also options to do that.
+So you're not restricted.
+I also want to mention some other Rust performance measuring tools that I think are very much
+worth considering.
+So criterion is obviously the current go to Rust benchmarking library.
+A feature that I really particularly like about it is its graph output because I'm a
+very visual person.
+I also do graphic design.
+Another newer micro benchmarking library is Tango.
+And what I find unique about it is that it has this technique called paired benchmarking
+where the execution gets interleaved between benchmarks.
+And what this does is it spreads whatever systemic negative conditions evenly across
+your benchmarks.
+And so this is certainly a feature I eventually want to have in Devon.
+Currently my APIs tries to prevent requiring ownership of the closure you're passing in.
+I might have to change that to make this work.
+I don't know.
+I think if we had co-routines, I could make it work.
+But I don't know.
+Maybe if someone knows how to abuse asynchol weight to get co-routines, please talk to me.
+Another very useful tool is flame graphs.
+This is more of a general technique that's well known across the industry.
+There's plenty of blog posts about this.
+But for those who aren't familiar, it's a visualization tool that really helps you find
+where to focus your time.
+And I think it's very important to find where the bottleneck in your code is before you
+actually start picking at specific places to optimize and do microbenchmarks on.
+So try to reach for profiling with flame graphs before you do microbenchmarking, if you can.
+As well as there's the DHAT crate.
+And like I mentioned before, every single time an allocation operation happens, it takes
+a back trace.
+And so it's able to give you pretty deep insights about where you're allocating memory and how
+you're allocating memory.
+It's also able to do some other stuff such as tracking max heap usage at a time.
+I'm going to try to add that to Devon, but unfortunately it adds a bit of overhead.
+So maybe it's possible to subtract that overhead from the timings.
+We'll see.
+And so some thoughts I want to leave you with is if you're going to be doing reaching for
+microbenchmarking tools like criterion, Devon, Tango, really figure out if it's worth microoptimizing
+that kind of code, just try to find the meteor performance issues in your program.
+So like I mentioned, flame graphs are particularly good for that.
+And also rather than having standalone benchmarks, you should be comparing it between different
+cases so you can measure across different inputs and implementations.
+So like I showed before, with Devon, you can benchmark origin error functions.
+And this also, for example, in the case of small vec versus vec, really gives you a better
+sense of is it really worth it to optimize your code using unsafe?
+And so try to find the specific scenarios where you actually are getting those wins
+because no one likes nasal demons.
+And also when making your own projects, since I imagine many people here are contributors
+to open source and have their own stuff that they're proud of, I really strongly advise
+that you don't let perfect be the enemy of good.
+Devon has a lot of features that criterion doesn't have, but also vice versa.
+Devon doesn't have graphs or machine readable output yet.
+I do eventually want to get there, but I didn't let that stop me from publishing something
+that I felt was good that people might want to use.
+And so try to focus on the features that matter to you most or at least are the most academically
+interesting.
+Not everything needs to be a full-fledged product.
+Definitely try to pursue your interests when making your own projects.
+Always remember that you can fill in the gaps later if you want.
+So that's all I had for this.
+I plan to have questions, but also in the meantime, you can read more about me.
+And currently I just have one blog post on there about Devon.
+I plan to publish another thing on kind of like std-conditional T in C++, but in
+Rust, which is as cursed as it sounds if you're familiar with std-conditional T.
+You can also follow me on mastodon or Twitter if I refuse to call it X.
+You can check out the code for Devon.
+Please give it a star.
+Play around with it.
+And yeah, if you want to reach out to me, I'm pretty accessible through mastodon.
+So there I'm hacky-derm at Nicolai.
+So yeah, any questions?
+We do have ten minutes for questions, so I'll plant you.
+Just raise your hand.
+I'm going to come to you.
+So Nicolai, thanks for your talk first.
+Very nice.
+And I have two questions.
+The first question is, have you thought about integrating into CI CD, so continuous integration
+things?
+That like, to me it seemed like this is a very handy tool with that, which I can use if I
+have a problem at hand, which I want to analyze.
+I quickly can do some benchmark and then dig deeper.
+But I think if I have found an issue in a very specific place, I might also want to
+have a test case out of it that I can monitor or be alarmed in my CI CD if there is an issue
+again.
+So that was the first question.
+And the second question would be, is it possible to run all those benchmarks in parallel, or
+do you have to sequentialize them in order to get the measurements right?
+Both great questions.
+So right now, what's blocking getting a lot of value out of running your benchmarks in
+CI is that Devon doesn't yet have programmatic output.
+My plans have JSON output and maybe some other format, if that makes sense.
+But yeah, as well as, so if you have programmatic output, then Devon can then consume previous
+iterations of that if you're benchmarking across different branches.
+As well as the author of Tango was exploring some ideas of using a shared library to compile
+it against four different branches and to make that pretty straightforward with get-of-actions.
+So yes, I'm definitely very interested in that.
+Sorry, repeat the second question.
+The second question was regarding the execution.
+If you are able to execute more than one benchmark in parallel, and whether there's some impact
+on the measurement itself.
+Yeah, so while technically you can, I find that putting the current process under more
+load could just negatively affect your timings.
+And so it didn't seem reasonable to do that, although I haven't actually measured if that
+would actually have as big of a negative impact as I would expect.
+Thank you.
+One question I had is, is there a way to compare the execution time with and without the warm
+cache?
+That is, the impact of cache on some data structures can be huge.
+And sometimes in benchmarking, in micro benchmarking especially, you have the problem that you're
+reusing the same lines.
+So the second benchmark is going to be faster always.
+But maybe your use case is actually the one in which the cache is called, for instance.
+Yeah, great question as well.
+So I considered having a helper effect function to evict the CPU caches, although I haven't
+thought of a good way of documenting when this is best to use.
+But in lieu of that, you can apply as a method on the Bencher type.
+You can pass a closure to generate inputs for every single iteration.
+And so if you wanted to, you could create a new buffer for every single time that function
+is being run at your benchmarking.
+So since that would be in a different place in memory, the cache effects wouldn't make
+the benchmark seem so much faster than it might be in a real world case.
+So we have a question from the matrix.
+So people are...
+Oh, Neo has a question.
+People are following online.
+So it's a really good topic.
+It was a very good talk.
+The question is, thanks.
+Devan looks very interesting and the API looks much cleaner, simpler than Criterions.
+Now Criterion can compare across different runs or implementations and then summarize
+whether performance improved or got worse.
+Within some confidence interval.
+Does Devan have something similar or plan to?
+Yeah, so it currently does not.
+I found that I kind of shoehorned myself a bit with this output format in that it's
+not super easy to add a lot more information to that.
+And so it's kind of like has become a bit of a UI problem in a way, which I find interesting
+given that's a command line.
+But yeah, I would very much like to just directly tell the user that this is faster
+or slower than previous runs.
+There's also the issue that, for example, if I have my laptop plugged in, now my benchmark
+runs faster.
+If I don't have it plugged in, then it's slower.
+It gets throttled.
+So it's not always obvious that there was a change in the implementation that caused
+the function to get slower.
+And I believe that Criterion's documentation has like a big warning section about this
+issue.
+But yeah, I do think that is valuable to have and I would like to have it.
+And also, if you all are actually very interested in this project, feel free to submit ideas
+to the GitHub page for it or better pull requests, implement the features that you'd like to
+see.
+I'm only one person and only have so many hours in a day.
+Yeah, I have two questions.
+The first one was you mentioned that some of the flaws or design differences with Criterion
+was that it focused a lot on very, I don't know, horrible.
+It's a lot in statistics and instead of just giving you the fastest, the average and all
+of that.
+I was wondering if there is a mechanism in Devon to output, like for example, percentiles
+or something like that.
+And my second question was when your benchmarking memory, if the function you're benchmarking
+the allocates instead of returning all the memory that it allocated, would the output
+show the total memory allocated or just the memory remaining when the function returned?
+Yeah, so any allocations that happen before the benchmark runs or not, they will or they
+will not be visible to Devon in a sense.
+It will have recorded that but it won't be associated with the current benchmark.
+It will just get cleared before the benchmark runs.
+So in that case, you would see that the number of the allocations would be greater than the
+number of allocations in the benchmark.
+And to answer your first question, when you say percentiles, are you talking about confidence
+intervals?
+Well, no, I mean, it would be also an option but the first thing that came to mind to me
+was percentiles.
+Like when you order the outputs, like the timings in the sending order, which for example, I
+don't know how to describe it right now, but yes, which was the 95th.
+If you did 100 runs, which was the 95th fastest or slowest, for example.
+Yeah.
+So I would like to have more interesting statistics output.
+Right now, I was just focused on having what I considered was the most important for your
+average benchmarks.
+Like I'd also like to output what the variance is across all the samples.
+So again, I kind of painted myself into a bit of a corner in that people usually only have
+so many columns in their terminal.
+And so this table output will be interesting to see how I add to it.
+I think what I'll end up doing is have options for emitting the columns that you're interested
+in having and just have certain columns by default.
+So when I do end up getting around to having more interesting statistics, that'll probably
+lead the way to make a user configurable of whether you end up with a giant table or not.
+Okay.
+Thank you very much for your talk and your answers.
+Thank you.

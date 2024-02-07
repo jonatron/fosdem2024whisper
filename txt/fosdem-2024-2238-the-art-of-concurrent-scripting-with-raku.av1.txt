@@ -1,0 +1,301 @@
+Alright, thank you, thank you Theo for all the organization.
+I want to thank my employer Instacart for sending me here and thank you everybody here for coming
+to this talk.
+Quick survey, how many people have written some code in Rocko before?
+Oh good.
+How many people use it kind of regularly?
+Okay.
+How many people write bash scripts?
+Okay, excellent.
+So my name is Brian Duggan, I'm a logistics engineer at Instacart.
+We do grocery delivery.
+I would like to say basically everything is a race condition for us.
+I'm also a Rocko module author and I like to write scripts in Rocko.
+So this is a brief outline of the talk.
+First some motivation.
+What am I talking about?
+I'm going to go over concurrency in Rocko, just a basic overview.
+And then I'll show you some tricks for migrating some stuff from bash to Rocko, how things
+look in bash and how the same thing would look in Rocko, and then how using some of the concurrency
+primitives can help your problem solving abilities.
+Okay.
+So a few words about scripting.
+I tried to enumerate some of the characteristics of what we call scripting.
+So I'm really talking about shell scripting.
+And I think when I'm writing a shell script it's usually something to solve.
+I'm going to do something pretty quickly.
+I don't want very many dependencies.
+It should be easy to understand.
+And it should be pretty reliable because has anybody had the experience of writing a script
+and it lasts for several years when you thought it was going to last for a few minutes?
+Okay, yes.
+Good.
+All right.
+We are together.
+Okay.
+So another thing that I've noticed a lot about shell scripts is they're supposed to be
+pretty simple.
+You know, you basically run some commands.
+Maybe you check their exit status.
+Maybe you have a little bit of control flow in your scripts.
+If you're fancy you might write a PID file and use the file system to do atomic write
+and rename so you get some guarantees that you don't have two of the same copy of your
+script running at the same time.
+For the most part they look like this though, right?
+They're basically like this sort of standard procedural flow.
+You have some decisions.
+You go forwards.
+You don't usually see, if you're really fancy you might use trap to capture some signals.
+You might try to time out some commands.
+Has anybody used time out by the way?
+I just learned about it recently.
+You might have some progress indicators.
+You don't usually see things like async await or event loops or message queues or definitely
+not threads, definitely not mutexes or shared memory or anything like that.
+With scripts we assume that we don't really need real programming.
+We're just doing something simple.
+We want to get it done.
+There's this idea that the world is just not that complicated.
+I think in reality the world actually is that complicated.
+This is how I vision our scripts are on the right where we have this vision of this like
+perfect linear world where things are well organized, running one after another.
+But in reality the world is kind of a mess.
+As a wise man once said earlier today, minimizing concurrent code leads to crappy programs.
+Let's talk about Raku.
+For a deeper dive about the implementation of concurrency in Raku, I recommend that you
+watch Jonathan Worthingson's talk many years ago about parallelism, asynchronic and concurrency
+in Raku.
+He gives some really good definitions of those three words.
+I'm just going to say the definitions without going into too much detail.
+But parallelism is the idea of choosing to do multiple things at once.
+Asynchrony is reacting to things that will happen.
+Concurrency is competition to access and mutate some shared resource.
+Raku has great support for those.
+Being a multi-paradigm language, it doesn't impose any particular strategy on you for
+dealing with concurrency.
+We've had some conversations earlier today about Elixir, which has the actor model.
+There's a go track where you have a lot of threads running at the same time.
+Many languages have different models of concurrency, and Raku tries not to be too dogmatic and
+lets you do whatever you want.
+You have to deal with race conditions yourself.
+If you want to get started writing some Raku and experimenting with concurrency, instead
+of say hello and say world, you can just put the word start in front of say hello.
+What that does is it schedules the execution of that statement on another thread.
+Congratulations, you've just made a race condition.
+The output from this program is not deterministic.
+You might get hello world, you might get world hello if world runs before the second
+thread runs, or you might just get world if the second thread doesn't have a chance to
+start before the program exits.
+You can experiment and find out for yourself why other languages impose these models and
+it's to manage things like this.
+The simplest thing is you say, okay, I want to avoid this race condition.
+The easiest thing to do is you can just add the word await.
+We heard earlier about async await.
+There's no async, there's just await.
+Wait until it finishes, wait until the promise finishes before going on to the next statement.
+There are a number of high level, so the documentation of concurrency in Raku breaks it down as follows.
+You have these high level APIs, you have low level APIs, and then there are also some other
+built in event sources that are not mentioned on the concurrency page.
+The high level APIs basically have promises, which are what we just saw, where you're
+scheduling some execution and it's going to finish at some point in the future.
+You have channels, which are basically one to one message queues between different threads
+of execution.
+You have supplies, which are one to many message queues.
+Then you also have this nice thing called proc async, which is a great way to deal with
+external processes.
+We're going to see a little bit more of that today since this talk is mostly about scripting,
+where you're managing external processes.
+There are also low level APIs.
+If you want to deal with threads, you can.
+If you want to deal with locks, then congratulations, you have access to the kernel's implementation
+of mutex, which may be hardware implementations even.
+We also have atomic types and atomic operators.
+Again, these are sometimes implemented even at the hardware level.
+You can even use the scheduler if you want to change the concurrency paradigm that you're
+using by writing another scheduler that implements the strategy for scheduling, for queuing different
+threads.
+I'm going to go through some of the different built in event sources and do some very practical
+examples.
+Some things you might see in your scripts, file system changes.
+All these things are built into the core.
+TCP or UDC sockets, of course time changing provides a great event stream.
+IOPype lets you watch different Unix pipes and respond based on incoming data.
+I'll also talk a little bit about parallel execution with race and hyper and phasers.
+Let's do a quick trip from bash to racu.
+Easiest way to go.
+Take your bash script in front of every line, put the word shell, and congratulations, you
+have now ported your bash script to racu.
+Shell is built in and even better than that, there is an entire language for quoting.
+You don't have to deal with all of the horribleness of trying to escape your quotes when you're
+having subcommands and they all have quotes for all of their different arguments.
+Probably the most interesting one is the one at the top, the two angle brackets.
+This is sort of like a lot of languages have a way of taking words separated by white space
+and turning them into an array.
+That's what this does except if you have something in quotes, that becomes its own element.
+Starting echo, starting database dump in quotes makes an array with two elements.
+The first one is echo and the second one is starting database dump.
+Those get passed then as an array to the shell command.
+There's some extra fancy stuff going on there behind the scenes.
+Here's a little script that starts your database dump.
+One of the goals of racu is that easy things should be easy and hard things should be possible,
+as Larry has said.
+Of course, you don't have to say shell echo.
+You can use the word say to print things to the screen.
+Say starting database dump, run your shell command.
+Here we have our first little glimpse of asynchrony with this thing where I'm saying say now minus
+init now.
+What this does is pretty clever.
+What's happening here is init is a phaser and this runs during the initialization phase
+of your racu program.
+Anybody use go here?
+Go programmers?
+Go has something similar.
+Go has something called deferred execution.
+You might use it in a go program to say, hey, when you're exiting the subroutine, don't
+forget to execute this database transaction, something like that.
+There are a lot of phasers.
+Basically, you can use those to schedule code.
+I don't know about you, but one of the most annoying things is having a script that starts
+doing something and then you sit there waiting and watching and nothing is happening on the
+screen.
+I like to have at least a clock saying how much time has passed.
+For something like a database dump, if you do it a lot, then you'll know and then you
+could even turn it into a progress bar.
+Then you'll be able to estimate how much time something is going to take.
+We can do this easily with a supply.
+We make a supply, we call supply.interval1.
+This makes a clock that gives us a new value every one second.
+Then we make a tap on the supply by saying my dollar timer equals clock.tap.
+Then the code there.say is saying what the argument is to the tap.
+Basically it'll say 1, 2, 3, 4, 5.
+Then that's running on a separate thread.
+While PGDump is running, you're seeing time go by.
+That's really nice.
+Then there's some other nice built-ins to make it even a little bit prettier.
+Since we want to have a script that doesn't have a lot of external dependencies, you can
+use the very clever polymod, one of my favorite methods, which basically does a sequence of
+mod and div operations and turns your seconds into minutes and seconds.
+Then you can format it and then you have a nice little clock.
+Then you might say, hey, that's so great.
+I want to do this on all my shell commands.
+I always want to see a little clock.
+Well, guess what?
+You can use, so in Python they're called decorators.
+In Raku, it's the wrap command.
+Basically we can say shell.wrap.
+Then basically this will call our timer before we call call same to do the original shell
+command.
+Then it'll close it and then it'll say done.
+Now you've got your nice script that you just copied and pasted and added shell to the beginning
+of them.
+Now all of your commands have a little clock saying how long they're going to take.
+Let's talk quickly about timeouts.
+This is the timeout command in bash.
+You can give it an argument that's the number of seconds.
+Timeout 1 and then in this example we're doing a DNS call.
+We're looking up example.com.
+So we say timeout1hostexample.com and if it fails then the exit code is nonzero.
+So otherwise we say DNS seems okay.
+The way we do that in Raku is with a promise, actually a couple of promises, one that expires
+after a second and then another one that does whatever you're doing.
+And then you make a third promise which resolves when either one of those two finishes first.
+So we could say promise, we await promise.anyof and then start shell host command and then
+start sleep 1.
+So we do those two things in separate threads.
+Whichever one finishes first we'll know if we timed out.
+It doesn't quite work though because shell is going to fork something off and when you
+fork something even if your Raku program exits it's going to keep going.
+So there is a better way to do that and that is to use proc async instead of shell so that
+you don't have this sort of tree of processes.
+So we say timeout equals promise.in1.
+My dollar proc is a proc async new host example.com and then you await either any of proc.start
+which finishes when the process finishes or dollar timeout and then you can call proc.kill
+if timeout is true.
+Okay so I'm going to do a few more examples here to show you how to build up how we use
+some of these other primitives to help you think about problem solving concurrently.
+So supply.tap another way of saying that these are exactly the same.
+Instead of saying supply.tap you can say start, react, whenever, supply which is a lot of
+words.
+Start in a new thread, react makes another like a reactor or an event loop and then whenever
+it says hey let's make a tap on this supply.
+So let's watch a directory for changes.
+Whenever anything changes in there we're going to turn our markdown file into hdml.
+Dollar star cwd is the current path.
+You can call watch and then you can grep for certain files and then call md to hdml whenever
+one of them changes.
+I have a few more examples quickly.
+The slides will be available for you to look at more slowly if I run out of time.
+So let's look at ping.
+Ping is great.
+One of the things that sadly is missing from ping is that it prints all these nice statistics
+at the end but it doesn't print the median.
+What if you want the median ping time?
+You only have the min, max and the average.
+Well let's compute it by watching the output of ping and then keeping track of the output
+and then printing it at the end.
+And so here you can see what's really nice about the react whenever construct is that
+you can have a whole bunch of whenever inside your react.
+So we have a little leave phaser which is going to kill the process when we exit.
+We have our process which is going to do the ping and then whenever there's a timeout
+we're done.
+Whenever we get a line we parse it and then we add it to this lines array.
+Whenever we get a signal, so signal makes a stream that when signals are sent to the
+process you can also finish and then we can compute the median at the end.
+So can we make it even fancier and ping multiple hosts at the same time with our program?
+So let's see if we can make something that looks kind of like this.
+Multi-ping, where multi-ping gets a list of hosts and then it makes this little bar graph
+by watching the output of ping and then you can sort of see like which one of these hosts
+is responding more quickly at the same time.
+This is a really short program to write and basically what you do is you start a loop using
+a channel.
+And so this runs in a separate process.
+Whenever the channel.receive is going to block, whenever it receives something you take that
+something and you print it out to the screen and then you basically start your processes.
+There are a few sort of nice things here, nice features of Raku that make this even a little
+bit easier.
+So this little percent is a way of constructing a hash and what's kind of cool is that constructing
+a hash looks exactly the same way as destructuring.
+If you've programmed in JavaScript, you know they have this really nice argument destructuring
+syntax and it's equivalent to the construction syntax.
+So you can basically make these channels that communicate between threads and you can send
+structured data in between them.
+And you can also have type checking and things like that and so it's really nice.
+And that's your output.
+Similarly if we wanted to dump a whole bunch of MySQL or Postgres databases at the same
+time, if we don't care about the output it's even easier.
+And the way we can do that is by using a statement prefix called race which basically says take
+this loop and run the body of the loop concurrently.
+And you can give a parameter of the batch, the number to run concurrently and the degree
+of concurrency.
+And then in a few lines of code we've made PG multidump which can dump several databases
+at once.
+Okay so in conclusion we've seen some examples of tracking progress of a command, timing
+out a command, using asynchronous techniques to respond to file system events, using asynchronous
+techniques to respond to lines emitted from a command, instant parallelism, we saw some
+locks and for further reading there's stuff on the ecosystem and also the Rocky documentation
+about concurrency is excellent.
+So that's it, thank you.
+I think we may be out of time, I don't know if we have time for a question.
+One question.
+Or multiple questions at the same time.
+I'll take your one question.
+You get an example of watching a file system event and kicking off a process based on that.
+Yes.
+Sorry I don't have a word I need here but is there a sort of a program paradigm or capability
+for testing whether something has finished being written to before you start off your
+file system?
+If the file is really big then the file appearing might not have been finished and it's written
+yet and you kicked off something to convert to HTML before it's done so.
+Yes so it does get, I think I know where you're going with this especially because if you're
+using an editor then it's not that there's a single event where the file changes and
+it'll often be the editor will be doing a write and rename or it'll start writing and
+so you want to be careful about that.
+So there are some things to do that.
+You can throttle your supplies is one thing.
+If you're spawning a process you can say proc.ready and that will tell you when it's
+ready so that before you start sending things to it.
+And then basically it's hooking into the notification API for the file system so any events from
+the file system there's going to be a file changed, file renamed and then you, so the
+limit is only whatever the file system provides.
+Yeah sure.
+All right thank you.

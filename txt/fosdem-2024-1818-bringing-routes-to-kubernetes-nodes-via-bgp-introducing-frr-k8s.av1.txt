@@ -1,0 +1,262 @@
+Can you hear me?
+Okay.
+So, today I'm going to talk about a project that we started more or less this summer,
+which is FRR Kubernetes.
+Some quick words about me. I'm Federico. I work for this networking team at Red Hat,
+in charge of making the open-source platform suitable for telco workloads.
+And because of that, I managed to touch many network-related projects,
+the SRE operator, some C&I plugins, our primary C&I and lately MetaLEDB,
+which I'm currently maintaining.
+My handles are for the power for Mastodon, Twitter and Gmail.
+If you need to reach me out, ask questions, I will try to answer.
+So, it's funny because this talk has something to do with the talk that I gave last year here for them,
+where I presented how we in MetaLEDB replaced the native Go BGP implementation with FRR.
+And first of all, what is FRR?
+FRR is a Linux Internet routing protocol suite.
+It implements a lot of protocols. It's very stable and super-supported
+and supports BGP and BFD, which were a couple of protocols that we were interested into.
+What is MetaLEDB? Is anyone using MetaLEDB?
+Nice. So, I'm the one to blame if something is not working.
+MetaLEDB is the load balancer implementation for Kubernetes cluster using standard routing protocols, including BGP.
+BGP allows us to announce our load balancer services across our network.
+If you are using Kubernetes on bare metal and you need to expose your application,
+there is a good chance that you need something like MetaLEDB.
+It's not only alternative, but it's the one that I maintain.
+This is more or less the architecture.
+We have the Kubernetes API on one side expressed in terms of services and MetaLEDB configuration.
+We have some code that takes all these resources, munch them together,
+and produces an FRR configuration that an FRR Sidecar container processes
+and then handles the BGP implementation.
+Last year, in this very conference, I got this question.
+Can I run MetaLEDB together my FRR instance on the cluster nodes?
+This is something that I keep hearing a lot.
+Not only that. What I keep hearing is, hey, but now inside MetaLEDB you have FRR,
+so you can also do this and this and this and this.
+No, because MetaLEDB is about announcing services,
+not for example about receiving routes and injecting them to the node,
+which is a common request.
+Why is that? On the cloud, everything is easy.
+You have one single interface to the node, one default gateway.
+You get the client who wants to hit your load balancer service,
+get to the node, enters the CNI, goes to the pod, the pod replies,
+and then the reply goes to the node and then exits to the default gateway
+and reaches the client. All is good.
+But on bare metal, we have users that want to have different networks
+for different class of traffic, for example,
+and you have the clients that are not on the same subject.
+So what has happened in this scenario is that your client reaches
+your secondary network and guess what?
+The traffic will try to exit via the default gateway
+and will not reach your client, or even worse, you will be beaten by RPF
+and you'll have a bad time trying to debug it.
+I've been there a couple of times.
+So this was more or less the request.
+How can I have something that is able to configure FRR running on my node
+together with MetaLEDB?
+There are a few alternatives.
+The easiest one, at least the easier for me, was run to FRR instances on the node.
+So I don't have to do anything on MetaLEDB.
+The user can configure its own FRR instance, but that comes with a few issues.
+You have duplicate sessions, you have duplicate resources consumed on the node.
+You have to use custom parts to let the router know how to connect to MetaLEDB
+and how to connect to those custom parts, to the other FRR.
+The other option is using two FRR instances in Cascade.
+This might work, but FRR wasn't able to peer with localhost until recently.
+It limits the flexibility of MetaLEDB because MetaLEDB has a lot of per node configuration knob.
+You can say I want to peer to this BGP peer only from this subset of nodes.
+In this case, these will affect only this session, which is useless.
+And also, what about the BFD implementation in MetaLEDB?
+It will establish BFD only through this path.
+So the next one, which is the one that I'm going to talk about today,
+is to have a shared instance between MetaLEDB and the rest of the world.
+So the extra configuration can scale.
+We can have something that is distributed across all the nodes.
+We don't waste resources because across the same BGP session,
+towards the router, we can do what MetaLEDB needs to do, but also other stuff.
+The cons were this was a lot of work.
+And getting the right API was tricky.
+It wasn't clear how to handle conflicts, how to merge all this stuff together.
+But eventually, this became a design proposal in MetaLEDB,
+and it converged, and we started working on it.
+And this is how this new project was born.
+It's Kubernetes-based,
+the one set that exposes a very limited subset of the FRR API
+in a Kubernetes compliant model.
+I wrote this description, so it's nice.
+This is the new architecture of the new thing.
+It's basically we stole what we had in MetaLEDB.
+We have this new FRR configuration resource,
+and it does basically what I already described about MetaLEDB before.
+But now we have a different API and a different way to configure this thing.
+How to deploy it?
+It can be deployed as a standalone thing,
+and this is something that I want to stress.
+We can use it together with MetaLEDB,
+and we just released a MetaLEDB version that uses this one as a backend,
+but you can also deploy it as a standalone component.
+So you can use it for your own purposes,
+regardless of the fact that you are using MetaLEDB or not.
+Now I want to talk a bit about the API.
+There was a good amount of discussion on this,
+like we were not sure whether we should have exposed the raw FRR configuration
+to the external world or having something that was higher level.
+Because there were some issues in this.
+How do we merge configurations?
+How do we allow two configurations,
+produced by two different actors, to become the same FRR configuration?
+How to intercept the configuration conflicts?
+If it was the raw configuration, that would be our Royal mess.
+And also the way MetaLEDB configures FRR is very opinionated.
+It gives some certain names to route maps,
+it gives some certain names to prefix lists,
+and if we wanted to extend that with a raw configuration,
+that would have become part of the API,
+and it would have been something that we couldn't change.
+Eventually we ended up with something high level in terms of CRD,
+which is FRR configuration.
+And this is how a configuration looks like.
+It has a BGP section in the spec,
+because we are anticipating that we might need other protocols.
+We have our outer section, we support multiple routers,
+but they need to live in different Linux VRFs.
+We can configure the neighbors,
+and we can say what prefixes we want to advertise or to receive from those neighbors.
+And this is how advertising looks like.
+We can say, I want to advertise all the prefixes that I configured in my router,
+or only a subset of them.
+And the same is more or less for the receiving part.
+We can say, from this peer, I want to receive only the prefixes
+that are matching this selector.
+Or we can say, I want to receive all of them.
+And we have an old selector, so you can say this specific configuration
+applies only to a subset of the nodes, which is always useful.
+And of course, because we know that there will be a lot of configuration
+that we don't cover, we also allow for experimenting
+or for covering special needs, our configuration,
+and there is a priority field where basically this gets appended
+to what is rendered inside the configuration from the API.
+And of course, we have BFD, communities, local preferences,
+and all the stuff that Metal.ed is currently exposing.
+It's covered in this API.
+And now I'm going to talk a bit about how multiple configurations are merged,
+because this was a pain point.
+You have multiple actors throwing configurations at the cluster,
+and those needs to be merged together in order to produce one single FRR configuration.
+And there were some guiding principles into this.
+We wanted a given configuration to be self-contained,
+meaning that you can have prefixes on one side
+and saying that you want to advertise those prefixes on another resource.
+A configuration can only add to an existing one,
+meaning that you can add neighbors,
+but you can't say, I want to remove this neighbor,
+applied by this other configuration,
+because that would steal the work to other actors.
+And a more permissive configuration can override a less permissive one,
+meaning that if you have received none,
+you can have received some, or a receivable will override the received some.
+And this is how we can merge to different configurations.
+We have one neighbor on one side, we have two neighbors on the other.
+These two configurations are compatible,
+and then on one side we advertise only a set of prefixes,
+and on the other side we advertise all of them.
+And these are two compatible configurations that can be merged together.
+Another thing is you apply all the configuration,
+and nothing is working. It happens a lot.
+We have validation webbooks,
+but given that the configuration is composed by multiple configurations,
+we know how Kubernetes work, and some things might slip.
+So we are exposing the status.
+We have three fields.
+One is the last conversion result,
+which means that if you have multiple incompatible configurations
+that makes to the controller and the conversion will fail,
+this is where you will see the error.
+This is the status of FRR loading the generated configuration,
+and this is the configuration running inside FRR.
+So it's something that can be used to inspect the status of the thing.
+With Metal LB, again, now with this new implementation,
+we have the same Kubernetes API on one side.
+Metal LB will generate an FRR configuration.
+It's going to be read by this new demo, which will talk to the router.
+And this is how a Metal LB configuration gets translated into this new one.
+So we have the routers, we have the neighbors, and we have a selector.
+So each speaker will generate a configuration for the node where it's running on.
+Yeah, this is what I just said.
+And this is when we add the service.
+So we will start advertising those prefixes related to the load balancer service,
+and things eventually will work.
+And of course, this is something that can be expanded,
+providing your own FRR configuration that gets merged to the one generated by Metal LB.
+I have a very quick demo.
+It's my first time on a live demo, so fingers crossed.
+Very quickly, the demo environment is a kind cluster.
+We have the demo running on each node.
+We have an external FRR container that represents more or less the external router.
+And now I'm going to...
+Okay, so here I have the kind cluster and a bunch of configuration.
+We have here the external container.
+It's paired, or it will want to pair with each of the cluster nodes.
+And also, it will try to advertise a couple of prefixes.
+And I can go on the configuration side and look at this.
+This is what I just stated.
+We want to advertise only one prefix.
+I'm going to apply it.
+And hope.
+Okay, so the session is up with the whole three nodes.
+And we have the single prefix advertised by the three nodes.
+And now I can look at this other one, which says advertise all.
+And I can apply it directly.
+And it's going to be merged, hopefully, to the other one.
+And then now we have two prefixes advertised.
+So it's working.
+We have CI, so it shouldn't be a surprise.
+Now I can do something on the receiving side.
+Here we want only one service out of the two that the external container is publishing.
+And this is a session inside the node.
+And eventually, yeah, here we have the last one is the route that is published by the external container.
+Yeah, what else can I show?
+I have five minutes.
+Oh.
+I can do this.
+So this is a pod running into the node.
+And if I try to ping it from outside, it's not going to work.
+For example, what I can do is try to put that prefix.
+No pressure.
+And it pings.
+So again, another nice example.
+Thank you.
+Okay.
+So I also have other examples, but I think I stressed my luck already enough.
+And we have still five minutes.
+Okay.
+So what's next?
+There are these, I don't know what's next.
+FRR provides a lot of opportunities.
+This is more or less a subset of what Metalaby offers plus something that was asked by a lot of Metalaby users.
+But of course, you can come and provide feedback, suggest the new features, open issues, or even contribute to the project, hopefully.
+The good thing is we have a framework that we can expand and grow on implementing new FRR features.
+A few resources.
+We try to keep the documentation aligned.
+So we have an upstream Redmi.
+We have the Metalaby documentation.
+There is the Metalaby channel on the Kubernetes Slack, which is where I live daily.
+And of course, the FRR community is super vibrant, super helpful, and always open to provide feedback and give help to us.
+And with that, if you have any questions, I'll be happy to answer.
+Thank you.
+Why did you keep using the FRR configuration files, which are quite painful to merge, as you said, instead of using the North One APIs?
+Can you raise your voice a bit?
+Why? Is it better?
+Yeah.
+Why do you use FRR configuration files, which are, as you said, quite easy to merge, instead of using the North One APIs, which have a NetCon thing?
+Because at the time, that was declared as experimental.
+I don't know if things changed in the meantime, but like, okay.
+So then we can...
+You should.
+Okay.
+Yeah.
+But like, we had all this mess already in place, so it was easy at the time to recycle it.
+But yeah, if there is a proper API, I'd be happy to start moving to that.
+Thank you.
+Any other questions?
+Okay.
+Thank you.

@@ -1,0 +1,152 @@
+Good afternoon all. I'm here to talk about the VVC decoder in FFMPEG. I'm going to introduce
+VVC. I should imagine if you're in this room you're already somewhat familiar or at least
+interested but I'll refresh some of the coding tools and some of the objectives that it has.
+Talk about where FFVVC, the FFMPEG VVC decoder fits into that. Again, what new coding tools
+VVC introduces. Talk a bit about the threading model which is one of the most more interesting
+things for those of you who already have some experience with FFMPEG. Then go over performance,
+how that compares to previous codecs and the other VVC decoders out there. Conclude the talk,
+talking a little bit about the Google Summer of Code program this summer and the next steps
+for FFMPEG. First of all, a disclaimer. I did not write very much of this code at all. The
+credit should go to Noemi in China who unfortunately couldn't be here today. Who am I? I am Frank
+Palmer. You can find me at frankclammer.com. There's various other contact details on there. I was
+one of the Google Summer of Code students this summer working on this project. As you saw in
+the agenda, we'll talk a little bit more about what that involved later. Going into the introduction
+then. VVC or not H265, H266, that should read, is a new standard from the Java. It's succeeding
+H264 and HEVC, so quite big boots to follow. It's got two main objectives. It aims to have 50%
+lower bit rates than HEVC for the same quality of video. As the name suggests, versatility is
+the other main objective. That involves a lot of new coding tools for things like screen content
+coding, adaptive resolution change for things like video teleconferencing, independent sub-pictures.
+Versatile applications underlie a lot of the decisions made in the design of VVC.
+The open source landscape of VVC. For encoders, you have VTM, which is the reference software.
+You're not really going to want to use that for practical encoding. You have ENC, VVNC,
+which is developed by the Fraunhofer Institute. That is a practical decoder, encoder very fast.
+Finally, you have UVG266, which is an open source project developed by the community.
+Then on the decoder side, you again have VTM. You have the dual of VVNC, you have VVDEC,
+which I believe there's a lightning talk on that in a little while, which is very fast,
+very good decoder. You have also developed by the Fraunhofer Institute. You have OpenVVC,
+which is a community project VVC decoder, which is relatively performant for a single
+core. Unfortunately, that has now been abandoned. I don't think there's been a commit in about two
+years. Finally, we have what this talk is introducing, FFVVC. The state of FFVVC,
+the C code was merged at the start of the year. I believe it was a month ago exactly now.
+As John Baptiste talked about in his talk a little while ago, we believe it will be in
+FFMPEG 7.0, but possibly under some sort of experimental flag. The Inter-Prediction Assembly
+has just been merged about a week ago. We have some other assembly that has been written and is
+in the review process. It's important to note though that FFVVC is not yet maintain complete.
+There are some coding tools that are missing. The big one that we've heard from the community is
+intra-block copy support is not yet implemented. There is a patch set for that that's in the works.
+I'd be doubtful it will be in the 7.0 release of FFVVC though. Most of the other features
+that are missing are things that are a bit more exotic than intra-block copy. Features such as
+wrap around for 360 degree videos not yet implemented, independent sub-pictures,
+reference picture resizing, some of the more exotic stuff, but that will all come in time.
+This shows the assembly status, what has been written so far, what we're prioritizing,
+and what we've been able to reuse from HEVC. Things that we've prioritized so far are largely
+low hanging fruits. The inter-prediction we were able to reuse quite a lot of that from HEVC for
+good gain. SAO is entirely identical between HEVC and VVC so we've been able to rip that directly.
+Inter-prediction and ALF are both big contributors to the decode time in C only,
+their high priority. One of the GSOC projects last year was working on the ALF stuff so we'll
+talk about that a bit more so that's on its way. Inter we've managed to get some bits out of David
+for the more generic stuff just like averaging functions. That's been effective in getting a
+quick speed up there but we need your help with this. There's not many of us working on this at
+the moment and there's a lot of assembly to write. That's going to be key to performance as we'll
+see in the performance later on. Decoder size. I believe the biggest decoder now in FFMPEG in
+terms of lines of C. I'm not sure how it compares to David but even being the biggest decoder in
+FFMPEG it's still much smaller than open VVC and VVDC as you can see here. How do we manage to
+achieve that? By being in FFMPEG basically we're able to reuse parts from previous codecs. We're
+able to use the CBS Quebec reader you can see there and reuse like whole swathes of code also
+parts of the binary so it's kind of hard to measure that but you get a more bang for your buck in
+terms of the size of a compiled delivery codec. In the future I believe we may be able to also use
+some aspects of hardware decoder APIs to do the DPB reference management. We managed to be much
+much smaller and that's one of the main reasons really motivating putting this inside of FFMPEG.
+The other one being FFMPEG's vibrant community we can say which hopefully will help maintain this
+into the future. Moving on to what's new in VVC so there's a lot of new coding tools like a dizzying
+amount. You can see here you could talk for an hour and many people have about even a subset of
+these. As you say we haven't implemented them all yet but there's loads to play with which yeah
+feedback to them the ability to make much smaller bit streams and also to make more versatile
+video content. What FFVVC introduces that's new for FFMPEG is this stage-based thread model so
+lots of previous codecs have the frame and slice thread models which do well for sort of low
+number of cores but have some sort of here ceiling at certain point and so FFVVC uses a much more
+fine-grained thread model which is able to allocate threads based on the stage of decoding
+individual CTUs and yeah as that says it means we're able to much better utilize higher core
+counts and so our C code with no assembly we're able to decode 4k over 30 fps on you know relatively
+high-end desktop processor but I think that's really impressive. This thread model is possible to
+implement in HEVC. FFVVC does not use it I think it's also possible to do stage-based decoding in
+AV1 but it wasn't a factor in the design of AVC. The way that it works is you divide each CTU into
+several stages of decoding they're all listed there and the key thing is that each stage depends
+only on the current or previous stage of the neighboring CTUs and so you can start doing the
+D block of one stage before you've done the pass even in the like top left corner very far away
+sorry before you've done the intro I think you have to do the pass for all first and the effect
+you get from this is this sort of wave front that progresses across the image of each of the
+different stages and yeah it allows you to use much more cores. To allocate those cores we've had
+to introduce this new AV executor utility which has been made available in LibAVUtil so you can
+use this for other projects inside FFMpeg. It's a really simple algorithm at the moment but
+centralizing the control of allocation of threads you know not repeating yourself means we have
+now one location where we can make improvements here. It's a really simple algorithm it's based
+on I think some of the earlier implementations inside Python and Java's executor structures or
+whatever they call them but yeah having that one thing in one location that can be used throughout
+FFMpeg to improve multi-threading. Yeah so onto the performance section so at the moment it's pretty
+slow compared to previous codecs I mean this is to be expected by to a certain extent VVC is just
+a more complex codec than previous generation stuff it has to be in order to achieve high rates
+compression. This SIMD here false and true for FFVVC so this is with stuff that's not yet in FFMpeg
+master this is with the current state on the development staging repo. You can see we are
+getting about over 200 over a doubling of speed increase for FFVVC already but there's a long
+way to go as you can see from David's really impressive assembly speed up they have there but
+our multi-threading picture is quite different so that shows you the effect of doing that stage
+based multi-threading we're just much more easily able to use higher numbers cause yeah note here
+that this is using hyperthreading which is why you've got quite the knee there at six threads
+and but below six threads it's really not far off from that ideal you get a core you get the same
+multiplicative increase in the speed up comparing it to VVDC then. VVDC uses the same stage based
+threading model so you're getting a very similar performance between FFVVC and VVDC. Open VVC uses
+the conventional frame and tile based multi-threading techniques so that's quite useful on the
+left hand side there that figure to compare what is the effect of this new threading model
+but you can see and then on the right hand side the single threaded performance C only between
+FFVVC and VVDC is pretty much on par. VVDC behaves has quite significantly different
+performance on different operating systems but the average between the two is pretty much the same
+and on 4k it's a similar picture but everything just gets slightly more pronounced. Open VVC is
+slower that the speed up that we're getting from using more threads matters even more for larger
+videos so you can see that effect here but we're still lacking on the assembly front so VVDC has
+a lot of assembly already for quite a few different architectures and you can see that they're
+really pulling ahead once you enable the assembly there. The theoretically FFNPEG VVDC decoder should
+have somewhat of a higher ceiling due to the fact that FFVVC's assembly will be handwritten
+whereas VVDC's is using intrinsics and on some architectures using SIMD anywhere as like a portable
+SIMD library which introduces them overhead so with enough time hopefully FFVVC can be even
+faster but we've got a long way to go to catch up to them at the moment. So just sort of wrapping
+up to the last couple of things here so talking about the Google Summer of Code program in 2023
+so there was two Google Summer of Code students contributing to the VVDC decoder this summer.
+Myself and Sean Liu so I worked on a lot of the stuff that was added in version two of VVDC so that
+includes the support for 12 and 14 bit which needs the range extension which changes various things
+to the entropy encoder when you get to higher bit depths and I've also been working on AVX2
+optimizations for the inverse transforms they all had to be written from scratch in the end
+there's not very much that you can share between HEVC and VVC due to the way that the HEVC transforms
+are written in FFNPEG and Sean Liu is working on also on assembly transforms for the filters which
+some of them are in the process of being upstreamed at the moment I believe. So yeah next steps as
+I'm sure this performance and what we've been working on has sort of shown we've got a very solid
+baseline with the C performance and the multi-threading but we need lots more assembly in there to be
+able to compete with existing decoders so upstreaming and what we've already got implementing
+more functions with assembly also more architectures so ARM is going to be a Google Summer of Code
+project for this summer potentially also risk five there's a lot of work on doing risk five
+assembly for FFNPEG at the moment so we'll need that in time polishing off the maintain
+conformance so implementing those features that I mentioned for missing earlier particularly
+intra block copy is a high priority the thread optimization 32 plus cores so we may be able to
+improve the AVX2 utility for higher core counts if there's sufficient demand for that and
+the GPU based decoder so a lot of the stuff in VBC is really well designed particularly to do with
+the separation of stages that we saw earlier means that it's really well suited to decoding on the
+GPU so that's something on the far horizon. Concluding so FFNPEG now has a VBC decoder I've
+introduced that new threading model showing some of the benefits of that talks about the
+C in multi-threading performance and how that compares with VVDC and given an update on the
+status including the optimized assembly we're currently working on we'd help with this like
+especially with the assembly there's just very few of us who only work in our free time so
+progress on that front has been relatively slow so yeah patches welcome alright yeah thank you very
+much for listening. If anyone's got any questions I'll be happy to try and answer them as best I
+can as I said in that just like disclaimer I did not write very much of this code I just did you
+know the bits I've talked about and then I've worked on doing bug fixes especially since we've
+one thing I forgot to mention part of why we're going to have to be experimental is OSS fuzz
+we've only recently started being fuzzed since we went into FFNPEG master so we're getting a lot
+of reports for that at the moment that we're trying to work through before we go into like a
+normal release but I'll try and answer any questions as best I can yes. So the question was have we
+considered trying to use C in forensics? Yeah as a step between having fully C code and having
+handwritten assembly for everything it's not the FFNPEG way FFNPEG everything is handwritten
+assembly I think there's a little bit in like lib SW scale I believe but that's when the FFNPEG is
+in the process of removing that tiny bit of C in forensics that we still have so yeah I mean
+we're probably not going to do that just out of you can go faster with handwritten assembly so
+if we're trying to get that same performance and even be VVDC I think it's the only way to go really.
+Okay there's no more questions yeah thank you very much.

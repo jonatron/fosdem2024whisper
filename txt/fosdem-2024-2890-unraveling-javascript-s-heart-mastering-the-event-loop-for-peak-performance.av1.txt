@@ -1,0 +1,263 @@
+So, our next speaker is Antoine Perret, which is one of our local superstars.
+He's the CTO of Rosa, which is a super nice company in the health sector.
+Maybe he will tell us more about it.
+And he's going to talk about the heart of JavaScript, which is the JavaScript event loop.
+Background of applause for Antoine.
+Alright, so you probably, everyone here probably heard that sentence, right?
+Do not block the even loop.
+Okay, and you might have heard or read on the internet that you should prefer asynchronous code over synchronous code.
+So, question for you is, do you believe that as long as you're using asynchronous code, you're safe and you will never block the even loop?
+Who believes that async helps you get there?
+No one.
+Okay, okay, that is good, that is good.
+So, today we're going to look at this and we're going to ask is the question, hey, what does that mean not blocking the even loop?
+What does that mean not using synchronous APIs and whether or not using asynchronous API help us stay safe?
+So, I'm the co-founder and CTO of Rosa and Rosa is building a patient application.
+We want to help people live healthier for longer.
+And when you look at the kind of applications that we build, part of Rosa can be labeled as CPU intensive or there are some parts of our applications where we do some heavy computation.
+Okay, so we have a calendar application, we have registries that are deployed at hospitals, etc.
+And when you think about the kind of computation that we do, yes, sometimes you have to compute recurring appointments, so occurrences of recurring appointments.
+Sometimes we do have to compute hashes to store passwords securely.
+Sometimes we do have to parse large files such as iCal.
+And sometimes, of course, we do the diffing because we have the schedule of a health professional.
+We have a list of appointments and we want to know when that health professional is available.
+So today we're going to talk about the event loop.
+We are going to talk about how not to block the event loop and the questions that are that we are going to ask ourselves, does it scale?
+What does what if traffic does 3x, 10x and is there a possibility to have a denial of service?
+Because as soon as you block the event loop, you have a possibility to have a denial of service.
+So why was not created?
+What is the event loop?
+And then that is this of how we can hash secrets using B-crypt,
+thread pools to the rescue and what are the metrics of the event loop?
+That's on the agenda for today.
+All right, if you look at one of the first talk of Ryan Dahl, the author of Node.js,
+he's talking about non-blocking I.O.
+And he's comparing the situation in which you will query for a database and you will have a blocking I.O. system
+and then he compares that to the Node.js implementation where you have non-blocking I.O.
+And the reason why he wants to build that is because most of web applications are I.O. bound.
+They spend most of their time waiting for an external server to answer.
+They spend most of their time waiting for database to answer.
+So when you have a server in which you have blocking I.O., what you do is that you create for each connection,
+you will create a thread, meaning that you will have a memory overhead because each time you create a thread,
+you will have memory associated to that.
+And so you can't scale because each time you need to handle a connection, you need more memory.
+So the solution to that problem is to create an event loop.
+But as soon as you start to use an event loop, then you require non-blocking I.O.
+OK?
+So Node.js is born because most web apps are I.O. bound and because the CPU and I.O.
+live in two different scales of time.
+OK? So the CPU and the Jigga-Earths with the Jigga-Earths frequency means that the cycle of the CPU takes one nanosecond.
+And you have to compare that to a roundtrip between, say, California and the Netherlands,
+which will take approximately 150 milliseconds.
+But that is kind of tough to create a mental model around that.
+So let's make it easier.
+OK? So we are developers.
+We all love to drink coffee.
+OK? We also love some shows to watch some shows on Netflix.
+OK? So making yourself a coffee is like an operational CPU such as a new text lock or a lock.
+It is taking 25 seconds.
+OK? Making yourself a coffee takes 25 seconds.
+Looking at a Netflix episode will be something like 40, 50, an hour-ish,
+will last for an hour approximately.
+That is the world in which a CPU lives.
+Now, if you compare that to the world of I.O.,
+it is the equivalent of taking a five-week vacation.
+Or it is the equivalent of studying for five years at university.
+So the danger zone is when you take your CPU and you bring it to with you on vacation.
+So basically, the danger is when you block your main thread
+because you're performing a CPU-intensive operation
+while Node.js was designed with the idea that you would drink coffee and not go on vacation.
+Keep those figures in mind for the rest of the talk.
+What the heck is the event loop?
+Who is familiar with this representation?
+Good.
+Philip Provertz gave an excellent talk about this 10 years ago.
+And you can play with that tool on the Internet.
+It's getting a bit old, but it's still really, really good.
+OK? So let's have a quick look at what it does.
+So here what you see is that you have code that you wrote.
+OK? And we'll see what happens when JavaScript executes that code.
+It's quite simple.
+We have a set timeout with a five-second delay.
+And we have a console.log.
+So obviously, we all know that welcome for them will be first,
+printed to the console, and that after close to five seconds,
+because that is not a guarantee, we'll see powered by BEJS.
+OK? Let's play that video if it works, and the video can't be loaded.
+It's not a problem. OK?
+So basically what the video shows is it takes that block, puts it on the stack.
+When it's executed, because we have a set timeout,
+it will put the timer and play the five-second timer in the web API part.
+After, during that time, console.log for each one after the other.
+And you can also picture, have a mental model around the fact that in the end,
+there might be even several loops. OK?
+Multiple phases, timer, spending callback, ideally prepared, pulling,
+where we all know JS is going to ask the OS,
+hey, do you have any connection, network connection for me?
+Is any file, has any file being read? OK?
+And when you understand the different phases, you can answer questions such as this one,
+promise.resolve.then console.log promise versus process.nextStick,
+console.log nextStick, which one will be executed first?
+Well, it depends on where it will be picked up from at the level of the even loop,
+what phase of the even loop is involved.
+Node.js architecture is inherently multi-threaded.
+OK? So we all heard that JavaScript is single-threaded.
+What we mean by that is we have one single thread to execute your JavaScript code.
+But it doesn't mean that Node.js on its own is single-threaded.
+OK, how many threads or how many processes do we have in a Node.js application typically?
+One, two, three, three, anyone?
+Four, what about five-ish?
+Five-ish is a good number. OK, five-ish is a good number.
+Well, you have a thread for the main even loop, for the main stack.
+You can have threads or processes for the garbage collection.
+You will have libv, and then libv also takes care of handles a pool of four worker threads.
+OK, so you have at least five-ish processes or threads when you run your Node.js application.
+All right, that is a bit too complex for today.
+OK, and so we're going to simplify, and I've grouped different, I would say, parts of that architecture into blocks or squares of the same color.
+So we're going to look at the orange square.
+It's going to be the main stack together with the run on the same thread as the even loop in red.
+Then we're going to have one single queue.
+OK, we're not going to distinguish between micro task and task.
+And then everything else is going to be called Node.js API and will be assembled together.
+So that is what we are going to work with today.
+OK, good.
+So prefer asynchronous code over synchronous code.
+Let's first look at what it means when we use core modules,
+and then we're going to look at what it means when we use MPM modules that we can download from the internet.
+OK, so FS module reading a file.
+When you use the asynchronous API, read file with a callback, it is non-blocking.
+When you use the read file sync, it will be blocking.
+What is the difference?
+Well, the difference is that in one case, the sync version of it will run on the main thread,
+while the async version of it will be run on one of the worker thread, of one of the worker of the thread pool.
+It doesn't mean that at the OS level, reading the file will be non-blocking,
+but from the perspective of Node.js, it is non-blocking because it doesn't block the even loop of the main or the main thread.
+So the sentence, prefer a synchronous API over synchronous API,
+is absolutely relevant and true in the context of a core module,
+because it will run the code of the async version into a worker thread.
+But what about a pure JavaScript library? How does that work?
+To answer this question, we are going to use the example of Bcrypt.
+Bcrypt is a way to create a hash to securely store its secrets.
+And it is interesting because that operation can be quite intensive in terms of CPU,
+depending on the number of cycles that you will perform or how secure you want that secret to be.
+If you go on NPM, you will see that there are multiple implementations of Bcrypt,
+and there is one pure JavaScript implementation known as Bcrypt.js,
+and there is one C++ implementation which is known as Bcrypt.
+And so here it is interesting because both have sync and async APIs,
+and then we can compare what happens with the pure JavaScript implementation
+and what happens with the C++ implementation.
+So let's look at the pure JavaScript implementation.
+Hash sync versus hash, it is basically the same syntax as the FS module, right?
+And what we are going to do is to imagine that we have two servers that receive five requests.
+And the five requests that they receive is you take your CPU on a five-year study at ULB to obtain a degree,
+so you perform a super intensive operation,
+and then four requests that are basically quite fast, you just watch the Netflix episode.
+Okay, and we are going to compare what happens in both cases.
+Now, the trick is that Bcrypt is a smart and well implemented library.
+And the Bcrypt asynchronous API is implemented in a way that when it has to compute a large hash,
+when it has to compute a long operation, instead of doing all of it at once,
+it will chunk, it will split it into two smaller chunks.
+Okay, good.
+So synchronous on the left is synchronous on the right,
+and then we look at those five requests, the big one and the four faster one.
+So at some point, the endpoint with the hash computation is called,
+and we put on the stack the computation of the hash.
+Synchronous parts, we have that big square, blue square, that needs to be performed,
+and you see that as the computation goes, then the green is going to fill in the blue square
+to show progress.
+Okay, because on the asynchronous part, we have a chunk, that is a smaller square.
+At some point, the second request, the first red request, the first episode that you're watching,
+is reaching your server.
+And what happens is it has a callback, it has operations to be performed, and it will be queued.
+And notice that in the case of the asynchronous API, we're quite close to be done with the first chunk.
+The first chunk is done, and then the script will schedule the second chunk to be run.
+What it means is the stack will be empty, it will use Node APIs to schedule the next chunk,
+and then the Node APIs will push another callback to compute the second chunk.
+So we go on, and now you see that on the synchronous API, we continue to move forward with the computation,
+and on the asynchronous one, we are executing the callback one.
+Continue, same here, at some point the stack is empty, because the stack is empty,
+the event loop is picking the next task, put it on the stack, and we continue to perform the compilation.
+As each chunk is done, or the callback is executed for one of those red requests,
+when the stack is empty, we pick up the next task in the queue, and we go on, and we go on, and we go on.
+In blue, and then only you have callback one, callback two, callback three, callback four.
+While in the case of the async API, you chunk it, and because of that, you can't do anything.
+You chunk it, and because you chunk the work, then in between those chunks, your server can handle other requests.
+Now if you start to draw some lines and analyze the response time, so the point of view of the user,
+this is what it looks like, and then you have that kind of chart, where you can see the duration of
+the first blue, the big request, the duration of each of those red requests.
+In the first part, what you have is that each red request is delayed by the entire long compilation.
+On the b-crypt async part, on the bottom part, then it is delayed by at most one chunk.
+That's why you have smaller timing for the red request.
+What will happen if you do the same exercise with the native C++ implementation?
+Because it is a native implementation, because you can use the async API, it will behave the same way as the core module of FS,
+and it will be executed on a worker thread.
+If it's executed on a worker thread, here's what the timings might look like.
+You basically have a timing that corresponds to exactly the combination that needs to be done for the red request,
+and there's no delay at all.
+There's a small difference between the C++ and the JavaScript implementation.
+The C++ implementation will be faster, but here what matters is the fact that the code runs either on main thread,
+or in a worker thread.
+It's not important to compare the speed of the C++ or the JavaScript implementation in that case.
+Sometimes you do have to take your CPU on a vacation.
+Sometimes you do have to do a heavy combination.
+What if you do not have a native implementation, or you do to have a slow application?
+Well, if you really have no other choice than to take some vacation,
+my advice is be sure to have a pool.
+Be sure to take your swimsuit with you,
+because it is possible with libraries such as Piscina,
+Swimming Pool in Italian, to create pools in which you can have threads that can execute JavaScript code.
+The API is quite straightforward, and in the end what it means is that instead of having
+one stack to execute your JavaScript and then a set of other threads to execute native code,
+you can create other tracks, all the threads in which JavaScript code will be executed.
+For example, say you create two pools, you can create one pool with four threads to compute,
+for example, B-Crypt hashes, and you can create a second pool to compute recurring events.
+And in that case, what it means is that when your code will be pushed to the main JavaScript thread,
+the main thread is going to communicate with the pool and say,
+hey, execute and do that computation for me.
+And then the pool will distribute that computation among the different threads that it creates.
+So here is what it looks like when you use a pool.
+It's quite efficient, it's quite nice.
+Is it a silver bullet?
+Well, no, there are several things you need to take into account.
+You need to choose the number of threads wisely.
+You need to determine when you use a pool and make an analysis.
+You need to be sure that the machine on which you run your application has enough cores,
+because in some situations it can be counterproductive to create too many threads and have too many
+processes running.
+And of course, you will have to monitor and check the memory usage.
+All right, how do you know when you need to create a thread pool?
+For that, you need to measure how the event loop is behaving.
+You need to measure the health of your event loop.
+And one of those metrics is, for example, the event loop delay.
+Another one is the max CPU time, and there are tools to help you get there.
+I strongly recommend Dr.JS with ClinicJS.
+It will give you such a nice graph and show you when you have a delay in your event loop,
+when your event loop is blocked.
+Measuring that yourself is not complex.
+That is all you need to measure on your server or in your node application.
+The delay of your event loop.
+What you basically do is you set an interval with a one second delay.
+So every second you will execute the callback with a set immediate,
+and you will compare the time at which you plan it and the time at which it is actually executed.
+And that, the time difference between those two, the start and the end,
+will give you the delay in your event loop.
+Time to wrap up.
+So do not block the event loop.
+And what you really mean by that, it is not about async versus sync.
+It is more about not performing CPU intensive task on the main thread.
+Okay, so that is what you have to remember.
+As long as you do not execute CPU intensive task on the main thread,
+your application will be fast and smooth.
+So here is a couple of advice.
+And have some coffee, drink as much coffee as you want.
+Enjoy the show.
+Take some time off from time to time.
+And thank you for them and you will be for having us today.
+Are there any questions?
+One question there.
+You have to speak up.
+How does PCNAS react compared to Node cluster API?
+So the question is how does PCNAS differ from the Node cluster API?
+So my understanding is that the Node cluster API basically means that you are going to have
+multiple instances of the same application.
+Okay, why PCNAS, one instance of your application will have multiple threads.

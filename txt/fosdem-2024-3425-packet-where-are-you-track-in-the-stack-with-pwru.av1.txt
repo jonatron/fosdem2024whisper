@@ -1,0 +1,381 @@
+So hello everyone, I know this is the end of the day, the end of the first day, so thank
+you for being so many to attend the talk.
+I won't be too much into kernel details in that talk, that should be relatively easy
+to follow.
+Yes, I'm sure this is a kernel dev room, this is not about Go, so don't be worried about
+the logo.
+I also do apologize if some of you attended Jeff's presentation from yesterday, so the
+same topic, the presentation from today will be pretty similar.
+But still, so what is Peru?
+This is, so the name comes from packet where are you, and this is an EBPF-based tool to
+debug packets going through the Linux networking stack.
+So we see why we wanted to work on that tool in the first place, how Peru works, and what
+are some of the features, and how can we actually use it in real life to debug real problems.
+So the problem is that nowadays we have a lot of things to debug regarding to networking
+stuff in general, so when you use containers with namespaces, Kubernetes, all these kind
+of things, you typically have packets arriving on the interface, and then being forwarded
+to a pod through a pair of these interfaces, and there's that big thing in the middle,
+that's a penguin, that also stands for the Linux networking stack, and from the point
+of view of someone trying to understand what's happening, it often looks like a black box
+that's difficult to analyze and to understand fully.
+So how do we get some visibility into that?
+We've got a number of things happening in the Linux networking stack, a few things,
+that gives an idea.
+It's very tricky to get to the right place, so where is my packet?
+So that's the problem we have.
+So usually when something goes wrong, we use TCP-DOM.
+Right, TCP-DOM is good.
+TCP-DOM is a great tool that's very useful.
+TCP-DOM works well here and there, and sometimes the stuff happens here, and that's great.
+Sometimes though, it happens in the penguin, and sometimes in the pod as well.
+So what do I do with it?
+Can TCP-DOM help in that case?
+Not really, not so much.
+There are some other tools to debug things.
+There is printk, well, comes with a number of drawbacks too.
+I need to recompile my kernel.
+It's quite slow to process, to adjust every time.
+I need to add new printk's.
+I may possibly have to add a lot of printk's if I have no idea where my packet's going.
+If I do things wrong, my kernel will panic, that's not great.
+And how do I filter on specific packets?
+It's difficult to do.
+It's far from ideal.
+We've got some other traces too.
+Perf is, for example, a good tool to trace kernel functions that's something else, and
+I can just look into that function and look what's happening in there.
+But for networking, really, it's hard to do this filtering on the packets that I really
+want to follow.
+It's also hard to extract the network-related information out of other things that Perf returns.
+And in the first place, how do I know what function I'm interested in?
+Where is the stuff happening?
+Where is my packet drop?
+Where is my packet masqueraded?
+Where the interesting events are occurring.
+So what if we could have something that gets a bit of all the functions in the kernel that
+will be processing my packets?
+And what if I could get callbacks and run programs when these functions are called?
+And if I could also filter these callbacks to make sure that I only process the packets
+that I'm interested in.
+So that's where we introduce Peru, which is based on the BPF.
+So I assume most people in the room have some familiarity with BPF.
+So I won't go too much into the details.
+Just as a few reminders, that's this execution environment inside of the kernel where you
+can inject programs from user space.
+They're going through the verification to make sure that everything is safe and won't
+crash your kernel.
+You go for the JIT compiler to turn these programs into native instructions and get
+some good performance too.
+And then you run your programs on some hooks where you attach your program in the first
+place with a diagram that looks something like this.
+So we have a program here that we will hook to a probe on IP local deliver, which is a
+function that takes SKB as an argument.
+So that's a socket buffer that represents the packet in the networking stack.
+And we scan the LVM, or with GCC nowadays, but most of them we scan.
+We turn that into an L file that contains the BPF program as bytecode.
+And then we use a loading program that can be in code, that can be in C, that can be
+in Rust, whatever, to extract the bytecode from that L file and inject it into the kernel
+through the BPF system code.
+Once in the kernel we get the BPF, the VFI are in to make sure that the program is safe.
+We compile the kernel.
+We don't have to, but most of them we want something fast.
+So we compile the kernel.
+We compile the kernel, right?
+We compile the program into native instructions.
+And when my packet is coming in, and IP local deliver is called, then it triggers the execution
+of the program.
+And I can communicate with my agent in user space through the use of eBPF maps to store
+data.
+So, for example, to store metadata about my packet and retrieve them in user space to
+know what's happening.
+That's great, but how do we keep track of all those packet processing functions?
+So I have IP local deliver, I have a lot of other functions that are doing packet processing
+too.
+That's where we leverage BPF, which is BPF type format, which is a metadata format with
+different information.
+So a bit like dwarf, but producing objects that are much smaller than dwarf and that target
+BPF specifically for a number of use cases.
+So we can have BPF information for one BPF program in one object file.
+We can also have it for the Linux image itself, which is...
+So this BPF object is usually exposed in the C-SFS file system.
+It looks a bit like this.
+We have a very simple program, sorry, a very simple function.
+It's going to get marked that takes socket buffers and argument.
+I turn this, I extract the BPF information from that object file that I compile into a
+BPF program.
+And this is the BPF information on the right side.
+So it works like this.
+It says, I've got a struct SKBuff with the different offsets of the different attributes.
+I also defined another type, which is a pointer to that type ID too, which is my struct.
+I also defined the prototype of a function that takes the SKB, so the pointer to the
+SKB as an argument.
+And I gave it a name, which is SKBGetMap.
+And because I have the BPF information about the kernel image, and because this BPF describes
+all the functions in the kernel, I can process that in user space to extract a list of all
+the functions that take an SKB as an argument.
+And that gives me the list of the packet processing functions in the kernel.
+So now I have a list of all the functions that I want to hook to.
+So that answers to the three criteria we had.
+How to get all the functions, where we can with BPF, how to get callbacks, we can with
+EBPF and K-Probes in the kernel, and how to filter packets.
+This way using EBPF, and that's it was a packet filtering mechanism in the first place, that's
+relatively easy to implement.
+So how does it look like in practice?
+So I've got two terminals.
+It's not live demo, sorry.
+I use a rule, an IP table rule to drop packets, TCP packets, 1111, which is cloudflare DNS
+for example.
+And I call Peru, so here I have Peru destination host 1111 and TCP and destination port 80.
+And after I call Peru, it tells me that it loads all the, it loads my program and attaches
+all the K-Probes that I'm interested in.
+So that's 1500 probes in that case.
+And then in the first terminal, I type a curl 1111.
+What happens below is that I get a list of all the functions that process my packets.
+So I see a list on the right, IP local arts, IP local arts, NF hook slow, and so on and
+so forth.
+Sorry.
+Eventually I get K-free SKB mem, which is the function that is called once my SKB is
+free because it's been dropped by the IP tables rules.
+The IP tables rules I can also see through the code to NF hook slow.
+So that gives me information about what's happening in terms of function.
+It gives me information about the process that's been creating this packet in the first
+place because on the, on the column in the middle, you can see that it's a curl process.
+I get also information about the SKB, which is not useful by itself.
+This is the address of the SKB, but it allows me to be sure that this is one SKB that's
+being processed in the list.
+If I have several packets in this output, they will have different addresses.
+It allows me to filter by SKB when I post process this information.
+And once I exit from my Peru session, then it detaches all the processes we're loading.
+Okay.
+So what fancy features do we have beyond the basic usage?
+We have quite a number of options for Peru.
+So this is Peru dash dash help.
+I won't go through all of them, but through a number of interesting ones.
+So before we go into the options, you might have noticed that the way I told you to focus
+on the packet with the 1111 destination was just the same syntax as for TCP.
+And we do have a support for pickup filters in Peru.
+And the way this works is, so if I don't pass any filter, things are pretty much straightforward.
+I'm using my BPF program, uh, compared from Peru loaded, uh, into the kernel.
+Now if I do have a filter, I turn this into some CBPF bytecode using the leap pickup.
+CBPF is not exactly the same thing as a BPF.
+So I cannot use it just like this.
+So Peru uses another tool underneath, which is CBPFC.
+Hang on.
+And it turns, uh, this CBPF bytecode into a BPF bytecode.
+And then we get this CBPF bytecode and we inject it into the regular program.
+Okay.
+We've got everything in place.
+We load it into the kernel and that's it.
+That should be, it's easier after that.
+Okay.
+Okay.
+Some other features, uh, we can trace the kernel itself.
+We can, uh, we can trace kernel modules as well.
+We've got a few options to trace either a specific kernel module or all modules.
+Uh, so if you process packets with functional, take SKBs in your module, you can also, uh,
+follow what's happening in them.
+We've got a choice of backends for, uh, for Peru.
+So there are two currently, which is the regular K probes and the multi K probes.
+So what do the multi K probes do?
+They allow you to, uh, well, you don't really realize it when using Peru, but they allow
+Peru to load a bunch of K probes, uh, all at the same time.
+So instead of loading your probes one after the other, you create an array of probes and
+you pass this array with the size of the array to the BPF system code and then everything
+goes nearly at once.
+So it's faster.
+How much faster exactly?
+So if I could Peru on my laptop with, uh, the backend K probes, a legacy one, which
+is, uh, available, which has been available for a long time, the new one is for five
+dot 18, uh, plus only.
+So I get, um, a few seconds to attach other probes.
+That's seven seconds here, but it takes one minute, 37, uh, seconds to, uh, to attach,
+to detach other probes.
+That's not great.
+Now if I do multi K probes, uh, that's nearly instantaneous for attaching everything.
+Like there's, there's no difference on that test and once again for the touching everything.
+So that's quite faster.
+That's a good improvement.
+Um, here are a few other interesting functions.
+Um, they're all in the same box.
+They are not exactly related to each other.
+Uh, so we can filter also by a namespace for Peru, like looking for packets in one given
+namespace and not the others.
+That's totally possible.
+That's, I think that's relatively easy to do from the BPF perspective because I believe
+the, the namespace is directly available from the SKB itself.
+Uh, we can filter, uh, TC programs themselves, which are not regular canal functions, uh,
+just like, uh, the one we have in the networking stack.
+Uh, but because your TC programs can affect the packet processing, that's also interesting
+to, to follow what's happening on them.
+And, uh, the way it works is by using some specific BPF, uh, programs, looking on what
+is what we call the EF and three FX it mechanisms to plug directly onto, uh, those, uh, TC programs.
+So we're looking at BPF programs with other BPF programs.
+Yes, it works.
+Uh, we can also track SKBs that change.
+So when does it change?
+So for example, if I, uh, clone my SKB or copy my SKB, so the way we do that is, uh,
+when the option is enabled, we, uh, hook onto SKB clone, SKB copy at the end of the functions
+actually.
+And we, uh, we say, okay, this packet was interesting when I entered the function.
+And when I exit the function, I mark it as a packet of interest in a BPF map.
+So in addition to filtering the, uh, the packets that I usually want that I provided the, uh,
+fitter in the first place for, I also check for each, uh, for each packet if it's present
+in the map of the packets that I want to additionally follow.
+So that helps me, uh, following packets that may have changed.
+We've got some interesting options for, um, changing the display or adding more information
+on display.
+So I can add, uh, meter data on the socket buffers.
+I can add, uh, the full SKB.
+I can add the call stack.
+Here's an example.
+I can add the, uh, the, the, the four to pull for the packets.
+So in this example, we have, uh, two functions that, uh, process my packets here.
+And, uh, below each function that is displayed, we have the full, uh, call stack for the functions.
+So that's quite helpful to understand exactly what's happening in the kernel and how it
+goes, uh, in terms of processing.
+So to real life examples that we've had, uh, when working on Cydium trying to debug things
+on Cydium, which is a, a CNI for communities with, uh, a number of things related to networking
+and sometimes, uh, complex cases.
+The first one is, uh, MTU configuration, uh, error, uh, which we had to debug at some
+point.
+Uh, so we have a, sorry, we have a very simple setup with the packets arriving on the interface
+and the MTU on the, uh, on the node interface, not the same as the one on the VETH interface.
+And, uh, it was, uh, relatively easy to find out in the, uh, the output from Peru that
+the MTU, uh, is not the same, uh, that, well, is lower than the length of the packets.
+So the only thing I had to do to get this is to, uh, to, um, add the output to the information
+to get the, uh, the information about the, the packet that comes in.
+Another slightly more complex example is, um, so I had, that was in kind, so I had Docker
+network in the middle.
+I had, uh, this configuration with a pod trying to curl to the outside and, uh, hitting an
+IP table rule, uh, leading to masquerading the packets.
+So my packet gets masquerading with the address of the node interface.
+That goes to the internet.
+Okay.
+That worked fine.
+So in the second scenario, we checked that the packets were also, uh, currently masqueraded
+or not masqueraded when going to the node.
+And we have a second rule, actually, that was not displayed on the first, uh, case, which
+should, um, prevent packets going to the other node to, uh, from being masquerading.
+And so the packet should go straight to the other interface, should not change, uh, its
+IP address, but the packet never arrived.
+So what happens?
+So if you write the title, maybe you have an idea already.
+Uh, we thought that the packet was not being masqueraded as we expected.
+We thought that, uh, the IP tables rules were not being applied and we could have maybe
+found the issue, uh, differently, but, uh, Peru helped us to quickly confirm in that
+case of the masquerading is indeed, uh, occurring.
+So that's what you can observe on that, um, sample, uh, output.
+We can see that we're hitting NF hook slow and we can also observe for the same SKB
+that the, uh, the IP address, uh, is changing.
+So this is the same SKB.
+I just trimmed the, uh, the addresses of the SKB cause it was taking too much space, but,
+um, they're the same.
+So once we had this information, once we knew that the, uh, the IP tables rules was, uh,
+not sure taking place that we hit the, the net filter hook, we went back to the rules.
+So we were supposed to exclude the traffic, the closer nodes for masquerading.
+Turns out that the IP sets containing the entries, uh, indicating which nodes be, uh,
+excluded from masquerading were missing the entry of the node on the left on the first
+diagram.
+So that get me busy for, for, for some time a few weeks ago, but, uh, we did it.
+So Peru in brief, it's an BBF base tool to debug what's happening inside of the Linux
+networking stack.
+Hooks on kernel functions using, uh, processing SKBs.
+It's very good to pick up things where it's been a post shot in a way.
+Uh, you've got more visibility on what's happening directly in the stack and not just at the
+interfaces.
+We can use pick up, pick up filter, uh, style syntax to, to filter packets that we want.
+So we don't get everything.
+We just focus on the flows that we're interested in.
+We can try STC programs, can and models functions, uh, modified SKBs.
+Uh, so that's quite, quite flexible.
+Uh, we can, um, a number of information, a number of information, including packet level
+metadata, uh, the call stack, um, and it's proven very useful to solve a number of complex
+networking issues, uh, that we've encountered so far.
+So quick note on some other tools that are not exactly the same, uh, but that also uses
+this principle of, uh, creating a lot of probes to hook into the kernel and look at what's
+happening.
+There is sweet snoop, which is, um, really convenient to debug what's happening in the
+kernel when doing kernel development because it focuses on the written values of the function
+you're trying to, to, to observe or also the written values of most function in the kernel.
+If you're trying to just detect what functions are returning errors.
+IPF-Dress2 is very similar to, uh, to Peru.
+Uh, there are some features that, uh, are different between the two, but otherwise they
+are doing the same focusing and tracking the packets.
+TetraKone is a security events detection, uh, sorry, is a tool focusing on security
+events detection and, um, it uses, it also supports these, uh, multi-K probes, multi-U
+probes mechanisms.
+Uh, it uses EBPF to detect malicious activity on the system and to block it, uh, for, for,
+for security purpose.
+So this is the end of the presentation.
+I'd like to thank Adity and Matt Ness, who did a great presentation a few years ago, uh,
+at KubeCon on the topic, and, uh, I reused some of the materials, so, uh, I'm very thankful
+to them.
+Thank you to the Peru contributors.
+Thank you to everyone.
+Of course, thanks for the team, the talk.
+I hope you enjoyed it.
+If you have questions and if we have time, uh, I would really, I hope just to be open
+to questions.
+Thank you for the talk.
+Does it work well with, uh, GCO, GRO, like the segmentation of laws when the packets
+are merged and dissected?
+Uh, GCO, GRO should see the, should get the SKB as an argument, so they would appear on
+the list of functions that you, uh, that you get from the output.
+So yeah.
+Can you, uh, just print, uh, the SKBs or also trace, inspect those in, inside?
+Like, for example, I've seen this particular, uh, value inside the SKB, the changes and
+causes some kind of bug.
+Can, can I trace it?
+So you can, you can get the SKB, you can dump the full SKB.
+I don't think we have a filtering mechanism to, uh, do some additional processing in Peru
+on the SKB to only raise when you have that value.
+What you could do is, uh, filter new packet flow, dump the full SKB, and then probably
+post process to extract the ones that have this, uh, erroneous values, I suppose.
+But you, you can get the, the full content of the SKB.
+So from that, maybe that would help.
+So thank you for the presentation.
+Um, do you have a, an idea of the performance of your tool?
+And are you satisfied of that performance?
+And do you see some opportunities to make it even more efficient to be able to use it
+in production?
+No, I don't know.
+So one clarification is that, uh, it's not my, I've not contributed to it.
+Well, I picked two typos.
+Um, so I've not run any benchmarks myself.
+I know there is some impact due to the use of K-probes because you're loading so many
+K-probes at the same time.
+So it does have some impact on performance on the system.
+Um, I don't think we've tried to use it in environments where, uh, performance was a
+hard constraint for us so far.
+Uh, how could we improve that?
+Um, I'm not really sure.
+We haven't really given much thought into it at this point.
+Well, there's obviously the, the issue of loading and detaching the programs that is
+greatly improved in the multi-K-probes interface, but that's something different at the runtime.
+Uh, exactly.
+Yeah.
+Um, thank you for the talk in the first place.
+Um, and my question is which behavior can I expect with packet rewrites or encapsulation,
+uh, network address translation and so on, is the packet evaluated in every probe or
+can I, can I trace the packet even before the rewrite rule?
+So for example, I filter to the revitn IP address or I filter to the address before, uh, we
+explain encapsulation or whatever, or IPsec processing and so on.
+Um, so the way I see it, if you use the option to track the SKG, the SKG, the SKG, the SKG
+is, even if the, the metadata changes, you should be able to trace them, uh, uh, even
+after.
+So maybe if you set a given destination IP, you wouldn't be able to trace the packet before
+it gets that IP because that would be like guessing what will happen.
+But after it changes, yes, if you have, um, you know, tracking of the packets and that
+you, that Peru, I did it to the map for you, then you would keep following that SKB after
+that.
+Yes.
+Does it also track the revitn packet so I, um, trace the original IP if it gets encapsulated
+other destination IP?
+If you, so does it track, even if it gets encapsulated and if the IP changes, well yes,
+because it's the same SKB, right?
+So if you're, if you're basing, basing your, your, your tracking on the SKB address, then
+yes, it doesn't matter if you change the IP.
+Okay.
+Thank you.
+Okay.
+Thank you.

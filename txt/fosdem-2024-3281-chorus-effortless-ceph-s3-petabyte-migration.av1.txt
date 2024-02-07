@@ -1,0 +1,263 @@
+Hi everyone, hope I am audible to the larger crowd here, thank you.
+So I am Sreesha Gurduru, I am a self engineer working for Klyso and I am here to present
+an open source project called KORUS which is responsible for an effortless S3 petabyte
+migration slash replication.
+So let us talk about why data migration, like when do we come across a data migration scenario.
+So lot of the companies and organizations these days have private cloud clusters and hardware
+which has certain specifications, queue and it can come to end of life anytime like the
+vendor might stop supporting the existing hardware, there might be a new hardware coming
+up.
+So in that case either there are two options in front of us which is to augment the existing
+cluster with the new hardware.
+If the specifications and skew are similar to what we have now in the cluster or to build
+up, build a new brand new cluster all together and when we build a brand new cluster there
+is a high reason for data to be migrated between old production cluster and the new
+cluster so that you know the data continues to stay and the operations can happen smooth.
+This can be one of the main reasons for data migration.
+Let us talk a few woes or difficulties with data migration.
+When we are talking about migration of data we are not talking about few bytes or gigabytes,
+we are talking about petabytes of storage.
+We have lot of data being stored in our storage back ends these days and those have to be
+effortlessly migrated to the new clusters.
+So the challenges include syncing petabytes of data and the continuous monitoring that
+we have to do behind the scenes like we just pick up some tool like RClone in this case
+and RClone is a robust synchronization tool, copy tool.
+So when we just pick that up we just have to monitor or even if we run that in the background
+we keep monitoring the status of the replication and also the time consumed with that huge amount
+of data to be copied across the clusters.
+Obviously the tools that are used for the migration and continuous changes in the data.
+The existing cluster we just do not yet decommission it.
+We have an active operation happening on the cluster be it reads, writes, updates.
+So that also due to the continuous changes in the data we might see it a bit difficult
+to copy or migrate the data.
+Let me share one of our experiences with a customer where in the similar scenario they
+had their cluster end of life and then we built a brand news cluster for them and the
+data to be migrated was around 3 petabytes.
+So between the old and new clusters we picked up RClone as the data migration tool.
+Migration let alone the data we had to migrate the metadata obviously and there was some
+issue with RClone where we could not copy the ACLs and the bucket policies for that
+particular bucket and then we had to tweak around and then we eventually got it to working
+and then that was a bit of difficult task for us.
+Indeed it is a Herculean task.
+So this experiment, this encounters with our experiences led to a tool called KORUS which
+is an open source tool which is a data application software which is capable of synchronizing
+S3 data as of today S3 data between multiple cloud storage back ends.
+Let me present you some of the problem statements for our tool.
+How to migrate S3 vendor data with reduced downtime?
+So I would not say there would not be any downtime but with reduced downtime and the
+cluster being operational at the same time and also the data being copied to the new
+cluster.
+And how to back up S3 data to another S3 in a different region or a different vendor?
+Here we might not have the same back end, we might be using storages from different providers
+like Amazon, Google, Minayo and we might have our own private clusters.
+So it is vendor agnostic.
+Like the initial goals of KORUS was to have a vendor agnostic solution.
+Like it should be able to support multiple back ends and with a pluggable architecture
+that means the components in KORUS are loosely coupled.
+Like if I see that one of the layer can be better, it can be replaced with another tool
+which is more performant and more efficient, I should be able to replace it.
+And then benchmarking of course before we add in any component we benchmark that tool
+efficiently so that it will be compatible with all of our, the entire project.
+The focus on correctness.
+So the data which is present in the source and the back ends, the following back ends
+we ensure that the data is correct and in sync with all the storage back ends.
+And then migrating big bucket under the load without downtime or with reduced downtime.
+So there are two things here, there can be multiple buckets with small amounts of data
+and those buckets are easy to be copied because it just takes couple of minutes.
+But there is a scenario where a bucket, one bucket has huge amount of data and lot of
+clients might be writing to one bucket and that bucket has to be migrated.
+So that is a bit of concern.
+So overview of chorus is there is one main storage and remaining can be configured as
+the follower back ends.
+And the users start by inputting the storage credentials in the configuration.
+And once the configuration is started and configured the chorus S3 API can be used instead of the
+storage backend API.
+Like if you are using AWS, if you are using Google, Minio, every backend has its own API.
+Instead of using that you can use one backend, one chorus API to communicate with multiple
+back ends because they are all S3 based.
+And chorus proxies request to the main storage and then eventually the storage is copied to
+the followers in the backend.
+All the existing data is replicated.
+For example when we introduce chorus into our ecosystem we might already have clusters
+with certain amount of data which has to be copied to different back ends that we configure
+later.
+So the existing data can be configured in the background using this tool.
+The data replication can be configured, paused, resumed, there are different life cycles for
+that particular request, the status.
+You can just stop, start, resume at any time you want and the management can be done using
+a web UI or a CLI.
+So the features of chorus include routing and replication per bucket.
+You can configure where to route or the request and where to replicate a bucket.
+And then again the same using you can pause and resume anytime.
+And then synchronize object or metadata.
+So just not the storage, you can also copy the ACLs, bucket policies, tags and everything
+using the same tool.
+And then as I spoke earlier migrate existing data in the background, track replication lag.
+So as of today we might have one set of configuration and the data must be copying to the source.
+To the back end, to the follower back ends, we can always track the replication and we
+can improve with the configuration options.
+We can start to rate limit, we can increase the number of workers.
+So we can do that.
+And chorus exposes Prometheus metrics.
+So we have the entire logging thing and the metrics are sent to Prometheus and the logs
+are in JSON format.
+Easy to read.
+Proxy and Grafana form the monitoring stack.
+You can visualize the data of how the bucket is being replicated and at what stage it is
+using the visualization stack.
+Let me briefly talk about the architecture of this entire chorus.
+Chorus is structured around two main web services.
+One is the proxy and the other is the worker.
+So initially the request comes to the proxy.
+We are talking about a flow where the routing policy is there.
+So initially the request comes to the proxy and based on the routing policy, if the bucket
+has to go to the main storage, which is configured to be Minayo here.
+So the request comes to the main storage and the request goes back to the proxy and then
+eventually to the user.
+That is one of the flows.
+The second flow is where the replication scenario is established.
+Again the request comes to the proxy and then there is an event or task created in Redis
+based on the replication policy.
+Like it knows what is the main storage and which storage should the replication be done
+to.
+In this case it is Ceph for example.
+And then the chorus worker reads the requests or tasks from the cache and then that routes
+the request to the, reads from the main storage and replicates to the back end.
+The chorus worker is accessible using WebBY and CLI.
+So this is an overview of the entire flow based on different scenarios.
+So chorus also has an initial migration feature like as I told the replication can happen
+in the background.
+So initially when the replication is happening in the background, all the buckets are listed
+from the main storage and then the objects within particular bucket are listed and then
+the number of tasks based on the objects are created and it is ensured that every object
+is copied to the follower back end using a particular task.
+So the worker processes tasks in the background copying the data to the follower back ends.
+Here these are the main components of chorus proxy worker admin UI and Redis.
+So proxy and worker are written in Golang and admin is written in view or the entire
+deployment is done in a containerized fashion on Kubernetes pods.
+Let us talk something about the resource requirements for different components in chorus.
+For Redis the scaling is done using Redis cluster and the persistence is ensured using
+Redis AOF and Redis database and fault tolerance in case of Redis data loss we can always restart
+the bucket replication because the state is maintained and memory consumption if there
+are around 1 million objects that are to be migrated then it can approximately take 1
+million tasks in the queue then approximately 700 MB.
+This is all based on our benchmarking it can change with different scenarios and Redis
+is assumed to take less CPU and it can be between 100 and 1000 requests per second.
+So coming to the proxy it is stateless, it consumes less memory and less CPU but high
+network because proxy is the kind of brain it takes in the requests and it routes the
+request accordingly based on replication or the actual routing hence it also needs high
+network.
+Coming to the worker it is again stateless it takes in high memory and high network
+but less CPU because worker is the one that routes the reads request from the cache and
+routes request to the back ends based on the replication policy.
+So worker instance network and memory consumption can be rate limited in the configuration like
+in the day when there is huge amount of request coming to our clusters we can just stop the
+migration activity for a minute like or we can rate limited to do it at a lesser rate
+and then eventually you can increase it when the bandwidth is high.
+So yeah so what are our next steps for chorus we want to perform more load tests in case
+of larger buckets more data and efficient time consumption and then resource optimization
+at various component level like Redis how can we make it better and workers we want
+to make the logic more functional and then the API cost.
+So the routing policy alternatives since we have multiple storage packets what we want
+to do is to route based on object size for example if there is one GB of file you can
+configure it to be written to a particular storage packet and then if there is small
+number of files you can configure it for one back end based on the quota and lot of other
+parameters and load balance read request for replicated data.
+Now that we have multiple storage back ends in our hand we can always make an efficient
+use of each back end we can load balance the requests like for example if main storage
+is busy in taking writes since the storage is data is being copied to the follower back
+ends we can always route the read request to any of the back end which is idle so that
+logic and so every storage back end is providing a bucket notification and event log so we
+can subscribe to those events instead of querying the proxy every time and overloading it instead
+we can use proxy to really write data and migrate data so we can use that proxy instead
+or to keep polling for the bucket information and then there is we are planning on having
+a Swift API compatibility as of today we have a robust S3 API compatibility but we are planning
+to have open stack Swift integration and then life cycle policy the API parameters for different
+back ends is different so we just want to have good life cycle policy it is being tested
+and when a bucket is created with a particular life cycle policy in one storage the similar
+should be replicated to the other back ends as well without loss of any configuration
+for policy.
+Use cases the further use cases that we see for chorus are active transparent proxy post
+migration to speak briefly about active proxy migration so that means if the source and
+destination are completely copied and if we want to stop using the source anymore so once
+the data is moved we should be able to switch the proxy to the to another back end to make
+it a main storage instead of configuring it in the configuration file.
+Robust backup service so if we have two to DCs two sites then we want to synchronize
+data between both sites in both directions so the simple setup is to synchronize data
+between prod and the backup site so we want to make this tool efficient enough to be robust
+backup service like we can ensure that during disaster recovery even if the primary goes
+down we can simply do all the operations from the other back ends that are available by
+switching the storage back ends based on the based on how they are configured.
+So any questions regarding chorus and its implementation?
+One question regarding versioning so if you do replication from a source to a destination
+and the source has versioning enabled and there's a couple of versions how does this
+integrate into the chorus?
+So the question is basically about object versioning so if an object version is configured
+in the source how do we replicate it right?
+So for example in object versioning those are also defined as objects in a hidden bucket
+right so that bucket will eventually also be copied with the metadata so the object
+which you create initially before the first object it will have metadata and you configure
+versioning on it and there is a hidden bucket where all the versions go and we can restore
+it to that version anytime so the entire data is copied to the other back end as well with
+the metadata so that's how we can ensure.
+Yes I'm picking also about backup use case.
+Did chorus manage object log?
+Can you repeat that for me?
+Did chorus manage object log?
+Object log.
+Object log.
+Yes.
+Lock.
+Lock.
+Yes.
+I'm sorry I couldn't get that.
+Maybe I'm not so much acquainted with that scenario but can you just elaborate about
+what do you mean by object locking?
+It's a warm technology just the object is in right one time and also it cannot be modified.
+Okay.
+Read only.
+Read only.
+Read only.
+It's like a malware protection.
+The ransomware thing.
+That was one of our features that we want to implement so the question is more about when
+an object is locked or when there is an attack on the data.
+So yeah the ransomware thing is in one of our discussions where so actively the back
+end will be exposed more instead of the main storage so the warm or whatever that is introduced
+it will be in the back end and then we I mean that's just in discussions we are not yet
+there to implement but please feel free to post your question in GitHub.
+You can raise an issue.
+You can start a discussion in GitHub and then we can definitely take that as a feature with
+more details.
+These are the resources.
+We have open source the back end and then you can definitely reach out to us on GitHub
+and then this is a GitHub link for the chorus project.
+I'm sure chorus is more than I cannot speak about chorus so much in this 30 minutes but
+definitely it's a more efficient tool and it has a lot of capabilities to be acting
+as an orchestration layer for multiple back ends.
+Like we need not just use we can use one API to talk to multiple different types of back
+ends with different vendors.
+So yeah we are looking forward for more improvements more features and you can always talk to us
+on GitHub and then we can definitely improve this project together.
+Thank you so much for this opportunity.
+Can I get a correct answer?
+While you're migrating you want to implement a load balancing feature.
+Yeah.
+So you need to be in state of all the objects that you already migrated and that you still
+have to migrate to make an informed decision where you should go.
+So do you already have like a database or how do you know?
+Yeah we are going to do yeah to make the load balancing so that you the request is sent
+to the correct.
+Yeah so you can like a faster cluster you can go to the new cluster.
+Exactly.
+It's time to be more mature to add a presentation for the code but it didn't get in 30 minutes.
+Yeah I got it.
+It was like down how to restore it.
+Yeah sure sure.
+But it's still like it's really new we have some people there casting we're talking to
+start.
+Thank you.
+Very nice.
+At the moment we just need to connect both.
+Yeah that would be great.
+And we can set up the next speaker.
