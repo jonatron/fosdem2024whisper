@@ -1,0 +1,1136 @@
+WEBVTT
+
+00:00.000 --> 00:13.800
+So our next speaker is Leo, who is a developer at Dino, and he's going to talk about how
+
+00:13.800 --> 00:17.920
+to create a JavaScript runtime with Rust.
+
+00:17.920 --> 00:21.360
+Big round of applause for Leo.
+
+00:21.360 --> 00:25.920
+Hello, I'm Leo.
+
+00:25.920 --> 00:29.520
+As I was just introduced, I work at Dino, and I do various Rust.
+
+00:29.520 --> 00:34.120
+At Dino we do a lot of Rust, and we create a JavaScript runtime, but we want other people
+
+00:34.120 --> 00:37.640
+to be able to use it as well and make their own stuff with it.
+
+00:37.640 --> 00:46.880
+So we will explain internals and how you can make a small JavaScript runtime by yourself.
+
+00:46.880 --> 00:48.760
+But first, what does Dino?
+
+00:48.760 --> 00:52.360
+Many people still don't know, so better explain.
+
+00:52.360 --> 00:57.160
+It's a JavaScript runtime similar to Node, maybe similar to Bonn if you've heard of Bonn,
+
+00:57.160 --> 01:03.280
+it focuses on security, web compatibility, typescript out of the box support, and just
+
+01:03.280 --> 01:08.240
+a lot of built-in tools like a formator, lint, dock generation.
+
+01:08.240 --> 01:13.360
+We also have compiling for single executable, and a bunch of other tools.
+
+01:13.360 --> 01:18.680
+We are also not 100% fully Node compatible, but we're getting closer and closer by the
+
+01:18.680 --> 01:21.640
+day, and it's getting quite well.
+
+01:21.640 --> 01:25.600
+And what matters to this presentation is the modular code base.
+
+01:25.600 --> 01:30.320
+We have a lot of building blocks that can be used individually to build your own JavaScript
+
+01:30.320 --> 01:36.480
+runtime just with these Rust crates or Rust libraries to make your own one.
+
+01:36.480 --> 01:42.600
+Without too much effort, actually, we simplified this a lot.
+
+01:42.600 --> 01:48.000
+Yes, so first off we need to explain the internal structure of Dino, which is everything is
+
+01:48.000 --> 01:49.000
+built on Dino Core.
+
+01:49.000 --> 01:58.680
+Dino Core is a layer above V8, which is the JavaScript engine that powers all the Chrome
+
+01:58.680 --> 01:59.680
+and Vowsers.
+
+01:59.680 --> 02:06.080
+And Dino Core is just a small wrapper around it that simplifies a lot of the utilities around
+
+02:06.080 --> 02:08.840
+it and makes it a bit more friendly to use.
+
+02:08.840 --> 02:12.760
+It's not always easy to directly use V8 by itself.
+
+02:12.760 --> 02:17.080
+And on top of that, we have various other functionality that's built on top of that.
+
+02:17.080 --> 02:19.400
+That's extensions.
+
+02:19.400 --> 02:28.560
+Extensions are individual libraries that can be used by themselves to implement individual
+
+02:28.560 --> 02:30.480
+APIs and functionality.
+
+02:30.480 --> 02:37.760
+For example, a specific web API, like let's say fetch or a fetch of variations on individual
+
+02:37.760 --> 02:38.760
+extension.
+
+02:38.760 --> 02:46.320
+We have HTTP server, KV, root loads.
+
+02:47.320 --> 02:51.480
+Basically everything is individual building blocks that can be not copied and pasted,
+
+02:51.480 --> 02:55.240
+but imported and just used without too much hassle.
+
+02:55.240 --> 02:59.680
+Like usually to add an extension is like three lines of code and then suddenly you have a
+
+02:59.680 --> 03:02.560
+massive amount of more APIs that you can just use.
+
+03:02.560 --> 03:11.720
+Then we have Dino Runtime, which is a library that is built on top of a bunch of extensions
+
+03:11.720 --> 03:17.600
+that adds a bit more capability to it, including permission system, which relates back to us
+
+03:17.600 --> 03:18.880
+being a secure runtime.
+
+03:18.880 --> 03:23.440
+We have various permission-based functionality and flags.
+
+03:23.440 --> 03:32.720
+And also another additional feature would be the fact that we do some definitions of
+
+03:32.720 --> 03:37.640
+various global scopes and the Dino namespace itself.
+
+03:37.640 --> 03:43.120
+And also web workers are only implemented in the Dino Runtime grade because it's just
+
+03:43.120 --> 03:47.880
+not possible to have it as an extension just because it needs to interrupt with the extensions
+
+03:47.880 --> 03:48.880
+themselves.
+
+03:48.880 --> 03:52.960
+And then we have the CLI, which is what we compile and what people use.
+
+03:52.960 --> 03:54.760
+And that's not great.
+
+03:54.760 --> 03:55.920
+Yeah.
+
+03:55.920 --> 04:04.240
+And CLI includes the TypeScript support, a bunch of other, like all the tools of the
+
+04:04.240 --> 04:07.920
+CLI, like the lint, the formator, et cetera.
+
+04:07.920 --> 04:13.920
+And also then we have the compile supplement, as I mentioned before, that has a compiler
+
+04:13.920 --> 04:20.760
+single executable and testing infrastructure, benchmarking infrastructure, and dock generation.
+
+04:20.760 --> 04:26.360
+We have a fully static HML dock generator that you can just use and will always give
+
+04:26.360 --> 04:31.680
+a relatively clean output.
+
+04:31.680 --> 04:33.520
+But what will we build today?
+
+04:34.160 --> 04:38.480
+We will build a JavaScript runtime that can compile TypeScript, has a functionality to
+
+04:38.480 --> 04:44.720
+make a HTTP request, a console.log, some files to migrations like read and write, and deleting
+
+04:44.720 --> 04:46.560
+a file, I think, as well.
+
+04:46.560 --> 04:52.160
+And it's all in less than 20, 30 lines of Rust and JavaScript.
+
+04:52.160 --> 04:59.360
+We will connect Rangias just because this will be a relatively technical topic, so there's
+
+04:59.360 --> 05:01.120
+going to be a lot of code.
+
+05:01.120 --> 05:04.360
+So you want.
+
+05:04.360 --> 05:07.480
+First let's explain extensions more in depth.
+
+05:07.480 --> 05:12.200
+Extensions have various fields and options that can be set.
+
+05:12.200 --> 05:17.600
+Arps, which I will explain in a moment, basically the Clif Rust functions that can be used in
+
+05:17.600 --> 05:22.840
+JavaScript, so you can just write a Rust function and that will then be callable out of JavaScript.
+
+05:22.840 --> 05:30.840
+ESM is the ES module, so you can use ES modules, import static imports, and dynamic imports.
+
+05:31.800 --> 05:33.560
+Work as well, I believe.
+
+05:33.560 --> 05:35.360
+Maybe not.
+
+05:35.360 --> 05:38.760
+JavaScript files are just scripts, so not ESM.
+
+05:38.760 --> 05:44.080
+To include it, all works differently under the hood, so we have these two separate options.
+
+05:44.080 --> 05:46.880
+And then depth is declarations of other extensions.
+
+05:46.880 --> 05:48.600
+This extension depends on.
+
+05:48.600 --> 05:51.680
+This is not necessarily needed.
+
+05:51.680 --> 05:54.560
+It's more of a safety harness.
+
+05:54.560 --> 05:59.920
+Just it makes sure that you actually initiated the extensions in the right order so you don't
+
+05:59.960 --> 06:05.360
+actually forget to initiate an extension that another extension relies on and then everything
+
+06:05.360 --> 06:08.160
+floats and then you don't know what's happening.
+
+06:08.160 --> 06:11.680
+And there's some other relevant, less relevant options like config.
+
+06:11.680 --> 06:16.200
+JS, as I mentioned, above is ravelly use nowadays.
+
+06:16.200 --> 06:19.880
+And then lazy loaded ESM state, and I'm not going to go into depth.
+
+06:19.880 --> 06:24.440
+It's just config lets you configure some options to a specific extension.
+
+06:24.440 --> 06:29.520
+If you want to have some special state, you can use the state option.
+
+06:29.600 --> 06:34.640
+lazy loaded ESM lets you lazy load extension code, but that's nothing that we're going
+
+06:34.640 --> 06:38.720
+to go into depth for you to look at this in this talk.
+
+06:38.720 --> 06:39.920
+And then ops.
+
+06:39.920 --> 06:45.920
+So ops are these functions that you can declare in Rust that then are used in JavaScript.
+
+06:45.920 --> 06:49.640
+You can just call it like a normal function in JavaScript.
+
+06:49.640 --> 06:51.440
+And it uses this up to macro.
+
+06:51.440 --> 06:55.400
+I hope that's not too problematic of an explanation that what a macro is.
+
+06:55.400 --> 06:56.880
+I hope everyone knows here.
+
+06:57.240 --> 06:59.240
+Not your problem.
+
+06:59.240 --> 07:03.040
+And then basically you define arguments and return types with these special
+
+07:03.040 --> 07:06.280
+macro attributes like the string or this string.
+
+07:06.280 --> 07:14.240
+And basically it infers then the right type to map it from JavaScript to Rust.
+
+07:14.240 --> 07:17.040
+And vice versa, depending on the attributes.
+
+07:18.200 --> 07:22.720
+And yeah, you just write a normal Rust function like for example in that we just use
+
+07:22.720 --> 07:28.480
+tokyo which is tokyo is the async executor that we use in Dino and most of the
+
+07:28.480 --> 07:34.280
+Rust ecosystem uses it and then we just read the string, we read the content of
+
+07:34.280 --> 07:38.080
+a file of the path specified and we just return it.
+
+07:38.080 --> 07:43.680
+And we return everything in ops as a result which is either an error or
+
+07:43.680 --> 07:48.560
+an acceptable value because you might want to throw an error for example and
+
+07:48.560 --> 07:50.480
+that just handles it under the hood tool.
+
+07:50.520 --> 07:52.600
+So you just return an error.
+
+07:52.600 --> 07:55.920
+There's other various types that can be specified in ops.
+
+07:55.920 --> 08:02.360
+We have some more ambiguous types like V8 value which is just a generic
+
+08:02.360 --> 08:04.040
+JavaScript value.
+
+08:04.040 --> 08:06.560
+You can pass that in, you can manually match and
+
+08:06.560 --> 08:09.600
+do some more specific handling if you need some weird
+
+08:11.920 --> 08:17.040
+function that does based on different types, something which usually we try to avoid.
+
+08:17.040 --> 08:20.240
+Rather have separate functions that do more specific things.
+
+08:20.240 --> 08:25.520
+But then we also have Boolean, I supported numbers, strings,
+
+08:25.520 --> 08:28.440
+as there, array buffers are supported as well.
+
+08:28.440 --> 08:33.320
+And yeah, you can return and accept array buffers and
+
+08:33.320 --> 08:36.000
+it all handles under hood without issue.
+
+08:36.000 --> 08:43.120
+It's all been simplified as much as possible to make it as user friendly or
+
+08:43.120 --> 08:44.960
+developer friendly as possible.
+
+08:44.960 --> 08:49.560
+So it's really easy to just create your own functionality without too much
+
+08:49.560 --> 08:50.680
+difficulty.
+
+08:50.680 --> 08:53.120
+There is also this async is defined up top.
+
+08:53.120 --> 08:55.480
+It makes sure that the function is actually async and
+
+08:55.480 --> 09:01.480
+that it does need to use async functionality when you define something as async.
+
+09:01.480 --> 09:05.920
+And if you don't do anything async, it will usually then error out during
+
+09:05.920 --> 09:06.960
+compile time.
+
+09:06.960 --> 09:12.480
+So because async, it's just more complication under the hood that makes
+
+09:12.480 --> 09:14.240
+it less performant to some degree.
+
+09:16.320 --> 09:18.720
+Then here comes the code.
+
+09:18.720 --> 09:24.040
+So for this example, we're gonna have to find a few ops or
+
+09:24.040 --> 09:27.200
+cross function clarifications that make the code from JavaScript.
+
+09:27.200 --> 09:33.480
+And we have read file, write file, fetch, set time out, and remove file.
+
+09:33.480 --> 09:39.200
+So in the read file, as we just saw, we read the file from the path given and
+
+09:39.200 --> 09:42.680
+return that with write file.
+
+09:42.680 --> 09:47.880
+We can get, we specify a path and the content both as a string and
+
+09:47.880 --> 09:50.520
+write that to file to disk.
+
+09:50.520 --> 09:55.640
+And we return nothing as per the empty type.
+
+09:55.640 --> 10:00.160
+And then the fetch one, which might be the most interesting out of all of these,
+
+10:00.160 --> 10:06.560
+is basically uses request, which is a rust grade for doing HTTP requests.
+
+10:06.560 --> 10:11.600
+That I guess if we wanna compare to something in the JavaScript ecosystem
+
+10:11.600 --> 10:16.840
+would be similar to Axios, I think.
+
+10:16.840 --> 10:21.120
+It's very similar, maybe not similar in API, but similar in functionality and
+
+10:21.120 --> 10:22.400
+simplicity.
+
+10:22.400 --> 10:26.080
+And yeah, we may just do a fetch request and
+
+10:26.080 --> 10:30.880
+get the content of the body via the text method and then just return the content.
+
+10:30.880 --> 10:35.840
+And then we have a set time out, which just puts the current thread to sleep.
+
+10:35.840 --> 10:43.160
+And for the specified duration, it's passed by the user via this function.
+
+10:43.160 --> 10:47.080
+And remove file, just remove file, this is given in the path.
+
+10:53.000 --> 10:58.760
+However, we use a whole system called v8snapshots and it's gonna be part,
+
+10:58.760 --> 11:01.360
+I apologize because it's a very complex topic.
+
+11:01.360 --> 11:05.800
+Not many people really know what it is or even how it works.
+
+11:05.800 --> 11:10.920
+But to very simplify, it's let's take the current state of the JavaScript
+
+11:10.920 --> 11:18.040
+execution and you can store it in a file and resume it later.
+
+11:18.040 --> 11:20.960
+That's the simplest way to explain it.
+
+11:20.960 --> 11:25.480
+It's not exactly like that, but for simplicity's sake, let's stay to that.
+
+11:27.120 --> 11:33.320
+So we need a build script because we first need to do some setup.
+
+11:33.320 --> 11:35.520
+So first we initialize our extension.
+
+11:35.520 --> 11:37.800
+We call it Vangias as we said earlier.
+
+11:37.800 --> 11:40.840
+And we have this ESM entry point, I did not mention that earlier.
+
+11:40.840 --> 11:47.960
+But basically, let's you specify the entry point that runtime will use when starting up.
+
+11:47.960 --> 11:49.880
+And we specify our files.
+
+11:49.880 --> 11:53.880
+We have this ESM option and we have this JavaScript file,
+
+11:53.880 --> 11:56.000
+which we'll see just in a second.
+
+11:56.000 --> 12:00.000
+And we have some path defined.
+
+12:00.000 --> 12:04.320
+We want to get the path of the current build script location,
+
+12:04.320 --> 12:07.560
+some more specific Rust shenanigans.
+
+12:07.560 --> 12:11.320
+But we get this path and we join it with this Vangias snapshot.
+
+12:11.320 --> 12:16.560
+It could be any path, just we need a common location where this build script
+
+12:16.560 --> 12:20.680
+outputs something that we can then retrieve during runtime.
+
+12:20.680 --> 12:26.600
+Now comes the fun part, which is this create snapshot utility function that we have made
+
+12:26.600 --> 12:30.080
+that does all the snapshotting logic under the hood,
+
+12:30.080 --> 12:32.160
+tries to simplify it as much as possible.
+
+12:32.160 --> 12:37.040
+And you have a few options, most of them can be completely ignored.
+
+12:37.040 --> 12:42.080
+The only two important, three important ones are the manifest there.
+
+12:42.080 --> 12:43.600
+We cannot infer this automatically.
+
+12:43.600 --> 12:47.440
+So we have users to always set this value to be this and
+
+12:47.440 --> 12:49.600
+micro call to the target manifest directory.
+
+12:51.440 --> 12:56.240
+The snapshot path is the variable we defined earlier for the where the output of the snapshot will be.
+
+12:56.240 --> 13:02.520
+And then we have extensions, which is the extension we created earlier above.
+
+13:02.520 --> 13:07.200
+And we just want to initiate the JavaScript code.
+
+13:07.200 --> 13:11.600
+We don't have just initiate ESM file, it's initiate ops and ESM.
+
+13:11.600 --> 13:15.240
+Here we have not defined ops because this is just doing the build script.
+
+13:15.240 --> 13:18.000
+We do not care about ops at this point in time.
+
+13:19.120 --> 13:20.800
+They will come into play in a moment.
+
+13:23.320 --> 13:26.120
+First, we also want to support TypeScript.
+
+13:27.640 --> 13:30.480
+And this is just a small snippet of the code.
+
+13:30.600 --> 13:35.800
+There's some more boilerplate that is not necessarily interesting.
+
+13:35.800 --> 13:38.840
+It's just getting the path of the file and
+
+13:41.280 --> 13:46.440
+the media type of the current file just to be sure that we actually transpile JavaScript and
+
+13:46.440 --> 13:50.080
+TypeScript to JavaScript and that file types are all correct.
+
+13:50.080 --> 13:57.280
+But for that we use this AST create, which is basically a wrapper around SWC.
+
+13:57.280 --> 14:05.080
+SWC is a Rust create a library that basically implements TypeScripting as per TypeScripts
+
+14:05.080 --> 14:09.880
+wants and needs since there's no real specification because TypeScript.
+
+14:11.680 --> 14:16.640
+But it takes some options, the specifier, which has created a path or
+
+14:16.640 --> 14:21.480
+the name of the file that we want to transpile, the source code.
+
+14:21.480 --> 14:26.960
+So the text info, we just create this structure from the code that we got earlier from
+
+14:26.960 --> 14:32.040
+this V2 string at the top from the path that was specified by this function.
+
+14:32.040 --> 14:37.400
+And some boilerplate, this media type that I just talked about.
+
+14:37.400 --> 14:43.480
+And then we just call Transfile and magically we get the Transfile TypeScript as a JavaScript.
+
+14:43.480 --> 14:44.920
+And we can just use it.
+
+14:44.920 --> 14:49.000
+And then we have to code and we just create a structure of module source,
+
+14:49.000 --> 14:53.640
+which is how it internally is represented and we just return it.
+
+14:53.640 --> 15:01.120
+And this is all in trade, I guess the best way if you're familiar with TypeScript is
+
+15:01.120 --> 15:07.120
+like an interface and we implement this trade and it has a few methods but
+
+15:07.120 --> 15:10.520
+only one method is really necessary and it is a load method,
+
+15:10.520 --> 15:13.600
+which is what this is it.
+
+15:13.600 --> 15:16.680
+There's a few more lines both above but again, that's just for
+
+15:16.680 --> 15:23.120
+media type and some smaller error handling that is not really out of too much
+
+15:23.120 --> 15:27.600
+interest for this scenario or for the simplicity.
+
+15:27.600 --> 15:39.240
+Then we have our, this is in the actual main script where we get the snapshot that we created
+
+15:39.240 --> 15:43.680
+earlier during the build script and include it into the binary itself.
+
+15:43.680 --> 15:50.040
+And then we have access to this runtime snapshot and we will use it later on.
+
+15:50.040 --> 15:55.720
+And then we have the extensions, we initiate again, but this time just with the ops that
+
+15:55.720 --> 15:57.400
+we defined earlier.
+
+15:57.400 --> 16:01.760
+And this time we don't need the yes modules because we defined them earlier and
+
+16:01.760 --> 16:06.200
+snapshot attempt so they're part of the runtime snapshot from above.
+
+16:06.200 --> 16:13.160
+And it seems I forgot a slide.
+
+16:13.160 --> 16:19.880
+I can quickly hopefully fix it.
+
+16:19.880 --> 16:24.920
+This is not well prepared and I apologize.
+
+16:24.920 --> 16:42.360
+I hope this, let's do it the easy way.
+
+16:42.360 --> 16:46.360
+This is the JavaScript file with the internals defined.
+
+16:46.360 --> 16:51.920
+And basically we input the inner core as a JavaScript as a JavaScript module that you
+
+16:51.920 --> 16:52.920
+can import.
+
+16:52.920 --> 16:57.960
+If you use the inner core that has some utility some functionalities again just like the Rust
+
+16:57.960 --> 16:58.960
+version.
+
+16:58.960 --> 17:03.400
+Just this is for interropping between the Rust and the JavaScript.
+
+17:03.400 --> 17:07.840
+And we have the structure to score into ops.
+
+17:07.840 --> 17:13.640
+Ops again is, this is an object that can be used to access the functions that we defined
+
+17:13.640 --> 17:18.680
+earlier as we see over here that I hope it's big enough actually.
+
+17:18.680 --> 17:22.160
+Can the people in the back read it?
+
+17:22.160 --> 17:23.160
+Wonderful.
+
+17:23.160 --> 17:26.160
+Is this big enough?
+
+17:26.160 --> 17:38.760
+Wait, then let's, okay.
+
+17:38.760 --> 17:43.320
+Just to quickly reiterate we have this input of the inner core and instruction to this
+
+17:43.320 --> 17:48.040
+ops object which is just down below here used to call this op read file which is the
+
+17:48.040 --> 17:51.920
+one we defined in the Rust file earlier.
+
+17:51.920 --> 17:56.480
+And all under the hood it converts the values to the correct type matching in the Rust.
+
+17:56.480 --> 18:02.080
+And then whatever it's returned from this op read file which will be a file content we
+
+18:02.080 --> 18:06.840
+then just return it from this function that we defined in this object constant.
+
+18:06.840 --> 18:12.760
+Over here above we also have the console definition which is, uses code of print which is a utility
+
+18:12.760 --> 18:17.560
+defined in the inner core again, a few more helpful tools.
+
+18:17.560 --> 18:23.520
+And we just get all the arguments and just use this arts to match it but we then define
+
+18:23.520 --> 18:27.760
+the part which will be just stringifies and joins all the values.
+
+18:27.760 --> 18:32.880
+We don't need anything too complex for this example and then just prints it to the console.
+
+18:32.880 --> 18:37.920
+And then we have the same forever which just sets at the end the true value which is for
+
+18:37.920 --> 18:45.240
+if it's an error or not.
+
+18:45.240 --> 18:50.560
+So above it's false and then below it's true.
+
+18:50.560 --> 18:55.760
+Then further down we have the other function definitions which are read file, write file,
+
+18:55.760 --> 19:02.480
+move file, fetch, maybe just all wrapper functions around these ops.
+
+19:02.480 --> 19:04.000
+Technically this async was not needed.
+
+19:04.000 --> 19:09.920
+So one of the side part whatever and then we have the set timeout which calls the set
+
+19:09.920 --> 19:12.000
+timeout and then calls the callback.
+
+19:12.000 --> 19:16.560
+So it's relatively identical to the web API that we know.
+
+19:16.560 --> 19:21.840
+And it's assigned this to global disk which is the global namespace and also we assign
+
+19:21.840 --> 19:27.000
+to the global disk also the console and we define a runjs function object which is the
+
+19:27.000 --> 19:35.600
+object we defined above with all these extra small functionalities.
+
+19:35.600 --> 19:46.920
+To go back to here, we defined this extension again and the runtime snapshot and then we
+
+19:46.920 --> 19:51.680
+have basically all the building blocks ready now we just need to actually use it.
+
+19:51.680 --> 19:53.440
+And for that we need the runtime.
+
+19:53.440 --> 20:01.440
+This is again a bit more complex but basically we define a function that takes a file path.
+
+20:01.440 --> 20:06.640
+The file path is the JavaScript file we want to execute with the user's code that they
+
+20:06.640 --> 20:09.400
+pass.
+
+20:09.400 --> 20:14.920
+We have some utilities in Unicode that resolves the path against the current directory and
+
+20:14.920 --> 20:21.000
+gives you a model specifier out because that's what internally it's used.
+
+20:21.080 --> 20:27.600
+The module loader is what is used to resolve a module and any imports in it from this user
+
+20:27.600 --> 20:30.520
+specified file and we have our TS module loader.
+
+20:30.520 --> 20:37.800
+This is the TypeScript transpiler that we built earlier that is just the structure that
+
+20:37.800 --> 20:42.520
+we defined but I did not show that because we've boilerplate.
+
+20:42.520 --> 20:47.120
+Startup snapshot is the snapshot that we got from earlier from the setup and then the extension
+
+20:47.200 --> 20:55.320
+we need to initiate the ops that are defined so that the Dino Core and the JavaScript file
+
+20:55.320 --> 20:59.200
+that we designed can actually access these functions and load them up.
+
+20:59.200 --> 21:04.240
+And we don't care about any of the other options and then we have the actual usage which is
+
+21:04.240 --> 21:06.360
+this load main module.
+
+21:06.360 --> 21:10.440
+The load main module, it loads the main module of the entry point.
+
+21:10.440 --> 21:17.440
+Let's say if you run Dino run test.ts it will, that would be the main module and then it
+
+21:17.440 --> 21:22.920
+will work through the entire module graph which is basically all the imports one by one on
+
+21:22.920 --> 21:25.040
+the recursively.
+
+21:25.040 --> 21:31.680
+And this is async, a lot of this operation async because ES modules are inherently async
+
+21:31.680 --> 21:40.240
+and yeah we evaluate the module so we basically run it and get if there was any output and
+
+21:40.240 --> 21:48.040
+then we want to run the event loop because there's going to be multiple pulls let's say
+
+21:48.040 --> 21:53.000
+with async functions you've got to do multiple async calls perhaps or just stuff.
+
+21:53.000 --> 21:57.120
+We have some options that are not of interest.
+
+21:57.120 --> 22:07.840
+We have Dino Core includes inspector, utilities and pump via message loop which is again not
+
+22:07.840 --> 22:10.080
+much interest at some point or another.
+
+22:10.080 --> 22:17.760
+We just await this event loop running and return value of this result that we were calling
+
+22:17.760 --> 22:26.080
+earlier so we just then get out of this run.js function we get the result which hopefully
+
+22:26.080 --> 22:30.920
+will be okay and there's not going to be any errors but there might always be some error.
+
+22:30.920 --> 22:37.280
+A user might have to find incorrect variable names or have invalid syntax or something
+
+22:37.280 --> 22:39.400
+like that.
+
+22:39.400 --> 22:55.200
+And then we can do a small demo where we, I hope this is going to be big enough again.
+
+22:55.200 --> 22:58.120
+That's definitely not.
+
+22:58.120 --> 23:02.800
+We have this example.js file.
+
+23:02.800 --> 23:08.560
+Here we just call the set timeout that we defined earlier in the global scope and then
+
+23:08.560 --> 23:19.520
+just come out and this can then just be, kind of make this bigger.
+
+23:19.520 --> 23:22.200
+No.
+
+23:22.200 --> 23:36.840
+So life demos never go perfectly well but hopefully this should be working.
+
+23:36.840 --> 23:43.400
+So we then just do congo run and we want to specify this input file which we called
+
+23:43.400 --> 23:44.400
+examples.js.
+
+23:44.400 --> 23:51.360
+And hopefully this will work.
+
+23:51.360 --> 24:02.720
+It first needs to compile and yep it prints the weight and then the hello world that we
+
+24:02.720 --> 24:03.720
+call here.
+
+24:03.720 --> 24:08.000
+Now this is just a set timeout that's not as interesting as for example fetch.
+
+24:08.000 --> 24:16.240
+So I mean we could just console log the fetch output so it would be run.js because we defined
+
+24:16.240 --> 24:24.440
+this global variable earlier as run.js in this run.js down here and then we want to
+
+24:24.440 --> 24:27.040
+call fetch.
+
+24:27.040 --> 24:38.040
+I think we could fetch HTTP example.com and since this is async we want to await it and
+
+24:38.040 --> 24:44.880
+again let's run this and hopefully we'll get an unreadable wall of text of HTML output
+
+24:44.880 --> 24:45.880
+from example.com.
+
+24:45.880 --> 24:55.360
+It's usually not that long and yes we did a fetch request to a remote server.
+
+24:55.360 --> 25:11.640
+And we had the file system operations so I could just call await runjs.readfile and
+
+25:11.640 --> 25:15.960
+let's read for example this file itself.
+
+25:15.960 --> 25:23.400
+And then my terminal quickly.
+
+25:23.400 --> 25:27.720
+And hopefully it should just print the same output because we're reading self file yep
+
+25:27.720 --> 25:32.320
+and it reads and then the deleting and writing of files will work as well.
+
+25:32.320 --> 25:34.400
+We're not going to go too depth into that.
+
+25:34.400 --> 25:42.240
+It's relatively self explanatory and yeah that's pretty much it.
+
+25:42.240 --> 25:43.680
+I know I went a bit fast.
+
+25:43.680 --> 25:45.600
+I hope people don't have questions.
+
+25:45.600 --> 25:49.960
+There's a QR code for the actual repository where we have this so if people are interested
+
+25:49.960 --> 25:55.760
+to check it out but also we always are trying to improve the ecosystem and common problems
+
+25:55.760 --> 26:04.400
+of the JavaScript ecosystem and we actually have had problems with the dependency ecosystem
+
+26:04.400 --> 26:09.280
+of JavaScript and NPM and we decided that someone needs to solve this and as such we
+
+26:09.280 --> 26:15.320
+also created a new general purpose JavaScript registry that will work in any runtime.
+
+26:15.320 --> 26:20.960
+This has been announced a few days ago by Ryan Moindepf and you can join the waitlist
+
+26:20.960 --> 26:25.120
+at the QR code or the URL.
+
+26:25.120 --> 26:26.120
+That's it.
+
+26:26.120 --> 26:27.120
+Are there any questions?
+
+26:27.120 --> 26:28.120
+Time for one or two questions.
+
+26:28.120 --> 26:29.120
+Yeah.
+
+26:29.120 --> 26:44.120
+Let's see that I hate this.
+
+26:44.120 --> 26:45.400
+Inside the Docker container.
+
+26:45.400 --> 26:52.320
+I have this input queue of jobs where I send the script that I want to run and then just
+
+26:52.320 --> 26:55.120
+execute it and the output is from it.
+
+26:55.120 --> 27:02.120
+Is there any downside as long as I am only sending one single script that it needs to
+
+27:02.120 --> 27:03.120
+execute?
+
+27:03.120 --> 27:04.120
+No.
+
+27:04.120 --> 27:05.120
+I don't see any issue with that whatsoever.
+
+27:05.120 --> 27:06.120
+It should just work.
+
+27:06.120 --> 27:11.600
+Again, I'm not too familiar with Docker though but that seems like a relatively normal thing
+
+27:11.600 --> 27:13.600
+to do.
+
+27:13.600 --> 27:14.600
+Any other questions?
+
+27:14.600 --> 27:24.720
+What have been your biggest challenges in writing this run project?
+
+27:25.720 --> 27:32.160
+This project has been going on since it was announced in 2018 and we have written our
+
+27:32.160 --> 27:34.000
+internals many times.
+
+27:34.000 --> 27:38.160
+For example, extensions were called other things multiple times in the past.
+
+27:38.160 --> 27:46.160
+We renamed and restructured not entire structure of the code base but it was just multiple
+
+27:46.160 --> 27:52.160
+rewrites just to be able to have more capability but also performance wise improvements.
+
+27:52.600 --> 27:59.800
+Overall, it has been a challenge but it was something we could always figure out.
+
+27:59.800 --> 28:01.080
+Rust itself has never been an issue.
+
+28:01.080 --> 28:04.960
+It's always been relatively good to use.
+
+28:04.960 --> 28:05.960
+It's not perfect.
+
+28:05.960 --> 28:12.160
+No programming language is perfect but previously Dino was initially started as a Go project
+
+28:12.160 --> 28:18.480
+but we switched quickly to Rust for performance benefits as well.
+
+28:18.480 --> 28:27.280
+I hope that answers the question.
+
+28:27.280 --> 28:28.280
+Anything else?
+
+28:28.280 --> 28:29.280
+Yes?
+
+28:29.280 --> 28:30.280
+Yes?
+
+28:30.280 --> 28:47.880
+Yes?
+
+28:47.880 --> 28:50.800
+Is it?
+
+28:50.800 --> 28:51.800
+On this one?
+
+28:51.800 --> 28:52.800
+Yes.
+
+28:52.800 --> 28:53.800
+Okay.
+
+28:53.800 --> 29:11.320
+This could technically have been just accepting U64 directly.
+
+29:11.320 --> 29:16.800
+This should actually have been U64 directly and just been passed and not casted but that
+
+29:16.800 --> 29:19.760
+was probably just some oversight while writing this code.
+
+29:20.120 --> 29:26.320
+We casted it because it was from Melissa, except only U64 but this is just oversight.
+
+29:26.320 --> 29:29.760
+I have one more question.
+
+29:29.760 --> 29:30.760
+Yes?
+
+29:30.760 --> 29:36.760
+How does the performance on the custom run times or extensions compare to the foreign
+
+29:36.760 --> 29:38.760
+functions in the past?
+
+29:38.760 --> 29:48.320
+I'm not too familiar with FFI but we have optimized both FFI and these extensions a lot
+
+29:48.320 --> 29:52.880
+more but extensions inherently are going to be more performance because it's not a
+
+29:52.880 --> 29:55.520
+foreign function.
+
+29:55.520 --> 30:00.380
+These ops, I guess if you really look at them foreign functions, since it's calling
+
+30:00.380 --> 30:05.920
+Rust functions out of JavaScript, there is some plumbing but these have been optimized
+
+30:05.920 --> 30:11.920
+so much over multiple years that I would say like sync functions are basically maybe not
+
+30:11.920 --> 30:15.480
+no cost but close to no cost.
+
+30:15.480 --> 30:18.160
+Sync functions have overhead due to...
+

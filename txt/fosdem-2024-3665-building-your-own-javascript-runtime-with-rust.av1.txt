@@ -1,0 +1,378 @@
+So our next speaker is Leo, who is a developer at Dino, and he's going to talk about how
+to create a JavaScript runtime with Rust.
+Big round of applause for Leo.
+Hello, I'm Leo.
+As I was just introduced, I work at Dino, and I do various Rust.
+At Dino we do a lot of Rust, and we create a JavaScript runtime, but we want other people
+to be able to use it as well and make their own stuff with it.
+So we will explain internals and how you can make a small JavaScript runtime by yourself.
+But first, what does Dino?
+Many people still don't know, so better explain.
+It's a JavaScript runtime similar to Node, maybe similar to Bonn if you've heard of Bonn,
+it focuses on security, web compatibility, typescript out of the box support, and just
+a lot of built-in tools like a formator, lint, dock generation.
+We also have compiling for single executable, and a bunch of other tools.
+We are also not 100% fully Node compatible, but we're getting closer and closer by the
+day, and it's getting quite well.
+And what matters to this presentation is the modular code base.
+We have a lot of building blocks that can be used individually to build your own JavaScript
+runtime just with these Rust crates or Rust libraries to make your own one.
+Without too much effort, actually, we simplified this a lot.
+Yes, so first off we need to explain the internal structure of Dino, which is everything is
+built on Dino Core.
+Dino Core is a layer above V8, which is the JavaScript engine that powers all the Chrome
+and Vowsers.
+And Dino Core is just a small wrapper around it that simplifies a lot of the utilities around
+it and makes it a bit more friendly to use.
+It's not always easy to directly use V8 by itself.
+And on top of that, we have various other functionality that's built on top of that.
+That's extensions.
+Extensions are individual libraries that can be used by themselves to implement individual
+APIs and functionality.
+For example, a specific web API, like let's say fetch or a fetch of variations on individual
+extension.
+We have HTTP server, KV, root loads.
+Basically everything is individual building blocks that can be not copied and pasted,
+but imported and just used without too much hassle.
+Like usually to add an extension is like three lines of code and then suddenly you have a
+massive amount of more APIs that you can just use.
+Then we have Dino Runtime, which is a library that is built on top of a bunch of extensions
+that adds a bit more capability to it, including permission system, which relates back to us
+being a secure runtime.
+We have various permission-based functionality and flags.
+And also another additional feature would be the fact that we do some definitions of
+various global scopes and the Dino namespace itself.
+And also web workers are only implemented in the Dino Runtime grade because it's just
+not possible to have it as an extension just because it needs to interrupt with the extensions
+themselves.
+And then we have the CLI, which is what we compile and what people use.
+And that's not great.
+Yeah.
+And CLI includes the TypeScript support, a bunch of other, like all the tools of the
+CLI, like the lint, the formator, et cetera.
+And also then we have the compile supplement, as I mentioned before, that has a compiler
+single executable and testing infrastructure, benchmarking infrastructure, and dock generation.
+We have a fully static HML dock generator that you can just use and will always give
+a relatively clean output.
+But what will we build today?
+We will build a JavaScript runtime that can compile TypeScript, has a functionality to
+make a HTTP request, a console.log, some files to migrations like read and write, and deleting
+a file, I think, as well.
+And it's all in less than 20, 30 lines of Rust and JavaScript.
+We will connect Rangias just because this will be a relatively technical topic, so there's
+going to be a lot of code.
+So you want.
+First let's explain extensions more in depth.
+Extensions have various fields and options that can be set.
+Arps, which I will explain in a moment, basically the Clif Rust functions that can be used in
+JavaScript, so you can just write a Rust function and that will then be callable out of JavaScript.
+ESM is the ES module, so you can use ES modules, import static imports, and dynamic imports.
+Work as well, I believe.
+Maybe not.
+JavaScript files are just scripts, so not ESM.
+To include it, all works differently under the hood, so we have these two separate options.
+And then depth is declarations of other extensions.
+This extension depends on.
+This is not necessarily needed.
+It's more of a safety harness.
+Just it makes sure that you actually initiated the extensions in the right order so you don't
+actually forget to initiate an extension that another extension relies on and then everything
+floats and then you don't know what's happening.
+And there's some other relevant, less relevant options like config.
+JS, as I mentioned, above is ravelly use nowadays.
+And then lazy loaded ESM state, and I'm not going to go into depth.
+It's just config lets you configure some options to a specific extension.
+If you want to have some special state, you can use the state option.
+lazy loaded ESM lets you lazy load extension code, but that's nothing that we're going
+to go into depth for you to look at this in this talk.
+And then ops.
+So ops are these functions that you can declare in Rust that then are used in JavaScript.
+You can just call it like a normal function in JavaScript.
+And it uses this up to macro.
+I hope that's not too problematic of an explanation that what a macro is.
+I hope everyone knows here.
+Not your problem.
+And then basically you define arguments and return types with these special
+macro attributes like the string or this string.
+And basically it infers then the right type to map it from JavaScript to Rust.
+And vice versa, depending on the attributes.
+And yeah, you just write a normal Rust function like for example in that we just use
+tokyo which is tokyo is the async executor that we use in Dino and most of the
+Rust ecosystem uses it and then we just read the string, we read the content of
+a file of the path specified and we just return it.
+And we return everything in ops as a result which is either an error or
+an acceptable value because you might want to throw an error for example and
+that just handles it under the hood tool.
+So you just return an error.
+There's other various types that can be specified in ops.
+We have some more ambiguous types like V8 value which is just a generic
+JavaScript value.
+You can pass that in, you can manually match and
+do some more specific handling if you need some weird
+function that does based on different types, something which usually we try to avoid.
+Rather have separate functions that do more specific things.
+But then we also have Boolean, I supported numbers, strings,
+as there, array buffers are supported as well.
+And yeah, you can return and accept array buffers and
+it all handles under hood without issue.
+It's all been simplified as much as possible to make it as user friendly or
+developer friendly as possible.
+So it's really easy to just create your own functionality without too much
+difficulty.
+There is also this async is defined up top.
+It makes sure that the function is actually async and
+that it does need to use async functionality when you define something as async.
+And if you don't do anything async, it will usually then error out during
+compile time.
+So because async, it's just more complication under the hood that makes
+it less performant to some degree.
+Then here comes the code.
+So for this example, we're gonna have to find a few ops or
+cross function clarifications that make the code from JavaScript.
+And we have read file, write file, fetch, set time out, and remove file.
+So in the read file, as we just saw, we read the file from the path given and
+return that with write file.
+We can get, we specify a path and the content both as a string and
+write that to file to disk.
+And we return nothing as per the empty type.
+And then the fetch one, which might be the most interesting out of all of these,
+is basically uses request, which is a rust grade for doing HTTP requests.
+That I guess if we wanna compare to something in the JavaScript ecosystem
+would be similar to Axios, I think.
+It's very similar, maybe not similar in API, but similar in functionality and
+simplicity.
+And yeah, we may just do a fetch request and
+get the content of the body via the text method and then just return the content.
+And then we have a set time out, which just puts the current thread to sleep.
+And for the specified duration, it's passed by the user via this function.
+And remove file, just remove file, this is given in the path.
+However, we use a whole system called v8snapshots and it's gonna be part,
+I apologize because it's a very complex topic.
+Not many people really know what it is or even how it works.
+But to very simplify, it's let's take the current state of the JavaScript
+execution and you can store it in a file and resume it later.
+That's the simplest way to explain it.
+It's not exactly like that, but for simplicity's sake, let's stay to that.
+So we need a build script because we first need to do some setup.
+So first we initialize our extension.
+We call it Vangias as we said earlier.
+And we have this ESM entry point, I did not mention that earlier.
+But basically, let's you specify the entry point that runtime will use when starting up.
+And we specify our files.
+We have this ESM option and we have this JavaScript file,
+which we'll see just in a second.
+And we have some path defined.
+We want to get the path of the current build script location,
+some more specific Rust shenanigans.
+But we get this path and we join it with this Vangias snapshot.
+It could be any path, just we need a common location where this build script
+outputs something that we can then retrieve during runtime.
+Now comes the fun part, which is this create snapshot utility function that we have made
+that does all the snapshotting logic under the hood,
+tries to simplify it as much as possible.
+And you have a few options, most of them can be completely ignored.
+The only two important, three important ones are the manifest there.
+We cannot infer this automatically.
+So we have users to always set this value to be this and
+micro call to the target manifest directory.
+The snapshot path is the variable we defined earlier for the where the output of the snapshot will be.
+And then we have extensions, which is the extension we created earlier above.
+And we just want to initiate the JavaScript code.
+We don't have just initiate ESM file, it's initiate ops and ESM.
+Here we have not defined ops because this is just doing the build script.
+We do not care about ops at this point in time.
+They will come into play in a moment.
+First, we also want to support TypeScript.
+And this is just a small snippet of the code.
+There's some more boilerplate that is not necessarily interesting.
+It's just getting the path of the file and
+the media type of the current file just to be sure that we actually transpile JavaScript and
+TypeScript to JavaScript and that file types are all correct.
+But for that we use this AST create, which is basically a wrapper around SWC.
+SWC is a Rust create a library that basically implements TypeScripting as per TypeScripts
+wants and needs since there's no real specification because TypeScript.
+But it takes some options, the specifier, which has created a path or
+the name of the file that we want to transpile, the source code.
+So the text info, we just create this structure from the code that we got earlier from
+this V2 string at the top from the path that was specified by this function.
+And some boilerplate, this media type that I just talked about.
+And then we just call Transfile and magically we get the Transfile TypeScript as a JavaScript.
+And we can just use it.
+And then we have to code and we just create a structure of module source,
+which is how it internally is represented and we just return it.
+And this is all in trade, I guess the best way if you're familiar with TypeScript is
+like an interface and we implement this trade and it has a few methods but
+only one method is really necessary and it is a load method,
+which is what this is it.
+There's a few more lines both above but again, that's just for
+media type and some smaller error handling that is not really out of too much
+interest for this scenario or for the simplicity.
+Then we have our, this is in the actual main script where we get the snapshot that we created
+earlier during the build script and include it into the binary itself.
+And then we have access to this runtime snapshot and we will use it later on.
+And then we have the extensions, we initiate again, but this time just with the ops that
+we defined earlier.
+And this time we don't need the yes modules because we defined them earlier and
+snapshot attempt so they're part of the runtime snapshot from above.
+And it seems I forgot a slide.
+I can quickly hopefully fix it.
+This is not well prepared and I apologize.
+I hope this, let's do it the easy way.
+This is the JavaScript file with the internals defined.
+And basically we input the inner core as a JavaScript as a JavaScript module that you
+can import.
+If you use the inner core that has some utility some functionalities again just like the Rust
+version.
+Just this is for interropping between the Rust and the JavaScript.
+And we have the structure to score into ops.
+Ops again is, this is an object that can be used to access the functions that we defined
+earlier as we see over here that I hope it's big enough actually.
+Can the people in the back read it?
+Wonderful.
+Is this big enough?
+Wait, then let's, okay.
+Just to quickly reiterate we have this input of the inner core and instruction to this
+ops object which is just down below here used to call this op read file which is the
+one we defined in the Rust file earlier.
+And all under the hood it converts the values to the correct type matching in the Rust.
+And then whatever it's returned from this op read file which will be a file content we
+then just return it from this function that we defined in this object constant.
+Over here above we also have the console definition which is, uses code of print which is a utility
+defined in the inner core again, a few more helpful tools.
+And we just get all the arguments and just use this arts to match it but we then define
+the part which will be just stringifies and joins all the values.
+We don't need anything too complex for this example and then just prints it to the console.
+And then we have the same forever which just sets at the end the true value which is for
+if it's an error or not.
+So above it's false and then below it's true.
+Then further down we have the other function definitions which are read file, write file,
+move file, fetch, maybe just all wrapper functions around these ops.
+Technically this async was not needed.
+So one of the side part whatever and then we have the set timeout which calls the set
+timeout and then calls the callback.
+So it's relatively identical to the web API that we know.
+And it's assigned this to global disk which is the global namespace and also we assign
+to the global disk also the console and we define a runjs function object which is the
+object we defined above with all these extra small functionalities.
+To go back to here, we defined this extension again and the runtime snapshot and then we
+have basically all the building blocks ready now we just need to actually use it.
+And for that we need the runtime.
+This is again a bit more complex but basically we define a function that takes a file path.
+The file path is the JavaScript file we want to execute with the user's code that they
+pass.
+We have some utilities in Unicode that resolves the path against the current directory and
+gives you a model specifier out because that's what internally it's used.
+The module loader is what is used to resolve a module and any imports in it from this user
+specified file and we have our TS module loader.
+This is the TypeScript transpiler that we built earlier that is just the structure that
+we defined but I did not show that because we've boilerplate.
+Startup snapshot is the snapshot that we got from earlier from the setup and then the extension
+we need to initiate the ops that are defined so that the Dino Core and the JavaScript file
+that we designed can actually access these functions and load them up.
+And we don't care about any of the other options and then we have the actual usage which is
+this load main module.
+The load main module, it loads the main module of the entry point.
+Let's say if you run Dino run test.ts it will, that would be the main module and then it
+will work through the entire module graph which is basically all the imports one by one on
+the recursively.
+And this is async, a lot of this operation async because ES modules are inherently async
+and yeah we evaluate the module so we basically run it and get if there was any output and
+then we want to run the event loop because there's going to be multiple pulls let's say
+with async functions you've got to do multiple async calls perhaps or just stuff.
+We have some options that are not of interest.
+We have Dino Core includes inspector, utilities and pump via message loop which is again not
+much interest at some point or another.
+We just await this event loop running and return value of this result that we were calling
+earlier so we just then get out of this run.js function we get the result which hopefully
+will be okay and there's not going to be any errors but there might always be some error.
+A user might have to find incorrect variable names or have invalid syntax or something
+like that.
+And then we can do a small demo where we, I hope this is going to be big enough again.
+That's definitely not.
+We have this example.js file.
+Here we just call the set timeout that we defined earlier in the global scope and then
+just come out and this can then just be, kind of make this bigger.
+No.
+So life demos never go perfectly well but hopefully this should be working.
+So we then just do congo run and we want to specify this input file which we called
+examples.js.
+And hopefully this will work.
+It first needs to compile and yep it prints the weight and then the hello world that we
+call here.
+Now this is just a set timeout that's not as interesting as for example fetch.
+So I mean we could just console log the fetch output so it would be run.js because we defined
+this global variable earlier as run.js in this run.js down here and then we want to
+call fetch.
+I think we could fetch HTTP example.com and since this is async we want to await it and
+again let's run this and hopefully we'll get an unreadable wall of text of HTML output
+from example.com.
+It's usually not that long and yes we did a fetch request to a remote server.
+And we had the file system operations so I could just call await runjs.readfile and
+let's read for example this file itself.
+And then my terminal quickly.
+And hopefully it should just print the same output because we're reading self file yep
+and it reads and then the deleting and writing of files will work as well.
+We're not going to go too depth into that.
+It's relatively self explanatory and yeah that's pretty much it.
+I know I went a bit fast.
+I hope people don't have questions.
+There's a QR code for the actual repository where we have this so if people are interested
+to check it out but also we always are trying to improve the ecosystem and common problems
+of the JavaScript ecosystem and we actually have had problems with the dependency ecosystem
+of JavaScript and NPM and we decided that someone needs to solve this and as such we
+also created a new general purpose JavaScript registry that will work in any runtime.
+This has been announced a few days ago by Ryan Moindepf and you can join the waitlist
+at the QR code or the URL.
+That's it.
+Are there any questions?
+Time for one or two questions.
+Yeah.
+Let's see that I hate this.
+Inside the Docker container.
+I have this input queue of jobs where I send the script that I want to run and then just
+execute it and the output is from it.
+Is there any downside as long as I am only sending one single script that it needs to
+execute?
+No.
+I don't see any issue with that whatsoever.
+It should just work.
+Again, I'm not too familiar with Docker though but that seems like a relatively normal thing
+to do.
+Any other questions?
+What have been your biggest challenges in writing this run project?
+This project has been going on since it was announced in 2018 and we have written our
+internals many times.
+For example, extensions were called other things multiple times in the past.
+We renamed and restructured not entire structure of the code base but it was just multiple
+rewrites just to be able to have more capability but also performance wise improvements.
+Overall, it has been a challenge but it was something we could always figure out.
+Rust itself has never been an issue.
+It's always been relatively good to use.
+It's not perfect.
+No programming language is perfect but previously Dino was initially started as a Go project
+but we switched quickly to Rust for performance benefits as well.
+I hope that answers the question.
+Anything else?
+Yes?
+Yes?
+Yes?
+Is it?
+On this one?
+Yes.
+Okay.
+This could technically have been just accepting U64 directly.
+This should actually have been U64 directly and just been passed and not casted but that
+was probably just some oversight while writing this code.
+We casted it because it was from Melissa, except only U64 but this is just oversight.
+I have one more question.
+Yes?
+How does the performance on the custom run times or extensions compare to the foreign
+functions in the past?
+I'm not too familiar with FFI but we have optimized both FFI and these extensions a lot
+more but extensions inherently are going to be more performance because it's not a
+foreign function.
+These ops, I guess if you really look at them foreign functions, since it's calling
+Rust functions out of JavaScript, there is some plumbing but these have been optimized
+so much over multiple years that I would say like sync functions are basically maybe not
+no cost but close to no cost.
+Sync functions have overhead due to...

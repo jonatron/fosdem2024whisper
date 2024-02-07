@@ -1,0 +1,731 @@
+WEBVTT
+
+00:00.000 --> 00:15.440
+Okay ladies, if you'd like to get yourself settled down, because of the way we're running
+
+00:15.440 --> 00:23.400
+this room back to back, my talk has already started and I haven't got much to cover but
+
+00:23.400 --> 00:32.480
+we'll do what we can. So, yes, so that's everything that makes up the GNU toolchain.
+
+00:32.480 --> 00:37.120
+I'm going to go through some of these slides very fast because it's reference material
+
+00:37.120 --> 00:41.680
+so you can go back and look at the video afterwards if you want to check something. This is only
+
+00:41.680 --> 00:45.360
+going to look at GCC so I'm not going to worry about the assembler or any of the other stuff,
+
+00:45.360 --> 00:50.280
+I'm just going to look at the compiler and how you add something to a new chip. So how
+
+00:50.280 --> 00:57.040
+you get the back end up and running, where you can get more information, what the key
+
+00:57.040 --> 01:01.320
+things you need to do are and what I hope is at the end is that at the end you won't
+
+01:01.320 --> 01:06.880
+be able to write a new compiler but you'll know where to get started. So first of all,
+
+01:06.880 --> 01:11.640
+source of information, there's loads of theory behind compilers, there's an excellent beginner's
+
+01:11.640 --> 01:16.280
+textbook there, you can still buy it second hand, I believe someone bought one for a penny
+
+01:16.280 --> 01:21.040
+on Amazon, second hand, so and I've been recommending, I haven't used the second one but it has,
+
+01:21.040 --> 01:26.400
+I strongly recommend it by someone else there and this is the Bible. If you've got a lot
+
+01:26.400 --> 01:29.880
+of money you can buy the one on the left, if you haven't got so much the one on the right
+
+01:29.880 --> 01:34.360
+is still rightly available. But this is what we're going to worry about today, the GCC
+
+01:34.360 --> 01:38.440
+internals manual, everything you need to know is there, some of it's out of date but it's
+
+01:38.440 --> 01:45.000
+generally a pretty good document and it's online so you can just go and get that. So,
+
+01:45.040 --> 01:51.960
+we've got a new chip, our new chip, this is an entirely fictional architecture, it's
+
+01:51.960 --> 01:57.760
+taken from my textbook I showed earlier and it's a simple byte stream architecture used
+
+01:57.760 --> 02:04.840
+for just as a target you can compile to for demonstrating how to write a compiler. So,
+
+02:04.840 --> 02:09.040
+we've got arithmetic, we've got logic, we've got shifts, we've got the ability to store
+
+02:09.040 --> 02:13.320
+and load and we've got some branching and a branch and link so we can do sub-routine
+
+02:13.360 --> 02:22.360
+calls. And there's all the details of it but we'll come back to it. So, getting started,
+
+02:22.360 --> 02:27.480
+first of all you need GCC so you can clone it and there's a mirror on GitHub as well.
+
+02:27.480 --> 02:31.680
+You've seen this from Dave, here's the structure and the bit we're going to be concerned about
+
+02:31.680 --> 02:36.640
+is within the GCC primarily the config because that's where you put the configuration for
+
+02:36.640 --> 02:40.880
+the new back-end architecture. So, we're going to, there's one, there's one for RISC-5,
+
+02:40.920 --> 02:47.320
+there's dozens of them there, we're going to add one for VAM. So, if you were to look
+
+02:47.320 --> 02:51.960
+in RISC-5 you'd find these four key files, there's loads more in the RISC-5 directly
+
+02:51.960 --> 02:57.240
+but you have a .h file which is where you define a lot of parameters that says what
+
+02:57.240 --> 03:01.200
+my back-end looks like, you know, how big's a char, how big's an int and so forth. You
+
+03:01.200 --> 03:05.760
+have RISC-C which is where you put C code and it's really helper code to get you off
+
+03:05.760 --> 03:10.480
+the ground. You don't need, you need hardly anything in .c to get started. The big one
+
+03:10.520 --> 03:14.640
+and where we'll spend quite a lot of time is the machine description. It's a, it's
+
+03:14.640 --> 03:20.520
+the thing that describes what your architecture looks like and GCC will then pick that up
+
+03:20.520 --> 03:25.640
+and use that to be able to compile to your target. Okay, and it's written in a, nominally
+
+03:25.640 --> 03:30.920
+in a dialect of LISP called scheme. Okay, and lastly there's a file called .opt and
+
+03:30.920 --> 03:35.360
+you don't actually even have to have .opt but it's where you've got target specific options
+
+03:35.360 --> 03:39.600
+and our architecture, we're going to give it an option that says you can have soft
+
+03:39.640 --> 03:43.360
+multiplication where you do multiplication in software or you can have hard multiplication
+
+03:43.360 --> 03:49.880
+where you actually generate multiplication instructions. So first of all, we need to
+
+03:49.880 --> 03:55.000
+see how do we configure GCC for my new target. Well first of all, we actually need to go
+
+03:55.000 --> 04:00.680
+into the whole auto-conf system and actually add it in there. So at the top level in the
+
+04:00.680 --> 04:05.680
+repository you'll find a file called config.sub. Now that is actually pulled in from a separate
+
+04:05.680 --> 04:10.320
+project. Okay, so if you're doing this properly you would go to the project listed there and
+
+04:10.320 --> 04:14.320
+you'd make your change there. But I'm just going to hack it today and I'm just going
+
+04:14.320 --> 04:18.640
+to add a line in the, if you look in there you'll say case dollar CPU where all the CPUs
+
+04:18.640 --> 04:25.400
+are there and I'm just going to add VAM, our architecture. So now the auto-make system
+
+04:25.400 --> 04:31.320
+will understand about VAM and then inside the GCC sub-directory, so the GCC proper
+
+04:31.360 --> 04:38.360
+sub-directory, there's config.GCC and that's where you put all the GCC specific configurations.
+
+04:38.600 --> 04:45.600
+Okay, now our full name of our architecture is probably our compiler will be VAM-unknown-elf-GCC
+
+04:45.800 --> 04:52.440
+because we'll put the full triple in front. So VAM whatever you like, ELF will match that.
+
+04:52.440 --> 04:56.160
+So if you go and say I want to configure for that target, what do I define? And there's
+
+04:56.160 --> 05:01.120
+a whole load of variables you can set to tell your target what goes in there. The thing
+
+05:01.120 --> 05:05.400
+is you don't really need to put anything because it'll know there'll be a, if my target's
+
+05:05.400 --> 05:12.400
+VAM you must have a VAM.C, a VAM.H, a VAM.CC, a VAM.H and a VAM.MD and maybe a VAM.Opt.
+
+05:13.120 --> 05:16.480
+I'm going to say actually I want one other because this is bare metal. I'm going to take
+
+05:16.480 --> 05:22.240
+the standard ELFOS file for bare metal operating system file and add it to that and that's
+
+05:22.240 --> 05:27.720
+the target machine list of files that make up that architecture. So that is all I need
+
+05:27.840 --> 05:34.840
+to do to make GCC to know that. And now I can say go and configure GCC and this, you'll
+
+05:34.840 --> 05:40.960
+see it's a bit like Dave did, but this time my target is going to be VAM-unknown-elf and
+
+05:40.960 --> 05:46.880
+it will configure for that. I'm going to do, I'm going to put it in pre, I'm going to,
+
+05:46.880 --> 05:51.480
+when we've finished it, it'll get loaded in, it'll get installed in OptVAM. We'll do it
+
+05:51.480 --> 05:56.160
+without headers just to keep it simple. We'll just do the C language and as Dave said earlier
+
+05:56.200 --> 06:00.400
+disable the bootstrap, just the stage one which is on a plain C compiler and there's
+
+06:00.400 --> 06:05.120
+loads more options there and we'll come back to that later. And then I can just say make
+
+06:05.120 --> 06:12.120
+all hyphen GCC and lots and lots happens and then it will complain and say ah, but I can't
+
+06:13.240 --> 06:17.960
+find VAM.MD, the machine description, okay? Because I didn't actually create a machine
+
+06:17.960 --> 06:22.520
+description. I just told it that was here's my machine. So we're going to have to do something
+
+06:22.560 --> 06:29.560
+about that. So let's start adding those files in. Let's start with the header file and so
+
+06:30.120 --> 06:34.600
+let's create our configuration directory. So we're going to the source directory, we're
+
+06:34.600 --> 06:38.400
+coming out of our build directory, going to the source directory, create a sub directory
+
+06:38.400 --> 06:44.160
+within GCC config for VAM for our architecture and I'm just going to create empty files,
+
+06:44.160 --> 06:50.160
+VAM.CC, VAM.H, VAM.MD and VAM.Opt. Come back into our build directory and make all GCC
+
+06:50.160 --> 06:57.400
+again, lots more happens and then I get an error message. It says ah, in somewhere deep
+
+06:57.400 --> 07:04.240
+inside the GCC world I haven't found a definition of first pseudo register and maybe you meant
+
+07:04.240 --> 07:08.680
+first virtual register. And that's actually one of the variables that I have to define
+
+07:08.680 --> 07:15.680
+in .h. So in .h there's a whole load of macros I've got to define that I will need for that.
+
+07:16.680 --> 07:22.680
+Okay, so here's an example, so in VAM.h we've got some things. You define target CPU but
+
+07:22.960 --> 07:26.640
+those are the built-ins I want to appear. You know that when you compile for a particular
+
+07:26.640 --> 07:31.320
+architecture in GCC there are some predefined macros there including one that tells you
+
+07:31.320 --> 07:36.680
+what your architecture is. So we want underscore VAM in capitals and lower case actually defined
+
+07:36.680 --> 07:42.480
+so if you're writing code you can put hash if def VAM, if def underscore VAM and put
+
+07:42.480 --> 07:46.040
+your VAM specific code there. And there's a couple of asserts there, I'll assert the
+
+07:46.040 --> 07:52.520
+CPU's VAM and the machine is VAM. Okay, where does it go, what goes in the header file?
+
+07:52.520 --> 07:59.520
+There's a whole section on this on the internals manual. You'll be here till 2057 if you try
+
+07:59.680 --> 08:04.240
+and put all of those in. Easy approach do what we all do is copy an existing architecture
+
+08:04.240 --> 08:09.680
+and hack it around for you. Open risk is a really good one. It's quite small and Stafford
+
+08:09.680 --> 08:14.960
+Horn knows what he's doing so it's a good starting point and it's what I used. Okay,
+
+08:14.960 --> 08:21.960
+and associated implementation codes in VAM.cc and it's things like data storage, data types,
+
+08:22.480 --> 08:28.040
+register model, the ABI implementation, all the constants that will define that. Okay,
+
+08:28.040 --> 08:32.080
+so here we are, here's my storage layout, you know all the number of bits that go in
+
+08:32.080 --> 08:38.080
+everything, what boundaries I'm aligning on, the sizes of all my data types, what the ABI
+
+08:38.080 --> 08:42.760
+looks like, so I've got a comment to say what it does and then I define the first pseudo
+
+08:42.760 --> 08:49.160
+register, so I've got a total of 33 real registers and then anything else would be a pseudo
+
+08:49.160 --> 08:54.120
+register and I'm not going to go into pseudo registers, because I've got my 32 real registers,
+
+08:54.120 --> 08:58.440
+general registers and I've got my status register. I don't have the program counter as a register
+
+08:58.440 --> 09:02.680
+because it's not actually exposed in my architecture, I have nowhere treating it as a real register,
+
+09:02.680 --> 09:07.160
+it's just something behind the scenes. And I've got names for all my registers and some
+
+09:07.200 --> 09:13.200
+of those have fixed purposes, so r0 is always tied to 0, r1 is the stack pointer, so I've
+
+09:13.200 --> 09:16.920
+got an array telling me which of those have got predefined uses and the last one is the
+
+09:16.920 --> 09:22.920
+status register, that's got a predefined use. And then what are good ways to allocate this,
+
+09:22.920 --> 09:27.120
+so when GCC needs to use a register, what's a good one to choose, so I don't actually
+
+09:27.120 --> 09:30.640
+end up choosing one, I have to then worry about restoring and everything. And so I can
+
+09:30.640 --> 09:36.480
+give that in a priority order of what order do I want you to allocate registers in. We
+
+09:36.520 --> 09:43.520
+talk about register classes, now this is very simple because we haven't got many registers,
+
+09:44.560 --> 09:48.320
+normally you would separate out your integer registers from your floating point registers
+
+09:48.320 --> 09:52.000
+and then you can tell GCC to do different things depending whether you're doing floating
+
+09:52.000 --> 09:55.920
+point or integer. In our case it's only an integer machine anyway, so we've just got
+
+09:55.920 --> 10:00.120
+general regs and we've got one class for the status register which is the flag regs. You
+
+10:00.120 --> 10:04.240
+always have a no regs class which is no registers and all regs class which is all registers
+
+10:04.280 --> 10:07.840
+and you define the last thing in that enum because it tells you the size of the enum
+
+10:07.840 --> 10:13.280
+is limit regs classes. And then from that we can define a macro called n regs classes
+
+10:13.280 --> 10:18.320
+and we can define the names of these which are just the text strings. And lastly then
+
+10:18.320 --> 10:24.480
+we say for each of those classes we're going to have to give you 33 bits to tell you for
+
+10:24.480 --> 10:30.160
+each of those classes which bits are there. So for the no regs none of them are set, for
+
+10:30.200 --> 10:37.120
+the general registers all the bits are except the 33rd bit and it's the bottom low bits on
+
+10:37.120 --> 10:41.360
+the left and the top low bits on the right and then the status register is register 33
+
+10:41.360 --> 10:47.080
+so it just has one bit set in the other bit there and then all regs has all the bits set.
+
+10:47.080 --> 10:52.080
+Okay and you've got a macro to tell you which regs, you've given a register number which
+
+10:52.080 --> 10:57.200
+register class are you in and there's loads more in there and you can read through it
+
+10:57.240 --> 11:03.240
+there and see what happens. So we say make all GCC and even more happens and then it
+
+11:03.240 --> 11:07.680
+complains that it can't see SP regnum. Now you think ah didn't I define a stat pointer,
+
+11:07.680 --> 11:13.040
+I did but I decided something else because the point is this is not SP regnum as known
+
+11:13.040 --> 11:19.880
+by a header, this is SP regnum from the machine description. Okay so some of these things are
+
+11:19.880 --> 11:23.320
+actually not defined in the header, they're defined in the machine description. So if
+
+11:23.360 --> 11:31.720
+we look how code generation works in GCC it's generic okay it's a pattern matching compiler,
+
+11:31.720 --> 11:36.080
+it looks for patterns and replaces them by new patterns. Okay so it's how it does code
+
+11:36.080 --> 11:40.080
+generation, it's actually also how it does optimization and what we have to do is give
+
+11:40.080 --> 11:45.320
+it all these pattern templates in order to be generated and that is what the machine description
+
+11:45.320 --> 11:50.640
+is and actually when we come to optimization replacing patterns by better patterns is what
+
+11:50.680 --> 11:56.080
+you do. So we heard from Dave the different types you've got generic then Gimple then RTL
+
+11:56.080 --> 12:02.760
+and we're really worrying about how you get down to the RTL level. Okay side note here GCC
+
+12:02.760 --> 12:06.920
+has its own name for type systems so they're everything from quarter inch to eight bits up
+
+12:06.920 --> 12:15.360
+to double inch and tetra inch and double float with and so they're known as QI or HI and so
+
+12:15.440 --> 12:20.760
+forth and you can have unsigned variance of those just when those will come all the way through
+
+12:20.760 --> 12:27.280
+so when you see those they just sizes of things. So how do you get Gimple to go down to RTL
+
+12:27.280 --> 12:35.880
+okay which you can then code generate from okay you we probably had a set of standard patterns
+
+12:35.880 --> 12:42.120
+okay and all you're going to do in the machine description is tell him given add QI 3 that's
+
+12:42.240 --> 12:48.960
+add quarter inch to three arguments two source arguments and destination and they're mostly
+
+12:48.960 --> 12:53.960
+three address code like that so add two quarter inch and so forth. There's a whole set of these
+
+12:53.960 --> 13:00.720
+to define you define all those okay and then GCC has all the patterns and it will generate code
+
+13:00.720 --> 13:09.720
+for your machine okay so quite a lot of these have to be defined but some of them don't need it
+
+13:09.720 --> 13:13.600
+you know you don't need atomic and vector patterns if you're not going to atomic if you haven't got
+
+13:13.600 --> 13:22.000
+atomic ops or if you're not a vector machine okay so I say when we build the compiler it's
+
+13:22.000 --> 13:27.360
+parsed and all that scheme description of these patterns will be turned into C which is then built
+
+13:27.360 --> 13:33.280
+it then compiled and put in your GCC compiler and there's a whole huge chapter on this in the
+
+13:33.280 --> 13:38.360
+internals manual machine descriptions but we will do the same thing is we will copy an existing
+
+13:38.600 --> 13:44.360
+machine description and hack it so I've this we will take OR1K again okay so let's have a look I want
+
+13:44.360 --> 13:48.440
+to just describe machine description I'm taking them these from risk5.md just because I want to show a
+
+13:48.440 --> 13:56.660
+lot of ideas here quickly and they're richer in in the risk5 one than in my simple one okay so at the
+
+13:56.660 --> 14:02.200
+heart of it is define instant define instant which is the semantics of a pattern this architecture
+
+14:02.200 --> 14:06.360
+supports the name can be anything but obviously we're worried about the predefined ones and add
+
+14:06.400 --> 14:14.160
+SI3 is one of them okay and that's how GCC can learn RTL using that name okay so the first thing
+
+14:14.160 --> 14:19.880
+you see is match op-rand that's telling you how to match the first op-rand and then the second
+
+14:19.880 --> 14:25.080
+op-rand and you see there's match op-rand size of it single integer number of that op-rand so we've
+
+14:25.080 --> 14:32.320
+got 0 1 and 2 and then a bit about what it is okay so register op-rand says I can be any register
+
+14:32.960 --> 14:39.680
+it's it's an allow or deny gating function okay and you can write your own predicates as well but
+
+14:39.680 --> 14:46.080
+the whole load of standard ones okay and then we have constraints on that now the constraint is not
+
+14:46.080 --> 14:51.760
+much here equals r comma r and that's saying I'm giving you two scenarios and they actually have both
+
+14:51.760 --> 14:57.440
+happened to be r in this case but we'll explain why that is so it can and the equals means I'm writing
+
+14:57.440 --> 15:04.000
+to it so I'm either writing to a register or I'm writing to a register okay now the reason that
+
+15:04.000 --> 15:09.440
+matters is these pairs go together so the second op-rand is a register a register the third opera
+
+15:09.440 --> 15:15.680
+the first opera and then op-rand 2 is register or I for immediate and you have to read those if you
+
+15:15.680 --> 15:21.040
+as though we're there in columns so we're looking at one scenario where first op-rand is a writable
+
+15:21.040 --> 15:27.080
+register and the other two operands are registers and we're looking at the second scenario where the
+
+15:27.120 --> 15:32.560
+destination is a register the first operands register but the second operand is an it's just so if you
+
+15:32.560 --> 15:43.640
+think of them in columns that's how to think of them okay and yeah so the next line which is just
+
+15:43.640 --> 15:49.200
+empty here that's often for a global predicate okay and that could be where you put one of your
+
+15:49.200 --> 15:53.400
+flags so you may have to find a predicate like is this soft multiplication in which case I can't
+
+15:53.440 --> 16:00.520
+generate a multiply okay and just empty means true just always do this and then the code generation
+
+16:00.520 --> 16:05.720
+template it's just a C fragment and in this case so you say if it's a 32 if it's a 64 bit
+
+16:05.720 --> 16:12.280
+architecture then generate the string add word blah blah blah if it's a 32 bit architecture then
+
+16:12.280 --> 16:17.400
+you it's just a generic add instruction okay and the percent elements there percent nor percent 1%
+
+16:17.640 --> 16:26.760
+to refer to operand nor operand 1 operand 2 okay and at the end you can add some attributes we're
+
+16:26.760 --> 16:30.720
+not going to worry about attributes in BAM attributes are useful because they're where tagging the
+
+16:30.720 --> 16:35.720
+instance and sometimes you can have code generation options and opera optimizations that can take
+
+16:35.720 --> 16:43.720
+advantage of them okay so let's look at what we did for BAM first of all you define some constants
+
+16:43.800 --> 16:49.200
+that's where sp reg none the numbers of the key registers is defined okay and then we've got a very
+
+16:49.200 --> 16:55.680
+simple instance it's called no op and it doesn't have anything to match really it's just constant
+
+16:55.680 --> 17:01.640
+zero and it generates the text string it generates for code generation is just not here's a more
+
+17:01.640 --> 17:08.040
+comfortable and add si 3 you've seen that bit before we've only got one sort of ad okay the first
+
+17:08.120 --> 17:14.120
+operand is destination register the second operand is a register and because VAM is a
+
+17:14.120 --> 17:21.120
+two-address machine okay so add a B means add a to B and put the result in B we actually have to
+
+17:21.120 --> 17:26.720
+say the destination you see I've constrained it to be zero that means it's got to be the same as
+
+17:26.720 --> 17:32.560
+opera and zero which is the destination okay and I've got the same for sub i and the template to
+
+17:32.600 --> 17:39.480
+generate the code okay so the standard names the standard MD patterns machine descriptions and
+
+17:39.480 --> 17:44.880
+output statements how you do the assembly language templates and you've got some useful files in
+
+17:44.880 --> 17:55.520
+there and I say the open-risk one is a good example that's pretty simple okay so what about the option
+
+17:55.520 --> 18:01.320
+file VAM.opt there's a whole spec on this and we're going to allow it to have hard division soft
+
+18:01.360 --> 18:05.600
+division hard mode whether or not you generate multiply and divide instructions and they have
+
+18:05.600 --> 18:12.680
+a fairly simple pattern of explaining what it is and a bit of descriptive text okay okay putting
+
+18:12.680 --> 18:22.040
+it all together so we do make all GCC and almost everything almost everything happens and away
+
+18:22.040 --> 18:28.520
+it goes and it blew up cannot stat 10 permit 10.cc you know I have no idea what this means it's in
+
+18:28.560 --> 18:34.760
+deep in the bowels it's journey mitt so what do we do about this I asked for help and so thank you
+
+18:34.760 --> 18:41.720
+to match a Rizzicky who came up and said there's a trick you can tell it to emit fewer partitions
+
+18:41.720 --> 18:48.760
+it might be a bug and so I tried with emitting five partitions and it all worked fine okay and
+
+18:48.760 --> 18:57.760
+actually I ended up with a GCC because X GCC is what the GCC within the build tree is called and
+
+18:57.800 --> 19:04.240
+it ran it and it ran itself test it said let's check if the compiler is any good and then I got an
+
+19:04.240 --> 19:09.920
+internal compiler error because I haven't actually finished doing my compiler so VAM.md is missing
+
+19:09.920 --> 19:15.200
+some patterns and it's essentially blown up because it couldn't work out how to find a pattern to get
+
+19:15.200 --> 19:20.480
+the code down there for one of the test cases but I do actually have a working compiler well I have a
+
+19:20.480 --> 19:25.760
+working compiler in the sense I've got a compiler I can run it will crash whenever it compiles things
+
+19:26.480 --> 19:35.200
+but that's actually that's actually quite an achievement so now I need to just debug it okay
+
+19:36.160 --> 19:44.320
+but I have actually got a GCC build so I'm Dave covered this how to dump stuff
+
+19:45.360 --> 19:50.000
+we are so you didn't know you just mentioned so you can dump all the different intermediate codes
+
+19:50.000 --> 19:54.960
+but what Dave did cover was the wrapper option and the wrapper option is your friend that's where
+
+19:55.040 --> 20:00.400
+you can go inside we've talked about the wrapper option and how it puts things here actually
+
+20:00.400 --> 20:04.800
+you can do the same sort of thing as you can do gdb args and then I just copied that error message I
+
+20:04.800 --> 20:09.600
+got with the internal compiler error and now I can run under there and I can run it and I can generate
+
+20:09.600 --> 20:16.160
+my internal compiler error under gdb but I now have the ability now to do to debug it okay
+
+20:17.120 --> 20:24.240
+self-test even better so there we are and this is why we work as a community
+
+20:25.600 --> 20:30.560
+because we are so make self-test type in gdb we'll do all this magic for you okay
+
+20:32.240 --> 20:38.000
+so there was a bit of smoke mirrors in there I created a minimal vam.cc guess what I copied it from
+
+20:39.200 --> 20:45.840
+there was a bug in vam.op.ul's I had to hand create that in the hack round that and that I think is a bug
+
+20:46.880 --> 20:52.640
+I had to create vam.com.cc and I'm not quite sure why I had to do that but everyone seems to do it
+
+20:52.640 --> 20:59.200
+except open risk and I had to make it and I just took the template one I used it I added
+
+20:59.200 --> 21:03.840
+vam to the documentation that's a good thing I also compiled with enable maintainer mode which
+
+21:03.840 --> 21:08.240
+is used to regenerate some files I'm not that was when I was trying to fix the url's problem
+
+21:08.240 --> 21:14.640
+I'm not sure I actually needed to do that okay but that's what I did to get there so what next
+
+21:14.720 --> 21:20.400
+and the reason this is rather rushed is it's part of our three-month graduate training course
+
+21:20.400 --> 21:25.840
+this stuff was put together by my colleague Max and Blinoff a few years ago it's a five-day part of
+
+21:25.840 --> 21:33.040
+the course um for eight hours a day with exercises and so I've compressed it into 25 minutes um but
+
+21:33.040 --> 21:38.320
+hopefully it gives you just a little bit of a touch on how you can get started and there's
+
+21:38.320 --> 21:43.760
+enough hooks in there that you'll get off the ground and if you get stuck ask for help we're a
+
+21:43.760 --> 21:49.520
+friendly bunch I have an ambition one day I'm going to create a full public tutorial on GCC
+
+21:49.520 --> 21:56.320
+that's probably my retirement project but in the meantime everything I've just shown you is on github
+
+21:57.440 --> 22:01.440
+thank you
+
+22:03.200 --> 22:05.440
+okay I've got I've got two minutes for questions
+
+22:10.240 --> 22:11.440
+yeah
+
+22:11.520 --> 22:19.520
+are there any ready-made um CPUs that are a bit weird like um big guitars that we can use and play
+
+22:19.520 --> 22:26.080
+around for fun yeah so the question is are there any ready-made ones there are loads I mean there
+
+22:26.080 --> 22:32.080
+are what 50 or 60 backends for GCC and some of them are really weird and some of them very normal
+
+22:32.080 --> 22:36.560
+I would look at open risk because it's relatively recently done it's well done it's quite small
+
+22:41.920 --> 22:44.560
+because great
+
+22:57.200 --> 23:04.240
+excellent so the comment was about working on power isa power power isa and adding the scalable
+
+23:04.240 --> 23:10.800
+vector um functionality into the back end please join in ask for help scalable vectors are the
+
+23:10.800 --> 23:16.960
+flavor of the month at the moment so you said that we have to add the architectural specific stuff
+
+23:16.960 --> 23:23.200
+in the machine description I was wondering if there is a minimum set of touring to complete that you
+
+23:23.200 --> 23:28.880
+say that you do the assignment the addition and this yes question for the audience then we start
+
+23:28.880 --> 23:34.480
+the question is yeah our time's up is what is the minimum set in the patterns I don't know but if
+
+23:34.480 --> 23:43.440
+someone could tell me I couldn't find that thank you thank you
+

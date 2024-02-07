@@ -1,0 +1,243 @@
+Okay ladies, if you'd like to get yourself settled down, because of the way we're running
+this room back to back, my talk has already started and I haven't got much to cover but
+we'll do what we can. So, yes, so that's everything that makes up the GNU toolchain.
+I'm going to go through some of these slides very fast because it's reference material
+so you can go back and look at the video afterwards if you want to check something. This is only
+going to look at GCC so I'm not going to worry about the assembler or any of the other stuff,
+I'm just going to look at the compiler and how you add something to a new chip. So how
+you get the back end up and running, where you can get more information, what the key
+things you need to do are and what I hope is at the end is that at the end you won't
+be able to write a new compiler but you'll know where to get started. So first of all,
+source of information, there's loads of theory behind compilers, there's an excellent beginner's
+textbook there, you can still buy it second hand, I believe someone bought one for a penny
+on Amazon, second hand, so and I've been recommending, I haven't used the second one but it has,
+I strongly recommend it by someone else there and this is the Bible. If you've got a lot
+of money you can buy the one on the left, if you haven't got so much the one on the right
+is still rightly available. But this is what we're going to worry about today, the GCC
+internals manual, everything you need to know is there, some of it's out of date but it's
+generally a pretty good document and it's online so you can just go and get that. So,
+we've got a new chip, our new chip, this is an entirely fictional architecture, it's
+taken from my textbook I showed earlier and it's a simple byte stream architecture used
+for just as a target you can compile to for demonstrating how to write a compiler. So,
+we've got arithmetic, we've got logic, we've got shifts, we've got the ability to store
+and load and we've got some branching and a branch and link so we can do sub-routine
+calls. And there's all the details of it but we'll come back to it. So, getting started,
+first of all you need GCC so you can clone it and there's a mirror on GitHub as well.
+You've seen this from Dave, here's the structure and the bit we're going to be concerned about
+is within the GCC primarily the config because that's where you put the configuration for
+the new back-end architecture. So, we're going to, there's one, there's one for RISC-5,
+there's dozens of them there, we're going to add one for VAM. So, if you were to look
+in RISC-5 you'd find these four key files, there's loads more in the RISC-5 directly
+but you have a .h file which is where you define a lot of parameters that says what
+my back-end looks like, you know, how big's a char, how big's an int and so forth. You
+have RISC-C which is where you put C code and it's really helper code to get you off
+the ground. You don't need, you need hardly anything in .c to get started. The big one
+and where we'll spend quite a lot of time is the machine description. It's a, it's
+the thing that describes what your architecture looks like and GCC will then pick that up
+and use that to be able to compile to your target. Okay, and it's written in a, nominally
+in a dialect of LISP called scheme. Okay, and lastly there's a file called .opt and
+you don't actually even have to have .opt but it's where you've got target specific options
+and our architecture, we're going to give it an option that says you can have soft
+multiplication where you do multiplication in software or you can have hard multiplication
+where you actually generate multiplication instructions. So first of all, we need to
+see how do we configure GCC for my new target. Well first of all, we actually need to go
+into the whole auto-conf system and actually add it in there. So at the top level in the
+repository you'll find a file called config.sub. Now that is actually pulled in from a separate
+project. Okay, so if you're doing this properly you would go to the project listed there and
+you'd make your change there. But I'm just going to hack it today and I'm just going
+to add a line in the, if you look in there you'll say case dollar CPU where all the CPUs
+are there and I'm just going to add VAM, our architecture. So now the auto-make system
+will understand about VAM and then inside the GCC sub-directory, so the GCC proper
+sub-directory, there's config.GCC and that's where you put all the GCC specific configurations.
+Okay, now our full name of our architecture is probably our compiler will be VAM-unknown-elf-GCC
+because we'll put the full triple in front. So VAM whatever you like, ELF will match that.
+So if you go and say I want to configure for that target, what do I define? And there's
+a whole load of variables you can set to tell your target what goes in there. The thing
+is you don't really need to put anything because it'll know there'll be a, if my target's
+VAM you must have a VAM.C, a VAM.H, a VAM.CC, a VAM.H and a VAM.MD and maybe a VAM.Opt.
+I'm going to say actually I want one other because this is bare metal. I'm going to take
+the standard ELFOS file for bare metal operating system file and add it to that and that's
+the target machine list of files that make up that architecture. So that is all I need
+to do to make GCC to know that. And now I can say go and configure GCC and this, you'll
+see it's a bit like Dave did, but this time my target is going to be VAM-unknown-elf and
+it will configure for that. I'm going to do, I'm going to put it in pre, I'm going to,
+when we've finished it, it'll get loaded in, it'll get installed in OptVAM. We'll do it
+without headers just to keep it simple. We'll just do the C language and as Dave said earlier
+disable the bootstrap, just the stage one which is on a plain C compiler and there's
+loads more options there and we'll come back to that later. And then I can just say make
+all hyphen GCC and lots and lots happens and then it will complain and say ah, but I can't
+find VAM.MD, the machine description, okay? Because I didn't actually create a machine
+description. I just told it that was here's my machine. So we're going to have to do something
+about that. So let's start adding those files in. Let's start with the header file and so
+let's create our configuration directory. So we're going to the source directory, we're
+coming out of our build directory, going to the source directory, create a sub directory
+within GCC config for VAM for our architecture and I'm just going to create empty files,
+VAM.CC, VAM.H, VAM.MD and VAM.Opt. Come back into our build directory and make all GCC
+again, lots more happens and then I get an error message. It says ah, in somewhere deep
+inside the GCC world I haven't found a definition of first pseudo register and maybe you meant
+first virtual register. And that's actually one of the variables that I have to define
+in .h. So in .h there's a whole load of macros I've got to define that I will need for that.
+Okay, so here's an example, so in VAM.h we've got some things. You define target CPU but
+those are the built-ins I want to appear. You know that when you compile for a particular
+architecture in GCC there are some predefined macros there including one that tells you
+what your architecture is. So we want underscore VAM in capitals and lower case actually defined
+so if you're writing code you can put hash if def VAM, if def underscore VAM and put
+your VAM specific code there. And there's a couple of asserts there, I'll assert the
+CPU's VAM and the machine is VAM. Okay, where does it go, what goes in the header file?
+There's a whole section on this on the internals manual. You'll be here till 2057 if you try
+and put all of those in. Easy approach do what we all do is copy an existing architecture
+and hack it around for you. Open risk is a really good one. It's quite small and Stafford
+Horn knows what he's doing so it's a good starting point and it's what I used. Okay,
+and associated implementation codes in VAM.cc and it's things like data storage, data types,
+register model, the ABI implementation, all the constants that will define that. Okay,
+so here we are, here's my storage layout, you know all the number of bits that go in
+everything, what boundaries I'm aligning on, the sizes of all my data types, what the ABI
+looks like, so I've got a comment to say what it does and then I define the first pseudo
+register, so I've got a total of 33 real registers and then anything else would be a pseudo
+register and I'm not going to go into pseudo registers, because I've got my 32 real registers,
+general registers and I've got my status register. I don't have the program counter as a register
+because it's not actually exposed in my architecture, I have nowhere treating it as a real register,
+it's just something behind the scenes. And I've got names for all my registers and some
+of those have fixed purposes, so r0 is always tied to 0, r1 is the stack pointer, so I've
+got an array telling me which of those have got predefined uses and the last one is the
+status register, that's got a predefined use. And then what are good ways to allocate this,
+so when GCC needs to use a register, what's a good one to choose, so I don't actually
+end up choosing one, I have to then worry about restoring and everything. And so I can
+give that in a priority order of what order do I want you to allocate registers in. We
+talk about register classes, now this is very simple because we haven't got many registers,
+normally you would separate out your integer registers from your floating point registers
+and then you can tell GCC to do different things depending whether you're doing floating
+point or integer. In our case it's only an integer machine anyway, so we've just got
+general regs and we've got one class for the status register which is the flag regs. You
+always have a no regs class which is no registers and all regs class which is all registers
+and you define the last thing in that enum because it tells you the size of the enum
+is limit regs classes. And then from that we can define a macro called n regs classes
+and we can define the names of these which are just the text strings. And lastly then
+we say for each of those classes we're going to have to give you 33 bits to tell you for
+each of those classes which bits are there. So for the no regs none of them are set, for
+the general registers all the bits are except the 33rd bit and it's the bottom low bits on
+the left and the top low bits on the right and then the status register is register 33
+so it just has one bit set in the other bit there and then all regs has all the bits set.
+Okay and you've got a macro to tell you which regs, you've given a register number which
+register class are you in and there's loads more in there and you can read through it
+there and see what happens. So we say make all GCC and even more happens and then it
+complains that it can't see SP regnum. Now you think ah didn't I define a stat pointer,
+I did but I decided something else because the point is this is not SP regnum as known
+by a header, this is SP regnum from the machine description. Okay so some of these things are
+actually not defined in the header, they're defined in the machine description. So if
+we look how code generation works in GCC it's generic okay it's a pattern matching compiler,
+it looks for patterns and replaces them by new patterns. Okay so it's how it does code
+generation, it's actually also how it does optimization and what we have to do is give
+it all these pattern templates in order to be generated and that is what the machine description
+is and actually when we come to optimization replacing patterns by better patterns is what
+you do. So we heard from Dave the different types you've got generic then Gimple then RTL
+and we're really worrying about how you get down to the RTL level. Okay side note here GCC
+has its own name for type systems so they're everything from quarter inch to eight bits up
+to double inch and tetra inch and double float with and so they're known as QI or HI and so
+forth and you can have unsigned variance of those just when those will come all the way through
+so when you see those they just sizes of things. So how do you get Gimple to go down to RTL
+okay which you can then code generate from okay you we probably had a set of standard patterns
+okay and all you're going to do in the machine description is tell him given add QI 3 that's
+add quarter inch to three arguments two source arguments and destination and they're mostly
+three address code like that so add two quarter inch and so forth. There's a whole set of these
+to define you define all those okay and then GCC has all the patterns and it will generate code
+for your machine okay so quite a lot of these have to be defined but some of them don't need it
+you know you don't need atomic and vector patterns if you're not going to atomic if you haven't got
+atomic ops or if you're not a vector machine okay so I say when we build the compiler it's
+parsed and all that scheme description of these patterns will be turned into C which is then built
+it then compiled and put in your GCC compiler and there's a whole huge chapter on this in the
+internals manual machine descriptions but we will do the same thing is we will copy an existing
+machine description and hack it so I've this we will take OR1K again okay so let's have a look I want
+to just describe machine description I'm taking them these from risk5.md just because I want to show a
+lot of ideas here quickly and they're richer in in the risk5 one than in my simple one okay so at the
+heart of it is define instant define instant which is the semantics of a pattern this architecture
+supports the name can be anything but obviously we're worried about the predefined ones and add
+SI3 is one of them okay and that's how GCC can learn RTL using that name okay so the first thing
+you see is match op-rand that's telling you how to match the first op-rand and then the second
+op-rand and you see there's match op-rand size of it single integer number of that op-rand so we've
+got 0 1 and 2 and then a bit about what it is okay so register op-rand says I can be any register
+it's it's an allow or deny gating function okay and you can write your own predicates as well but
+the whole load of standard ones okay and then we have constraints on that now the constraint is not
+much here equals r comma r and that's saying I'm giving you two scenarios and they actually have both
+happened to be r in this case but we'll explain why that is so it can and the equals means I'm writing
+to it so I'm either writing to a register or I'm writing to a register okay now the reason that
+matters is these pairs go together so the second op-rand is a register a register the third opera
+the first opera and then op-rand 2 is register or I for immediate and you have to read those if you
+as though we're there in columns so we're looking at one scenario where first op-rand is a writable
+register and the other two operands are registers and we're looking at the second scenario where the
+destination is a register the first operands register but the second operand is an it's just so if you
+think of them in columns that's how to think of them okay and yeah so the next line which is just
+empty here that's often for a global predicate okay and that could be where you put one of your
+flags so you may have to find a predicate like is this soft multiplication in which case I can't
+generate a multiply okay and just empty means true just always do this and then the code generation
+template it's just a C fragment and in this case so you say if it's a 32 if it's a 64 bit
+architecture then generate the string add word blah blah blah if it's a 32 bit architecture then
+you it's just a generic add instruction okay and the percent elements there percent nor percent 1%
+to refer to operand nor operand 1 operand 2 okay and at the end you can add some attributes we're
+not going to worry about attributes in BAM attributes are useful because they're where tagging the
+instance and sometimes you can have code generation options and opera optimizations that can take
+advantage of them okay so let's look at what we did for BAM first of all you define some constants
+that's where sp reg none the numbers of the key registers is defined okay and then we've got a very
+simple instance it's called no op and it doesn't have anything to match really it's just constant
+zero and it generates the text string it generates for code generation is just not here's a more
+comfortable and add si 3 you've seen that bit before we've only got one sort of ad okay the first
+operand is destination register the second operand is a register and because VAM is a
+two-address machine okay so add a B means add a to B and put the result in B we actually have to
+say the destination you see I've constrained it to be zero that means it's got to be the same as
+opera and zero which is the destination okay and I've got the same for sub i and the template to
+generate the code okay so the standard names the standard MD patterns machine descriptions and
+output statements how you do the assembly language templates and you've got some useful files in
+there and I say the open-risk one is a good example that's pretty simple okay so what about the option
+file VAM.opt there's a whole spec on this and we're going to allow it to have hard division soft
+division hard mode whether or not you generate multiply and divide instructions and they have
+a fairly simple pattern of explaining what it is and a bit of descriptive text okay okay putting
+it all together so we do make all GCC and almost everything almost everything happens and away
+it goes and it blew up cannot stat 10 permit 10.cc you know I have no idea what this means it's in
+deep in the bowels it's journey mitt so what do we do about this I asked for help and so thank you
+to match a Rizzicky who came up and said there's a trick you can tell it to emit fewer partitions
+it might be a bug and so I tried with emitting five partitions and it all worked fine okay and
+actually I ended up with a GCC because X GCC is what the GCC within the build tree is called and
+it ran it and it ran itself test it said let's check if the compiler is any good and then I got an
+internal compiler error because I haven't actually finished doing my compiler so VAM.md is missing
+some patterns and it's essentially blown up because it couldn't work out how to find a pattern to get
+the code down there for one of the test cases but I do actually have a working compiler well I have a
+working compiler in the sense I've got a compiler I can run it will crash whenever it compiles things
+but that's actually that's actually quite an achievement so now I need to just debug it okay
+but I have actually got a GCC build so I'm Dave covered this how to dump stuff
+we are so you didn't know you just mentioned so you can dump all the different intermediate codes
+but what Dave did cover was the wrapper option and the wrapper option is your friend that's where
+you can go inside we've talked about the wrapper option and how it puts things here actually
+you can do the same sort of thing as you can do gdb args and then I just copied that error message I
+got with the internal compiler error and now I can run under there and I can run it and I can generate
+my internal compiler error under gdb but I now have the ability now to do to debug it okay
+self-test even better so there we are and this is why we work as a community
+because we are so make self-test type in gdb we'll do all this magic for you okay
+so there was a bit of smoke mirrors in there I created a minimal vam.cc guess what I copied it from
+there was a bug in vam.op.ul's I had to hand create that in the hack round that and that I think is a bug
+I had to create vam.com.cc and I'm not quite sure why I had to do that but everyone seems to do it
+except open risk and I had to make it and I just took the template one I used it I added
+vam to the documentation that's a good thing I also compiled with enable maintainer mode which
+is used to regenerate some files I'm not that was when I was trying to fix the url's problem
+I'm not sure I actually needed to do that okay but that's what I did to get there so what next
+and the reason this is rather rushed is it's part of our three-month graduate training course
+this stuff was put together by my colleague Max and Blinoff a few years ago it's a five-day part of
+the course um for eight hours a day with exercises and so I've compressed it into 25 minutes um but
+hopefully it gives you just a little bit of a touch on how you can get started and there's
+enough hooks in there that you'll get off the ground and if you get stuck ask for help we're a
+friendly bunch I have an ambition one day I'm going to create a full public tutorial on GCC
+that's probably my retirement project but in the meantime everything I've just shown you is on github
+thank you
+okay I've got I've got two minutes for questions
+yeah
+are there any ready-made um CPUs that are a bit weird like um big guitars that we can use and play
+around for fun yeah so the question is are there any ready-made ones there are loads I mean there
+are what 50 or 60 backends for GCC and some of them are really weird and some of them very normal
+I would look at open risk because it's relatively recently done it's well done it's quite small
+because great
+excellent so the comment was about working on power isa power power isa and adding the scalable
+vector um functionality into the back end please join in ask for help scalable vectors are the
+flavor of the month at the moment so you said that we have to add the architectural specific stuff
+in the machine description I was wondering if there is a minimum set of touring to complete that you
+say that you do the assignment the addition and this yes question for the audience then we start
+the question is yeah our time's up is what is the minimum set in the patterns I don't know but if
+someone could tell me I couldn't find that thank you thank you

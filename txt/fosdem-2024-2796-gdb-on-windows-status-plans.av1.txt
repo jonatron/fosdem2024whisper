@@ -1,0 +1,308 @@
+you
+you
+you
+you
+you
+should I start over? No.
+Hello, checking, sound check.
+Sorry everyone at home.
+Alright, so not asynchronous.
+So you move this to separate thread and then there's a way for one thread to communicate with the event.
+Something happened.
+We did this change in GDB more recently in GDB 13 before that the debugger really blocked.
+Like you continue the execution, you couldn't do anything else until the inferior stopped.
+So that was something that was upgraded in GDB 13.
+So now, skip the slides.
+So now in GDB 13, this is something that's more important to ID.
+That the ID you can press the continue button, the inferior is now executing.
+But the ID at the same time now can execute GDB commands like disassemble or install new breakpoints, search symbols, things like that.
+Now it can do that while inferior is running.
+Well, before it couldn't.
+The ID would have to stop the whole program and then do something.
+Going back, this other function, the counterpart of the waiting for an event is when you continue the event.
+You have this argument here, this parameter where as argument you can pass either one of these two macros.
+And this is basically, you know, like in GDB, when you get a signal and then you can decide to pass the signal to the inferior or not.
+You can suppress it or pass it.
+So when you pass it, it calls the signal handler in the inferior.
+There's something like that on Windows.
+Not that important, but it's similar enough.
+But they call it exceptions, not signals.
+And this function here, you decide whether to suppress the exception or not.
+Will the inferior continue processing the exception or will it be suppressed?
+And it's important to know that you do this decision when you call this function.
+I mentioned this already.
+All right, keep that in mind.
+So this is very basically how the debugger internally works.
+All stop mode is default mode in GDB, how everyone knows how it works.
+So here we have five threads.
+This is time, time period one.
+Everything is running, runnable.
+And then T3 is about to hit an exception.
+So it hits an exception and you're calling wait for debug event.
+It returns saying an event happens and the kernel freezes everything in the process.
+All threads, the elements, they're frozen.
+And this one got an exception.
+At this point, the user is now inspecting the program, debugging the actual bug,
+reading memory, backtracing, blah, blah.
+And finally, they decide to resume execution.
+And then that's when GDB calls this continued bug event
+and then passes that decision of whether to suppress exception or not.
+So it's late, it's here.
+And then all threads go back to being runnable again.
+That is if you want everything to be running or stop and then everything running again.
+There are times where you'll want to only resume one thread
+and leave everything else suspended, frozen.
+Internally, GDB needs to do this, like to step over breakpoints.
+But the user may also want to focus on a particular thread leaving every other frozen.
+And we do that, the user interface is to enable the setting.
+This doesn't work currently upstream, even though internally everything works
+because GDB needs to know how to step over a breakpoint.
+But it's never been exposed to the user.
+Nobody wired up this to the back end.
+So I did a little change in my work and it actually works.
+So it's the same as before, the exception triggers, user inspects the program
+and then decides to resume T1 instead of T3.
+And GDB suspends everything else
+and then calls continue debug event for T3,
+because that's where the event came from.
+And now T1 is runnable.
+But what if you want to do the converse, which is instead of running one
+and stopping everything else, you want to stop one but leave everything else running.
+That's what's called the non-stop mode.
+And this is what I wanted to make possible in Windows.
+Because this is supported on Linux since 2008.
+I know because I worked on that.
+So a long time by now and also supported on remote targets,
+meaning GDB server for Linux, but also some other embedded systems out there.
+They support this mode as well.
+But native Windows debugging does not support this.
+So non-stop mode means only the event, the breakpoint, reports to stop to the user
+and everything else continues running.
+This is interesting, again, mostly for IDE's.
+You can imagine a big list of threads and then only one of them reports an event.
+But it's also interesting because maybe one of the threads is important to keep running
+because maybe it's a watchdog or something that needs to ping a server
+and if it stops pinging, the program doesn't work.
+There's something on the other end that needs to see this
+while you inspect some kind of debugging triggered by some thread.
+And the reason I thought all over these years that Windows wouldn't work for this
+is that, well, we have this problem.
+Wait for the bug event, that magic function reference in the event,
+suspends everything already.
+The kernel already does this.
+There's no way to tell the kernel to not suspend every thread except the one that got the event.
+And we want to leave them running.
+So naively, I thought maybe just immediately suspend,
+block, freeze the thread that you care about, and call continuity bug event, right?
+But you can't because this is too early.
+We just got the event.
+The user hasn't yet decided whether to pass or not.
+The exception.
+That only happens after.
+And I was looking up this past year,
+and I noticed on the Microsoft website describing these APIs
+that they introduced a new flag to continue debugging events.
+And I read this and I was like, really?
+It's like they wrote this just for me.
+Hey, they're awesome.
+Well, it's not the ideal thing that I would like.
+I would like to have a way that the kernel doesn't freeze everything.
+Still freezes everything.
+But what they do is, if you pass this flag,
+what you're saying is, I got the event.
+Okay, cool.
+But I don't want to handle it right now.
+So, but I call continue.
+And I'm asking the kernel report the event again as soon as the thread becomes runnable.
+So what I do is, I call suspend thread on a thread that got the event.
+So it's no longer runnable.
+I call this continue the debug event function saying,
+get me back the same event again once I become, make the thread runnable.
+That's what he's saying here.
+Well, in other words.
+How does this actually work in practice using the same diagram as I showed before?
+I'll prototype this quickly with a hack and it worked.
+Amazing.
+Now I just need to make it clean.
+And of course that's, oh, sorry.
+So, some years before everything is runnable.
+T3 is about to raise an exception.
+It raises an exception.
+The kernel freezes everything.
+There's nothing I can do to control this.
+And then I freeze the thread that got an event.
+And then I call this function with this new magic macro.
+And then GDB remembers that T3 will get a repeated event later.
+Now users is inspecting the thread, but everything else is running now.
+Right?
+So the kernel paused all the threads, but I immediately told the kernel,
+we resume everything else.
+So there will be a small freeze.
+There will be increased jitter caused by the debugger.
+But most of the time whole threads will be running.
+And then later the user decides to re-resume T3
+and the debugger just calls, you know, resume thread,
+unfreeze the thread.
+And remember, now the kernel, because the thread is now runnable,
+is going to re-report the event.
+And because we recorded it earlier that we will get a new repeated event,
+the debugger knows, okay, it's a repeated event.
+Now I need, I know I need to call continue debug event
+with the proper flag saying suppressed event or not,
+the exception or not.
+Yeah.
+And a colleague of mine wondered, does this work
+when multiple threads hit the breakpoint before you decide to resume?
+Yes, it does work.
+You know, same thing as before.
+And here you are looking at this thread and this one raises an exception.
+Everything works.
+You can look at this offline if you want to.
+Yeah, there's a lot more to this.
+That's when I, okay, the hacky version works now.
+I need to make it clean.
+And that, you know, I stumble a lot of things that I don't have time to go over right now.
+I'm going to touch a little bit on the test suite.
+How much time do I have, Dodgy?
+Three minutes.
+Plus five.
+Yeah, okay.
+All right, so I put this in the abstract.
+The reason is when I talk about the test suite,
+I need to make this distinction.
+And when I say GDB on Windows, there are actually two ports for Windows.
+There's GDB Compiled as a SIGWIN program.
+And there's GDB Compiled with the mean GW tool chain,
+which means it's a native Windows program.
+SIGWIN, for those who don't know, it's like,
+gives you a POSIX environment.
+It's a collection of tools, but it's also a runtime,
+a DLL that every tool is linked with.
+And this runtime provides you POSIX things like signals, PDYs,
+and a bunch of stuff.
+The C runtime that's used is not the one that comes with Windows normally.
+It's based on NewLib.
+Try to be as close as a Linux environment is
+so that you can recompile your application,
+a Linux application with minimal changes, quote, unquote.
+It works.
+So it's not an emulator. You have to recompile your program.
+Right. So the core of GDB has two ports,
+like the event loop, for example, is based on select slash pull
+for most Unix machines, ports.
+And SIGWIN is one of those.
+But the native version of GDB for Windows,
+based on mean GW, has a separate event loop
+based on this wait for multiple objects function,
+which is the Microsoft version of select.
+Right. But the backend, the code that talks with the debug API,
+those functions I mentioned for it, it's shared between both ports.
+It's the same code except for SIGWIN,
+there's extra magic to make some of SIGWIN-specific things work.
+And this is where I get to the test suite,
+because part of making this work and upstreamable,
+and I would get to a point where I was, you know,
+sure that I wasn't breaking things,
+because this isn't making this work involved,
+I'm revamping the backend very substantially.
+So I want to make sure that I wasn't breaking things.
+So run the test suite, right?
+Except running the test suite on Windows is a major pain in the...
+The test suite is...
+GDB test suite is built on Dezhek Nu.
+Dezhek Nu is an infrastructure built on expect,
+and expect itself is built on TECL,
+which is a programming language.
+And Dezhek Nu assumes a Unix-like environment,
+which you don't have on Windows normally.
+You know, assumes POSIX shells and utilities,
+kill, CPE, VOO, and there is no native expect part.
+There was a company active state that had something like that,
+but they killed that project some years ago.
+So you have to use something that's Unix-like to run Dezhek Nu.
+If you test GDB on a segment environment,
+you just run MakeCheck, it does work.
+It's super slow, not stable, but it does work.
+But if you want to make native Windows GDB, you test that,
+it's not the same thing, it's a proxy, but it's not the same thing.
+Remember, I said that the core of GDB is different code paths.
+So I would want to be able to test this guy as well,
+I mean GWGDB.
+So how about we run the test suite, Dezhek Nu under SIGWIN,
+but make it spawn the Windows GDB?
+Yeah, that's a potential idea.
+But the problem is, it's a SIGWIN expect,
+it's spawning a Windows process,
+and the input and output is going to be connected to a PTY
+from the SIGWIN side, but what the Windows GDB sees is just a pipe.
+And when GDB is connected to a pipe,
+because that's how SIGWIN PTYs work under the hood, it's a pipe,
+GDB is connected to a pipe, it's not what's called an is at PTY,
+so it disables everything that's interactive,
+so in the test suite, it completely falls down.
+And something else is that the test, the Dezhek Nu,
+because it is expecting that the inferior is being run under PTY,
+so there will be terminal mode controls, time's up.
+But I have the five?
+Because...
+I'll tell you, if you want one minute, you can do it.
+I'll give you one minute.
+I'm almost over, just 30 more slides, no, just one more.
+Right, so there are some ideas to get this working,
+there's also path mapping issues,
+because what they expect sees path-wise,
+slash, C drive, slash, X, it's not the same as GDB.
+C is because it's a native program, so it sees X, colon.
+And another problem is that the GDB test suite,
+when it wants to test multi-threaded things,
+the tests are all written with P-threads,
+which is not something native to Windows,
+even though mean GWW-W64 does have the WinP-threads library,
+so maybe we could use that.
+I have some ideas to try to make this work,
+but I haven't had the time to actually experiment much with this.
+I tried other things that I thought would be interesting,
+but they didn't work.
+The test suite, compiling on, yeah.
+Right, so about compilation, just if anyone here is motivated
+by this talk and wants to help.
+Compiling GDB on Sigwin is super slow,
+so the way that I got around it is to cross-compile,
+and yeah, some things here you can do.
+And then I can cross-compile to Sigwin,
+but to run the test suite, I need to run it inside Windows,
+that's, I can't avoid that.
+But I can point GDB, the test suite inside Windows,
+pointed to the built GDB that I've built on, sorry, on Linux.
+Whoo!
+All right, so maybe I should skip, yeah.
+So test suite, bad, need to fix a lot of things, that's the thing.
+GDB, it's the native, yeah, this is the thing that's for the future.
+Make it possible for GDB to debug programs
+compiled with Visual Studio.
+That is something that is missing,
+it's making people not use GDB on Windows,
+and I would prefer people not to think about using other tools,
+you know, staying on the lane.
+So at some point I would like to work on this,
+but, you know, no time for that.
+Just leave it on the screen if people have questions
+like maybe one question?
+Nothing.
+All right.
+Thank you.
+So.
+Okay, actually there is one minute left.
+Is there one quick question?
+Yeah.
+Okay, so here's my question.
+Oh no.
+Have you tried using Python to run the test suite?
+I have.
+GDB executes and stuff.
+I, that would be writing a new test suite.
+Yeah, that's right.
+I know there's actually some people that do that, some companies,
+but I wanted to find a way that it can run the existing tests
+before giving up completely.
+Okay.

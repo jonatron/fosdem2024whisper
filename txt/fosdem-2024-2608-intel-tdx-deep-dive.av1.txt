@@ -1,0 +1,347 @@
+Perfect, I guess then let's start right a bit earlier, but then leaves potentially a
+few times for questions.
+Hi, my name is Benifuri.
+I work at the Confidential Computing Enabling Team at Intel.
+My main job is to, I can try, but I notice when I said there that it's not really loud,
+the speaker is not loud there.
+Okay, speak closer to the microphone, I will try.
+So yes, Intel Confidential Computing Enabling, right, we work together with academics, companies,
+partners, whoever wants to use our technology, we help them to do that, right, that's my
+job.
+Today, I will talk about Intel TDX, and I will, it's called Deep Dive, but I will start
+with an overview and then go deep in a few slides, right.
+So overview first, I don't want to speak too much about that, right, it was just done in
+the talk we just had.
+Without confidential computing, or if you don't use any protection mechanism, everything
+is in what we call the trust boundary, right, everything can access your confidential data.
+With our first technology, Intel S-Chicks was just mentioned, right, only the application
+with Intel TDX, the topic of today, a virtual machine is protected, right, everything of
+that was just mentioned, just want to mention it again, because like we have the options,
+right, use whatever you want.
+In general, you could say Intel S-Chicks is the more secure technology, Intel TDX the
+more usable technology, right, but that's up for debate if you want.
+Yeah, today we will concentrate on Intel TDX only.
+Here, you see an overview, like this is what a regular system looks like, right, we have
+the platform with cores, caches and so on, the memory and a regular hypervisor, a virtual
+machine monitor here.
+And with normal VMs, this hypervisor starts the virtual machines, right, and it is also,
+this hypervisor isolates the virtual machines from each other and isolates the virtual machines
+from the hypervisor itself.
+In the main memory, everything is plain text, right, so, which means that every person and
+every program with the necessary privileges can access the data, right, it's plain text.
+This is different with Intel TDX.
+With Intel TDX, we introduce what we call the Intel TDX module.
+The hypervisor has to be adjusted as well, it's now says here it's TDX enlightened, because
+the hypervisor is still responsible for resource management and hypervisor now needs to, instead
+of starting the virtual machines itself, it has to go to the TDX module and say here,
+please start your TDX protected virtual machines for me.
+And this is what the TDX module does, right, it starts to protect the virtual machines,
+which we call trust domains, right.
+Intel TDX stands for Intel Trust Domain Extensions, Intel TDX Protected Virtual Machines, we call
+them trust domains.
+Inside those trust domains or TDs, the guest OS running there has to be enlightened as well,
+right, it has to be at least to have some changes, because it has to handle now accesses
+to private memory and shared memory, it has to handle that, it also has to handle exceptions
+and it has to block certain calls that were possible before.
+Yes, the application inside the TD do not have to be adjusted, that's the main advantage
+of Intel TDX or comparable technologies.
+The main memory belonging to the TD is encrypted with an ephemeral key that is dedicated and
+hardware managed, right, as you see on the slide, it says encrypted with key one and
+key two, because every trust domain is encrypted with a different key.
+Inside the CPU, the data belonging to the TD is plain text, right, that's what confidential
+computing does, inside the CPU, data is plain text, but the CPU takes care that only the
+trust domain to which the data belongs has access to the data.
+Combining the main memory encryption and access control, Intel TDX enforces the isolation
+of the different TDs by using the Intel TDX module, on top of that, attestation proves
+that this is the case, right, what we will talk about attestation a bit later.
+This slide is about the Intel TDX enabling in Linux, it contains a lot of details, I
+don't want to go into every detail, I only want to highlight three things.
+First via VM isolation requires to enable a lot of parts of the software and Intel has
+done that, right, we have put the work in and basically everything is open source, right,
+and this is the, basically everything is open source, and even the ones in gray, they are
+only gray because they are a reference implementation, but also open source.
+And most of the pieces are already upstreamed, but not everything, right, that's the current
+situation of Intel TDX, but this will change soon, hopefully.
+One last slide of the overview is the availability of Intel TDX.
+Intel TDX was introduced at the beginning of 2023 with the fourth generation of Intel Xeon
+Scalables, but back then, only at four leading cloud service providers you see on the right.
+Everybody else buying these CPUs did not have Intel TDX enabled.
+Previous at that cloud service providers started already in Q1 2023, and general ability is
+supposed to be soon this year.
+Intel TDX became generally available with the fifth generation of Xeon Scalables, which
+was introduced at the end of last year in December, meaning if you now go to your favorite
+hardware vendor, you should be able to get such CPUs or at least soon.
+Good.
+Now to selected technical details of the technology.
+First, the CPU state is kept confidential by managing it in CPU protected memory, and
+that's the responsibility of the TDX module.
+For example, on a TDX exit, the CPU state is saved by the TDX module in a protected
+memory region, and this memory region is encrypted.
+And all memory confidentiality and integrity that's provided by Intel TDX is provided by
+what we call the TME IM key engine, the total memory encryption, integrity, multi key engine.
+And this is used to encrypt all the main memory belonging to a TD to prevent untrusted software
+or from observing the TD's memory.
+It uses AX XTS 128 bit, and each memory as mentioned before has its own keys.
+The memory integrity feature detects TD private memory corruption by software and direct
+memory access.
+The TDX module is responsible for managing all the keys, but to encrypt the different
+keys.
+But the TDX module itself still does not have access to the keys.
+This is done by the TME IMK hardware that manages the keys, and the TDX module only references
+key IDs.
+No access at any point to the keys that are actually used for the main memory encryption,
+not by any piece of software.
+I will skip remote attestation for now, because I will explain details later.
+But a bit about IO compatibility.
+By default, no direct connection to external devices is possible, because those external
+devices are untrusted.
+SQIO can be emulated by software, but this has performance overhead.
+At the end of the talk, I will talk a bit more about these aspects and how the situation
+should be changed or migrated in the future.
+With Intel TDX, performance monitoring and debug facilities run inside TTD.
+This is a difference compared to Intel SGX, because this means you can debug your application
+handling sensitive data.
+Because even during debugging, you are protected, you are inside the trust domain.
+Sure, the person that does the debugging now has access, but still the infrastructure
+provider doesn't see it.
+One final aspect here, the page table management happens inside the trust domain now to address
+remapping attacks.
+This was also different with SGX.
+It was responsibility of the operating system, which was untrusted.
+A few more details about the TDX module and what we call the secure arbitration mode.
+The TDX module is provided by Intel and the code is open source.
+Since only two weeks ago or something, it's on GitHub now.
+The seam loader verifies the signature of the Intel TDX module when the system boots and
+loads it into a special memory region, which we call the seam RR.
+Only software in the seam RR itself are able to access other memory in the seam RR.
+In fact, hindering everything but the TDX module from doing anything.
+All other software access and DMA access to this memory is completely blocked.
+The confidentiality and integrity of the seam RR is again protected with AES, XTS,
+128 bit.
+The Intel TDX module runs in what we call the secure arbitration mode or seam for short.
+To be more precise in the seam VMX route mode.
+The ISA was extended with introduction of Intel TDX.
+The ISA was extended by four instructions to enable the communication between the host,
+the hypervisor and the hardware.
+These four instructions are seam calls for interactions between the hypervisor and the
+TDX module.
+So, start the TD, stop the TD, things like that.
+Seam read to return the execution control back to the hypervisor.
+TD call from a call from the TD to the TDX module and seam ops for calls from the TDX
+module to the hardware.
+Certain security critical ISA instructions are denied in seam to provide the protection
+guarantees we want.
+Now to TDX remote attestation.
+The TDX remote attestation, you all know that, you all have heard of that in SGX or in other
+technologies, uses quotes.
+Quotes are created by hardware and the quotes are used to prove something.
+In this case, the TD can prove four different attributes, at least four attributes with this
+quote.
+The booted image is exactly as expected.
+During the loading of the image, it's measured, so it's hashed and this hash is stored in
+what we call the MRTD.
+This is part of the quote.
+Second, measurements created or extended during runtime.
+Intel TDX has what we call runtime measurement registers or RTMRs and they can be extended
+at runtime.
+It's not done automatically, it's a can.
+It's a subtle topic, if you're more interested in that, but that's what we have.
+Number three, the TD is executed on an Intel TDX enabled platform.
+It's obvious that that's important, so nobody should just be able to simulate that it's
+an Intel TDX hardware.
+Number four, the Intel TDX platform is fully patched.
+As you also know, I assume in the past, there were problems with the different technologies,
+loading Intel SX, but then we provide a patch and we have the ability to prove at what patch
+level your platform is.
+Then it's as it says here in the next line, whoever is dessert or a lying party can look
+at the quote and then decide if it trusts the TD or not.
+Some might decide even an older patch level is fine, some say only the newest one is fine,
+some say MRTDs has to be a certain aspect, RTMRs have to be or don't have to be used,
+all that's possible.
+A bit more about the process of remote attestation, which should look very, very familiar to people
+that have seen the SGX remote attestation.
+It all starts with a relying party triggering the trust domain of here, please prove to
+me the things I just mentioned.
+The TD will reach out to the TDX module and the TDX module will reach out to the hardware.
+The hardware will then generate what we call a TD report and this report contains the measurement
+I mentioned before, but it also has for example the security version number of the TDX module,
+the measurement of the TDX module and the measurements of the TD and all other aspects
+that are in the trusted computing base and it's signed by the hardware at this point.
+The TD report then is routed back to the TD, back to the hypervisor and then to what
+we call the TD quoting enclave.
+And as the name enclave already suggests, it's an Intel SGX enclave, right?
+So we use Intel SGX for remote attestation of TDX.
+The TD quoting enclave checks if the report was signed at the same platform and if that's
+the case, it will sign it with the attestation key.
+I will come, what this means in a second and why this matters.
+But then now we have a TD quote that's signed by the attestation key and this TD quote is
+passed back to the relying party who can do quote verification now.
+But the important question is what just happened, right?
+The TD quote was signed with an attestation key, what does it mean, why should we trust
+that, right?
+And a key piece I skipped before is that the TD quoting enclave has randomly generated
+the attestation key before the process even starts, right?
+Without Intel being involved at all, this happens on the platform.
+But that still doesn't help much.
+But what also happens on start, the so-called provisioning certification enclave that's
+also provided by Intel will do local attestation with the TD quoting enclave.
+It will see, yes, okay, we run both on the same machine.
+It's a TD quoting enclave that I expect.
+And it just provided me an attestation key.
+And then it will use the provisioning certification key to sign a certificate.
+So then we have, as is you on the right side, an attestation key certificate that's signed
+by the PCK key.
+But again, why does this matter, right?
+The important piece now is Intel is able to create PCK certificates that are then rooted
+in an Intel CA.
+And this ends the trust chain, right?
+So the attestation key generated on hardware, but it links back to an Intel CA.
+And during quote verification, whoever does it, wherever this is done, can reach out to
+what we call the provisioning certification service to get all the collateral that's needed
+to check this chain.
+That's the process of remote attestation.
+And as said before, Intel TDX attestation uses Intel SGX.
+All the sets of collateral we had before, PCK certificate, distribution, caching services,
+they supported Intel SGX in the Pado in the past only.
+Now they support both.
+And it also, this also means that as it's required to enable SGX on the machine when
+you want to use TDX.
+Just quickly, a few words about how you can do the verification, right?
+There are basically four options.
+You can use a service by the cloud service provider.
+You can use a service by the vendor of your application.
+You can use potentially the Intel trust authority like an independent software as a service
+offering by Intel to do the verification for you, to alleviate the process.
+Or you can build it your own with the open source Intel libraries we provide.
+A few pieces of differentiation between the services, if you want to have a separation
+of responsibility between the infrastructure provider and the verification party, then
+you should not use the cloud service provider, obviously.
+But in all the other cases, it's fine.
+If you want to have consistency, if you want to support SGX and TDX, then it's up to the
+cloud service provider and the application provider if they supported our variance, definitely
+supported.
+If you want to have consistencies across your applications, across the environment you have
+on-prem hybrid, whatever, then obviously cloud service providers cannot be used, the application
+vendor potentially, and the others will do it.
+From a development perspective, it's low in the first three cases and I would say medium
+in the last case.
+So quickly, very quickly, two upcoming features of Intel TDXO that we have at least a little
+bit time for Q&A.
+First TD migration.
+TD migration will allow to live migrate one TD from one platform to another.
+It uses a service TD called the migration TD to do that.
+All the data is obviously encrypted.
+Just skipping a few details now, everything is encrypted.
+Everything will go over step by step, a short break.
+One TD on the left side goes down, the one on the right side goes up, which guarantees
+that a TD lives only once at a time.
+You should not have two different TDs with the same content.
+And one last feature, Intel TDX Connect.
+I mentioned that before.
+So it's a bit problematic at the moment to connect trust domains with a device.
+It is possible, but what's needed at the moment is the trust domain, like everything
+in the private memory of the trust domain is encrypted.
+But it can't directly, so it can write to shared memory, right?
+That's what it can, but it can't, no.
+It can't directly write to device.
+What it only can do is put data on a shared memory and the device can take the data from
+a shared memory, right?
+What we call a bounce buffer.
+So this is a bit slow.
+Still, it can be done securely, right?
+If a secure session key is established between device and trust domain, the data can be encrypted,
+put there, read in the device, and it's encrypted.
+So even today, this solution is there.
+Like you can connect an Intel TDX trust domain to an NVIDIA GPU with their confidential computing
+technology, have it end to end secure.
+That's possible.
+But it's a bit slow, or it has a bit of overhead because of this bounce buffer stuff.
+And this will change when Intel TDX comes along.
+Because with Intel TDX Connect, the idea is that a trusted device is put in, let's say,
+the trust zone of a trust domain.
+They're able to write into each other's memory directly after they trust each other, which
+will make the whole thing more efficient and has low overhead.
+This is just nothing I mentioned today is any secret, right?
+All of that is open here on this page.
+We have documentations.
+Knock yourself out.
+It's like thousands of pages you can read in the PDFs to get all the details you want.
+If not, feel free to reach out to me at any point after this talk, at any point later.
+If you have interest in, for example, bare metal access to machine, I'm also your guy
+for whatever experiments at the University as an organization, whatever, right?
+Because at the Cloud Service providers, you normally don't get that, right?
+You get a trust domain.
+That's it.
+Might be enough in many cases, but not in all.
+So reach out to me and thank you for your attention.
+Can we repeat the questions?
+Yeah, so, yeah?
+I have to repeat the question.
+The question was, is it possible, or I rephrase, correct me if I'm doing a bad job there.
+You said, it's possible to run a legacy application in a trust domain.
+Yeah, that's what you said.
+The question is, how is the integrity of such classes being maintained considering the fact
+that this application is legacy doesn't?
+Okay, yeah.
+So the question was, again, in my words, how is the process then, how is this protected
+because the application wasn't written, right, for this environment?
+And the answer is, it depends, right?
+Meaning you have an in-memory only application, then you don't have to do anything, right?
+Because the main memory is encrypted and you're done.
+As soon as your application writes to disk, it's a different story, right?
+Because if you write to disk plain text data, then it's plain text and everybody will see
+it.
+One thing you can do is you can either your application encrypts data before, then it
+is a change to the application, right?
+Or another variant is you activate, for example, full disk encryption in your operating system.
+Then you have to manage the key, right?
+That's another question then, but that's what you can do.
+And exactly the same for network connections, right?
+If you, again, send plain text data out, yeah, plain text data is out.
+But if you use TLS, you can do it, you just put your TLS endpoint in the trust domain
+now and you're good.
+Yeah?
+Thank you for a very nice talk.
+So I had a question about the state software support.
+Thank you very much.
+So I had a question related to the sort of status on the software support on the guest
+side, right?
+So with some of these comparable technologies today, you still need kind of some components
+in the middle on the guest side, like basically like firmware inside the guest or like Paraviser
+functionality that hides some of this communication between the underlying layer.
+So how is it with TDX today?
+Can you take like a stock Linux kernel and run this?
+So you still need some components there which are not yet fully open source?
+So at the moment, as I said, briefly before not everything is upstreamed, right?
+So it's, I guess, like the basic enabling should be there middle of the year.
+So at the moment, it's not there fully.
+But what we have is what we call a TDX early preview.
+So we collaborate with three operate distribution vendors to provide specific distribution versions.
+And that's canonical, Red Hat and SUSE.
+And we have all this is online.
+You just go to GitHub and it's, I just did it yesterday night, right?
+It's really like you start up a Buntu 2310, for example, you clone their repository,
+click install, done.
+You go to the buyers and activate TDX.
+Then there have another script to create a guest image.
+I don't just take them like 15 minutes to create, but just of download and all of that
+stuff.
+You start your trust domain and you're done.
+So that's pretty easy already.
+Yeah, thank you for the talk.
+I have kind of an obvious question.
+Is there a latency cost within one trusted domain from memory access given that it's encrypted
+and so on?
+So performance you mean, right?
+Okay.
+Yes, obviously it has to be, right?
+Infection can't be for free.
+But how high the overhead is highly depends on your workload.
+If it's a processor only workload, it's basically free.
+I don't have concrete numbers, but let's say one, two percent, right?
+So really, really low.
+If it's really disk IO sensitive, it's a different question, right?
+Because of this balance buffer and all of that stuff.
+Again, don't nail me on it, but let's say like it might go to 10% or even more, right?
+It's really, really dependent on your workload.
+I guess I have to stop now, but you can just come to me later, right?

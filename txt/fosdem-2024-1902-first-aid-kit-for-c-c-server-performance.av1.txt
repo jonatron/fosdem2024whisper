@@ -1,0 +1,787 @@
+And today I will show you some of the most common performance issues which I have seen
+so far in my career, how to fix them, and the benchmarks which show the numbers, what
+kind of performance increase which you can get when you fix the stuff.
+It works.
+My talk will follow the plan on the slide.
+So I will first present you some issue categories where you typically lose most of the performance,
+at least in my experience, like I said.
+And then for each category we will go through specific topics, what you can optimize how
+and what kind of numbers you can get when you optimize.
+And then some sort of conclusions of the topics on the slide, we just go for them one by one.
+The QR code right now is not working, it will be working after the talk.
+Everything will be online clickable, you can just walk through it again to repeat the recipes
+if you need.
+So back end performance at least in my area of work, back end usually means one of those
+three things, latency of your requests, CPU and memory usage on your machine, and your
+throughput, which is how many requests you can process third time frame, which is usually
+expressed as per second.
+So request per second, RPS, and we want to improve this stuff.
+And also there are those bad places where you can lose performance in those three categories,
+which are inefficient suboptimal heap usage, unnecessary expensive threat content should
+be done on critical paths and inefficient networking, like inefficient networking IO or inefficient
+circuit scheduling and things around this stuff.
+And like I said, we just go through each and see specific cases.
+Starting with the heap, to understand what can you lose here, you have to understand
+how heap is working.
+It's just enough to understand basics, you don't need to know specific implementations.
+But the basics are that this heap thing, it's a data structure, like some sort of tree,
+has stable whatever, it's global in your process, and it is used by all the trends.
+When you call new or malloc, they go into the heap and fetch three block of specified
+size, return it to you and you use it.
+When you call free or delete, they are placed back into the queue.
+And this operation of finding free block in the queue of needed size or placing free
+block back into the queue, it takes time.
+So this lookup thing in the heap, it's not free and it's not constant time.
+It's some lookup time, which depends on how big the heap is, for example.
+So if we mentioned that this is a tree, which stores blocks sorted by size, then lookup
+time will be something logarithmic or something like, doesn't have to be tree.
+But the point is the bigger the queue, the bigger the heap, the more expensive are the
+lookups in the heap.
+Also like I said, this is a global thing in the process, usually by default, which means
+that you will get threat contention on this thing if you use it extensively.
+For example, multiple charts are located in blocks of the same size, but very frequently
+you will have threat contention.
+Heap does have mutixes inside and you can even see them sometimes in the flame graphs.
+So make it worse if you are writing in C++ and you're happily using those nice fancy
+containers, least vector queue stack unordered containers.
+No, forward least, all this nice easy to use stuff, you have to realize that even if you
+don't use heap explicitly, it is used inside those containers.
+Heap is basically, vector is basically dynamic array, myp is basically a red-black tree where
+nodes are allocated, least allocates, containers for every item of the distance are on.
+So you use the heap even if you don't do it explicitly to make it even worse after that.
+You have to remember that allocations affect each other.
+Like I said, the more allocations you do, the slower it will be next to allocations and
+freeings.
+Use heap becomes bigger, it becomes more fragmented, less optimal and it gets more and more expensive
+to use.
+What can we do about this stuff?
+Firstly, you can try not to use this stuff.
+You can just not use the heap when you don't need to.
+For example, when you can just locate stuff on the stack, when something, some object
+is array, it's small enough and its size is known at compile time, just declare it on
+the stack and use it.
+If it doesn't have to be something long-leaving.
+Or another frequent use case which I see is then when we have a class or struct and we
+store in there something by pointer and lifetime of this object is equal to the class where
+it's stored, right?
+And they just store it by value then.
+You will reduce number of heap allocations then.
+When you cannot get rid of the heap allocation and you have it in some critical path which
+is very frequently used on your server and you see it in the flying graphs, you can still
+do something about it, you can optimize it.
+And there are ways, some easy ways how you can quickly regain some performance back.
+We will start with the object pooling thing which is not as simple as it sounds.
+Typical very widespread use case in the back end.
+We have this server, requests are coming to the server.
+Each request is read from the network parsed allocated into something like struct request
+or class request.
+It can be big, one kilobyte, five kilobytes of different data, different members, attributes,
+then you place it into your business logic pipeline.
+It is processed in the end, it is deleted.
+And this process is repeated again and again for every request.
+And if the request is big enough, like one kilobyte, and you do it frequently enough,
+like 100,000 times per second or million times per second, then you will get heap issues
+here because this heap allocation and freeing will get expensive of such a big object like
+one kilobyte or more.
+And you can see it in your flying graphs sometimes if you are building them at all.
+Example of the code.
+So we have this class request with many members.
+Some of them can be indirect members.
+For example, we could inherit this from base request, which is base, base request and something
+like and it can pile up.
+So in my current project, the size of this thing is two kilobytes from those many, many,
+many small members.
+And then we have this business logic pipeline, like process request and it allocates request
+object, fills this with data and when request is complete, asynchronously somewhere it is
+deleted.
+This thing, those two lines will get expensive.
+If done frequently enough and request is big enough.
+Effects of the heap here can be mitigated quite easily.
+If instead of using the heap all the time for allocating and freeing stuff, we will just
+allocate it once and then we will reuse it again and again.
+So we use the heap just once and then we don't use it.
+And we avoid the heap issues.
+This is called object pooling.
+When you allocate stuff once, store it in some sort of pool and then you take it from the
+pool and place it back by placing the heap.
+Even though first time you do allocate it on the heap.
+Then what you get from this is that firstly you do not pay for the lookup time in the
+heap.
+If you remember that the heap is storing those blocks of different sizes, sort it somehow
+then it needs to be something like 3 or hash or whatever.
+But here all the objects are the same of the same size.
+It can be just least or stack, right?
+It could be done in constant time, allocation and freeing.
+We do not pay for lookup time anymore.
+You can deal with concurrency in a more efficient way than the standard library.
+I mean you can switch of course the heap from like GMLOCK or TCMLOCK, right?
+We heard about it.
+It can make stuff actually faster.
+But if you do not want to or you have to have more control in your code over those things
+and you have this pooling thing, you can implement concurrency yourself and you have to agree
+that doing concurrency stack or concurrent list is obviously much simpler than doing
+concurrent tree or concurrent hash table or something, right?
+It can be done much simpler.
+Let's try.
+This is how I tried first time.
+It's good first try, right?
+Kind of.
+It's simple.
+That's why it's good.
+Sometimes it's even good enough, right?
+So we don't need over engineer things.
+But in this case it makes not much sense because if your code is very hot and you suffer from
+heap contention and you change it to this, then it will get even worse because you will
+exchange heap contention with mutics contention.
+And secondly, you are still using the heap because if you are storing in an STL container,
+any of them, you will be using heap and we don't want to use the heap.
+So it cannot be done this way.
+But it can be improved.
+It's not a dead end, right?
+This is how it can be improved.
+And the alternative is to add local pooling.
+So what we have is instead of single global pool for everything, we have one global pool
+and also in each thread we have thread local pool of limited size in each thread in addition
+to the global pool.
+When threads are locating something with new or maloc or whatever, they take objects from
+the local pool, not from the global one.
+And when they free objects, they place it back into the local pool.
+And this local pool can be done very, very simply.
+It can be just a list, an intrusive list and that's it.
+It doesn't need mute access or anything because each of those local pools is used exclusively
+by one thread.
+But when pool inside some threads becomes empty and they want to allocate more, they will
+take a batch of objects from the global storage and will reuse this batch until it also ends
+and so on.
+On the other side, when they will be freeing stuff and local pool becomes too big because
+it's limited in size, it cannot grow.
+Infinitely, they will move it back into the global storage so as other threads could reuse
+it.
+This way we get firstly that the heap is used rarely.
+It is used in bulk when it is used to allocate at once many objects, not four, like 64, 128.
+And also it will not be used at all after some point when all the pools will get saturated.
+And fourthly, there is no contention on the single global pool.
+This global storage, it can be protected with the mutex, but it is used so rarely that this
+mutex contention will not be visible.
+It will be used at most every, like, 64 locations.
+So it's 64 times less contention, which means it will be basically almost zero, neglectable.
+If the explanation was too bulky, I prepared an example how it works, like a real life
+example, how it could look like.
+Imagine that we have those three threads and empty global pool.
+All is empty in the beginning.
+First thread wants to allocate something.
+It will take a look at the global storage.
+There is nothing, so it has to allocate a new batch.
+New batches are located on the heap.
+But then when it will allocate objects, they will be taken from this batch.
+No more heap allocations.
+Just one heap allocation.
+And then from the allocated batch, we take objects one by one.
+Then second thread.
+That's the same.
+It has had local pool empty, nothing in the global storage, so it had to allocate second
+batch.
+They keep using the objects from the local pools.
+So far, we only did two heap allocations.
+But then happens, which happens very frequently in backend code.
+Those objects, they migrate into another thread.
+It happens when you have dedicated threads for networking, they read data from network.
+They parse it, create this struct request, push it into some sort of queue.
+And this queue is taken by other threads doing business logic, and they will delete the request.
+So most often, it happens that you have one thread allocating requests, other threads
+deleting requests.
+Objects will migrate.
+So here they migrated.
+And this other thread completed them somehow and tries to free them.
+They do not fit into this local pool.
+It is limited in our example by four.
+So fifth item didn't fit.
+And to fit more, it will have to migrate this pool into the global storage.
+And then it can keep freeing stuff.
+Now, a little bit more random work happens.
+Some more migrations.
+And then we are in a situation when second thread wants to allocate something.
+But it doesn't have anything locally, so it will go to the global pool.
+And this time, we have a free batch.
+So we take it.
+And we use this batch.
+So far, during this entire demonstration, we have only used heap two times for all those
+allocations.
+And at some point, after some more work, we will not use heap at all.
+It will be all saturated.
+Work continues like that.
+How it could look in the code?
+Yeah, visible, good.
+I have this benchmarks link is on the slide.
+Everything is already open.
+You can reproduce it yourself.
+I have this value, I think, which is, whose size is configurable at compile time via
+templates in C++.
+And I'm testing it with sizes one byte, half kilobyte, and one kilobyte.
+And they also have the same value, but thread pooled by the algorithm, which I just explained
+before.
+And in the C++, no matter how much we can argue whether it's good or bad, full of unnecessary
+stuff, but templates are sometimes very nice.
+In this case, I implemented the pooling in templates just once.
+And what I have to do is simply inherit this magic thread pooled class, and my class becomes
+thread pooled.
+I can simply apply it in as many places as I need, and all the types will become thread
+pooled with their own independent pools.
+So I'm comparing value versus value pooled.
+The comparison itself is that I have many threads.
+Each thread allocates many, many values, and then frees them in random order.
+And then again, and then again.
+And I am testing how fast is this spring and allocation, depending on number of threads
+and so on.
+And those are the results, which were surprising for me to be frank, that for one byte, even
+for a single byte case, I got a speedup.
+Normally, heap is very fast, even for, is very fast for smaller locations like those
+few bytes.
+Heap is actually extremely fast, the standard heap.
+But some why my pooled version was even faster than that on single byte case.
+But my most interesting relevant case was twice faster, which was good enough.
+And it can be actually quite visible in the final RPS.
+So of course, you have to benchmark everything.
+You shouldn't just blindly make everything thread pooled.
+I think this stuff will get faster.
+Probably will not.
+You have to apply case by case, measure performance, see how much it helps.
+I have seen in my experience that this can help and can be observable in the final RPS.
+This simple thing.
+What else can we do with the heap?
+Intrusive containers.
+So to understand the problem, which mostly comes from STL again, from STL containers,
+those list, map, unordered things, forward list, and the thing which unites them all
+is that they are not intrusive.
+And to show the point, let's have a look at the list.
+The lists are the most popular type of container, at least in my type of work in the stuff
+which I'm coding.
+I very frequently use lists.
+And the problem with the list is when you push something into the list, it will not be
+directly saved there.
+It will be copied and saved into link container object, this gray cube.
+Even if you store pointers, this pointer, those eight bytes, they will be copied.
+Not your object, but something will be copied and it's unavoidable.
+And it will be copied into this link container thing, allocated on the heap every time when
+you push into the list.
+And when you pop from the list, it will be deleted.
+So every operation with the list costs you heap operations.
+Secondly, which is not so obvious, but it also has performance, is that when you store
+pointers in a STL list, iteration of the list becomes slower.
+Because when you store pointers and you want to get into your object to de-reference some
+written member, for example, in your struct, you will first have to de-reference link container
+and then you de-reference your pointer to get to the member.
+You have two memory access operations.
+And they are not free.
+This arrow thing costs something.
+So we have additional memory.
+We look up simply because of how a STL list is implemented.
+What can be done with this?
+It's an intrusive list.
+So what we do, the basic idea is that we add those links, next and previous links, which
+are linking the items together.
+We add them into our object directly, like in the old C times.
+When you ask a student to implement a list, they do this.
+Probably they are doing it right because we will not have heap users here on every push
+and pop because we don't need intermediate link container objects to locate and delete
+them.
+And secondly, we don't have this additional memory lookup because to get your data, you
+just de-reference your pointer and directly get to the data.
+No intermediate objects for this.
+The only problem with those intrusive containers is that they are quite bulky, at least in
+C. So this is huge pain.
+Maintaining those next and previous pointers, head and tail of the list, and you do this
+every time for every type that you have and you want to store it in the list.
+This looks quite not good.
+It's quite hard to reuse such code without C++ templates.
+C++ templates, you can implement actually intrusive lists just once and then reuse them.
+On the slide, there are links to forward list and doubly list implemented by me.
+On the left side, you can see how the API looks for forward list.
+And on the right side, how it's used.
+So I have this object something.
+I simply add this next pointer in any place of my object and I instantly can use it in
+intrusive lists.
+With the intrusive list implemented just once using templates.
+And this name, by next, it's customizable so you can change the name as well of the
+member.
+Then what can you get from the performance if you apply intrusiveness is shown on this
+benchmark link on the slide as usual.
+I'm comparing a list of pointers with intrusive list.
+It's the list of pointers because usually, just like I said in my code, I prefer to manage
+lifetime of my objects myself.
+And when I have an object, I push it into the list.
+So I have object before that.
+And when I pop it from the list, I usually keep sleeping for a while after that.
+So I don't want to copy the entire object for storing it in the list.
+That's why I usually store pointers.
+And intrusive list stores pointers by design.
+So I'm comparing kind of similar cases.
+And the benchmark is doing that I'm measuring time of list population, how fast I push items
+into the list.
+And list walking, how much costs to me this additional memory lookup.
+It's interesting, right?
+So this small arrow thing is even visible in any measurements.
+This is what you get when you switch.
+So at least in this benchmark, right?
+So it might not get this speed up in your case, but in this benchmark indeed.
+And in my experience, it also sometimes does.
+I've got almost three times the speed up for list population because I no longer allocate
+those link containers.
+Firstly, secondly, you see this walking speed is 7% very small, almost noise.
+But it's not noise.
+It's reproducible.
+Every time you run this benchmark, you will see this difference, which comes, it's not
+much, but it comes from this additional arrow thing.
+And it's not much, but it doesn't mean that you can just leave it, right?
+Why have this performance loss if you cannot have it?
+Those small things, they pile up into something bigger.
+In my experience, this was all the easy stuff with the hip for which we have time.
+We can also have a look at thread condensation things.
+What is thread condensation?
+It appears when you have multiple threads which try to access certain critical sections
+at the same time, like mutex protected data or something like.
+And when this happens too frequently, it can cripple your performance, your cripple parallelism
+of your code.
+So your code will not as parallel as it could be.
+And result could be something like you have the 64 core machine, you enter it, you type
+H-stop and you see two cores used, right?
+It's not a good situation, paying so much money and then getting this.
+You are not utilizing all the resources when you have thread condensation or you are utilizing
+them on the condensation itself, not on something useful.
+And what can we do about this quickly?
+Like it's first aid kit, right?
+So it should be done something easy and quick.
+First thing, false sharing.
+It assumes that, let's start on the case when you think it's easy stuff.
+I know this, I am master of condensation.
+I don't have it.
+This is how I protect it from condensation.
+I placed this link on the slide with the benchmark and the example is that I have this object
+with two members.
+One member is always accessed in one thread, other member is always accessed in another
+thread.
+And seems like I don't have condensation because I am not sharing any data between the threads.
+And they have this benchmark which does some amount of work for 10 seconds or so, which
+looks good enough.
+But if I do it like this, I get five times the speedup.
+By adding this 64 bytes of unused data between my members of the, in this track.
+What is the link that I increased size of this track and I've got five times speedup?
+Should I just make all my strikes bigger the better?
+They will get faster.
+To understand the reasons behind this, you have to understand how CPU works with the
+memory.
+The thing is that CPU cores in your CPU, they don't access main memory, the RAM, the bus
+directly.
+They do it through this proxy thing called CPU cache, which is to put it simply is basically
+one cache per core, right?
+Not to dive into too much details.
+And this cache thing is basically accessing the main memory for the CPU and CPU is reading
+the cache transparently.
+And the cache, it has those blocks of fixed size, which are copies of small, small parts
+of the main memory.
+And those small blocks of fixed size, 64 bytes or 128, we call them cache lines.
+And all works fine and fast until we get the case when multiple CPU cores for some reason
+start reading and writing the same cache lines.
+For example, by the same address, one thread is doing crates, other threads are doing grids.
+Then we get contention and CPU has to perform this very expensive synchronization of the
+different cores so as they would store the same data for the same address.
+So as it wouldn't happen, then for the same address, different threads see different values,
+right?
+It shouldn't happen.
+And this synchronization of the cores is very expensive.
+This is where the slowdown happens.
+And what could happen and did happen in our case, that data which was seemingly unrelated,
+different bytes, they by bad luck just happened to be in the same cache line.
+And we've got contention on the cache line on the hardware level, not on the application
+logic level.
+Simply because when you work with memory, you always work with basically with minimal
+size of single cache line.
+Even when you access single bit, the entire cache line of 64 bytes containing this bit
+will be used by the CPU by the cache.
+My fix was as simple as just adding this to split my data into separate cache lines.
+And now I no longer have contention.
+This is how I've got five times speed up.
+This is measurable in the final RPS as well.
+It can be visible when you fix it.
+Just when you're fixing it, make sure that it makes sense.
+Like I said, don't just add the 64 bytes padding everywhere where you think you're sharing data.
+Add it, test if it makes sense.
+If it doesn't change anything, then just don't add it.
+It's as simple as that.
+What else can we do with thread contention?
+Have a look at memory ordering.
+If you are having highly loaded multi-threaded application, it's very, very likely that you
+are having also those atomic operations in your code.
+Like SDD atomic and C++ and double underscore sync, double underscore atomic in C compilers,
+which all do the same basically.
+Today, besides some arguments, they also take this memory order mysterious thing.
+There are plenty of those orders.
+And what they are doing is that they regulate how much freedom the CPU has about executing
+this instruction and instructions around this one without explicit ordering.
+CPU can execute your instructions in any order it wants.
+Even if you turn on all the off of the compiler optimizations, your machine code looks absolutely
+linear, even if you have single thread, still those instructions inside single thread can
+be completed in random order.
+It doesn't matter in which order you wrote them in C or C++ or whatever you're using.
+Example on the slide.
+So we have those free variables, ABC, starting zero, and they have one thread assigning them
+to one to three in order ABC.
+And then other thread reading them in different order, CBA.
+It looks impossible by all the logic, but it is in theory possible in some CPUs that
+you will get printed free equal C and zero equal B.
+It looks impossible because if second thread C is B, C assigned to free, it means that
+also it should C be assigned, right?
+Because it was assigned before C.
+But it could happen that it will not see this because, for example, read in second thread
+of B could be completed before the read of C.
+Or writing of B in thread one could be completed after writing of the variable C.
+We don't have any guarantees from the hardware when we are talking about observability of
+thread state from another thread point of view.
+And if you think if you are safe on x86, you just don't use ARM and ignore the problem,
+the bad stuff is that you still have reordering on x86.
+There is example on the slide by this link which you can compile and run.
+And even on x86, it will demonstrate reordering.
+The some instructions, logically impossible, will complete in different order.
+Without any tricks.
+It's completely predictable machine code.
+It will happen even on x86.
+We will not dive into details of each memory order possible.
+It's too much time.
+But I will demonstrate you what kind of speedup you can get if you study memory ordering and
+use correct ones.
+Benchmark on the slide link as usual and the benchmark is very simple.
+I have this loop, single thread.
+I'm not even using multi-thread here.
+It's just single thread.
+I'm using Atomics in a single thread to demonstrate the point.
+It has this loop where I'm using STD Atomic and it runs in two versions.
+First is default STD Atomic operation with sequential consistency order on the right
+side.
+Memory order, sex, CST.
+It is default when you use STD Atomic and don't specify memory order.
+So it is the safest and strictest order when you use it.
+Code works like it looks.
+This wire is default.
+Otherwise people wouldn't have to bother when they don't care.
+But it is an overkill in this case.
+It's too expensive.
+And in my case, relaxed order is enough.
+It is in most cases actually enough.
+Like in shared pointers, relaxed order is enough.
+And I'm just comparing this loop with relaxed and sequential.
+Just think of a number.
+What do you think would be, how much would be a speedup?
+Like probably you're thinking zero because if you know x is x86, you will tell me that
+it will render the same machine code.
+When x86 writing has the same guarantees.
+Prosequential consistency and relaxed order doesn't matter.
+x86 is safe, right?
+But I've got 16 times a speedup here if I'm using relaxed order.
+It was x86.
+It was modern compiler.
+Loop was not optimized out.
+It was minus of re-optimization.
+So top optimizations.
+And still I've got 16 times speedup of this loop.
+What happened here exactly?
+If I open machine code, this assembly stuff, I will see that relaxed order was compiled
+into single-move operation.
+Prosequential consistency was compiled into this exchange operation.
+The reason is that on x86, there is only one possible re-ordering.
+Prosequential consistency order protects from this type of re-ordering using this exchange
+operation, which gives more guarantees than move operation.
+And the problem is that in this case it wasn't needed.
+So I just requested two strict guarantees where I don't need them.
+And I paid 16 times slowdown for this.
+And in fact, at least in my entire career, I have never seen case when sequential order
+was needed.
+It is needed in such extreme weird cases that I have only seen the artificial examples.
+I have never seen it in actual production code needed.
+The only pre-orders I ever needed were relaxed or acquired plus release, nothing else.
+So this is what kind of speedup you can get.
+For fun, go to Godbolt and try to render the same code on this version of compiler on C-line.
+It will be even more interesting.
+Just amount of machine code simply didn't fit on the slide.
+That's why I didn't put it here from C-line for this simple loop.
+What else can we do with thread contention?
+Look for eqs.
+In the background code, it's very, very frequent that you need some sort of queues sometimes
+in multiple places of your application.
+And the usual use case is that you have multiple threads producing something for the queue,
+like requests.
+They read from the network, allocate requests, validate it, and push into queue.
+And other threads are doing, for example, business logic.
+They are taking objects from the queue and processing them, and then deleting, like on
+the slide.
+How can we do this?
+We start simple again.
+If we don't have much load, then this solution is actually just fine.
+So we have this queue.
+It's just a Mutex protected container in STL.
+It works fine.
+If you have hundreds of thousands of RPS or millions of RPS on this queue, then you will
+get Mutex contention here.
+You will get it guaranteed.
+What can you do about this is just get rid of the Mutex.
+And there are solutions how to do this, called log free queues, which allow you to have
+a queue without a Mutex and STL.
+It will be thread safe.
+And the problem with those queues is that there is no one major queue, which is best
+for all the cases.
+Implementation of specific queue very much depends on what kind of queue you want exactly.
+Like there are those four types of queues, depending on how many threads are producing
+for the queue, how many threads are taking objects from the queue.
+And also you have to know whether the queue should be limited in size in your case, what
+happens when the size limit is reached.
+So when you understand your case, you can choose one of the queues, one of the implementations.
+There are many, many implementations.
+Of course, I just placed a few of them on the slide.
+For all the queue types, two of them are mine.
+One of them is this very popular, according to GitHub stars, Cameron 314 concurrent queue.
+And also there is this very nice website, 1024course.net.
+Who knows?
+It's a very nice website, which not only contains source codes of various queue types, but also
+they are actually explained there in a simple language.
+So you can go there and dedicate yourself about how those queues are working and why,
+what is log free, what is weight free, what are all those memory ordering types.
+It's all explained on this side.
+Very understandable stuff.
+And like I said, don't just use multi-producer, multi-consumer queue for everything.
+If you have, for instance, single producer, single consumer queue, it can be done much
+faster than the former.
+So just be careful what you choose.
+And this is kind of speed up you can get when you simply switch from mutex protected to
+log free queue.
+This is benchmark of my two queues.
+Some benchmarks doing multiple producer, multiple consumer threads.
+And stuff, and those are the numbers.
+So this also can be visible on the final RPS of your application.
+Just make sure you test it before you apply it.
+All of those stuff I'm mentioning today, it makes sense to test it first to make sure
+if you actually need it.
+What else can we optimize quickly like first aid kit, networking, backend performance,
+very often like 90% of all this performance will consist of how efficient your networking
+is.
+How efficient is your data received and sending.
+And in cases like one connection, one request, this HTTP stuff, it also matters how quickly
+you can accept and close clients.
+So this socket creation and closure also matter how fast you can do this in those types of
+scenarios and quick stuff we can fix here is, for example, scatter gather a link to the
+benchmark on the slide.
+And the use case is this.
+You have, imagine this multiple buffers that you want to send.
+Each buffer can be separate message or each buffer can be part of single message like
+chant, response or something.
+And you want to send multiple piling up buffers into the socket.
+How do you do this?
+Do it in a simple way.
+You just run the loop where your calls send on every buffer, right?
+It works, obviously.
+And on this benchmark, I have speed two and a half gigabytes per second on local socket
+payer without networking.
+And I was sending 16 one kilobyte buffers every time when I called send all works fine.
+But if I do it like this, I suddenly get two and a half times speed up.
+And what I changed is that instead of loop of send calls, I did a single send message
+call.
+Even the code on the left side looks bigger.
+It was this much faster.
+In practice, I saw that this switch made my code 10 times faster.
+It just depends on how many buffers you are trying to send of which size at one time.
+In this case, 16 buffers each one kilobyte in size, local circuits.
+I got this speed up, but it can be better.
+And where is the speed up coming from?
+The thing is that on the right side, I did 16 send calls.
+On the left side, I did single send message call.
+And those send and send message, they are in fact system calls.
+Very, very expensive.
+Switch into the kernel context when you're calling those things.
+And this is extremely expensive, basically.
+Every system call is always very expensive stuff.
+And you should avoid that, make them as few as you can.
+In this case, speed up is coming exactly from this.
+I simply made less system calls.
+I sent into the kernel multiple buffers at once.
+And this single, even single system call is many orders of magnitude more expensive
+than just filling this Iovac array.
+Even if it's something like 128 buffers, sending more doesn't make sense.
+128, as far as I remember, it's the limit in the kernel anyway.
+They will not accept more.
+Funny thing, when you try to send more, sometimes kernel can return errors.
+It will even just do partial send.
+It can return error, like too many buffers.
+Someway, this is what I absorbed at least.
+So the solution here, if you have multiple buffers to send, simply use send message and
+receive message instead of looping those send and receive calls.
+And of course, it only matters if you have more than one buffer.
+If you have just one buffer and you switch from send to send message, absolutely nothing
+will change.
+Some people might be already thinking that why didn't I use readV and writeV calls?
+Because they look simpler.
+I don't need to fill in this message header object.
+I can just send array of Iovacs directly, right?
+They will work even with the same speed.
+The problem with those system calls, read and write, readV, writeV, is that when you
+use them, they are accounted in the kernel as disk operations, even if you use them
+on the circuit.
+I don't know why, but it is the fact.
+So when you are using read write calls on a circuit and you check this protspeed.io
+file, it will grow even if you call those functions on circuits.
+They will be accounted as disk operations.
+If you don't care about the statistics, then you can use those functions.
+But if you care, try to use send message and receive message.
+They are portable, available on all the Unix-like systems.
+So good stuff.
+What else can optimize event queues?
+It, of course, depends on the application very heavily, but often in the backend servers,
+we have, they can be quite loaded.
+So we can have tens of thousands of clients easily in the same number of circuits in one
+process of server.
+And although circuits can generate events like circuits can become readable, writeable,
+and receive out of band data from TCP or receive errors and stuff or custom events.
+And we need to handle all those circuits somehow at once.
+And there are three ways how to do it.
+Without ridiculous solutions like one thread per circuit or one process per circuit, it's
+not scalable at this scale.
+And the solutions are periodic polling, reactive polling, and event queues.
+Those are made up names.
+I just made them up myself.
+It's not like they can be found somewhere.
+And we go through each.
+So periodic polling is the simplest approach.
+As simple as you just have a loop where you iterate through all the circuits, and you
+try to read and write each, and then you sleep.
+And then you repeat.
+This way you don't spin on the busy loop, and you still handle all the circuits.
+The problem with this solution is that firstly we'll have additional latency here because
+imagine that circuit number N becomes readable.
+To get to the circuit, you firstly have to try to read N minus one circuit before.
+It will cost you time if you have thousands of circuits.
+Secondly you will lose latency here because imagine circuit became readable, and you just
+started 100 milliseconds sleep.
+You will waste 100 milliseconds of latency absolutely with no reason.
+And firstly you will waste CPU here because you will be doing lots and lots of unnecessary
+system calls.
+If socket is not readable and you are doing receive, you just wasted a system call, wasted
+some CPU time.
+The stuff can be easily fixed with a couple of solutions, one of which I am presenting
+only for the sake of you not using it because select thing is deprecated.
+It gives undefined behavior on Linux.
+If you have more than 1,024 sockets, or even if just one of them is bigger than 1,024 by
+value.
+It is not advisable for you to use it even in documentation.
+So there is an alternative poll which works quite fine.
+Even these days and it takes array of descriptors with events you want to listen for, those
+events field.
+And when you call poll, it will block you until any event happens with any of those
+circuits and when it returns, it will fill in our events field in all the descriptors
+with events which are available for circuits.
+This is how it looks in the code approximately.
+So we have this poll, you call it on all your descriptors.
+When it returns, you have events and you are scanning all the sockets and checking which
+socket has which events.
+Then you don't do those unassisted system calls.
+You only do reads when socket is readable.
+Write when socket is writable.
+And I have this benchmark, click on the slide where I have 5,000 clients and they are sending
+5 million messages in total.
+And only a part of clients is active at the time which is realistic.
+It's not like all the time all the sockets are active.
+This kind of speed up I get when I switch from periodic polling to poll.
+I have got 25% speed up instantly and I did zero system calls which ended up with eWood
+block and periodic polling did 120 millions of those system calls which were not needed.
+And thirdly, periodic polling wasted huge amount of CPU time because it was spinning
+in a busy loop.
+I didn't even have slips in this case.
+If I would add slip to periodic polling here, it would get even slower.
+Here I didn't have slips and still it was slower and it wasted huge amount of time on
+those unnecessary system calls.
+This is not the end.
+We can optimize it further.
+One last optimization using event queues.
+The idea is that instead of having socket array in user space, we can have it in kernel
+space.
+And kernel will monitor your sockets all the time for happening events and notify you when
+something happens.
+This is Epolyn Linux, KQ on Mac and BSD and Diocompletion ports on Windows.
+So the idea is that you create this event queue, you add sockets one by one into the
+queue for monitoring specifying which events you want to monitor.
+And then you call this Epolyn wait thing to fetch the events.
+When it returns, you handle the events.
+It is as simple as that.
+So instead of placing all like 10,000 sockets into the kernel for each Epolyn wait, we just
+call Epolyn wait and get the events.
+This is how it looks in the code.
+We call Epolyn wait on our queue.
+We get some events, return, we handle those events, just them without full scanning the
+entire circuit array.
+For example, if you have 10,000 sockets and 10 of them got events, you will just iterate
+10 times here, not 10,000 times.
+And the rest is the same as with polls.
+So we just read where readable, write where writable.
+As simple as that, if I apply this on top of poll, I get another 30% speedup.
+Even with a single chance.
+So you can of course optimize it first, but those were simple optimizations.
+This was all the stuff which we had time for, but also there is some additional content
+with eight other small, simple things which you can apply in your code.
+They're all clickable.
+You can click on them after the talk or ask them as questions right now if you like or
+ask me afterwards outside about those other optimizations.
+And now this was the end.
+Thanks for your attention.
+If anyone has any questions, then I believe we have time to take a couple.
+Thank you.
+Amazing talk.
+Thanks.
+You mentioned flame graphs a few times for the cash sharing issue.
+What kind of tooling do you recommend to detect those?
+For cash pieces?
+The cash sharing variables, sharing through cashes?
+Yeah, I think the first tool for example, Linux is able to measure the stuff.
+Okay.
+The first is also able to build nice flame graphs by the way.
+Any other questions?
+I have a question about the first example.
+I guess the second one, but still on the first chapter I guess of your talk about the
+intrusive list and it's my understanding that standard list C++ is also an intrusive
+list.
+So I don't think that interaction should do anything.
+The list is intrusive?
+Yes, I just checked it up so it can be in presentation.
+It's not intrusive.
+Okay.
+So for example, when you have this STD list, right, sign of intrusive list is when you
+have link inside of your objects.
+For example, if you store pointers and you have pointer at your object, you should be
+able to just unlink this object from the list directly, right?
+Just leave of the previous element, link with the next element instead of you.
+So you just in constant time can pop the item from the list, right?
+When it's intrusive.
+In a STD list, you have first it located.
+You have to iterate the list, find your pointer there and erase it by the iterator.
+Standard forward list also not?
+Are you certain on that?
+Unfortunately, yes.
+In a STL we don't have it.
+Maybe they, we have it in boost, I don't know.
+What, what in boost?
+Okay.
+Good stuff.
+Hello, thanks.
+What do you think about IO ring?
+I haven't tried it myself in real life use case yet.
+Okay.
+But I heard that can be faster than Ipul.
+So basically IO ring idea as far as I understand is the same as IO completion ports on Windows.
+Right?
+So you just directly send data from your buffers without copying.
+Yeah, I guess it is possible with IO ring to make even less assist calls.
+Yeah, yeah, perhaps.
+Could be good, could be great.
+But the idea falls into the same folder of event processing.
+So we don't then sort of socket array full scan or anything alike.
+Those are by the way, obviously not cross platform solutions in networking.
+I don't think we have anything cross platform enough besides maybe poll, right?
+And the rest could be like boost ASIO.
+Yeah, this stuff is working everywhere.
+If there are no other questions, then that should be it.
+Thank you all very much for coming.

@@ -1,0 +1,148 @@
+My next speakers are Thomas and Peter who will tell us about DNS Confit, which is new
+to me from quite curious.
+So, hi everyone, my name is Tomas Korbars, this is my colleague Petro Manchik, we work
+at Red Hat and today we've come to talk to you about our new project that is called
+DNS Confit. So let's start a bit with a motivation behind this project. Last year we received
+a request from a user that required us to make possible for Unbound to be used as a
+local DNS cache and to be able to consume configuration from the network manager. In
+the past we had DNSsectorrigger package for this, but we dropped that in rail 9. So should
+we reintroduce it? We thought about implementing a debuts API into Unbound just as DNSMiles
+has and then implementing a network manager plugin just as DNSMiles has. But then we realized
+that if some similar request came in the future for different service we'll be doing the same
+over again. So we thought about creating a new project that would serve as a conduit
+between network manager and local DNS caching services. This project is the DNS Comp. Our
+requirements for it would be to be able to easily exchange the DNS cache, underlying cache,
+and to add more services in the future without too much work. We need to be able to support
+split DNS configuration. We need to be able to support split DNS configuration and then
+we need to be able to auto configure without manual interaction from the user. Also, we
+would like it to use already present system configuration and defaults and security features
+that are already built in and we maintain inside of our distribution. The behavior needs to be
+configurable enough so you can change handling of corner cases and you are not caught of guard
+by the behavior that you would not expect.
+Okay. Let's get a bit back in the past and tell something about why Fedora 33 introduced
+DNS cache and what it brings to us was a possibility of multiple simultaneous VPN
+connection at the same time. And that's great. It also made possible to configure global
+servers but reach some names which are accessible only on local network, which is nice for DNS
+over TLS but that was not enabled yet and still isn't. And it brought us excellent configuration
+presentation by Resolve's CDL command compared to what we had before. That was clearly better.
+And it also introduced well-documented bus interface for both configuration changes, for
+configuration displaying and also name resolution. They have nice article but that's not our job
+here. So what do we mean by 3DNS for here? When you connect to VPN without some smart
+solution like this, you send all name queries just a single VPN and use only your primary
+connectivity to deliver traffic to VPN server and that consumes everything you use. At that
+time, you cannot use any other connection interfaces you have on your laptop or mobile
+phone or something else because you use just one DNS or set the DNS that VPN knows. With
+split DNS, you can send different name queries to different set of servers provided by different
+networks. You are connected at the same time and most current devices today are capable
+of connectioning to different networks at the same time including multiple VPNs. All you
+need to have is non-coflicting names for them. So for example here, names are different and
+if some names in those domains provide some useful networks, you can access them at the
+same time. And we could end it here and thank SystemDGuys if everything worked great but
+sadly that was not the case entirely. I have listed few issues I think are important and
+still aren't fixed sufficiently but there were more bugs in the meantime somewhere fixed,
+some are still not. For example, it prevents any usage of DNS on the host which is where it
+is enabled by default configuration both Ubuntu and on our Fedora because it just doesn't
+forward DNS-enabled bit set in queries received. So any library which is quite capable of using
+DNS-sec cannot use it even if infrastructure, your network provides capability for it. Also,
+at least for Fedora and Ubuntu desktop I think, you would be quite surprised this top level
+domains often that does not exist because it sends top names without dot just a local
+interface over multicast protocol and if it doesn't find something which usually it doesn't,
+it just returns no that does not exist. So com domain does not exist but github.com domain,
+surprise it does and even on server edition when I think this is really unwanted. And also
+strange response is when a response fails because of DNS-sec validation fail, it still
+might contain a valid answer in the response which is unexpected and no other implementation
+I know does it this way. So DIC plus short DNS-sec failed org even with DNS-sec enabled in system
+DreslD gives you very nice address and I've listed just few issue numbers. So lessons we take
+from this is we want split DNS functionality auto configured and we want possibility to DNS over
+TLS and also that we want nicer front end than we had but system D people are very good at
+expertise in system integration and they are quite good engineers and I know it but they lack
+expertise in DNS protocol area and I am afraid it is visible and at the same time DNS resolvers
+people are excellent in DNS protocol area but their integration into system is often very
+limited or at least done and we think only the integration is missing and that is what we are
+trying to provide. So we want to reuse existing functionality. We want to provide some common
+interface to set forwarding to different servers so it doesn't change much and we want to provide
+nicer front end for showing what is configured regardless of use DNS cache in the end. So what
+we need for split DNS we need some local address which receives queries from applications that
+usually localhost we need ability to configure different domains to be forwarded to different
+sent of servers and of course some default for root servers to be forwarded to global default and we
+also want ability to reconfigure the service without stopping it and flashing entire cache as
+starting it again and from this is list of servers we have in Fedora and I think all of them are able to
+provide split DNS functionality most of them are also able to provide DNS over TLS functionality but
+only DNS mask except there is of D have some D bus capability and that is quite limited and DNS mask has
+own issues. So our approach is use what already exists provide just front end and components
+coordination do not reinvent the wheel. We do not want to handle DNS queries ourselves in our
+service we want proper services to do it and we just provide configuration for them and I have already
+shown almost every open source resolver has that ability and because we are not handling queries we just want to
+try single thread application and we written just our prototype in Python to verify this would work. What we
+also want is to reconfigure ETC resolve confile only when we verify basics that service is running and restore it when
+our service is stopped. I really hate what a result is when you uninstall it you have to fix it by hand. And we
+want to have stand alone demon because not everything is primary configuration we think should be done in network
+manager so there is some unified way to configure it whether it is used system be resolved D or our demon it should
+not change it should be just implementation detail. And we think the common part is the biggest one and just very
+small cash specific module is required to implement different caches what we plan to support is what we have in
+the RL that is primary unbound and also bind and DNS mask. And we want to provide basic compatibility for services
+using system D or the API directly because something already uses that but we do not want to implement every aspect
+of what they already implemented because we do not think that is necessary.
+So right how does the flow of configuration look right now network manager receives its list of DNS servers from either
+DHCP or the connection profile and then it pushes the configuration through the bus API into DNS confi D. DNS confi D
+then translates this configuration into some internal representation that we think is general enough for most underlying DNS caches
+and then we use specified module to transform this into the specific configuration that is used by the specific underlying
+service. For example for unbound it is a list of four borders. How does the system integration look like now. DNS confi D
+uses already existing unbound service that we ship and support so it respects its defaults security features and configuration
+that we ship. We inherit the system D result D debuts API so we work as an in place replacement as of now. You use the
+default system configuration that is provided and then we watch the underlying changes of the DNS cache so you are not caught
+off guard by the sudden inability to resolve the domain names. Here's the life cycle of our program that I talked about. DNS confi D
+itself is implemented as a system service so you can inspect it as you would inspect normal system service and it is started
+either on boot when it is enabled or it is started when configuration is pushed through because it is implemented by the bus
+and system D triggers us upon the configuration. After we start we start the underlying DNS cache. We look whether it is ready or not
+because there is some polling right now needed and we wait for the configuration that is provided by network manager. After that we watch
+for status changes and perform actions as are needed. Here are some memorable issues that we've encountered. The first one is a war for
+resolve confile because network manager finds out that a system D result D is running or not by checking existence of some symbolic links
+in system and we cannot own them because they are owned by the system D result D package and if they are not present on the system then
+network manager tried always to override our modifications of the resolve conf. We got a run by that by implementing a command that pushes lines
+into the configuration of network manager and we stop it from touching the resolve conf. We argued about whether it is better to execute the underlying
+service as a sub process or a system service because sub process approach provides easier way to monitor whether it is running or not
+but then I was persuaded by Peter that the system service is better because we use things that we already have in place. There is the issue whether unbound is truly up or not
+because the start job was finished but the command channel was not open yet so we faced some instability during testing but we got around that by pulling a few times
+and we need to update only zones that were updated in configuration so we hold current state that is set into unbound and we update only zones that are required
+and we thought that implementing this in D bus would be easier than it proved it really was. We've created a way, we are using of testing this
+we are using TMT test management tool with containers that allow us to simulate some network behavior in a way that verifies the actions of DNS conf. If you'll ever want to contribute
+set of these tests will verify that you won't change behavior that is already in place or you will be able just to show us where we are wrong and you want us to change the thing.
+Okay so what is working already? I admit we wanted much more to present here but it proved not so simple so split DNS configuration as you from network manager already works
+ETC Resolve Conf is changed just when our demon is running and is restored when it is stopped. Unbound support is the only one we have at this moment
+and implementation uses only D bus interfaces of system D Resolve D and at this moment also only its D bus name so it can be running just DNS Conf or Resolve D but not both
+and we reused network manager system D Resolve DNS plugin for now because it pushes configuration over D bus but in the future we want to get rid of it and make our own or use more parameters from just IP address
+and that is what we would like to use unlike the opportunistic way which system D Resolve D used because these RFCs were not defined at that time and we think this is correct way
+and support multiple cache is running at the same time is not necessary usually but it would be very helpful for some kinds of testing.
+We would like to have ability to forward over DNS over HTTPS but there is problem not any DNS cache we have in RL supports that and in further there are only few similar with DNS over Quick
+and auto configuration of DNS sec would be nice we would like to have some successor and better implementation what was once attempted with DNS sec trigger but maybe better accept it
+and maybe if its time sometime in the future rewrite into Rust and reduce memory required memory for our interfaces that would be all for us so if there are questions please now is the time
+and if we can't answer them please use these mails or file issue on the project
+Definitely stick around to the next speaker we will talk about the Rust domain craze
+and thanks for the call
+Questions, stay phone
+Would be helpful for inbound to have a D bus connection where it says when it's ready
+No I don't think it needs to be D bus connection I think we need to correct LIP system D notify event which it kinds of supports but I think last time we try to enable in federal it start crashing so it's not built in
+but some kind of support is there we just need support to inbound to tell us I'm the service I think I'm ready and there's system D API for that we need to use that whenever possible it doesn't have to be D bus
+Visek?
+If you only want to communicate over DNS local servers you need to crash
+I understand that you want to drop the MSS Resolve bridge
+So how do you want to overcome this? This is part of the question
+Second part of the comment is that we talk about D bus but D bus is something everyone can relate
+Actually now it's a series of D bus in parallel which means that we can have a resolution since any book before the D bus server is up
+Which is why it's always useful so we had a plan to add the private interface
+The second question was do we plan to add running interface? No I don't think we want that
+First question was get other info API
+How can you send the additional information for example about multiple interfaces over DNS projects?
+How can I send from which interface comes the query or how to request query just for selected interfaces over DNS?
+We don't want to because in what cases this is needed
+I think network manager needs that just to verify the connection works
+I think we might have different service which just will query us please
+Tell me address resolved on this interface and we will send the query just to correct addresses
+Because we know which addresses are used for that interface but that would be not served by the local cache
+Because that is not yet configured for that
+Can I make more sense to take this separately?
+To do this after session? Because it seems quite specific
+Yes, yes it might
+Any other questions?
+No thank you again

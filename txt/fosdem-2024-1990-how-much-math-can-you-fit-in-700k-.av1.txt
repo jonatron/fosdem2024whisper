@@ -1,0 +1,391 @@
+So during these two minutes, I'm going to ask a few questions.
+I think the sound is better like this. Can you hear me?
+Yeah.
+So I heard a comment that color was not allowed, so I hope that you won't mind if I use 3D instead.
+But the screen and the actual device I'm going to talk about is black and white.
+Who uses a calculator from time to time?
+Who uses a calculator from the smartphone or whatever?
+Yeah, it's the majority.
+Who uses HP style calculators?
+Not that many. It's mostly.
+Who uses calculators for binary computations?
+Okay. Complex numbers in matrices, graphing.
+Okay. Just checking.
+So I don't think that the camera can zoom that far, right?
+So I can't show that. I suspect.
+Yeah, it'll be hard.
+But this is the device I'm talking about. You're going to speak.
+I'll hold up a sign. 5 minutes for question time.
+Yep.
+It's the dots.
+Is it also?
+For me it is.
+I don't know what's wrong with my timer. It's Android.
+Okay.
+So I'm Christophe D'Alincia.
+I'm working as a senior principle software engineer at Red Hat,
+working on confidential computing.
+I'm giving a talk on this topic this afternoon.
+But today I'm talking about a pet project of mine called GB48X,
+which is an open source HP48 style calculator for modern ARM hardware.
+So I talked about this last year,
+and I'm going to show how much progress we made since then.
+I start with a reminder of what GB48X is.
+We are going to review last year's future plans to see how well we did.
+I'm going to talk from one engineer to another.
+That's why I asked the questions at the beginning
+to see why we need all this math in the calculator.
+I'm going to extoll the virtues of 1980s era efficiency
+when there were only keyboards, no touchscreen, no fancy mouse,
+all that stuff.
+I'm going to explain how using much bigger numbers
+led to much less memory usage.
+And we are going to see a number of bells, whistles,
+and engineering units along the way.
+So I hope you enjoyed.
+Strap on.
+What is GB48X?
+The idea is really to revive Schullet's Packard's iconic reverse
+polish list on modern ARM hardware.
+So that's what the original box looked like.
+And a quick primer on the project.
+We want to simply put, reinvent the best calculators in the world.
+Nothing yet, less.
+It's designed to run on existing hardware from a company in Switzerland
+called Swiss Micro that does these kind of devices.
+So you see the DM32 on the right and the DM42 on the left.
+The specs for the project are from the HP manuals,
+and there are dozens of them.
+Unfortunately, they contradict one another
+because values calculators do not do exactly the same thing.
+So it's implemented in a language called reverse polish list,
+or RPL, which is a stack-based language, very powerful.
+It's based on common line and menus that you activate
+with keys below, function keys below the keyboard, the screen side.
+It has many data types and mathematical operations.
+I'm going to talk about this later.
+And many enhancements in the project compared to what HP did.
+Now, is this still minimalist?
+Well, you bet, because that machine has 70K of free RAM
+and 700K total for the program space, hence the title of the talk.
+So it's a low-power Cortex M4 at 80 MHz.
+The battery life is up to three years on this kind of battery,
+and one of the things that is nice is that the screen is passive,
+so when you switch off the calculators, it displays a picture,
+and the picture stays there forever.
+So that's where I have pictures of my wife and my calculator.
+The machine has only 96K of RAM,
+and if you remove the bitmap, which is a high-res bitmap,
+and the operating system needs,
+then you get to the 70K I was talking about.
+So 96K is 1.5,64 for the old-timers among us.
+It has only 2 megabytes of flash.
+It has 8 megs in the chip, but 6 are for a flash disk,
+and so there are 700K remaining for your program.
+That's less than a Macintosh floppy disk.
+They were 800K.
+The project did hit these limits quite hard.
+I'm going to explain how we worked around that.
+So last year I explained that I had to restart from scratch
+from a project called new RPL because we hit these limits.
+This year around Christmas, I hit the limits again,
+so I had to restart from rescratch,
+at least as far as the similar computations are concerned.
+So I'm going to explain that.
+So let's review last year's future plans.
+I think there is a problem with this one.
+Is this one okay, or is it...
+Yeah, okay.
+So I said, you know, back in 2023, I was young and naive,
+and I said a lot remains to be done.
+So I was talking about adding complex numbers,
+vector and matrix arithmetic,
+about 1500 functions that were left to implement,
+and key features like plotting and graphing.
+So what did we do?
+Well, a lot of this was done.
+Complex numbers are available,
+and they are actually much better than the original.
+For instance, you can have polar and rectangular.
+You have the usual notations.
+You have stuff like that.
+We have vector and matrix arithmetic fully implemented,
+and we have algebra, but also with exact computations
+like fractions inside matrices.
+So you never get a rounding error
+unlike on the HP calculators.
+That's the test suite.
+So the test suite runs on a simulator on Linux or Mac OS,
+and it currently runs about 2,200 tests.
+Not everything is tested.
+That, for instance, is implemented but not tested yet.
+And we have plotting and graphing,
+at least the basic features, like drawing stuff, etc.,
+with some nice enhancements compared to what HP did.
+Like, for instance, we can have plots with various sizes
+and plot patterns, so I'm going to show that in a moment.
+And that lets you draw multiple things on the same screen
+and see what the different pieces are.
+It just was very fast on the screen here.
+So how did we go to use only 70K?
+It's a story of ultimate over-engineering.
+It's C++ with garbage collection
+and ubiquitous bad packing all over the place.
+Let me explain what I mean with that.
+A C++ object typically looks like this.
+You have a class, and the way this is represented in memory
+is you have a virtual table pointer,
+and then you have the value for the object,
+so in that case, for the integer,
+you'd have an integer value or an enzyme value.
+And then there's some overhead for malloc.
+It's self-operated or whatever.
+You have, for instance, a linked list or a free list
+or something like that.
+So overall, for your object representing an enzyme value,
+you typically use 12 bytes.
+12 bytes, that's on a 32-bit CPU.
+That lets you represent all values up to 4 billion,
+and it's fixed size.
+You can't remove it in memory.
+Not good. Let's do better.
+So the representation we used looks like something like that.
+We use LB128, which is a system that is used,
+for instance, in Dwarf all over the place.
+And there let's us code the ID that is used
+to identify the type of object as one byte for integers.
+We have 128 types that we can represent with one byte.
+And the value, if it's less than 128, is also on one byte.
+So that means that I use only two bytes of memory
+that's a 6x factor compared to the other representation
+for all values below 128.
+And I can move to infinity because the LB128
+is a variable size encoding,
+so I can essentially have numbers that are as big as I want.
+It's now a variable size object, and I can move it.
+So it's a vast improvement.
+That lets me have a memory organization
+where I have at the bottom of memory all the global variables,
+the global objects that I keep.
+It's essentially a name, a value, a name, a value.
+And then, so they are all packed together.
+And then on top of that, I have temporaries
+that move with a temporary pointer
+that moves as you allocate objects.
+And then there is an editor, scratch pad,
+and the transient stuff on top of that.
+Because it's all contiguous,
+the way to reach the next object is to skip
+by reading the ID and computing the size
+to get to the next object.
+So on top of memory, you have root pointers
+that point back to, like, the stack,
+the local variables, that kind of stuff,
+that point back to this memory area at the bottom.
+And the root pointers can point inside objects.
+That's a very important property for performance.
+For instance, if you follow the one link,
+you'll see that it points just behind,
+I think, like, with curly braces.
+It means it's part of a list,
+and I can put the value that is inside the list
+directly on the stack.
+So I can do the computations faster that way.
+And there is also a series of smart pointer classes,
+the names and in other score G in the source code,
+that let me have garbage-collected smart pointers.
+The allocation is super cheap,
+because it's essentially I'm moving the pointer
+at the top of the scratch space, like this.
+So it's just one addition and one comparison,
+and the comparison is to see,
+okay, am I out of memory, do I need to garbage-collect?
+So a very, very cheap allocation.
+The garbage collection itself, as you, you know,
+your memory grows and you allocate more and more stuff,
+so at some point, memory gets slow.
+The unreferenced temporaries, you no longer need them,
+so what you do is you copy the reference object down
+and you adjust the pointers,
+and then you move the editing part of the scratch pad down,
+and you reclaim your free space that way.
+So the good point of this approach is that there is no memory
+of a head at all.
+There is not a single byte that is used for metadata
+or linked list or anything like that.
+The sub-objects, so pointers to objects inside a list,
+for instance, don't cost me extra at all either.
+If you know something about garbage collectors
+and you think of a market-suit garbage collector,
+for instance, it needs some metadata about sub-objects,
+and so that means you have extra costs
+for objects inside objects.
+And it's a single-pass garbage collector,
+so it's simple code, easy to maintain,
+but the downside is that it's slow.
+It's essentially a quadratic behavior,
+number of stack objects times number of objects
+instead of linear or close to linear that you could get otherwise.
+So it's a usual trade-off of space for speed.
+So why use C++ at all?
+Well, it's because of template metaprogramming,
+and let me explain why this matters.
+So the guy that you see in the photo there is a guy named David van der Vorder,
+and he's a Belgian guy who initiated me to C++ metaprogramming
+back in 1998 when we were in the C++ HP compiler team.
+So the guys you see in the background are the HP compiler team back in 1998,
+and that guy is super, super smart
+and initiated me to template metaprogramming
+before it was even possible,
+so we were dreaming about doing these things.
+But now you can, and let me explain why it matters.
+I'm going to represent code as data using metaprogramming,
+not because we can, just for the sake of it,
+but because I have to.
+So let me talk about bug number 12 in our project.
+You compute 1.2 plus 3.4, and it hangs on battery power.
+So how do you reproduce this bug?
+You don't use the technique shown on the right.
+Instead, you simply type 1, 2, 2, 3, 4, plus,
+and the calculator sits there, not doing the computation.
+And your users call you and say,
+did you even test the thing?
+So you scratch your head, how did I miss that?
+Well, the fact is it hangs only on battery power,
+and as soon as you plug the USB cable,
+the computation resumes and you get the result.
+You can guess that I did my testing with the USB cable on.
+So what is this bug?
+This one was a bit hard to find.
+It turns out that the chip has an execute in place feature
+that works, it's supposed to work on the external chip,
+something called the QSPI interface,
+except it just lacks battery power,
+or a power juice when it's on battery.
+And so essentially it sits there waiting for the cycle to complete,
+and it completes it when you plug the power.
+Okay, so that means I have to move as much of my mathematics
+into data that I can read from the QSPI
+as opposed to code that I cannot put there.
+That's why I only have 700K, otherwise I'd have two makes.
+So how do I use C++ metaprogramming to do that?
+Let's see a description of an interesting math rule,
+and that's how you expand polynomials.
+So you know the rule, you see the first rule,
+for instance, X plus Y times Z,
+you turn that into X times Z plus Y times Z,
+and you see that's exactly what you see in the code.
+So the code contains essentially the mathematical formula
+as you're applying.
+That's neat, right?
+Now, here's a guess.
+How many bytes of code does that generate?
+Give me a guess.
+Nobody wants to want to guess.
+Okay, that's the assembly code.
+12 bytes.
+So that code generates 12 bytes of code,
+but it generates tons of read-only data,
+which is good because I can move that to my QSPI.
+So the magic is this ugly metaprogramming code
+that generates constant arrays,
+and I taught the C++ compiler how to generate
+RPL objects from C++ expressions.
+Isn't that cool?
+And so that's how you get 12 bytes of code,
+tons of data that I don't care about,
+I have plenty of that data space free
+and no executing place needed.
+So in the end, how much math in 700K?
+Well, it turns out that for another reason,
+I'm now back under 500K,
+so I'm within the limit that we all heard about,
+the 640K that ought to be enough for everybody, right?
+So from one engineer to another, what do we have?
+So we have base numbers for engineers
+in the computer field, that's really fancy.
+In any base, I can compute in base 17 or 34 if you want,
+or three.
+With any size, you can compute on 13 bits
+or 512 bits if you want.
+We have complex numbers that's useful for electrical engineering,
+and we have phases that are dealt with
+with exact results if we can,
+so like exact fractions and stuff like that.
+We have linear algebra, and here two exact results
+when we can.
+Statistics, which is useful for field science.
+Degree minutes, second support,
+so that's if you're doing, you know,
+maritime navigation or stuff like that,
+that's really handy, you have a really nice shortcut for that.
+Unit conversions, if you want to land something on Mars
+without crashing it, because some guy in the US
+is using really ridiculous units.
+And symbolic processing, which is useful for math gigs.
+About 1980s era efficiency.
+I have this magic menu, it's the key at the top,
+next to the A symbol, and essentially it selects
+the right menu depending on the type of the object on the stack.
+So very few key strokes to get exactly the functions
+that are most useful for what I'm working on.
+Equation data entry, I use a single key to enter
+the symbol that they limit expressions,
+and when I'm inside, that's the quotes in RPL,
+but once I'm inside an expression, I no longer need these quotes,
+so I hit the same key and I get parentheses instead.
+And same thing with the equal sign that you see at the bottom,
+it evaluates an expression, so it's the eval function of RPL,
+but if you're inside an equation, then it says,
+well, I'm inserting an equal sign because I'm trading an equation,
+and if I'm inside parentheses, it's inserting a semicolon
+instead to separate function arguments.
+Exactly symbol data entry, that's for your gigs.
+So when you type a hash sign,
+the cursor changes to a B, that's for base numbers,
+and it says now the ABCD keys, you don't need to shift them or anything,
+you just get ABCD.
+DMS data entry dot dot dot, and yep, and a one key function.
+Okay.
+Just my conclusion that I cannot answer the question
+because I still have 200k to go, so see you next year, guys.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+Thank you.
+So the next speaker can set up.
+Is there any time for questions?
+Yes, there's five questions.
+We'll have one for the next speaker.
+Yeah.
+But I don't see the next speaker.
+No questions, seriously?
+Who wants to help with this project?
+I'll just give my laptop.
+You know, it's 20.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+We'll just give my laptop.
+Does that rock?
+Does the calculator have a beeper?
+Yes.
+That's a good question.
+So let me...
+I'll use the voice.
+Oh.
+I think it will be a full row.
+So here we go.
+Okay.
+Okay.
+Okay.
+Okay.
+Okay.
+Now it's your world of activities.

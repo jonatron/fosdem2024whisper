@@ -1,0 +1,2363 @@
+WEBVTT
+
+00:00.000 --> 00:09.400
+And today I will show you some of the most common performance issues which I have seen
+
+00:09.400 --> 00:15.960
+so far in my career, how to fix them, and the benchmarks which show the numbers, what
+
+00:15.960 --> 00:20.640
+kind of performance increase which you can get when you fix the stuff.
+
+00:20.640 --> 00:22.120
+It works.
+
+00:22.120 --> 00:25.480
+My talk will follow the plan on the slide.
+
+00:25.480 --> 00:31.520
+So I will first present you some issue categories where you typically lose most of the performance,
+
+00:31.520 --> 00:34.920
+at least in my experience, like I said.
+
+00:34.920 --> 00:41.080
+And then for each category we will go through specific topics, what you can optimize how
+
+00:41.080 --> 00:45.200
+and what kind of numbers you can get when you optimize.
+
+00:45.200 --> 00:50.600
+And then some sort of conclusions of the topics on the slide, we just go for them one by one.
+
+00:50.600 --> 00:56.200
+The QR code right now is not working, it will be working after the talk.
+
+00:56.200 --> 01:01.920
+Everything will be online clickable, you can just walk through it again to repeat the recipes
+
+01:01.920 --> 01:05.440
+if you need.
+
+01:05.440 --> 01:11.520
+So back end performance at least in my area of work, back end usually means one of those
+
+01:11.520 --> 01:19.800
+three things, latency of your requests, CPU and memory usage on your machine, and your
+
+01:19.880 --> 01:25.440
+throughput, which is how many requests you can process third time frame, which is usually
+
+01:25.440 --> 01:26.840
+expressed as per second.
+
+01:26.840 --> 01:34.320
+So request per second, RPS, and we want to improve this stuff.
+
+01:34.320 --> 01:39.160
+And also there are those bad places where you can lose performance in those three categories,
+
+01:39.160 --> 01:46.160
+which are inefficient suboptimal heap usage, unnecessary expensive threat content should
+
+01:46.160 --> 01:53.160
+be done on critical paths and inefficient networking, like inefficient networking IO or inefficient
+
+01:56.120 --> 02:00.360
+circuit scheduling and things around this stuff.
+
+02:00.360 --> 02:03.600
+And like I said, we just go through each and see specific cases.
+
+02:03.600 --> 02:10.120
+Starting with the heap, to understand what can you lose here, you have to understand
+
+02:10.120 --> 02:11.440
+how heap is working.
+
+02:11.440 --> 02:16.360
+It's just enough to understand basics, you don't need to know specific implementations.
+
+02:16.360 --> 02:22.360
+But the basics are that this heap thing, it's a data structure, like some sort of tree,
+
+02:22.360 --> 02:27.880
+has stable whatever, it's global in your process, and it is used by all the trends.
+
+02:27.880 --> 02:33.160
+When you call new or malloc, they go into the heap and fetch three block of specified
+
+02:33.160 --> 02:35.520
+size, return it to you and you use it.
+
+02:35.520 --> 02:39.120
+When you call free or delete, they are placed back into the queue.
+
+02:39.120 --> 02:45.000
+And this operation of finding free block in the queue of needed size or placing free
+
+02:45.000 --> 02:49.000
+block back into the queue, it takes time.
+
+02:49.000 --> 02:55.000
+So this lookup thing in the heap, it's not free and it's not constant time.
+
+02:55.000 --> 03:00.280
+It's some lookup time, which depends on how big the heap is, for example.
+
+03:00.280 --> 03:06.800
+So if we mentioned that this is a tree, which stores blocks sorted by size, then lookup
+
+03:06.800 --> 03:11.960
+time will be something logarithmic or something like, doesn't have to be tree.
+
+03:11.960 --> 03:16.560
+But the point is the bigger the queue, the bigger the heap, the more expensive are the
+
+03:16.560 --> 03:18.520
+lookups in the heap.
+
+03:18.520 --> 03:24.560
+Also like I said, this is a global thing in the process, usually by default, which means
+
+03:24.560 --> 03:29.560
+that you will get threat contention on this thing if you use it extensively.
+
+03:29.560 --> 03:33.200
+For example, multiple charts are located in blocks of the same size, but very frequently
+
+03:33.200 --> 03:35.520
+you will have threat contention.
+
+03:35.520 --> 03:41.080
+Heap does have mutixes inside and you can even see them sometimes in the flame graphs.
+
+03:41.080 --> 03:48.440
+So make it worse if you are writing in C++ and you're happily using those nice fancy
+
+03:48.440 --> 03:53.120
+containers, least vector queue stack unordered containers.
+
+03:53.120 --> 03:59.600
+No, forward least, all this nice easy to use stuff, you have to realize that even if you
+
+03:59.600 --> 04:04.200
+don't use heap explicitly, it is used inside those containers.
+
+04:04.200 --> 04:09.520
+Heap is basically, vector is basically dynamic array, myp is basically a red-black tree where
+
+04:09.520 --> 04:15.400
+nodes are allocated, least allocates, containers for every item of the distance are on.
+
+04:15.400 --> 04:21.800
+So you use the heap even if you don't do it explicitly to make it even worse after that.
+
+04:21.800 --> 04:24.320
+You have to remember that allocations affect each other.
+
+04:24.320 --> 04:28.320
+Like I said, the more allocations you do, the slower it will be next to allocations and
+
+04:28.320 --> 04:29.720
+freeings.
+
+04:29.720 --> 04:35.640
+Use heap becomes bigger, it becomes more fragmented, less optimal and it gets more and more expensive
+
+04:35.640 --> 04:37.240
+to use.
+
+04:37.240 --> 04:39.600
+What can we do about this stuff?
+
+04:39.600 --> 04:42.280
+Firstly, you can try not to use this stuff.
+
+04:42.280 --> 04:45.320
+You can just not use the heap when you don't need to.
+
+04:45.320 --> 04:51.360
+For example, when you can just locate stuff on the stack, when something, some object
+
+04:51.360 --> 04:57.520
+is array, it's small enough and its size is known at compile time, just declare it on
+
+04:57.520 --> 04:59.080
+the stack and use it.
+
+04:59.080 --> 05:02.120
+If it doesn't have to be something long-leaving.
+
+05:02.120 --> 05:08.440
+Or another frequent use case which I see is then when we have a class or struct and we
+
+05:08.440 --> 05:14.800
+store in there something by pointer and lifetime of this object is equal to the class where
+
+05:14.800 --> 05:15.800
+it's stored, right?
+
+05:15.800 --> 05:17.480
+And they just store it by value then.
+
+05:17.480 --> 05:21.080
+You will reduce number of heap allocations then.
+
+05:21.080 --> 05:27.680
+When you cannot get rid of the heap allocation and you have it in some critical path which
+
+05:27.680 --> 05:33.440
+is very frequently used on your server and you see it in the flying graphs, you can still
+
+05:33.440 --> 05:37.360
+do something about it, you can optimize it.
+
+05:37.360 --> 05:43.680
+And there are ways, some easy ways how you can quickly regain some performance back.
+
+05:43.680 --> 05:49.840
+We will start with the object pooling thing which is not as simple as it sounds.
+
+05:49.840 --> 05:52.040
+Typical very widespread use case in the back end.
+
+05:52.040 --> 05:56.520
+We have this server, requests are coming to the server.
+
+05:56.520 --> 06:02.200
+Each request is read from the network parsed allocated into something like struct request
+
+06:02.200 --> 06:04.000
+or class request.
+
+06:04.000 --> 06:09.560
+It can be big, one kilobyte, five kilobytes of different data, different members, attributes,
+
+06:09.560 --> 06:12.720
+then you place it into your business logic pipeline.
+
+06:12.720 --> 06:15.560
+It is processed in the end, it is deleted.
+
+06:15.560 --> 06:19.480
+And this process is repeated again and again for every request.
+
+06:19.480 --> 06:25.480
+And if the request is big enough, like one kilobyte, and you do it frequently enough,
+
+06:25.480 --> 06:32.000
+like 100,000 times per second or million times per second, then you will get heap issues
+
+06:32.000 --> 06:38.000
+here because this heap allocation and freeing will get expensive of such a big object like
+
+06:38.000 --> 06:40.480
+one kilobyte or more.
+
+06:40.480 --> 06:47.120
+And you can see it in your flying graphs sometimes if you are building them at all.
+
+06:47.120 --> 06:48.120
+Example of the code.
+
+06:48.120 --> 06:53.200
+So we have this class request with many members.
+
+06:53.200 --> 06:54.960
+Some of them can be indirect members.
+
+06:54.960 --> 06:59.680
+For example, we could inherit this from base request, which is base, base request and something
+
+06:59.680 --> 07:01.920
+like and it can pile up.
+
+07:01.920 --> 07:06.440
+So in my current project, the size of this thing is two kilobytes from those many, many,
+
+07:06.440 --> 07:10.160
+many small members.
+
+07:10.160 --> 07:15.960
+And then we have this business logic pipeline, like process request and it allocates request
+
+07:15.960 --> 07:21.840
+object, fills this with data and when request is complete, asynchronously somewhere it is
+
+07:21.840 --> 07:22.840
+deleted.
+
+07:23.280 --> 07:29.480
+This thing, those two lines will get expensive.
+
+07:29.480 --> 07:34.560
+If done frequently enough and request is big enough.
+
+07:34.560 --> 07:37.480
+Effects of the heap here can be mitigated quite easily.
+
+07:37.480 --> 07:43.120
+If instead of using the heap all the time for allocating and freeing stuff, we will just
+
+07:43.120 --> 07:47.760
+allocate it once and then we will reuse it again and again.
+
+07:47.760 --> 07:52.800
+So we use the heap just once and then we don't use it.
+
+07:52.800 --> 07:55.440
+And we avoid the heap issues.
+
+07:55.440 --> 07:56.680
+This is called object pooling.
+
+07:56.680 --> 08:00.560
+When you allocate stuff once, store it in some sort of pool and then you take it from the
+
+08:00.560 --> 08:04.320
+pool and place it back by placing the heap.
+
+08:04.320 --> 08:07.560
+Even though first time you do allocate it on the heap.
+
+08:07.560 --> 08:11.960
+Then what you get from this is that firstly you do not pay for the lookup time in the
+
+08:11.960 --> 08:12.960
+heap.
+
+08:12.960 --> 08:19.120
+If you remember that the heap is storing those blocks of different sizes, sort it somehow
+
+08:19.120 --> 08:23.480
+then it needs to be something like 3 or hash or whatever.
+
+08:23.480 --> 08:26.560
+But here all the objects are the same of the same size.
+
+08:26.560 --> 08:29.000
+It can be just least or stack, right?
+
+08:29.000 --> 08:32.480
+It could be done in constant time, allocation and freeing.
+
+08:32.480 --> 08:37.240
+We do not pay for lookup time anymore.
+
+08:37.240 --> 08:41.560
+You can deal with concurrency in a more efficient way than the standard library.
+
+08:41.560 --> 08:46.920
+I mean you can switch of course the heap from like GMLOCK or TCMLOCK, right?
+
+08:46.920 --> 08:47.920
+We heard about it.
+
+08:47.920 --> 08:51.400
+It can make stuff actually faster.
+
+08:51.400 --> 08:58.000
+But if you do not want to or you have to have more control in your code over those things
+
+08:58.000 --> 09:02.240
+and you have this pooling thing, you can implement concurrency yourself and you have to agree
+
+09:02.240 --> 09:06.080
+that doing concurrency stack or concurrent list is obviously much simpler than doing
+
+09:06.080 --> 09:10.680
+concurrent tree or concurrent hash table or something, right?
+
+09:10.680 --> 09:13.320
+It can be done much simpler.
+
+09:13.320 --> 09:14.960
+Let's try.
+
+09:14.960 --> 09:17.240
+This is how I tried first time.
+
+09:17.240 --> 09:20.200
+It's good first try, right?
+
+09:20.200 --> 09:21.200
+Kind of.
+
+09:21.200 --> 09:22.200
+It's simple.
+
+09:22.200 --> 09:24.000
+That's why it's good.
+
+09:24.000 --> 09:25.360
+Sometimes it's even good enough, right?
+
+09:25.360 --> 09:28.520
+So we don't need over engineer things.
+
+09:28.520 --> 09:34.880
+But in this case it makes not much sense because if your code is very hot and you suffer from
+
+09:34.880 --> 09:41.320
+heap contention and you change it to this, then it will get even worse because you will
+
+09:41.320 --> 09:46.280
+exchange heap contention with mutics contention.
+
+09:46.280 --> 09:51.120
+And secondly, you are still using the heap because if you are storing in an STL container,
+
+09:51.120 --> 09:55.920
+any of them, you will be using heap and we don't want to use the heap.
+
+09:55.920 --> 09:57.840
+So it cannot be done this way.
+
+09:57.840 --> 09:58.840
+But it can be improved.
+
+09:58.840 --> 10:01.360
+It's not a dead end, right?
+
+10:01.360 --> 10:03.080
+This is how it can be improved.
+
+10:03.080 --> 10:05.200
+And the alternative is to add local pooling.
+
+10:05.200 --> 10:12.200
+So what we have is instead of single global pool for everything, we have one global pool
+
+10:12.200 --> 10:21.640
+and also in each thread we have thread local pool of limited size in each thread in addition
+
+10:21.640 --> 10:23.400
+to the global pool.
+
+10:23.400 --> 10:29.920
+When threads are locating something with new or maloc or whatever, they take objects from
+
+10:29.920 --> 10:34.080
+the local pool, not from the global one.
+
+10:34.080 --> 10:38.120
+And when they free objects, they place it back into the local pool.
+
+10:38.120 --> 10:40.280
+And this local pool can be done very, very simply.
+
+10:40.280 --> 10:43.640
+It can be just a list, an intrusive list and that's it.
+
+10:43.640 --> 10:48.160
+It doesn't need mute access or anything because each of those local pools is used exclusively
+
+10:48.160 --> 10:50.480
+by one thread.
+
+10:50.480 --> 10:58.280
+But when pool inside some threads becomes empty and they want to allocate more, they will
+
+10:58.280 --> 11:04.640
+take a batch of objects from the global storage and will reuse this batch until it also ends
+
+11:04.640 --> 11:06.320
+and so on.
+
+11:06.320 --> 11:12.800
+On the other side, when they will be freeing stuff and local pool becomes too big because
+
+11:12.800 --> 11:14.640
+it's limited in size, it cannot grow.
+
+11:14.640 --> 11:18.400
+Infinitely, they will move it back into the global storage so as other threads could reuse
+
+11:18.400 --> 11:20.440
+it.
+
+11:20.440 --> 11:24.640
+This way we get firstly that the heap is used rarely.
+
+11:24.640 --> 11:33.960
+It is used in bulk when it is used to allocate at once many objects, not four, like 64, 128.
+
+11:33.960 --> 11:42.000
+And also it will not be used at all after some point when all the pools will get saturated.
+
+11:42.000 --> 11:47.200
+And fourthly, there is no contention on the single global pool.
+
+11:47.200 --> 11:52.920
+This global storage, it can be protected with the mutex, but it is used so rarely that this
+
+11:52.920 --> 11:55.480
+mutex contention will not be visible.
+
+11:55.480 --> 11:59.080
+It will be used at most every, like, 64 locations.
+
+11:59.080 --> 12:05.440
+So it's 64 times less contention, which means it will be basically almost zero, neglectable.
+
+12:05.440 --> 12:12.640
+If the explanation was too bulky, I prepared an example how it works, like a real life
+
+12:12.640 --> 12:14.960
+example, how it could look like.
+
+12:14.960 --> 12:18.200
+Imagine that we have those three threads and empty global pool.
+
+12:18.200 --> 12:21.280
+All is empty in the beginning.
+
+12:21.280 --> 12:22.960
+First thread wants to allocate something.
+
+12:22.960 --> 12:25.720
+It will take a look at the global storage.
+
+12:25.720 --> 12:27.920
+There is nothing, so it has to allocate a new batch.
+
+12:27.920 --> 12:30.440
+New batches are located on the heap.
+
+12:30.440 --> 12:34.760
+But then when it will allocate objects, they will be taken from this batch.
+
+12:34.760 --> 12:36.240
+No more heap allocations.
+
+12:36.240 --> 12:38.080
+Just one heap allocation.
+
+12:38.080 --> 12:42.720
+And then from the allocated batch, we take objects one by one.
+
+12:42.720 --> 12:43.720
+Then second thread.
+
+12:43.720 --> 12:44.720
+That's the same.
+
+12:44.720 --> 12:49.240
+It has had local pool empty, nothing in the global storage, so it had to allocate second
+
+12:49.240 --> 12:50.240
+batch.
+
+12:50.880 --> 12:53.240
+They keep using the objects from the local pools.
+
+12:53.240 --> 12:57.720
+So far, we only did two heap allocations.
+
+12:57.720 --> 13:03.480
+But then happens, which happens very frequently in backend code.
+
+13:03.480 --> 13:06.120
+Those objects, they migrate into another thread.
+
+13:06.120 --> 13:14.080
+It happens when you have dedicated threads for networking, they read data from network.
+
+13:14.080 --> 13:18.800
+They parse it, create this struct request, push it into some sort of queue.
+
+13:18.800 --> 13:23.520
+And this queue is taken by other threads doing business logic, and they will delete the request.
+
+13:23.520 --> 13:28.640
+So most often, it happens that you have one thread allocating requests, other threads
+
+13:28.640 --> 13:31.040
+deleting requests.
+
+13:31.040 --> 13:32.040
+Objects will migrate.
+
+13:32.040 --> 13:33.240
+So here they migrated.
+
+13:33.240 --> 13:37.760
+And this other thread completed them somehow and tries to free them.
+
+13:37.760 --> 13:40.320
+They do not fit into this local pool.
+
+13:40.320 --> 13:42.240
+It is limited in our example by four.
+
+13:42.240 --> 13:45.360
+So fifth item didn't fit.
+
+13:45.360 --> 13:50.120
+And to fit more, it will have to migrate this pool into the global storage.
+
+13:50.120 --> 13:53.080
+And then it can keep freeing stuff.
+
+13:53.080 --> 13:57.400
+Now, a little bit more random work happens.
+
+13:57.400 --> 13:58.600
+Some more migrations.
+
+13:58.600 --> 14:03.160
+And then we are in a situation when second thread wants to allocate something.
+
+14:03.160 --> 14:06.760
+But it doesn't have anything locally, so it will go to the global pool.
+
+14:06.760 --> 14:08.480
+And this time, we have a free batch.
+
+14:08.480 --> 14:10.200
+So we take it.
+
+14:10.200 --> 14:12.320
+And we use this batch.
+
+14:13.280 --> 14:18.680
+So far, during this entire demonstration, we have only used heap two times for all those
+
+14:18.680 --> 14:20.400
+allocations.
+
+14:20.400 --> 14:24.280
+And at some point, after some more work, we will not use heap at all.
+
+14:24.280 --> 14:27.120
+It will be all saturated.
+
+14:27.120 --> 14:28.120
+Work continues like that.
+
+14:28.120 --> 14:30.120
+How it could look in the code?
+
+14:30.120 --> 14:32.680
+Yeah, visible, good.
+
+14:32.680 --> 14:35.800
+I have this benchmarks link is on the slide.
+
+14:35.800 --> 14:36.800
+Everything is already open.
+
+14:36.800 --> 14:39.080
+You can reproduce it yourself.
+
+14:39.080 --> 14:47.760
+I have this value, I think, which is, whose size is configurable at compile time via
+
+14:47.760 --> 14:50.280
+templates in C++.
+
+14:50.280 --> 14:55.200
+And I'm testing it with sizes one byte, half kilobyte, and one kilobyte.
+
+14:55.200 --> 15:01.880
+And they also have the same value, but thread pooled by the algorithm, which I just explained
+
+15:01.880 --> 15:03.720
+before.
+
+15:03.720 --> 15:11.120
+And in the C++, no matter how much we can argue whether it's good or bad, full of unnecessary
+
+15:11.120 --> 15:14.000
+stuff, but templates are sometimes very nice.
+
+15:14.000 --> 15:19.840
+In this case, I implemented the pooling in templates just once.
+
+15:19.840 --> 15:24.800
+And what I have to do is simply inherit this magic thread pooled class, and my class becomes
+
+15:24.800 --> 15:25.800
+thread pooled.
+
+15:25.800 --> 15:30.560
+I can simply apply it in as many places as I need, and all the types will become thread
+
+15:30.560 --> 15:33.280
+pooled with their own independent pools.
+
+15:33.280 --> 15:36.680
+So I'm comparing value versus value pooled.
+
+15:36.680 --> 15:41.080
+The comparison itself is that I have many threads.
+
+15:41.080 --> 15:47.360
+Each thread allocates many, many values, and then frees them in random order.
+
+15:47.360 --> 15:48.680
+And then again, and then again.
+
+15:48.680 --> 15:55.640
+And I am testing how fast is this spring and allocation, depending on number of threads
+
+15:55.640 --> 15:59.560
+and so on.
+
+15:59.560 --> 16:05.680
+And those are the results, which were surprising for me to be frank, that for one byte, even
+
+16:05.680 --> 16:08.080
+for a single byte case, I got a speedup.
+
+16:08.080 --> 16:14.120
+Normally, heap is very fast, even for, is very fast for smaller locations like those
+
+16:14.120 --> 16:15.620
+few bytes.
+
+16:15.620 --> 16:19.040
+Heap is actually extremely fast, the standard heap.
+
+16:19.040 --> 16:23.960
+But some why my pooled version was even faster than that on single byte case.
+
+16:23.960 --> 16:32.400
+But my most interesting relevant case was twice faster, which was good enough.
+
+16:32.400 --> 16:35.480
+And it can be actually quite visible in the final RPS.
+
+16:35.480 --> 16:38.280
+So of course, you have to benchmark everything.
+
+16:38.280 --> 16:41.280
+You shouldn't just blindly make everything thread pooled.
+
+16:41.280 --> 16:43.720
+I think this stuff will get faster.
+
+16:43.720 --> 16:44.720
+Probably will not.
+
+16:44.720 --> 16:50.520
+You have to apply case by case, measure performance, see how much it helps.
+
+16:50.520 --> 16:56.640
+I have seen in my experience that this can help and can be observable in the final RPS.
+
+16:56.640 --> 17:01.120
+This simple thing.
+
+17:01.120 --> 17:03.800
+What else can we do with the heap?
+
+17:03.800 --> 17:04.800
+Intrusive containers.
+
+17:04.800 --> 17:11.480
+So to understand the problem, which mostly comes from STL again, from STL containers,
+
+17:11.480 --> 17:19.280
+those list, map, unordered things, forward list, and the thing which unites them all
+
+17:19.280 --> 17:21.120
+is that they are not intrusive.
+
+17:21.120 --> 17:24.560
+And to show the point, let's have a look at the list.
+
+17:24.560 --> 17:32.440
+The lists are the most popular type of container, at least in my type of work in the stuff
+
+17:32.440 --> 17:33.440
+which I'm coding.
+
+17:33.440 --> 17:37.040
+I very frequently use lists.
+
+17:37.040 --> 17:42.320
+And the problem with the list is when you push something into the list, it will not be
+
+17:42.320 --> 17:44.320
+directly saved there.
+
+17:44.320 --> 17:51.360
+It will be copied and saved into link container object, this gray cube.
+
+17:51.360 --> 17:55.600
+Even if you store pointers, this pointer, those eight bytes, they will be copied.
+
+17:55.600 --> 17:59.680
+Not your object, but something will be copied and it's unavoidable.
+
+17:59.680 --> 18:05.040
+And it will be copied into this link container thing, allocated on the heap every time when
+
+18:05.040 --> 18:07.360
+you push into the list.
+
+18:07.360 --> 18:09.560
+And when you pop from the list, it will be deleted.
+
+18:09.560 --> 18:14.440
+So every operation with the list costs you heap operations.
+
+18:14.440 --> 18:20.400
+Secondly, which is not so obvious, but it also has performance, is that when you store
+
+18:20.400 --> 18:26.600
+pointers in a STL list, iteration of the list becomes slower.
+
+18:26.600 --> 18:32.800
+Because when you store pointers and you want to get into your object to de-reference some
+
+18:32.800 --> 18:38.400
+written member, for example, in your struct, you will first have to de-reference link container
+
+18:38.400 --> 18:41.120
+and then you de-reference your pointer to get to the member.
+
+18:41.120 --> 18:43.800
+You have two memory access operations.
+
+18:43.800 --> 18:44.800
+And they are not free.
+
+18:44.800 --> 18:50.720
+This arrow thing costs something.
+
+18:50.720 --> 18:51.880
+So we have additional memory.
+
+18:51.880 --> 18:55.920
+We look up simply because of how a STL list is implemented.
+
+18:55.920 --> 18:57.160
+What can be done with this?
+
+18:57.160 --> 18:59.120
+It's an intrusive list.
+
+18:59.120 --> 19:06.400
+So what we do, the basic idea is that we add those links, next and previous links, which
+
+19:06.400 --> 19:08.120
+are linking the items together.
+
+19:08.120 --> 19:13.160
+We add them into our object directly, like in the old C times.
+
+19:13.160 --> 19:18.040
+When you ask a student to implement a list, they do this.
+
+19:18.040 --> 19:23.600
+Probably they are doing it right because we will not have heap users here on every push
+
+19:23.600 --> 19:28.920
+and pop because we don't need intermediate link container objects to locate and delete
+
+19:28.920 --> 19:29.920
+them.
+
+19:29.920 --> 19:34.480
+And secondly, we don't have this additional memory lookup because to get your data, you
+
+19:34.480 --> 19:39.440
+just de-reference your pointer and directly get to the data.
+
+19:39.440 --> 19:41.680
+No intermediate objects for this.
+
+19:41.680 --> 19:51.640
+The only problem with those intrusive containers is that they are quite bulky, at least in
+
+19:51.640 --> 19:54.680
+C. So this is huge pain.
+
+19:54.680 --> 20:00.960
+Maintaining those next and previous pointers, head and tail of the list, and you do this
+
+20:00.960 --> 20:05.360
+every time for every type that you have and you want to store it in the list.
+
+20:05.360 --> 20:06.880
+This looks quite not good.
+
+20:06.880 --> 20:11.800
+It's quite hard to reuse such code without C++ templates.
+
+20:11.800 --> 20:16.760
+C++ templates, you can implement actually intrusive lists just once and then reuse them.
+
+20:16.760 --> 20:21.480
+On the slide, there are links to forward list and doubly list implemented by me.
+
+20:21.480 --> 20:25.680
+On the left side, you can see how the API looks for forward list.
+
+20:25.680 --> 20:28.240
+And on the right side, how it's used.
+
+20:28.240 --> 20:30.200
+So I have this object something.
+
+20:30.200 --> 20:37.040
+I simply add this next pointer in any place of my object and I instantly can use it in
+
+20:37.040 --> 20:40.040
+intrusive lists.
+
+20:40.040 --> 20:44.120
+With the intrusive list implemented just once using templates.
+
+20:44.120 --> 20:48.840
+And this name, by next, it's customizable so you can change the name as well of the
+
+20:48.840 --> 20:51.720
+member.
+
+20:51.720 --> 21:00.160
+Then what can you get from the performance if you apply intrusiveness is shown on this
+
+21:00.160 --> 21:04.080
+benchmark link on the slide as usual.
+
+21:04.080 --> 21:07.520
+I'm comparing a list of pointers with intrusive list.
+
+21:07.520 --> 21:14.000
+It's the list of pointers because usually, just like I said in my code, I prefer to manage
+
+21:14.000 --> 21:17.040
+lifetime of my objects myself.
+
+21:17.040 --> 21:19.920
+And when I have an object, I push it into the list.
+
+21:19.920 --> 21:21.880
+So I have object before that.
+
+21:21.880 --> 21:25.760
+And when I pop it from the list, I usually keep sleeping for a while after that.
+
+21:25.760 --> 21:29.640
+So I don't want to copy the entire object for storing it in the list.
+
+21:29.640 --> 21:32.080
+That's why I usually store pointers.
+
+21:32.080 --> 21:34.400
+And intrusive list stores pointers by design.
+
+21:34.400 --> 21:37.640
+So I'm comparing kind of similar cases.
+
+21:37.640 --> 21:44.560
+And the benchmark is doing that I'm measuring time of list population, how fast I push items
+
+21:44.560 --> 21:46.160
+into the list.
+
+21:46.160 --> 21:51.200
+And list walking, how much costs to me this additional memory lookup.
+
+21:51.200 --> 21:53.080
+It's interesting, right?
+
+21:53.080 --> 22:01.560
+So this small arrow thing is even visible in any measurements.
+
+22:01.560 --> 22:03.520
+This is what you get when you switch.
+
+22:03.520 --> 22:05.400
+So at least in this benchmark, right?
+
+22:05.400 --> 22:09.760
+So it might not get this speed up in your case, but in this benchmark indeed.
+
+22:09.760 --> 22:12.680
+And in my experience, it also sometimes does.
+
+22:12.680 --> 22:17.200
+I've got almost three times the speed up for list population because I no longer allocate
+
+22:17.200 --> 22:18.680
+those link containers.
+
+22:19.440 --> 22:25.520
+Firstly, secondly, you see this walking speed is 7% very small, almost noise.
+
+22:25.520 --> 22:26.520
+But it's not noise.
+
+22:26.520 --> 22:27.520
+It's reproducible.
+
+22:27.520 --> 22:32.320
+Every time you run this benchmark, you will see this difference, which comes, it's not
+
+22:32.320 --> 22:37.760
+much, but it comes from this additional arrow thing.
+
+22:37.760 --> 22:42.400
+And it's not much, but it doesn't mean that you can just leave it, right?
+
+22:42.400 --> 22:45.280
+Why have this performance loss if you cannot have it?
+
+22:45.400 --> 22:49.480
+Those small things, they pile up into something bigger.
+
+22:49.480 --> 22:56.120
+In my experience, this was all the easy stuff with the hip for which we have time.
+
+22:56.120 --> 22:59.240
+We can also have a look at thread condensation things.
+
+22:59.240 --> 23:00.800
+What is thread condensation?
+
+23:00.800 --> 23:05.840
+It appears when you have multiple threads which try to access certain critical sections
+
+23:05.840 --> 23:11.440
+at the same time, like mutex protected data or something like.
+
+23:11.440 --> 23:18.880
+And when this happens too frequently, it can cripple your performance, your cripple parallelism
+
+23:18.880 --> 23:20.000
+of your code.
+
+23:20.000 --> 23:24.040
+So your code will not as parallel as it could be.
+
+23:24.040 --> 23:29.040
+And result could be something like you have the 64 core machine, you enter it, you type
+
+23:29.040 --> 23:31.880
+H-stop and you see two cores used, right?
+
+23:31.880 --> 23:36.320
+It's not a good situation, paying so much money and then getting this.
+
+23:36.320 --> 23:40.440
+You are not utilizing all the resources when you have thread condensation or you are utilizing
+
+23:40.440 --> 23:44.040
+them on the condensation itself, not on something useful.
+
+23:44.040 --> 23:47.640
+And what can we do about this quickly?
+
+23:47.640 --> 23:49.040
+Like it's first aid kit, right?
+
+23:49.040 --> 23:52.040
+So it should be done something easy and quick.
+
+23:52.040 --> 23:54.320
+First thing, false sharing.
+
+23:54.320 --> 23:58.800
+It assumes that, let's start on the case when you think it's easy stuff.
+
+23:58.800 --> 24:01.600
+I know this, I am master of condensation.
+
+24:01.600 --> 24:03.120
+I don't have it.
+
+24:03.120 --> 24:05.760
+This is how I protect it from condensation.
+
+24:05.760 --> 24:12.400
+I placed this link on the slide with the benchmark and the example is that I have this object
+
+24:12.400 --> 24:14.760
+with two members.
+
+24:14.760 --> 24:20.960
+One member is always accessed in one thread, other member is always accessed in another
+
+24:20.960 --> 24:22.560
+thread.
+
+24:22.560 --> 24:27.960
+And seems like I don't have condensation because I am not sharing any data between the threads.
+
+24:27.960 --> 24:33.040
+And they have this benchmark which does some amount of work for 10 seconds or so, which
+
+24:33.040 --> 24:35.160
+looks good enough.
+
+24:35.160 --> 24:40.080
+But if I do it like this, I get five times the speedup.
+
+24:40.080 --> 24:47.960
+By adding this 64 bytes of unused data between my members of the, in this track.
+
+24:47.960 --> 24:52.680
+What is the link that I increased size of this track and I've got five times speedup?
+
+24:52.680 --> 24:55.000
+Should I just make all my strikes bigger the better?
+
+24:55.000 --> 24:56.440
+They will get faster.
+
+24:56.440 --> 25:01.720
+To understand the reasons behind this, you have to understand how CPU works with the
+
+25:01.720 --> 25:03.920
+memory.
+
+25:03.920 --> 25:11.080
+The thing is that CPU cores in your CPU, they don't access main memory, the RAM, the bus
+
+25:11.080 --> 25:12.080
+directly.
+
+25:12.080 --> 25:17.680
+They do it through this proxy thing called CPU cache, which is to put it simply is basically
+
+25:17.680 --> 25:21.400
+one cache per core, right?
+
+25:21.400 --> 25:23.920
+Not to dive into too much details.
+
+25:23.920 --> 25:29.600
+And this cache thing is basically accessing the main memory for the CPU and CPU is reading
+
+25:29.600 --> 25:32.560
+the cache transparently.
+
+25:32.560 --> 25:39.800
+And the cache, it has those blocks of fixed size, which are copies of small, small parts
+
+25:39.800 --> 25:41.320
+of the main memory.
+
+25:41.320 --> 25:50.000
+And those small blocks of fixed size, 64 bytes or 128, we call them cache lines.
+
+25:50.000 --> 25:57.600
+And all works fine and fast until we get the case when multiple CPU cores for some reason
+
+25:57.600 --> 26:00.920
+start reading and writing the same cache lines.
+
+26:01.920 --> 26:07.440
+For example, by the same address, one thread is doing crates, other threads are doing grids.
+
+26:07.440 --> 26:13.520
+Then we get contention and CPU has to perform this very expensive synchronization of the
+
+26:13.520 --> 26:19.560
+different cores so as they would store the same data for the same address.
+
+26:19.560 --> 26:24.280
+So as it wouldn't happen, then for the same address, different threads see different values,
+
+26:24.280 --> 26:25.280
+right?
+
+26:25.280 --> 26:26.280
+It shouldn't happen.
+
+26:26.280 --> 26:34.640
+And this synchronization of the cores is very expensive.
+
+26:34.640 --> 26:38.480
+This is where the slowdown happens.
+
+26:38.480 --> 26:46.840
+And what could happen and did happen in our case, that data which was seemingly unrelated,
+
+26:46.840 --> 26:52.360
+different bytes, they by bad luck just happened to be in the same cache line.
+
+26:52.360 --> 26:57.600
+And we've got contention on the cache line on the hardware level, not on the application
+
+26:57.600 --> 26:59.120
+logic level.
+
+26:59.120 --> 27:04.200
+Simply because when you work with memory, you always work with basically with minimal
+
+27:04.200 --> 27:05.960
+size of single cache line.
+
+27:05.960 --> 27:10.920
+Even when you access single bit, the entire cache line of 64 bytes containing this bit
+
+27:10.920 --> 27:14.200
+will be used by the CPU by the cache.
+
+27:14.200 --> 27:19.360
+My fix was as simple as just adding this to split my data into separate cache lines.
+
+27:19.360 --> 27:21.680
+And now I no longer have contention.
+
+27:21.680 --> 27:25.640
+This is how I've got five times speed up.
+
+27:25.640 --> 27:27.840
+This is measurable in the final RPS as well.
+
+27:27.840 --> 27:30.320
+It can be visible when you fix it.
+
+27:30.320 --> 27:33.240
+Just when you're fixing it, make sure that it makes sense.
+
+27:33.240 --> 27:40.800
+Like I said, don't just add the 64 bytes padding everywhere where you think you're sharing data.
+
+27:40.800 --> 27:42.240
+Add it, test if it makes sense.
+
+27:42.240 --> 27:45.000
+If it doesn't change anything, then just don't add it.
+
+27:45.000 --> 27:47.920
+It's as simple as that.
+
+27:47.920 --> 27:50.320
+What else can we do with thread contention?
+
+27:50.320 --> 27:53.760
+Have a look at memory ordering.
+
+27:53.760 --> 27:59.000
+If you are having highly loaded multi-threaded application, it's very, very likely that you
+
+27:59.000 --> 28:02.760
+are having also those atomic operations in your code.
+
+28:02.760 --> 28:11.040
+Like SDD atomic and C++ and double underscore sync, double underscore atomic in C compilers,
+
+28:11.040 --> 28:13.040
+which all do the same basically.
+
+28:13.040 --> 28:21.280
+Today, besides some arguments, they also take this memory order mysterious thing.
+
+28:21.280 --> 28:22.800
+There are plenty of those orders.
+
+28:22.800 --> 28:29.920
+And what they are doing is that they regulate how much freedom the CPU has about executing
+
+28:29.920 --> 28:36.480
+this instruction and instructions around this one without explicit ordering.
+
+28:36.480 --> 28:41.640
+CPU can execute your instructions in any order it wants.
+
+28:41.640 --> 28:47.240
+Even if you turn on all the off of the compiler optimizations, your machine code looks absolutely
+
+28:47.240 --> 28:53.240
+linear, even if you have single thread, still those instructions inside single thread can
+
+28:53.240 --> 28:55.080
+be completed in random order.
+
+28:55.080 --> 29:01.120
+It doesn't matter in which order you wrote them in C or C++ or whatever you're using.
+
+29:01.120 --> 29:02.120
+Example on the slide.
+
+29:02.120 --> 29:07.920
+So we have those free variables, ABC, starting zero, and they have one thread assigning them
+
+29:07.920 --> 29:11.000
+to one to three in order ABC.
+
+29:11.000 --> 29:16.160
+And then other thread reading them in different order, CBA.
+
+29:16.160 --> 29:22.360
+It looks impossible by all the logic, but it is in theory possible in some CPUs that
+
+29:22.360 --> 29:28.520
+you will get printed free equal C and zero equal B.
+
+29:28.520 --> 29:34.640
+It looks impossible because if second thread C is B, C assigned to free, it means that
+
+29:34.640 --> 29:37.000
+also it should C be assigned, right?
+
+29:37.000 --> 29:39.360
+Because it was assigned before C.
+
+29:39.360 --> 29:45.760
+But it could happen that it will not see this because, for example, read in second thread
+
+29:45.760 --> 29:49.680
+of B could be completed before the read of C.
+
+29:49.680 --> 29:56.880
+Or writing of B in thread one could be completed after writing of the variable C.
+
+29:56.880 --> 30:03.000
+We don't have any guarantees from the hardware when we are talking about observability of
+
+30:03.000 --> 30:06.840
+thread state from another thread point of view.
+
+30:06.840 --> 30:13.680
+And if you think if you are safe on x86, you just don't use ARM and ignore the problem,
+
+30:13.680 --> 30:17.160
+the bad stuff is that you still have reordering on x86.
+
+30:17.160 --> 30:21.640
+There is example on the slide by this link which you can compile and run.
+
+30:21.640 --> 30:26.560
+And even on x86, it will demonstrate reordering.
+
+30:26.560 --> 30:32.120
+The some instructions, logically impossible, will complete in different order.
+
+30:32.120 --> 30:33.120
+Without any tricks.
+
+30:33.120 --> 30:35.840
+It's completely predictable machine code.
+
+30:35.840 --> 30:38.080
+It will happen even on x86.
+
+30:38.080 --> 30:43.160
+We will not dive into details of each memory order possible.
+
+30:43.160 --> 30:45.040
+It's too much time.
+
+30:45.040 --> 30:49.040
+But I will demonstrate you what kind of speedup you can get if you study memory ordering and
+
+30:49.040 --> 30:51.280
+use correct ones.
+
+30:51.280 --> 30:55.720
+Benchmark on the slide link as usual and the benchmark is very simple.
+
+30:55.720 --> 30:57.480
+I have this loop, single thread.
+
+30:57.480 --> 30:59.360
+I'm not even using multi-thread here.
+
+30:59.360 --> 31:01.360
+It's just single thread.
+
+31:01.360 --> 31:05.720
+I'm using Atomics in a single thread to demonstrate the point.
+
+31:05.720 --> 31:12.280
+It has this loop where I'm using STD Atomic and it runs in two versions.
+
+31:12.280 --> 31:17.160
+First is default STD Atomic operation with sequential consistency order on the right
+
+31:17.160 --> 31:18.680
+side.
+
+31:18.680 --> 31:22.440
+Memory order, sex, CST.
+
+31:22.440 --> 31:26.120
+It is default when you use STD Atomic and don't specify memory order.
+
+31:26.120 --> 31:30.000
+So it is the safest and strictest order when you use it.
+
+31:30.000 --> 31:32.000
+Code works like it looks.
+
+31:32.000 --> 31:33.000
+This wire is default.
+
+31:33.000 --> 31:37.000
+Otherwise people wouldn't have to bother when they don't care.
+
+31:37.000 --> 31:38.800
+But it is an overkill in this case.
+
+31:38.800 --> 31:39.960
+It's too expensive.
+
+31:39.960 --> 31:42.480
+And in my case, relaxed order is enough.
+
+31:42.480 --> 31:44.400
+It is in most cases actually enough.
+
+31:44.400 --> 31:49.600
+Like in shared pointers, relaxed order is enough.
+
+31:49.600 --> 31:53.120
+And I'm just comparing this loop with relaxed and sequential.
+
+31:53.120 --> 31:54.120
+Just think of a number.
+
+31:54.120 --> 31:58.800
+What do you think would be, how much would be a speedup?
+
+31:58.800 --> 32:04.120
+Like probably you're thinking zero because if you know x is x86, you will tell me that
+
+32:04.120 --> 32:06.000
+it will render the same machine code.
+
+32:06.000 --> 32:09.240
+When x86 writing has the same guarantees.
+
+32:09.240 --> 32:12.000
+Prosequential consistency and relaxed order doesn't matter.
+
+32:12.000 --> 32:14.240
+x86 is safe, right?
+
+32:14.240 --> 32:19.080
+But I've got 16 times a speedup here if I'm using relaxed order.
+
+32:19.080 --> 32:20.080
+It was x86.
+
+32:20.080 --> 32:23.600
+It was modern compiler.
+
+32:23.600 --> 32:25.560
+Loop was not optimized out.
+
+32:25.560 --> 32:28.160
+It was minus of re-optimization.
+
+32:28.160 --> 32:30.040
+So top optimizations.
+
+32:30.040 --> 32:34.080
+And still I've got 16 times speedup of this loop.
+
+32:34.080 --> 32:36.360
+What happened here exactly?
+
+32:36.360 --> 32:42.520
+If I open machine code, this assembly stuff, I will see that relaxed order was compiled
+
+32:42.520 --> 32:45.960
+into single-move operation.
+
+32:45.960 --> 32:49.680
+Prosequential consistency was compiled into this exchange operation.
+
+32:49.680 --> 32:57.720
+The reason is that on x86, there is only one possible re-ordering.
+
+32:57.720 --> 33:04.040
+Prosequential consistency order protects from this type of re-ordering using this exchange
+
+33:04.040 --> 33:08.080
+operation, which gives more guarantees than move operation.
+
+33:08.080 --> 33:10.640
+And the problem is that in this case it wasn't needed.
+
+33:10.640 --> 33:14.760
+So I just requested two strict guarantees where I don't need them.
+
+33:14.760 --> 33:20.080
+And I paid 16 times slowdown for this.
+
+33:20.080 --> 33:26.200
+And in fact, at least in my entire career, I have never seen case when sequential order
+
+33:26.200 --> 33:27.760
+was needed.
+
+33:27.760 --> 33:33.240
+It is needed in such extreme weird cases that I have only seen the artificial examples.
+
+33:33.240 --> 33:37.240
+I have never seen it in actual production code needed.
+
+33:37.240 --> 33:45.720
+The only pre-orders I ever needed were relaxed or acquired plus release, nothing else.
+
+33:45.720 --> 33:48.080
+So this is what kind of speedup you can get.
+
+33:48.080 --> 33:54.720
+For fun, go to Godbolt and try to render the same code on this version of compiler on C-line.
+
+33:55.240 --> 33:57.120
+It will be even more interesting.
+
+33:57.120 --> 34:00.600
+Just amount of machine code simply didn't fit on the slide.
+
+34:00.600 --> 34:05.120
+That's why I didn't put it here from C-line for this simple loop.
+
+34:05.120 --> 34:08.240
+What else can we do with thread contention?
+
+34:08.240 --> 34:09.880
+Look for eqs.
+
+34:09.880 --> 34:15.720
+In the background code, it's very, very frequent that you need some sort of queues sometimes
+
+34:15.720 --> 34:19.560
+in multiple places of your application.
+
+34:19.560 --> 34:25.680
+And the usual use case is that you have multiple threads producing something for the queue,
+
+34:25.680 --> 34:26.680
+like requests.
+
+34:26.680 --> 34:31.760
+They read from the network, allocate requests, validate it, and push into queue.
+
+34:31.760 --> 34:34.360
+And other threads are doing, for example, business logic.
+
+34:34.360 --> 34:38.720
+They are taking objects from the queue and processing them, and then deleting, like on
+
+34:38.720 --> 34:39.720
+the slide.
+
+34:39.720 --> 34:41.480
+How can we do this?
+
+34:41.480 --> 34:44.480
+We start simple again.
+
+34:44.480 --> 34:48.000
+If we don't have much load, then this solution is actually just fine.
+
+34:48.000 --> 34:49.840
+So we have this queue.
+
+34:49.840 --> 34:52.840
+It's just a Mutex protected container in STL.
+
+34:52.840 --> 34:54.680
+It works fine.
+
+34:54.680 --> 35:01.160
+If you have hundreds of thousands of RPS or millions of RPS on this queue, then you will
+
+35:01.160 --> 35:03.520
+get Mutex contention here.
+
+35:03.520 --> 35:06.120
+You will get it guaranteed.
+
+35:06.120 --> 35:09.200
+What can you do about this is just get rid of the Mutex.
+
+35:09.200 --> 35:14.720
+And there are solutions how to do this, called log free queues, which allow you to have
+
+35:14.720 --> 35:16.160
+a queue without a Mutex and STL.
+
+35:16.160 --> 35:18.320
+It will be thread safe.
+
+35:18.320 --> 35:22.680
+And the problem with those queues is that there is no one major queue, which is best
+
+35:22.680 --> 35:25.720
+for all the cases.
+
+35:25.720 --> 35:32.280
+Implementation of specific queue very much depends on what kind of queue you want exactly.
+
+35:32.280 --> 35:36.600
+Like there are those four types of queues, depending on how many threads are producing
+
+35:36.600 --> 35:41.000
+for the queue, how many threads are taking objects from the queue.
+
+35:41.000 --> 35:44.880
+And also you have to know whether the queue should be limited in size in your case, what
+
+35:44.880 --> 35:47.600
+happens when the size limit is reached.
+
+35:47.600 --> 35:56.240
+So when you understand your case, you can choose one of the queues, one of the implementations.
+
+35:56.240 --> 35:57.720
+There are many, many implementations.
+
+35:57.720 --> 36:00.800
+Of course, I just placed a few of them on the slide.
+
+36:00.800 --> 36:05.440
+For all the queue types, two of them are mine.
+
+36:05.440 --> 36:14.880
+One of them is this very popular, according to GitHub stars, Cameron 314 concurrent queue.
+
+36:14.880 --> 36:19.160
+And also there is this very nice website, 1024course.net.
+
+36:19.160 --> 36:20.160
+Who knows?
+
+36:20.160 --> 36:28.320
+It's a very nice website, which not only contains source codes of various queue types, but also
+
+36:28.320 --> 36:31.880
+they are actually explained there in a simple language.
+
+36:31.880 --> 36:38.040
+So you can go there and dedicate yourself about how those queues are working and why,
+
+36:38.040 --> 36:42.600
+what is log free, what is weight free, what are all those memory ordering types.
+
+36:42.600 --> 36:44.920
+It's all explained on this side.
+
+36:44.920 --> 36:47.960
+Very understandable stuff.
+
+36:47.960 --> 36:53.040
+And like I said, don't just use multi-producer, multi-consumer queue for everything.
+
+36:53.040 --> 36:56.480
+If you have, for instance, single producer, single consumer queue, it can be done much
+
+36:56.480 --> 36:59.440
+faster than the former.
+
+36:59.440 --> 37:01.440
+So just be careful what you choose.
+
+37:01.440 --> 37:08.640
+And this is kind of speed up you can get when you simply switch from mutex protected to
+
+37:08.640 --> 37:09.880
+log free queue.
+
+37:09.880 --> 37:12.880
+This is benchmark of my two queues.
+
+37:12.880 --> 37:20.000
+Some benchmarks doing multiple producer, multiple consumer threads.
+
+37:20.000 --> 37:21.600
+And stuff, and those are the numbers.
+
+37:21.600 --> 37:27.800
+So this also can be visible on the final RPS of your application.
+
+37:27.800 --> 37:31.720
+Just make sure you test it before you apply it.
+
+37:31.720 --> 37:35.400
+All of those stuff I'm mentioning today, it makes sense to test it first to make sure
+
+37:35.400 --> 37:39.200
+if you actually need it.
+
+37:39.200 --> 37:49.040
+What else can we optimize quickly like first aid kit, networking, backend performance,
+
+37:49.040 --> 37:55.120
+very often like 90% of all this performance will consist of how efficient your networking
+
+37:55.120 --> 37:56.120
+is.
+
+37:56.480 --> 37:59.120
+How efficient is your data received and sending.
+
+37:59.120 --> 38:08.640
+And in cases like one connection, one request, this HTTP stuff, it also matters how quickly
+
+38:08.640 --> 38:10.960
+you can accept and close clients.
+
+38:10.960 --> 38:17.320
+So this socket creation and closure also matter how fast you can do this in those types of
+
+38:17.320 --> 38:23.440
+scenarios and quick stuff we can fix here is, for example, scatter gather a link to the
+
+38:23.440 --> 38:27.120
+benchmark on the slide.
+
+38:27.120 --> 38:28.120
+And the use case is this.
+
+38:28.120 --> 38:33.080
+You have, imagine this multiple buffers that you want to send.
+
+38:33.080 --> 38:39.600
+Each buffer can be separate message or each buffer can be part of single message like
+
+38:39.600 --> 38:42.080
+chant, response or something.
+
+38:42.080 --> 38:47.360
+And you want to send multiple piling up buffers into the socket.
+
+38:47.360 --> 38:49.200
+How do you do this?
+
+38:49.520 --> 38:50.840
+Do it in a simple way.
+
+38:50.840 --> 38:56.080
+You just run the loop where your calls send on every buffer, right?
+
+38:56.080 --> 38:59.640
+It works, obviously.
+
+38:59.640 --> 39:04.600
+And on this benchmark, I have speed two and a half gigabytes per second on local socket
+
+39:04.600 --> 39:07.960
+payer without networking.
+
+39:07.960 --> 39:15.000
+And I was sending 16 one kilobyte buffers every time when I called send all works fine.
+
+39:15.000 --> 39:20.080
+But if I do it like this, I suddenly get two and a half times speed up.
+
+39:20.080 --> 39:26.120
+And what I changed is that instead of loop of send calls, I did a single send message
+
+39:26.120 --> 39:29.160
+call.
+
+39:29.160 --> 39:31.360
+Even the code on the left side looks bigger.
+
+39:31.360 --> 39:33.000
+It was this much faster.
+
+39:33.000 --> 39:38.800
+In practice, I saw that this switch made my code 10 times faster.
+
+39:38.800 --> 39:44.280
+It just depends on how many buffers you are trying to send of which size at one time.
+
+39:44.280 --> 39:48.240
+In this case, 16 buffers each one kilobyte in size, local circuits.
+
+39:48.240 --> 39:52.920
+I got this speed up, but it can be better.
+
+39:52.920 --> 39:54.880
+And where is the speed up coming from?
+
+39:54.880 --> 40:04.000
+The thing is that on the right side, I did 16 send calls.
+
+40:04.000 --> 40:07.400
+On the left side, I did single send message call.
+
+40:07.400 --> 40:11.400
+And those send and send message, they are in fact system calls.
+
+40:12.400 --> 40:14.200
+Very, very expensive.
+
+40:14.200 --> 40:18.440
+Switch into the kernel context when you're calling those things.
+
+40:18.440 --> 40:21.840
+And this is extremely expensive, basically.
+
+40:21.840 --> 40:24.160
+Every system call is always very expensive stuff.
+
+40:24.160 --> 40:27.880
+And you should avoid that, make them as few as you can.
+
+40:27.880 --> 40:30.080
+In this case, speed up is coming exactly from this.
+
+40:30.080 --> 40:32.240
+I simply made less system calls.
+
+40:32.240 --> 40:37.360
+I sent into the kernel multiple buffers at once.
+
+40:37.360 --> 40:42.600
+And this single, even single system call is many orders of magnitude more expensive
+
+40:42.600 --> 40:46.080
+than just filling this Iovac array.
+
+40:46.080 --> 40:51.920
+Even if it's something like 128 buffers, sending more doesn't make sense.
+
+40:51.920 --> 40:55.720
+128, as far as I remember, it's the limit in the kernel anyway.
+
+40:55.720 --> 40:58.040
+They will not accept more.
+
+40:58.040 --> 41:03.400
+Funny thing, when you try to send more, sometimes kernel can return errors.
+
+41:03.400 --> 41:05.040
+It will even just do partial send.
+
+41:05.040 --> 41:08.120
+It can return error, like too many buffers.
+
+41:08.120 --> 41:11.440
+Someway, this is what I absorbed at least.
+
+41:11.440 --> 41:15.440
+So the solution here, if you have multiple buffers to send, simply use send message and
+
+41:15.440 --> 41:20.120
+receive message instead of looping those send and receive calls.
+
+41:20.120 --> 41:22.760
+And of course, it only matters if you have more than one buffer.
+
+41:22.760 --> 41:26.520
+If you have just one buffer and you switch from send to send message, absolutely nothing
+
+41:26.520 --> 41:27.960
+will change.
+
+41:28.840 --> 41:35.680
+Some people might be already thinking that why didn't I use readV and writeV calls?
+
+41:35.680 --> 41:36.920
+Because they look simpler.
+
+41:36.920 --> 41:40.080
+I don't need to fill in this message header object.
+
+41:40.080 --> 41:43.640
+I can just send array of Iovacs directly, right?
+
+41:43.640 --> 41:45.920
+They will work even with the same speed.
+
+41:45.920 --> 41:51.640
+The problem with those system calls, read and write, readV, writeV, is that when you
+
+41:51.640 --> 41:57.440
+use them, they are accounted in the kernel as disk operations, even if you use them
+
+41:57.440 --> 41:58.440
+on the circuit.
+
+41:58.440 --> 42:00.160
+I don't know why, but it is the fact.
+
+42:00.160 --> 42:06.720
+So when you are using read write calls on a circuit and you check this protspeed.io
+
+42:06.720 --> 42:12.480
+file, it will grow even if you call those functions on circuits.
+
+42:12.480 --> 42:13.880
+They will be accounted as disk operations.
+
+42:13.880 --> 42:17.720
+If you don't care about the statistics, then you can use those functions.
+
+42:17.720 --> 42:21.240
+But if you care, try to use send message and receive message.
+
+42:21.240 --> 42:25.000
+They are portable, available on all the Unix-like systems.
+
+42:25.880 --> 42:28.240
+So good stuff.
+
+42:28.240 --> 42:31.040
+What else can optimize event queues?
+
+42:31.040 --> 42:36.760
+It, of course, depends on the application very heavily, but often in the backend servers,
+
+42:36.760 --> 42:39.040
+we have, they can be quite loaded.
+
+42:39.040 --> 42:45.920
+So we can have tens of thousands of clients easily in the same number of circuits in one
+
+42:45.920 --> 42:47.320
+process of server.
+
+42:47.320 --> 42:54.640
+And although circuits can generate events like circuits can become readable, writeable,
+
+42:54.640 --> 43:00.960
+and receive out of band data from TCP or receive errors and stuff or custom events.
+
+43:00.960 --> 43:04.000
+And we need to handle all those circuits somehow at once.
+
+43:04.000 --> 43:08.600
+And there are three ways how to do it.
+
+43:08.600 --> 43:12.640
+Without ridiculous solutions like one thread per circuit or one process per circuit, it's
+
+43:12.640 --> 43:15.440
+not scalable at this scale.
+
+43:15.440 --> 43:20.840
+And the solutions are periodic polling, reactive polling, and event queues.
+
+43:20.840 --> 43:21.840
+Those are made up names.
+
+43:21.840 --> 43:23.720
+I just made them up myself.
+
+43:23.720 --> 43:27.320
+It's not like they can be found somewhere.
+
+43:27.320 --> 43:28.800
+And we go through each.
+
+43:28.800 --> 43:32.280
+So periodic polling is the simplest approach.
+
+43:32.280 --> 43:39.200
+As simple as you just have a loop where you iterate through all the circuits, and you
+
+43:39.200 --> 43:41.680
+try to read and write each, and then you sleep.
+
+43:41.680 --> 43:43.240
+And then you repeat.
+
+43:43.240 --> 43:46.800
+This way you don't spin on the busy loop, and you still handle all the circuits.
+
+43:46.800 --> 43:52.560
+The problem with this solution is that firstly we'll have additional latency here because
+
+43:52.560 --> 43:55.720
+imagine that circuit number N becomes readable.
+
+43:55.720 --> 44:00.840
+To get to the circuit, you firstly have to try to read N minus one circuit before.
+
+44:00.840 --> 44:04.120
+It will cost you time if you have thousands of circuits.
+
+44:04.120 --> 44:08.160
+Secondly you will lose latency here because imagine circuit became readable, and you just
+
+44:08.160 --> 44:10.760
+started 100 milliseconds sleep.
+
+44:10.760 --> 44:14.560
+You will waste 100 milliseconds of latency absolutely with no reason.
+
+44:14.560 --> 44:19.400
+And firstly you will waste CPU here because you will be doing lots and lots of unnecessary
+
+44:19.400 --> 44:20.920
+system calls.
+
+44:20.920 --> 44:26.080
+If socket is not readable and you are doing receive, you just wasted a system call, wasted
+
+44:26.080 --> 44:28.160
+some CPU time.
+
+44:28.160 --> 44:32.120
+The stuff can be easily fixed with a couple of solutions, one of which I am presenting
+
+44:32.120 --> 44:37.680
+only for the sake of you not using it because select thing is deprecated.
+
+44:37.680 --> 44:42.040
+It gives undefined behavior on Linux.
+
+44:42.040 --> 44:48.720
+If you have more than 1,024 sockets, or even if just one of them is bigger than 1,024 by
+
+44:48.720 --> 44:49.720
+value.
+
+44:50.520 --> 44:53.480
+It is not advisable for you to use it even in documentation.
+
+44:53.480 --> 44:57.520
+So there is an alternative poll which works quite fine.
+
+44:57.520 --> 45:02.240
+Even these days and it takes array of descriptors with events you want to listen for, those
+
+45:02.240 --> 45:03.600
+events field.
+
+45:03.600 --> 45:08.640
+And when you call poll, it will block you until any event happens with any of those
+
+45:08.640 --> 45:15.320
+circuits and when it returns, it will fill in our events field in all the descriptors
+
+45:15.320 --> 45:17.360
+with events which are available for circuits.
+
+45:18.000 --> 45:20.320
+This is how it looks in the code approximately.
+
+45:20.320 --> 45:24.720
+So we have this poll, you call it on all your descriptors.
+
+45:24.720 --> 45:28.680
+When it returns, you have events and you are scanning all the sockets and checking which
+
+45:28.680 --> 45:30.680
+socket has which events.
+
+45:30.680 --> 45:33.080
+Then you don't do those unassisted system calls.
+
+45:33.080 --> 45:35.720
+You only do reads when socket is readable.
+
+45:35.720 --> 45:37.600
+Write when socket is writable.
+
+45:37.600 --> 45:43.840
+And I have this benchmark, click on the slide where I have 5,000 clients and they are sending
+
+45:43.920 --> 45:46.360
+5 million messages in total.
+
+45:46.360 --> 45:50.240
+And only a part of clients is active at the time which is realistic.
+
+45:50.240 --> 45:53.360
+It's not like all the time all the sockets are active.
+
+45:53.360 --> 45:56.440
+This kind of speed up I get when I switch from periodic polling to poll.
+
+45:56.440 --> 46:04.640
+I have got 25% speed up instantly and I did zero system calls which ended up with eWood
+
+46:04.640 --> 46:12.440
+block and periodic polling did 120 millions of those system calls which were not needed.
+
+46:12.440 --> 46:17.960
+And thirdly, periodic polling wasted huge amount of CPU time because it was spinning
+
+46:17.960 --> 46:19.360
+in a busy loop.
+
+46:19.360 --> 46:21.200
+I didn't even have slips in this case.
+
+46:21.200 --> 46:24.960
+If I would add slip to periodic polling here, it would get even slower.
+
+46:24.960 --> 46:31.000
+Here I didn't have slips and still it was slower and it wasted huge amount of time on
+
+46:31.000 --> 46:33.840
+those unnecessary system calls.
+
+46:33.840 --> 46:34.840
+This is not the end.
+
+46:34.840 --> 46:36.240
+We can optimize it further.
+
+46:36.240 --> 46:40.480
+One last optimization using event queues.
+
+46:40.480 --> 46:45.400
+The idea is that instead of having socket array in user space, we can have it in kernel
+
+46:45.400 --> 46:46.400
+space.
+
+46:46.400 --> 46:51.480
+And kernel will monitor your sockets all the time for happening events and notify you when
+
+46:51.480 --> 46:53.600
+something happens.
+
+46:53.600 --> 47:00.440
+This is Epolyn Linux, KQ on Mac and BSD and Diocompletion ports on Windows.
+
+47:00.440 --> 47:04.760
+So the idea is that you create this event queue, you add sockets one by one into the
+
+47:04.760 --> 47:09.080
+queue for monitoring specifying which events you want to monitor.
+
+47:09.080 --> 47:13.040
+And then you call this Epolyn wait thing to fetch the events.
+
+47:13.040 --> 47:14.600
+When it returns, you handle the events.
+
+47:14.600 --> 47:15.840
+It is as simple as that.
+
+47:15.840 --> 47:21.600
+So instead of placing all like 10,000 sockets into the kernel for each Epolyn wait, we just
+
+47:21.600 --> 47:23.840
+call Epolyn wait and get the events.
+
+47:23.840 --> 47:26.240
+This is how it looks in the code.
+
+47:26.240 --> 47:29.720
+We call Epolyn wait on our queue.
+
+47:29.720 --> 47:34.640
+We get some events, return, we handle those events, just them without full scanning the
+
+47:34.640 --> 47:36.440
+entire circuit array.
+
+47:36.440 --> 47:40.720
+For example, if you have 10,000 sockets and 10 of them got events, you will just iterate
+
+47:40.720 --> 47:43.640
+10 times here, not 10,000 times.
+
+47:43.640 --> 47:45.240
+And the rest is the same as with polls.
+
+47:45.240 --> 47:49.200
+So we just read where readable, write where writable.
+
+47:49.200 --> 47:55.520
+As simple as that, if I apply this on top of poll, I get another 30% speedup.
+
+47:55.520 --> 47:57.120
+Even with a single chance.
+
+47:57.120 --> 48:02.040
+So you can of course optimize it first, but those were simple optimizations.
+
+48:02.040 --> 48:08.400
+This was all the stuff which we had time for, but also there is some additional content
+
+48:08.400 --> 48:13.880
+with eight other small, simple things which you can apply in your code.
+
+48:13.880 --> 48:14.880
+They're all clickable.
+
+48:14.880 --> 48:20.440
+You can click on them after the talk or ask them as questions right now if you like or
+
+48:20.440 --> 48:26.040
+ask me afterwards outside about those other optimizations.
+
+48:26.040 --> 48:27.760
+And now this was the end.
+
+48:27.760 --> 48:28.760
+Thanks for your attention.
+
+48:28.760 --> 48:46.520
+If anyone has any questions, then I believe we have time to take a couple.
+
+48:46.520 --> 49:00.040
+Thank you.
+
+49:00.040 --> 49:01.040
+Amazing talk.
+
+49:01.040 --> 49:02.040
+Thanks.
+
+49:02.040 --> 49:06.240
+You mentioned flame graphs a few times for the cash sharing issue.
+
+49:06.240 --> 49:10.360
+What kind of tooling do you recommend to detect those?
+
+49:10.360 --> 49:12.200
+For cash pieces?
+
+49:12.200 --> 49:14.880
+The cash sharing variables, sharing through cashes?
+
+49:15.000 --> 49:21.040
+Yeah, I think the first tool for example, Linux is able to measure the stuff.
+
+49:21.040 --> 49:22.040
+Okay.
+
+49:22.040 --> 49:34.560
+The first is also able to build nice flame graphs by the way.
+
+49:34.560 --> 49:35.560
+Any other questions?
+
+49:35.560 --> 49:45.280
+I have a question about the first example.
+
+49:45.280 --> 49:51.280
+I guess the second one, but still on the first chapter I guess of your talk about the
+
+49:51.280 --> 49:56.920
+intrusive list and it's my understanding that standard list C++ is also an intrusive
+
+49:56.920 --> 49:57.920
+list.
+
+49:57.920 --> 50:02.400
+So I don't think that interaction should do anything.
+
+50:03.040 --> 50:04.640
+The list is intrusive?
+
+50:04.640 --> 50:11.080
+Yes, I just checked it up so it can be in presentation.
+
+50:11.080 --> 50:13.080
+It's not intrusive.
+
+50:13.080 --> 50:14.080
+Okay.
+
+50:14.080 --> 50:22.920
+So for example, when you have this STD list, right, sign of intrusive list is when you
+
+50:22.920 --> 50:24.640
+have link inside of your objects.
+
+50:24.640 --> 50:28.680
+For example, if you store pointers and you have pointer at your object, you should be
+
+50:28.680 --> 50:32.280
+able to just unlink this object from the list directly, right?
+
+50:32.280 --> 50:38.280
+Just leave of the previous element, link with the next element instead of you.
+
+50:38.280 --> 50:41.200
+So you just in constant time can pop the item from the list, right?
+
+50:41.200 --> 50:42.200
+When it's intrusive.
+
+50:42.200 --> 50:44.600
+In a STD list, you have first it located.
+
+50:44.600 --> 50:49.440
+You have to iterate the list, find your pointer there and erase it by the iterator.
+
+50:49.440 --> 50:52.600
+Standard forward list also not?
+
+50:52.600 --> 50:55.680
+Are you certain on that?
+
+50:56.680 --> 50:58.680
+Unfortunately, yes.
+
+50:58.680 --> 51:01.680
+In a STL we don't have it.
+
+51:06.680 --> 51:11.680
+Maybe they, we have it in boost, I don't know.
+
+51:14.680 --> 51:16.680
+What, what in boost?
+
+51:17.680 --> 51:18.680
+Okay.
+
+51:18.680 --> 51:20.680
+Good stuff.
+
+51:25.680 --> 51:30.680
+Hello, thanks.
+
+51:30.680 --> 51:34.680
+What do you think about IO ring?
+
+51:34.680 --> 51:38.680
+I haven't tried it myself in real life use case yet.
+
+51:38.680 --> 51:39.680
+Okay.
+
+51:39.680 --> 51:42.680
+But I heard that can be faster than Ipul.
+
+51:42.680 --> 51:47.680
+So basically IO ring idea as far as I understand is the same as IO completion ports on Windows.
+
+51:47.680 --> 51:48.680
+Right?
+
+51:48.680 --> 51:54.680
+So you just directly send data from your buffers without copying.
+
+51:55.680 --> 52:03.680
+Yeah, I guess it is possible with IO ring to make even less assist calls.
+
+52:03.680 --> 52:05.680
+Yeah, yeah, perhaps.
+
+52:05.680 --> 52:07.680
+Could be good, could be great.
+
+52:07.680 --> 52:10.680
+But the idea falls into the same folder of event processing.
+
+52:10.680 --> 52:16.680
+So we don't then sort of socket array full scan or anything alike.
+
+52:22.680 --> 52:27.680
+Those are by the way, obviously not cross platform solutions in networking.
+
+52:27.680 --> 52:33.680
+I don't think we have anything cross platform enough besides maybe poll, right?
+
+52:33.680 --> 52:36.680
+And the rest could be like boost ASIO.
+
+52:36.680 --> 52:39.680
+Yeah, this stuff is working everywhere.
+
+52:41.680 --> 52:44.680
+If there are no other questions, then that should be it.
+
+52:44.680 --> 52:46.680
+Thank you all very much for coming.
+
