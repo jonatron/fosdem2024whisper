@@ -1,0 +1,350 @@
+So, thank you all for coming to the Rust Dev Room 2024.
+We have a really, really good lineup of talks and we're going to start off with one of the
+strongest ones I think is, Bredrak Gurevsky is going to talk about Semvern Rust and how
+to make sure that your stuff is not breaking other people's stuff.
+Thanks everyone. Yeah, let's talk about the breakage, tooling and edge cases of semantic
+versioning in Rust. My name is Bredrak Gurevsky, some of you might recognize me as the maintainer
+of cargo semper checks. This is a linter for semantic versioning that this talk is about.
+But before we get to talking about the linter, let's get familiarized with what semantic
+versioning actually is and does. Ultimately semantic versioning is about communication.
+It's a way for library maintainers to let their users know what kind of changes to expect
+in new releases of libraries. If the changes are major and potentially requiring action
+on the part of the user of the library, we say that's a major change, we bump the major
+version number and that lets users know to expect that they might need to do a little
+bit of work to adopt it. Otherwise, if the library remains compatible with the previous
+version, that's not a major change and users expect to be able to just update to that new
+version automatically. So in this way, semper is communication not just between individual
+maintainers and the users of the libraries, but also between maintainers and the tooling
+that those users use. Let me give you a concrete example. This is a bit of automation that I
+have set up in many of my projects. Once a week, a job just runs cargo update on my
+project, opens a pull request and automatically merges it if tests pass. Now this only works
+so long as every one of these packages correctly adheres to semantic version, right? Cargo
+update will bump everything to the latest non-major version that it can find and hopefully
+tests pass and everything gets merged. But if there is an accidental breaking change and
+one of these pull requests, then everything sucks and we're back to square one, right?
+In this talk, I'm going to try to convince you of two major things. The first one is
+that semantic versioning in practice is so dang hard that no mere mortals can uphold it.
+None of us in this room are good enough to do this on a consistent day-in-day-out basis.
+I'm going to show you that the rules of semantic versioning are much more complex than what
+it seems like at first. I'm going to show you that even the rules that seem simple have
+a ton of non-obvious edge cases that we have to deal with. And I will show you empirical
+evidence based on real-world data that this is not just a skill issue. It's not something
+that can be solved with more experience or with harder work or just caring more about
+your project senior users. And then I'd like to show you that computers are actually really
+good at semantic versioning. We can use linter's like cargo semper checks to address almost
+all of the problems we're going to run into as part of this talk. And if you're so inclined,
+I'll even show you how cargo semper checks works under the hood so that you can contribute
+to it if you see fit for the benefit of all of us here in this room and in the broader
+Rust community. Let's dig right in. Let's talk about why semantic versioning is so hard
+in Rust.
+It's used within cargo's own publishing process itself and it's used by large teams like
+Amazon's AWS and Google open source projects to make sure that their own semper, that their
+own releases adhere to semper correctly. The way it's designed to be used is by running
+cargo semper checks right before you publish a new version of your crate. When you do this,
+cargo semper checks will detect the kind of version bump that you're making, whether it's
+major or minor, and then it will scan for API changes that might be inappropriate for
+that bump and let you know what it finds. The way to get cargo semper checks is by running
+a regular cargo install and if you're in a CI environment, we have a pre-built GitHub
+action that will do everything for you. And since some of us prefer to use release managers
+instead of just running cargo publish by ourselves, it's also integrated in some of the release
+managers. I particularly like release please, which will automatically run cargo semper
+checks as part of the release process. So if you're on the market for a good release
+manager, you should check this one out. It's awesome. I want to show you a couple of particular
+examples of how cargo semper checks finds these issues that might not be particularly
+obvious to the naked eye. The first example is a public function being deleted. Here we
+have a crate that had this public function called add and this pull request is just coming
+in and deleting that public function. This is pretty obviously a breaking change, right?
+And if we run cargo semper checks, it will tell us as much as well. It will say this
+function is missing, it cannot be imported by its prior path, and it will point out that
+the problematic function is the add function in this crate at that specific line in that
+file. This is great, but you might say, okay, we would have caught this by eye, right? This
+is pretty obvious. I don't need a tool here. Well, as it turns out, deletions of public
+items are not always a major breaking change, right? One way in which that can be the case
+is if we have that public function inside a private module. Yes, the function is public,
+but it's just not reachable. There's no way to import it, and so since nothing outside
+its own crate can use it, deleting that function is not a breaking change, right? There's no
+possible way that anyone could be affected by that. Another more interesting example is
+when we have a public module, but that module is marked doc hidden, or if the function itself
+is marked doc hidden. If you're not familiar with the doc hidden attribute, it's a way
+to mark a piece of your public surface area as not being part of your public API. It's
+explicitly saying these are internal implementation details that are made visible for a reason
+other than being public API. These most often happen when crates have macros where they
+need to expose some functionality that is only intended for use by those macros. Remember
+that macros get expanded in the downstream crates, and so they have to be able to access
+everything that is public in your own crate. We don't want to maintain the internal implementation
+details of macros as public API, so we usually mark that functionality as doc hidden. But
+it's not actually enough to say, oh, this module is doc hidden, therefore that function
+is not public API. Here's the opposite example. We have a public module that's doc hidden
+and a public function inside it, and that public function is now public API. Why? Because
+it's re-exported and the re-export is not doc hidden. So users of this crate could have
+imported this function without ever relying on any doc hidden functionality. So even though
+the module where the function is defined is doc hidden, this function is still public
+API. These roles are pretty complicated, right? It's not at all unreasonable that someone
+might mess this up, and in fact we found hundreds of issues like this when we scanned the top
+1000 rust crates on crates I.O. Cargo-Sanver checks will catch all of these cases correctly,
+so it's just a lot easier to use the tooling instead of having to rack our brains when
+facing a PR that we have to review. So clearly deletions of public items are not always a
+major breaking change. Let's dig into a second example. Here we have a public struct foo
+that has some fields, and in this pull request we're adding a new field. And the author of
+this pull request was quite careful. They noticed that the foo struct has a constructor
+called new, and they made sure to not change the function signature of that constructor.
+Instead, they initialized the new fields to default value, and this seems entirely reasonable,
+right? This is a pull request that many of us would probably merge when facing it.
+The falsehood here is that adding fields to a struct can only be breaking, it can only
+be a breaking change via changes to methods. This is not true, right? The problem here
+is very, very non-obvious, especially to someone who came to rust from a different programming
+language first, like me. The issue is that this struct is not marked non-exhaustive,
+and all of its prior fields were public. If both of these things are true, this struct
+could be constructed with a struct literal. So users don't actually have to use this
+new method, they can just construct it directly by specifying all of the fields individually.
+So if a user in a downstream crate wrote something like, let value equals foo curly brace and
+then listed out all of the fields, they are now broken if we add this new field. They never
+specified a value for third, and so therefore this code no longer compiles. This is something
+that could very, very easily sneak up on us in a pull request whether we opened it or
+reviewing it, especially early in the morning when we're undercaffeinated. Right? And again,
+it's easier to just let cargo semper checks do the heavy lifting here. Running cargo semper
+checks again points out the problem. It says that a struct that could be made with a literal
+has a new public field, so existing struct literals must be updated, that's a breaking
+change, and it even points out that foo third is the field that is problematic in this case.
+So adding fields to a struct can sometimes be a breaking change even if we took great
+care to make sure that all of the methods and everything else around the struct has
+not changed. That's another falsehood we can cross off of our list. Let's jump into a third
+example, and this one's probably my favorite. Here we have a private struct foo, so not
+public, but private, and we're just changing some internal implementation details of that
+struct. Right? It used to take this static string reference, and we now want to support
+non-static strings. The struct is cloned, so we want to preserve cheap cloning, and
+we're going to use a ref-counted string to make that happen. Right? This is fine. I would
+probably accept this, you know, especially in the morning undercaffeinated. The falsehood
+here is that, you know, if I didn't touch it, I didn't break it. Right? I never touched
+public API. All of this code that I just showed you was private, and so I couldn't have broken
+the public API here. Right? Unfortunately, this is not true, and if we run Cargo-Semford-Checks,
+it will point out the problem. It says a public type has stopped implementing one or more
+auto traits. Type bar is no longer send and is no longer sync. And you might be thinking,
+second, what type bar? We were touching struct foo. There is no type bar here. Right? I was
+code reviewing, I read all of the changes, and there's no problem. So why is Cargo-Semford-Checks
+complaining about something that I didn't touch? Right? This must be a false positive.
+Here, our tools are doing us a disservice. The problem here is not the user's change.
+The problem is that the change affects something that is not shown in the pull request. Right?
+So I didn't touch it, I didn't break it, happens to be false, because type bar isn't here.
+Right? You have to click this button if it happens to be in the same file in order to
+be able to see the problem. The problem is that struct bar is public, and its implemented
+traits are there for public. And bar internally contains a foo. Now, an auto trait in Rust
+is a trait that the compiler automatically implements for us whenever possible. The rule
+is that a type implements an auto trait if all of its constituents also implement that
+same trait. Constituents being all of the fields, all of the variants, all of the data
+that that type might contain. Right? So send and sync are these auto traits in Rust that
+are used to express whether types are safe to be shared across threads. And the problem
+that we run into here is that the static string that we used to have inside foo was both send
+and sync at the same time. This reference counted string is neither send nor sync. Now,
+since the fields value over here is no longer send nor sync, that means that struct foo
+is no longer send nor sync, that means that struct bar is no longer send nor sync. And
+that breaks our public API. Because users that might have been using struct bar in some
+sort of context that relies on parallelism where that bar is shared across threads or
+passed between threads, their code is now broken. So they will see an error that looks
+like this. Rust C will say, RC of string cannot be shared between threads safely. Use parallelism
+requires that that value is sync and RC string is not because within bar, within foo, that
+field does not implement send and sync. This is something that has been, it's really a
+question of time until it bites any given project. This is just kind of impossible to
+catch because the problem is just not on the pull request page. And so cargo Stanford
+checks is just much better at finding these things than we humans are because it's looking
+at the data that the compiler emits. It's not just looking at the limited pull request
+review screen that we see on GitHub. So if I didn't touch it, I didn't break it is another
+falsehood that we get to cross off of our list. Hopefully by this point I've convinced
+you that cargo Stanford checks has some value and that it's likely to catch some stuff that
+we would otherwise miss and that we would find out when someone opens an issue on our
+project. Now that you've seen some of the issues that it can flag, let's talk about
+how this works and why you should trust what it can find. And in order to do this I want
+to come back to this example of deleting a public function. And I want to show you specifically
+how this works under the hood. We said that deleting a public function is a breaking change,
+a major breaking change if all of the following is true. In the original version the function
+was public. Another crate could have imported that function and used it. That import did
+not rely on any doc hidden items either on containing modules or on the item itself. And
+if we tried to use that same import in the newly released version that will no longer
+work for any of these reasons. Either the function is no longer public or it's no longer
+importable or it's no longer public API. In any case that's a major breaking change.
+And if we're looking for all of these breaking changes of this kind it's as easy as saying
+find all functions such that all of these things are true. Now if you're thinking what
+I'm thinking this might sound an awful lot like a database query, right? Select all functions
+where you know. And to help us see this I want to show you a diagram. We're looking at a
+version pair, right? We have the old version on the left and the new version on the right.
+And we're going to be looking for public functions that are importable and public API. And we're
+going to try to match them to versions in the new crates that have the same public function
+and the same importable path as the function that we were just looking at. And we found
+a breaking change if the count of such matching functions and importable paths is zero. If
+we don't find any of them, right? So the function could be imported and used in the past and
+can no longer be imported and used in the current version. This is a breaking change.
+And lo and behold, that's exactly how this works under the hood. Here's a database query
+that does the same thing. Now the point of this talk is not the query language, so I'm
+not going to dig too deep into the syntax or the semantics here, but I just want to show
+you that this is the exact same thing that we were just talking about. So we're looking
+at the baseline at the original version of the crate. We're going to be finding all functions
+that were public that could be imported by another crate and that were public API. And
+of course we're outputting stuff for later in case we find a breaking change. And we're
+going to say the same import does not exist. We will count how many matching functions
+at the same import path we find in the new version and we will say that count is zero.
+This is pretty nice, right? We get to write a piece of business logic that is completely
+ignorant of anything else about how we get this information. We just wrote down what
+the rule is in English and then we wrote down an equivalent database query that implements
+that rule and we just called it a day. This is pretty nice. I really like this personally.
+And if you're interested in architecture diagram, this is roughly what it looks like. Carbis
+and Verchex sits on top. On the bottom are our data sources. We get information from
+a tool called Rust doc which comes built in part of the Rust tool chain. We can ask Rust
+doc to generate a machine readable JSON representation of the crates API and we will read that JSON
+with Carbis and Verchex. Now Rust doc JSON's format is not stable. It changes relatively
+frequently more or less on every, if not every, than every other Rust release. This obviously
+can cause some issues and it has been the source of much frustration and consternation
+with other folks that have been building Rust doc based tooling. Carbis and Verchex has
+actually managed to solve this problem. Carbis and Verchex is not the first attempt at a
+Sembrer linter but it's the first one that managed to be isolated from changes in the
+underlying Rust doc format. Instead of requiring that you use a specific nightly, we're actually
+able to support multiple stable Rust versions concurrently. It doesn't matter which Rust
+doc JSON format version we get, they should work fine so long as they're reasonably recent.
+And the way this works is we rely on a query engine called Trustfall to sit in between.
+Carbis and Verchex runs queries in this Trustfall language syntax that I showed you a couple
+of slides ago. And Trustfall figures out which Rust doc JSON format version it's looking at
+and uses a little shim, little adapter, a little Rust piece of code that is able to translate
+that JSON format into something that adheres to the Trustfall schema that Carbis and Verchex
+is used to. That schema is written in a fairly high level. It talks about, you know, Rust
+functions and modules and importable path and, you know, whether things are public or
+private and does not say this value is in a field named such and such and it's an object
+containing the following fields and so on. So it's very unlikely to be broken by format
+changes in Rust doc because Rust today, tomorrow and next week is still going to have functions,
+modules, structs, fields and so on, right? All of that stuff doesn't really change very
+much. So in practice that means that we get to encapsulate all of the format specific
+logic in these adapters and nothing outside of this big ellipse at the bottom knows anything
+about how the data is represented and what format it came in. The query engine on top
+figures out how to most efficiently run these queries that we're running and that just leaves
+Carbis and Verchex writing business logic in this query language. Carbis and Verchex
+only cares about this is the semver logic that we're interested in implementing and
+everything else happens behind the scenes at a lower level in this diagram. I just want
+to give you a little bit of a taste of what Trustful is in case this seems interesting
+to you. It's a project that I also started. It allows us to represent data as a graph and
+query any kind of data sources. So this is not something that's specific to Rust doc
+at all. It's heavily battle tested. It's been in production for more than seven years.
+It's written in Rust. It's open source and it allows adapters to be written in a variety
+of programming languages like Rust, Python, JavaScript, WebAssembly and so on. And when
+I say it can turn everything into a database, I really mean it. If you have any kind of
+data source, be it an API, a database, an arbitrary file format, a machine learning
+model, you can query it with Trustful and you can do so in place and without having
+to do an ETL step in advance to ingest the data and then represent it in some other
+format. If you're interested in digging more into Trustful, I've given a couple of talks
+on that specifically. I gave a talk called How to query almost everything that's a deep
+dive into Trustful in particular and how it works. And I also gave a performance oriented
+talk talking about how cargo semper checks became more than 2,000 times faster by using
+some new optimization opportunities that Trustful exposed at P99 last year. And if you're
+interested in playing with Trustful yourself, we have a couple of playgrounds that you can
+check out on your laptop right now. We have a playground that uses Rustdoc JSON that uses
+the same exact code that powers cargo semper checks that lets you query popular Rust crates
+APIs and you can find all sorts of interesting things about them. And just to show that you
+can query any kind of other data set as well, you can query the hack and use rest APIs as
+well with Trustful queries from your browser. And just for kicks, because Rust is awesome
+like that, in these playgrounds we compile the entire Rust, we compile the entire Trustful
+engine to WebAssembly so all of the queries run client side in your browser. So really
+go crazy with these queries, I don't care, it's your bandwidth and your CPU, right? So
+if you get rate limited by hacker news, it's your problem, not mine, please go ham.
+Fundamentally, Trustful is what makes cargo semper checks possible. We need, there are
+hundreds of ways to break semantic versioning rules in Rust. And if we had to rewrite every
+one of our lints, whenever the format under the hood changed, this would be completely
+infeasible. By being able to decouple the format specific logic from the query logic,
+the business logic of linting semper, we can focus on linting and ergonomics and cargo semper
+checks and deal with everything else under the hood. We can take an n times m problem of n
+lints and m formats and turn it into an n plus m problem, which is much, much more
+maintainable, especially as a free open source project. So cargo semper checks on the back
+of Trustful has been growing fairly rapidly. We currently have 58 lints and almost every
+new release comes with a few more. This is twice as many as a year ago and still growing
+quite fast. We have 32 contributors and in fact, many of the new lints that we keep adding
+are first time contributions, which is awesome because it means that this query language
+is not something that is super niche and difficult to learn and is actually friendly to new folks.
+And most importantly, our users love us. Everybody prefers to find out about accidentally
+breaking changes before they get pushed to production and get released and then somebody
+opens an issue saying, sorry, you broke my project. So hopefully by this point, I've
+convinced you that semantic versioning is valuable, but it's impossible without automated
+help. And that cargo semper checks is a solution to this problem that has lots of happy users.
+So if you take nothing else away from this talk, please consider using cargo semper checks
+if you maintain Rust code because all of us will be better off. And if you'd like to help,
+you can contribute code and lints to cargo semper checks. Even though we have 58 lints
+right now, there are still dozens and hundreds more breaking changes that we still need to
+lint for. We could really use some sponsorships free and open source projects live and die
+by GitHub sponsors. So if you or your company use cargo semper checks, please consider sponsoring
+our development. And finally, for the sake of everyone in the Rust community, please try
+to not push out breaking changes. Nobody will blame you for it, but it's a lot more fun
+if you find them before you release the crate as opposed to after you release the crate.
+So please check out cargo semper checks. Please find me in the hallway if you'd like to chat
+more. And thank you so much for your time.
+So I think, do we have time for questions? Yeah, how long?
+Five minutes.
+So let's open it up.
+I'm going to give you the mic so that people on the industry can also hear.
+Awesome, thank you. So one of the things that I know about semantic versioning is that
+version zero is, it's an interesting one. And you didn't talk about it at all, but
+it also notes on the page that there was a lot of version zero. So I was wondering about
+your opinion on it.
+Yeah, that's a good question. The question was, is version zero special in Rust? The
+semper specification and the Rust community have diverged on what version zero means,
+essentially. So the semantic versioning is about communication, right? So it's about
+the norms that are accepted in the community rather than a fixed and rigid set of rules.
+And in the Rust community, we've decided that leftmost, you know, any zeros on the left-hand
+side of the version kind of don't count. So version zero dot five to version zero dot
+six counts as a major change, right? And zero dot zero dot one to zero dot zero dot two
+is also a major change, right? This in practice is what keeps all of us sane because otherwise
+if zero dot x to any zero dot y could ship any breaking change, then all projects would
+always, you know, stay on zero dot x and then cargo update would still not work and not
+be able to bump us. So this is from a point of pragmatism for the sake of the community
+as opposed to some rigid system of rules.
+Thanks.
+Like you said, some changes can be intentionally breaking semper. Is there a way to annotate
+them so the tool knows or do you have to bypass the tool in these cases?
+Great question. So the question is, since some changes might be intentionally breaking
+semper, is there a good way to annotate them so that users can notice them in a way that
+is not going to break their CI? Unfortunately, there's not a lot of great tooling here. Obviously,
+we have things like change logs. Authors will usually post on, you know, their social media
+pages and things like that. They will try to get the word out. It's very rare for a
+maintainer to deem something so critical that it justifies an intentional semper violation
+and yet just kind of tell nobody about it. But we don't have great tooling that will say,
+hey, by the way, this is intentionally breaking because of reasons x, y, and z that you should
+read up on. It would be lovely if we could sort of mark the item so that when it gets
+used then it causes a breaking change. We got a custom error message printed out by Rust
+C that says this is why this is happening and this is how you go about fixing it. Unfortunately,
+we're not there yet. And the answer is more code needs to be written and more financial
+support needs to go into all of these projects for that to happen.
+Is there any work going on integrating these tooling into packaging like Debian or which
+suffer from these problems once in a while?
+Yeah, great question. The question was whether there's any work ongoing to integrate something
+like Cargo-Sanverchex into the broader packaging tools that we already use on a daily basis.
+The answer is yes. So I've been in close contact with the cargo team. They actually reached out
+and asked if it would be feasible to work toward integrating Cargo-Sanverchex into cargo itself
+so that instead of running Cargo-Sanverchex, then Cargo publish, you just run Cargo publish and
+Cargo tells you whether, you know, what it found. This is obviously a little bit tricky.
+It's not super straightforward for a couple of reasons. One is that when things get merged into
+cargo, they're stable and they're stable forever. So we want to make sure that the APIs that we
+expose are really good and that the right API is not just for now and for next year,
+but for the next 10, 20, 50 years. The second thing is that we want to make sure that users
+can always override what Cargo-Sanverchex has found, right? Because there are these cases where
+an intentional Semver violation is justified. We want to have a workflow that's kind of like
+Cargo publish dash dash allow dirty, where Cargo publish will normally not allow you to do that,
+but there is a way to override and say, I know what I'm doing, I've thought about it,
+and this is still the right thing to do. So we really want to make sure that we dial in the
+exact user experience that is the right thing for everyone in the ecosystem and that we can
+support in the long run before we go about integrating it. But long story short, yes,
+the work on this is ongoing and again, it's a function of how quickly we can get this work done
+in order to make it happen.
+Okay, so last one. Okay, so let me give you the mic. So I'm interested in trustful. Do you know
+if there are other applications such as I'm thinking about validating breaking changes in
+open API definitions, for example? Yes, great question. I would love to chat. The question was
+if trustful has other applications besides Cargo-Sanverchex, the answer is yes. This is
+something I'm very interested in chatting about. So if anyone else has this question,
+please find me in the hallway and I can show you some more demos. A few other linters are looking
+into trustful for designing custom lints. I'm also working on a Python semantic versioning
+linter. Python is a very interesting beast because it's much more dynamic, so Semver is pretty
+tricky there. And my former employer actually uses trustful to enforce code standards that are not
+just correctness, but they're just about best practices that the company has decided are supposed
+to happen. In fact, one of the talks that I put on the slide, this how to query almost everything
+has a specific example of linting Python applications that get deployed and looking for
+mismatches in the Python version declared in the project manifest in a pyproject.toml file
+versus the Kubernetes configuration in the Docker file that goes with it, which also says,
+you know, from Python 3 colon 8 or whatever. It turns out that we can query for what does
+the Docker think the Python version is, what does the manifest think the Python version is and
+find cases where they don't match. And spoiler alert, I mean, we found hundreds of these issues
+when we rolled out those tools. These things just happen.
+Great. Thank you very much.
+Thank you so much for having me.

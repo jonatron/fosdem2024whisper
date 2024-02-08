@@ -1,0 +1,191 @@
+This is the kernel dev room, in case you got lost, which is very unlikely given how hidden
+this room is.
+Our next talk is going to be from Jelle about GNOME battery charge limits.
+Welcome. Thanks for hosting.
+And yeah, I am...
+Wait.
+Oh.
+Oops.
+I'm Jelle van der Waal.
+I work at Red Hat and I started my open source journey by joining the ArtSync team and now
+a developer and that's how I got into open source and also how I came into FOSTA.
+On my day job I work for Cockpit and this is a web UI for your server and that's where
+we use like 100 APIs and it's a bit related to this talk.
+So this talk will be talking about the kernel CISFS API and since we're in the kernel dev
+room I'm a bit experienced with kernel development so I wrote three small upstream, three small
+drivers in the kernel mostly when I was hacking a bit on some all-winner stuff so XR1M, input
+touch beam driver, some small stuff.
+So I'll start with like what's the problem?
+So most of you probably get a laptop for work and I assume you're like maybe you're a developer
+and you don't have too many meetings, you plug it into your dock and you start working
+and you basically leave it there for the whole day which means that the battery will get
+probably doesn't deplete that much and it will constantly get charged and then over time
+it might discharge like 5% and it charges again and this isn't very great for your battery
+lifetime because basically the only the last 20-ish percent gets used and the rest of the
+battery isn't really used.
+Luckily vendors and a lot of manufacturers have made a solution for this and these are
+battery charged thresholds.
+They're implemented in firmware so sometimes you can enable a single BIOS and there's a
+switch for this and how you interact with this depends a bit so sometimes it's like
+you talk to the embedded controller or you do some WMI or ACPI but that's just implementation
+detail.
+So there are like two things which generally happen so there's like either you set like
+a charge threshold at 80% so basically the last 80% won't get charged and the other alternative
+is that you set start and stop charge limits so basically between the 16-80% this is the
+charge free zone and if your battery is under 60% it will start a charge to 80% and once
+it's there it will stay basically if you keep it plugged in it will be basically staying
+at range and won't charge.
+So that's good if you don't use your battery a lot except maybe once a month or once a
+week for travel then this basically means you don't use your battery at all.
+So yeah I'm working on this because I own a ThinkPad and the ThinkPad supports sending
+charge limits for this there's a CISFS knob and so my solution was my first solution was
+I make a system deservice, it runs on boot, it sets the charge limits and well I'm done.
+These limits usually don't survive like a power cycle so you have to apply them every
+time you do but yeah that's not really a great solution for like your less tech savvy
+Linux user.
+So for this there's already some software to set this, there's TLP which you might know
+and PowerDev1KD can set these limits and other these as far as I know don't really have any
+support for this and looking at the other side so looking at Windows usually the manufacturer
+provides some software for your specific laptop and they allow you to set this.
+So but this talk is about how we intend to integrate it in GNOME so it will be only about this.
+So for GNOME there has been an issue in the for GNOME settings about this like a lot of people
+want to have this and an interesting other interesting thing is that some vendors have
+some certification and that this setting these limits is also part of it but don't pay me on that
+because I'm not really involved into that.
+So and for myself I mostly wanted for myself so the question is how would we provide this for the user?
+We can do like we can make it configurable you just input some numbers we can or we can also ask
+like how would the vendors want to have this because some vendors like Novo they ship Fedora
+in pre-installed on laptops maybe they want to set their own custom limits which they tested in their
+own test lab or do we want or maybe users want like profiles this is what some of the
+Windows solutions you give you for example you have like a travel profile which is basically
+no limits at all and then you have something in between which is like 70-80% it highly depends
+for manufacturer they all have their own numbers and some have like a very conservative like only 50-60%
+so there's a lot of variants but yeah as you might know whether you like it or not GNOME
+GNOME intends to be like we would try to give the user like if there's already a good solution for it
+we try to make it as simple as possible so the user doesn't have to like oh I have this think pad
+but for think pad I need like 60-80% and for oh but I have an ASUS I need like 50-60% or something
+so GNOME tries to hide that away from users so what we ended up with and what was already
+pre-designed and after some discussion we just ended up there should be like a knob which just enables
+these limits and because in multiple profiles if you would probably confuse users like do you want
+conservative do you want mobile battery so we try to aim like for the simplest solution so
+so that's like how the UI would look but then how does GNOME actually get all this information
+so there's a demon running on GNOME standard if you log in so that's U-Power and basically U-Power is
+the bridge between the between CISFS over D-Bus to a user space so like well it's running user space
+but it's like the UIs so like GNOME settings the shell and this shows you normally like your battery indicator
+if it's charging or not if it's discharging how much power it is so this is the logical way to where we
+want to integrate this feature it's already writes something to CISFS so it has like the keyboard
+backlight support is handled by it so this will be the place to do it so yeah the simplest thing will be to
+export the so how U-Power works is it has objects for your battery or for your display or for charging
+devices and for your battery we just add like a start and interest hold so we can visualize this to give this
+to user and as we don't really want to make this in U-Power we will really want to add like configuration
+parsing so we want to allow people to still like there's still power users who want to configure this
+these settings so U-Power would have like one default setting but there are of course power users or
+other kind of users who want something different so there should be a way to overwrite this and an easy way to do this
+because we get already rely on UDEV is by using by allowing this to be configured for your hardware to be
+this is so that we completely don't need to any new configuration file you just make a hardware to be file
+and that allows you to overwrite the settings for like your custom for depending on the my string or your battery name
+or it's pretty flexible so that's all cool this is so that's and now we look at the kernel site and most of these
+charge vessels they're implemented in the platform x86 drivers they're set to easily like call your ACPI method
+or there'll be my method and then to set these to set and read these limits so basically you need to implement these two functions
+and then basically in the year for your device and then you're basically ready so that's easy and that's also what I thought
+like okay cool with the start in the end that's what I have on my think that well how hard can it be to do this for all the other
+laptops and then I started after I was already working on this project for some while for some time I started looking at the other devices
+and it turns out that actually not every laptop supports the same thresholds or so for system 76 MSI who I and Lenovo they also support the start in the end thresholds
+so it's like okay that's great that's what I have that's why I intend to support and then I found out that some drivers like the start threshold
+and I started digging a bit deeper and yeah the love of a driver basically the sub method checks like okay I've we used to try to set 180
+that's the value of x-fet and that's it so it's okay that's interesting and then I looked at the time she bought driver and that was I found out more interesting
+so the setting of the end limit supported like giving you you could give a value from zero to 100 so for the ASUS driver the LG driver
+if you would give like set like right echo 70 to the end threshold it would give like any valid that's not what the touch bar driver does
+it just sees like oh say you set 80 then I also had an answer limits to or say is right 80 then I will enable the battery saving feature
+because the as you can see basically if the value is under 90 we will enable it so if you set like 91 we will disable it so this is fairly confusing
+and then we look at the function which shows the configured value and this just returns either 80 or 100 so basically you can only set an end limit of 80
+so yeah that's not great and the ASUS driver supports 100 to 0 to 100 to be set and it's interesting when I read the code there was like yeah
+we can't read from or we we don't know how to read the configured states from from firmware so basically whatever you you right there it just cashes in the driver and returns what you what you set
+so that's interesting and another interesting thing is that according to users that by say you set like an 80% end threshold the driver the firmware internally sets like a start threshold of minus one or minus two
+so that's probably good that they do that but it's not very obvious when you or like I wasn't able to verify I don't have any I only have like think paths and so I have to trust users that they measure this and this is the case so that's that's tricky
+and it is logical that is that everything is implemented different of course because it's all the all the laptops are created by different vendors and most of these I think the the no vote drivers was done by the no vote don't
+pay me on that but the other right like the ASUS one is probably reverse engineered so I cannot blame or it will you cannot expect this to be like perfect because there's no no documentation about this it's just all reverse engineered but this did raise for me the question
+should the the driver also show which values it accepts because if you're trying to like make an application and it's not that great that if you present like okay we will charge to 80% but when you try to write this it will just return in a valid so the driver
+the driver upfront needs to the I mean the the application of funds wants to know what is supported so this is something which might be interested to to add to the kernel
+so yeah but about the actual implementation so I I for now I just keep the interest holds situation as something maybe you can think about the future for now I only support the the start and the end stop just holds because that's predictable for me with the interest hold I'm not sure if there's like a hidden
+threshold set or what it's like an unknown state for me so for now I'll have kept these out of the kept these are not supported that's a bit sad I would like to at some point do that but I
+I'm not sure not sure yet what to do about that so yeah I the the merge request are currently under review this is how it looks like and and then because you know I don't have too many side projects I I was thinking about some future work so one of the one of the things is that I don't believe you can
+change like before sample the toss about driver to return the invalid if you write 10 because that's you can't break user space so maybe there should be a new new attributes but I'm not sure how this will be like there's this other attribute like the charge behavior and as nicely shows you like
+okay this is currently set to auto it can also be set to these other strings so maybe that can also be I don't think you can change the current like start threshold to also do this because I will break a use space so maybe there should be like a new new file which you just can cut and then it shows you what is supported that will be like fairly easy to implement.
+Also I would like to see this be supported in more devices so I found out like I own a steam deck because well my friends arch and so constantly I got one and I found out that they also have a chart and charge and threshold but they were using a custom
+sysvests attribute for them so I asked them about it and they're gonna they're gonna fix this use the common framework and they intend to main in the upstream this at some point they're still figuring out some things.
+Dell is also interesting so some latitude say exports the the bios settings inside of sysvests is interesting they also contain like they also have like a charge control there and I was wondering how evil it would be or how bad it would be if you just exported this also in as a charge control start and end threshold.
+It will be a bit funky because but maybe it can be done.
+And I also own a service and this only has a bias setting.
+I looked at the the service kit for boss or yeah and there was an issue about this and it seems that this value cannot really be read or set from from the colonel side so it's a bit sad.
+And then there's the framework they actually have a tool.
+Which allows you to set an interest hold so I intend to to hack around on this.
+Once I borrow a framework from colleague and write a driver to support this and.
+And.
+Oh yeah and interesting as the frameworks.
+Firmware is open source so the embedded it seems like after digging the code so they the code which has the threshold also supports the start threshold but if you look at the extra implementation he doesn't do anything with the start threshold so there's a case there to.
+For somebody who wants to like.
+Write embedded controller code to see if they start just what can also be supported I'm probably not going to do that that's.
+For me that's too too deep like Colonel hacking I can do.
+That it's too much for me but it would be cool if it could be supported.
+Another thing I would like to do in the future is to calibrate the batteries so basically because you're normally happens that if you fully charge or discharge.
+There are some internal logic in the batteries firmware and this recalibrates the battery counters like how many.
+How much is still left so it knows how much initially capacity it has but of course it is great over time.
+And it measures this when it's close from when it starts charging from zero to one hundred percent it basically resets those counters.
+And as you're setting chart limits the the counters don't really actively get reset because they.
+Well you're not really fully charging anymore and think that supports a way to do this and it's basically not very very difficult.
+It's basically you said you disabled the charge threshold and then you tell.
+You tell that you can configure the charge behavior and you say do a full chest arch and basically the laptop will run off your battery while plugged into AC power.
+It will go to like two one percent and then switch over to AC battery to AC power and then fully charge and then this this should be reset.
+I believe the energy full count.
+I'm not entirely sure on that but it should really reset the counters and then you have accurate battery information again for when you're traveling.
+So this will cool.
+It sadly is only supported for now.
+I think that I think the framework can do this but I haven't looked too much in the interesting firmware repo story but it will be cool if more.
+Manufacturers would allow this to be supported and then the thanks to all the people who have helped me like this is not.
+Something I do a full easy on my own I have asked some people.
+I had some help from others people from the design on getting into like how G-Dip program works and I like for a new power kernel so thanks to them.
+Thank you.
+Hey I don't know how batteries work but would it be better for the battery but frustrating for the user to have like randomized thresholds instead of just like 60 or 80.
+Like aren't you just pushing it down.
+You know the aren't you still not using most of the battery when you you know just have a.
+Yeah like yeah like a starter and threshold.
+Yeah.
+I've always.
+I don't know why the.
+This room.
+That's great.
+This is.
+Oh all the.
+Just give him the.
+It's it's.
+So I know some users who do this for the for the steam back and they have this.
+Interesting bash script which basically sets like a threshold to start the 80% and then gently they lowered but yeah so I guess that in the ASUS laptop there seems to be like already a hidden.
+Start threshold and I'm not sure if that's a thing in the the the touch about or the.
+The other laptops so.
+I don't know it's.
+And this is also why I'm not super confident to support this because I'm not entirely sure what's going on.
+Questions.
+What happens if you.
+What happens if you charge your laptop when it's not actually running.
+A thing bad more precisely a thing bad.
+I have seen you have using some surface interface and Colonel site is it some platform specific six eight six or you're using power source framework for this.
+The notice.
+I believe.
+So it is already power supply framework.
+Okay.
+Hey I'm the maintainer for the power supply sub system and I would be willing to accept a patch adding like the.
+Acceptable values for the stop of the charge.
+As long as it's sensible like exporting a hundred numbers for those accepting any percentage does not really make sense probably in that case it makes sense not to export any fire or something.
+Yeah thank you.
+Next is.
+Okay more questions.
+So just a quick feedback from a user who created the bash script to do exactly the same.
+So one thing that I really needed to add to my bash script was to not only save the battery because I normally have the laptop that is always connected to the time the world docking station.
+And then when I need to travel I need to charge it because it's never full right.
+So I mean just a single switch to save the battery is not enough I think you should have something like key combination or something that would enable you.
+Okay so now I want to charge the laptop because I'm going to travel without maybe changing the overall policy.
+So like an override option.
+Yeah something like that.
+Yeah what we interesting.
+Okay if there are no more questions then thank you for your talk and we'll have a seven minute break.

@@ -1,0 +1,176 @@
+Next, we have Jan Mench with the wonderful life of a SQL query in a streaming database.
+All right.
+Thank you very much for showing up.
+This is my first conference talk ever.
+So I really appreciate that you took the time to show up even though it's almost the end
+of the conference.
+All right.
+My name is Jan Mench, and I'm working at Rising Wave Labs.
+We are the creator of the Rising Wave database.
+And the Rising Wave database is an analytical database that's focusing on processing unbound
+data.
+So any data that comes in endlessly that you consume from something like Kafka or PubSub,
+for example.
+If you want to summarize what such a database does, not just us, but any other streaming
+database system, you could also say incremental updates to materialized views.
+So what do I mean by that?
+Well, first of all, let's very briefly define what's a view, what's a materialized view.
+A view is basically just an alias for your query.
+Kind of boring.
+If you query it, it just gets replaced.
+A materialized view, on the other hand, it's sort of like a cache.
+So you query it, and the materialized view itself keeps some state.
+And now the question is, you have a analytical question.
+You define your materialized view, but the underlying data on which this materialized
+view depends on, this changes.
+So how do you update your materialized view?
+How do you update the answer to your analytical question?
+Well, traditionally what you could do, you could just recalculate the entire materialized
+view.
+This is expensive.
+This is slow.
+As an alternative, you could collect some delta.
+You collect some delta, some tuples, put your aggregations over it, and then apply this
+to your materialized view.
+Our goal is to have this delta as small as possible so that we have a materialized view
+that is as fresh as possible.
+Ideally, we wanted that it updates whenever you insert anything, a single tuple, it should
+be reflected in the materialized view itself.
+All right.
+So very, running example, very simple.
+Let's say you have some sort of social media app, and in the social media app, people post
+their stories, right?
+And people vote on these stories.
+And now you have your materialized view that is this, and you want to know how many people,
+how many votes did each story get?
+That's your analytical question, and that is what will be updated whenever somebody clicks
+on vote.
+So let's say you would insert some votes somehow.
+In reality, this would come from a source like Kafka, right?
+And so immediately, this change should be reflected in your materialized view here.
+So this is, again, just a dummy example, but this is what we're trying to do.
+You have an analytical question.
+The data underneath changes.
+You see this change reflected immediately.
+So this is the same materialized view as before.
+You want to know how many votes did each story in your social media app get.
+So what happens, actually, in your database, if you send it this sequel?
+Well, first it's going to parse it.
+It's going to create a logical query plan, optimize it, and then create a physical query
+plan, all right?
+So the query plan, you could get this if you, not just with Verizon Wave, but any kind of
+database, if you use the explain keyword, and then you get this kind of query plan.
+And I want to point out if you operate this here, right?
+And these are the table scans, aggregate and join.
+So basically, you look at your votes and your stories tables.
+You pull in the new data.
+You aggregate it.
+You join it.
+Done.
+So you could also, this is what's happening underneath in your database, not just Verizon
+Wave, all sort of databases, right?
+So you could also display it like this, with, we call a streaming graph, but it's honestly
+more like a tree structure.
+And there you have your scans, you aggregate, you join, you materialize for you.
+Data flowing from left to right through your system.
+Because we like headaches, we distribute this, fragment this, and deploy it on different
+nodes.
+So how do we actually propagate this change?
+Well, every operator has some state, and now aggregate, for example, has this state, right?
+So two people voted for 1,003, it's reflected here, 1,003.
+The other operators also have state.
+Now what happens if you insert more votes?
+Well, the votes table scan will push down an event, and this event here in this case
+is 789 voted for 1,004.
+So this is your start of how you propagate the change from the beginning, from the table,
+or your Kafka, all the way to your materialized view.
+This then is consumed by your aggregate operator, and it changes states here from one to two.
+We push down the events further, and this will update the other states of the other stateful
+operators.
+So now we kind of established how the state flows from the original state in Kafka, or
+PubSub, or Pulsar, or RedPanda, all the way over to materialized view.
+So because we like headaches, and we make it hard for ourselves, we do this in distributed
+systems.
+And distributed systems have opportunities and advantages, opportunities and challenges,
+right?
+So, for example, you can execute stuff in parallel.
+This is great because this potentially speeds stuff up.
+But you also need to be able to recover because eventually in your distributed system, a node
+will crash.
+So you should be able to recover, and you should be able to scale up and down when you
+need more or less compute power.
+So let's talk about parallelism first.
+I showed you this streaming graph.
+This is a simplification.
+This is parallelism one.
+What happens if you want to have parallelism of three?
+Well, it would look a little bit more messy, something like this.
+You have the same operator three times, always.
+There's three operators that are scanning your votes table, and there's three operators
+that are aggregating.
+Why do we do this?
+Well, we can speed up stuff now.
+And how do we still get the correct result?
+Not just us, but other streaming processors.
+Well, you could just do some consistent hashing.
+Like here, you take the story ID by which you aggregate, hash it, and then each operator
+downstream is responsible for a key range.
+So this way, you horizontally partition your data, and nobody conflicts with anybody else
+because everybody is responsible for their own sliver of data.
+All right, so now we established this exchange here and how we speed up stuff by parallelizing
+this.
+But maybe we have an issue that some ports through the system are faster than others.
+Maybe because of a network hiccup, or maybe because you notice faster.
+So red is slow, green is fast.
+This is bad because in the join, we may have unaligned data.
+You don't have your join partner, incorrect result.
+So instead of sending the data just down like this, these events down like this, what you
+do, not just us, but for example, also flink, you would buffer stuff upstream in your operators,
+and then you would insert into your stream of events so-called barriers.
+These are these little black boxes in my example.
+And whenever an operator receives all barriers from upstream, it will send it downstream.
+And now here the same, if this operator receives this barrier and this one, then it knows upstream
+is done, it can send downstream.
+So now that means we aligned data processing across these different nodes on each level
+on a per-barrier basis.
+So we insert this every second.
+And yeah, a barrier, if you want to go through this system, is just a GRPC protobuf message.
+Right, now recovery.
+How to recover if a node crashes?
+Well, first we need a consistent state from which we can recover.
+So for example, if we tell each operator to persist their state every so-and-so many seconds,
+that would not work because aggregate and join are in different state here.
+Aggregate has seen the update, join has not.
+So if we would persist, this would be inconsistent.
+We don't want this.
+So instead what you do, you use barriers again.
+You send events through the system.
+Whenever a checkpoint barrier hits an operator, it persists, and it persists again, the second
+operator.
+So both have seen the first event, but not the second event.
+And this way you have a consistent snapshot.
+Right, everybody has seen the same events.
+So you have a state from which you can recover, replay your Kafka events, and that's good.
+Okay, scaling.
+Last thing.
+I say you have your nodes, and one node is under pressure.
+The red node is under pressure.
+So now you want to make sure that you alleviate this pressure by adding a new node.
+You use barriers again.
+You insert a pause barrier into your stream of data.
+You persist the data of all the state, of all the operators to disk, and then you would
+add a new node, put a new aggregate operator on this, tell everybody who upstream and downstream
+if and what partition they're responsible for, reload the state from disk, and then
+resume.
+So now this was a very quick overview on how you can do streaming data processing, how
+this works under the hood.
+If you ever want to write your own database system, think about this talk.
+Maybe it helped you.
+Thank you very much.
+If you have any questions, you can ask me.
+Just shoot me a text on LinkedIn.
+If you want to try Rising Wave, we're free and open source.
+Compile some source or just use GitHub.
+Right.
+Use a Docker container.
+Thank you.

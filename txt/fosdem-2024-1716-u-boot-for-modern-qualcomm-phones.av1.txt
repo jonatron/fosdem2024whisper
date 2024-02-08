@@ -1,0 +1,288 @@
+Our next talk is a new boot for modern Qualcomm phones as Konfi tells me on my Linux phone.
+Give a big round of applause for Caleb.
+Well, hopefully that stays.
+Okay, there's no way to write.
+Okay, that'll do.
+Hey, everyone.
+Lots of people here.
+Yeah, so this is Uboot for modern Qualcomm phones.
+This is kind of about the issues that we face in running Linux on modern Android devices
+and how we can solve them to make it easier for distros and users.
+So a bit about me.
+Hey, Caleb. I've been working on and using Free Software since about 2018.
+I'm a kernel engineer at Linaire on the Qualcomm ecosystem team where I hack on pretty much anything, just not user space.
+And I'm especially interested in things that improve the user experience.
+Outside of work, I'm a member of the post-micro sql team.
+Yeah, you might recognize me from my work on the 1.6 and Snapdragon 845 devices.
+And otherwise, I'm just plotting new ways to keep your devices out of landfill.
+And I'm a maintainer of Qualcomm platform support in Uboot.
+If anybody else is interested, you can follow me on masterband here.
+So in this talk, we'll talk about why Linux on Android phones kind of sucks.
+We'll talk about the magic of UFI, how Uboot works as a UFI boot loader,
+and specifically how it works on Qualcomm devices.
+I'll talk about the state of Qualcomm support in Uboot now and have a quick demo.
+We'll go over the absolute status and like 10,000 foot overview of how to support a new Qualcomm SOC.
+So let's play a little game.
+I'm going to show you some boot loaders and you guys have to tell me which one is the odd one out.
+So who recognizes this?
+Not that many hands.
+This is the grub-lugger, apparently.
+It has another alleged boot loader.
+This is actually the official system debut lugger and not one that I made up.
+Maybe you recognize this, Tiana Core or this lugger.
+If you've ever used QMU with UFI, of course, it has another classic boot loader.
+How about this for a boot loader?
+Is it?
+Not a boot loader?
+Some people would definitely make the differ.
+Yeah, so I guess the point is really that boot loader is a bit of an overloaded term.
+It can mean a lot of different things.
+So for the sake of this SOC, it means...
+We're going to go with this definition.
+It's a software responsible for loading the kernel in our MFS and device tree and then jumping to it.
+Sometimes different bits of software do different parts of this process, but that's okay.
+So, booting an Android.
+The devices have this thing called ABL.
+It's the Android boot loader.
+It works like this.
+You have this boot image, which is flashed to a boot partition.
+It contains the kernel, device tree, and the inner MFS all packaged up together.
+Then you have this DTBO thing.
+The idea is that your device tree that's in the boot image is generic.
+It's for the platform, for the SOC.
+Then in your DTBO, you can have all your board-specific quirks and features like the display panel and things like that.
+So the process is you load the boot image, find a matching DTB,
+because there can be multiple in the boot image.
+Apply the right overlay from the DTBO, and then you boot.
+Easy, right?
+Well, there's no multi-boot support.
+You just get the one kernel.
+There is an AB update rollback feature, which can't be disabled.
+It's a lot of work to integrate.
+In fact, there are five different versions of this boot image format that we need to support.
+The DTBO partition obviously does not work with mainline device trees,
+because they're just not designed this way.
+So we need to either erase it, or in some cases build a special empty one to trick the boot loader into not crashing.
+There is no feedback if any parts of this process go wrong.
+You get dumped to fast boot, or, well, if you're lucky.
+And, yeah, overall, it's not a whole lot of fun.
+In fact, there's a few very horrific things hiding in the shadows.
+You may be familiar with this error message if you've ever booted Linux on Qualcomm platform.
+Qualcomm's boot loader loads the kernel in a mislead address.
+Here is, in fact, the command that's run as part of the kernel update process on PostMarketOS
+and other distros that need to support this platform.
+This is the most generic form.
+We need all of these device-specific properties, and it's not super great.
+Sometimes we need to append strings to the end of the boot image.
+And here is an example of what happens if you erase the DTBO partition on one device.
+That's an abstract trace from the boot loader.
+So we can do better, right?
+Well, here's how booting with UFI works.
+You have a normal Fat32 or AXE2 partition.
+The AFI specification actually says nothing about Fat32.
+So for those of you who really are not a fan of the Microsoft ways,
+you can get away with the AXE2, I think.
+You install this file bootAA64.EFI, or if you're on an AXE86 platform, it's like boot AXE86.
+And then you have your kernel and RAM disk and boot loader configuration wherever you want.
+The big difference here is that rather than having to just pack everything up in this special format,
+you get to run your own code.
+So you can do whatever you need to do.
+And in fact, this gives the distro full control over the boot loader
+so you can have your fullbacks or you can have multiple different kernels installed.
+You're used to this, right?
+So if you're using this EFI on your laptops and desktops,
+it's pretty great, as I'm sure you all know.
+However, many vendors still get things wrong in the AXE86 space and on ARM.
+And in UBoot, at least, we have some limitations that you can't really adjust the boot loader at runtime.
+For the purposes of this talk, we kind of gloss over that.
+But it's definitely an obvious winner if done right.
+And you're never going to get it right, but there's a great workaround to that,
+which is to just release the source code and let people fix the things that you get wrong.
+So we've compared the Android boot process to UFI.
+Of course, we're also noting that UFI is capable of all of the same secure boot features.
+So I have a question for you guys.
+Which boot loader do you think Qualcomm shipped on the automotive and IoT platforms?
+Is it the Android one or the UFI one?
+I heard AVL.
+Yeah, indeed.
+If you're running embedded Linux on IoT or on automotive even,
+you're not booting Android, but you still have to deal with this whole Android boot loader.
+So the answer to all our problems, UBoot.
+UBoot is a very cool open source boot loader, GPL2 licensed.
+I'm sure many of you are already familiar with it.
+It supports a whole lot of different devices and architectures.
+It has compatibility with the Linux driver model.
+So, reporting drivers from Linux is pretty straightforward.
+It uses device tree, which is pretty fantastic.
+And it can be adjusted to do anything.
+It's not just the UFI boot loader, but it does pass the system-ready base boot requirements.
+And it hasn't always had great Qualcomm support, but thankfully that's changing.
+So, to boot UBoot on a Qualcomm platform, on a phone specifically,
+we actually can't replace the Android boot loader, which sucks.
+It's hashed and the hash is signed by a private key.
+The public key is bund into the SOS.
+So, like Luca mentioned in his talk regarding firmware,
+the same is also true for the boot loader.
+Could we exploit this?
+Unfortunately, this isn't going to be one of those talks.
+I'm sure, well, I hope that one day we get there, but for now we can chain load,
+which is almost as good, right?
+And we can rely on ABL to give us a bunch of pretty useful information.
+So, you can build UBoot with this configuration, which is exactly what you might think.
+It prepends the Linux kernel image header to the UBoot image,
+which just lets us smuggle UBoot past ABL.
+ABL thinks it's just booting Linux, but it's actually not.
+And that's pretty much all this required.
+Well, then you wrap it up in the boot image, and now we're booting UBoot, basically.
+So, the state of Qualcomm support is provided in MacSnapDragon,
+which has been around for a really long time.
+To the original authors, I don't really know why they decided to name it
+Snapdragon and not Qualcomm, but whatever.
+As of today, not all of this is upstream, but work in progress.
+We have support for all of these platforms, the latest being my colleague, Neil,
+who recently got UBooting on SM8350, which is one-generation old.
+So that's all of the 2023 flagship phones, essentially.
+We're pretty much compatible with Linux advisory.
+So, if you have a phone that's supported by upstream Linux and basic SoC drivers are in UBoot,
+you can just take the advisory blog from Linux, combine it with UBoot, and you can probably boot.
+Some devices need a few additional things, which we keep track of in a separate
+advisory file, which UBoot automatically includes for us.
+And for things like USB, where we currently only support high-speed, we can fix this up at runtime.
+So, there's no hard advisory modifications required.
+There's also no board-specific code, which if you're familiar with UBoot development,
+you're probably very familiar with the board-specific code.
+We don't want any of that.
+We want to dynamically arch everything, read the memory maps from the advisory,
+and have one build target for everything.
+Support for USB, UFS storage, and MNC is headed upstream,
+and a whole lot more buttons, capsule updates, it's all getting there.
+So, where can you run this?
+Today, if you fancy shelling out, you can get yourself one of these fantastic IoT development platforms
+on the low-end for just $199.
+You can buy yourself an RB1 with a quad-core 2 GHz A53 SoC,
+one or two gigabytes of RAM, and eight or 16 gigs of MNC.
+Now, that is a steal, I gotta tell you.
+You can go a bit higher, you can go for the RB2.
+You get a whole eight cores, still a 2 GHz though, and still just two gigs of RAM.
+On the mid-end, there's the SCMA45 RB3.
+You'll learn more about these boards in Neil's talk in just a sec.
+You cannot actually buy this one anymore.
+So, yeah, sorry, I guess you'll have to go all the way up to the RB5.
+Only $550, right?
+Well, I'll let you in on a secret.
+You can buy yourself a OnePlus 8 for a lot less than that, and it has the same SoC in it.
+Now, if you already own a Snapdragon 845 device, like the OnePlus 6,
+you can head here and you can download a UBoot release right now.
+There is some work in progress post-marketOS support, which is not much yet, but it's on its way.
+We're booting with UFI and SystemDoot.
+Down the line, we will also have support for providing UBoot updates with LVFS and FirmwareUpd.
+So, you'll just be able to receive updates no matter what disk review you're running.
+And I can demonstrate this for you right now.
+Hopefully.
+Hopefully.
+Let's see.
+Yeah, okay.
+So, this is a OnePlus 6.
+This is my sort of daily driver device at the minute.
+And here we can see UBoot.
+So, we have this boot menu at the minute.
+And there's a few options here which you may or may not be able to read.
+The important ones, especially if you're interested in playing around with this.
+If you boot up with the USB cable attached, then you can choose this USB Serial Console Gadget option.
+And then you'll get a Serial Console on your PC from the USB port and the device.
+So, you can think around with UBoot.
+And yeah, I guess we'll boot into Linux.
+This is booting with SystemDoot.
+I want to buy a bit faster.
+And I got the AFI sub and then into Linux.
+Yeah, so there we go.
+This is kind of hopefully the future of Linux on Qualcomm devices.
+We can now provide updates as you would expect on your laptop or desktop.
+We don't need to mess around with a bunch of disk integration for the Android boot image.
+And everything just kind of works.
+So, yeah, in terms of upstreaming, there's quite a few patches on the mainliners right now.
+With those, we'll have USB support for the Snapdragon 845 and UFS I'm hoping to send off soon.
+There's a separate effort by a colleague of mine, Summit.
+He's working on pulling in all of the device trees from Linux, which are actually kept,
+married in a separate repository called Device Rebasing.
+So, the idea is to add this as a subtree in UBoot to allow us to keep it in sync.
+And this way, you'll be able to just clone UBoot, build it, and if your device is already in Linux
+and is already, like I said, basic support for the SoC, then provided you have a frame buffer support from ABL,
+then you can just boot UBoot and probably have UFS working.
+Yeah, if you're interested in understanding more about the UBoot flow,
+this is great talk by Simon Glass, who's a UBoot maintainer called Recent Advancements in UBoot.
+He gave it late last year.
+But, yeah, I really like the goal is if you have a fairly standard device, it should just work with the Linux advisory.
+In the future, I really want to get support for handling display panel variants.
+So, for example, the Pocophone F1, we need two different devices at the minute.
+And, yeah, we can do cool stuff, I think.
+Adding a new SoC in case you wanted to is very simple.
+You need clock and ping control. These can be essentially stub drivers, copy one that exists.
+You're kind of good to go. You may need to copy the UFS file data from the Linux driver.
+You can literally copy paste it into UBoot.
+You may need a compatible string for the PMIC and the SMME driver, and that's it.
+In fact, it took me about two hours following this process to reach that point.
+On this device I have here, which I guess I can show off for you.
+This is actually the Fairphone 5.
+And, well, it's...
+Here we are. It can also be from internal storage.
+So, yeah, this is fairly sure for it.
+Still a lot of out-of-tree patches, but definitely feel free to give it a go.
+And let me know how you get on.
+Yeah, that's all. Thanks.
+Amazing. Does anyone have any questions for Caleb?
+Yeah, here.
+On what partition, on what Android partition does UBoot live on?
+UBoot is flashed to the boot partition.
+Boot partition.
+Yeah, so on devices that don't have secure boot, where there's no signature verification going on,
+you can replace the stock boot loaded with UBoot.
+Second quick question. How often do you get on your phone?
+Call it from crash-dump.
+Unlike the OnePlus 6, it seems to depend on device and region and other things.
+It happens to me one in maybe 10 boots or less.
+Some people have issues more often.
+Yeah, it's going to be a fun one to debug.
+Hi. Thanks. Great talk.
+So, when you had on the slide earlier on that the, you know, board-specific BTBs have been added to UBoot.
+Does that mean that they are taken from ABL?
+No. So the Qualcomm's bootloader ABL is, they actually have their own very non-standard UFI implementation.
+And ABL is just an EFI app, but unfortunately none of that.
+They shut down all the UFI services before jumping to Linux and we can't modify it.
+But no, it doesn't use the device tree. It's based on ADK2.
+So we're pulling device trees from Linux.
+Okay. Thanks.
+Any more questions?
+Oh, yeah. One sec.
+Yeah, maybe it passed the mic.
+So since you have more standard bootloader now, are you able to do dual-boots, stuff like that?
+Yeah. Provided that you can share the AFI system partition.
+Or in fact, you can have multiple.
+I haven't validated this and other people are quite worried about it, but I'm fairly certain that the block device that has the user data partition on it,
+on the OnePlus 6, it's usually DevSCA.
+I'm fairly sure that we could completely format that and it would still boot, but I haven't tested this.
+And yeah, I wouldn't necessarily recommend it.
+But yeah, you can certainly remove the user data partition and create multiple for different root file systems.
+You can then format the OP2 partition as an ESP.
+You can set the right GUID type code, make it, and it'll work.
+Hopefully one day we can do a boot on Raiden.
+Yeah, well, the only thing on Android is a whole different beast.
+So I figured that the user data partition does not have overlapping directories with the Linux root file system.
+So I managed to dump a whole Linux root file system on the user data partition and tell Linux to use that at rootiface.
+Yeah.
+And it boots and it works. So you can have it without impacting any Android functionality.
+Yes, you can. This is how selfish OS boots.
+And there is also support for this in post-wacadoss, I believe, where if you put it in a special path, it will detect it.
+Do we have another question? We have one more minute. Yeah.
+So do you guys end up replacing LK2 or however you're supposed to pronounce that for the devices that use that?
+Yeah, for sure. I mean, so there's already support for some of the older platforms.
+It would be doable to add them. However, LK2 does a lot to support the downstream device trees and lots of fix up stuff.
+So currently the kind of status for the LK2 maintainers is it's not what the effort for them to move all the devices.
+But if you own one of those devices and work on it, you can definitely get it supported.
+Okay. So if I had support to this, I could replace LK2 for my class.
+Yes.
+For sure. There might be some other weird quacks for some of the 32 bit devices.
+Please give another round of applause for Kaleb.
+And again, five minute break and then we have the next talk.
+Check out the stand and bidding AW.
+Nice.

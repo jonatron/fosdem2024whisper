@@ -1,0 +1,125 @@
+Next, we have Nishant and Mike with aerodynamic data models flying fast at the scale of DuckDV.
+Okay. Thanks so much. Great to be here. I'm Mike Driscoll. I'm the co-founder and CEO of Rail Data.
+Here with my colleague Nishant, also co-founder of Rail Data, and we're going to be talking about DuckDB and making super fast data applications with DuckDB.
+So really quickly, we're going to just talk about our product vision and how we ended up choosing a fast engine, ultimately what the criteria were for DuckDB.
+And then we're going to talk a little bit about some of the optimizations that we've made at the application data model and data engine layer to get Rail to be super fast for our needs.
+So I am going to be brave enough to do a live demo here, so we'll see how that goes.
+But first, what is Rail? Rail is an operational BI tool. A lot of BI tools out there, so what makes us different?
+Well, first of all, we have faster dashboards. We co-locate the data and compute. Queries are instant, even at billion record scale.
+We embrace BI as code, deploy globally but develop locally with GitHub workflows, and we do all of the ETL and SQL, and we embrace a metrics first philosophy.
+So all of the visualizations that you'll see here are automatically generated.
+So let's get into it. Let's do a demo. If you want to try it at home or in the safety of your own laptop, you can install Rail with that single curl command.
+And I'll go ahead and do that here. So I've already installed Rail, so we'll just go ahead and get started.
+So let's imagine we've downloaded it here, and I'm just going to run Rail, Start, my Fosden demo. Let's get that moving.
+So that's going to fire up a web browser here. And what I'm actually going to do is I'm going to show how we can basically add data, a source.
+This is going to be just a local file here because that's what I've got access to. So this is basically a Parquet file called GCP consumption metrics.
+It's got basically data from GCP that I collected on our cloud usage. I'm going to bring that in as a source.
+And what you'll see here is pretty fast. We imported 4.4 million records, and we can actually, with one click here, we're going to build a dashboard.
+So it's 4.5 million records with about seven columns. There's a timestamp there. Let's auto-generate a dashboard.
+And instantly we can look at some trends in this GCP data. Again, these are automatically generated dashboards.
+I'm actually going to zoom in on a particular area of the data here. And Rail lets me kind of slice and dice this data.
+I can take a look at what I've been paying for cloud storage. Wow, it looks like something was going on there sometime in 2021.
+I can zoom into that if I wanted to drill further and find out if there's a particular skew that was driving that.
+I can kind of get some insights with that, break this down and look at period over period comparisons.
+There's a lot of visualizations I can do. I can even create pivot tables here in Rail.
+And that's something that we've spent some time launching. But I won't go much further into Rail because we've only got a lightning talk here.
+I'm going to turn it over to my colleague, Nishant, to talk a little bit about what we've done to make Rail work really fast with DuckDB.
+Thanks, Mike. So there have been a lot of optimizations that we have done in order to make it snappy and faster, specifically at scale.
+So we have a three-in-one architecture where Rail starts with, as Mike showed, connecting to a source of data, then loading that source of data into Rail,
+storing that into an in-memory database, DuckDB, and then running these operational BI dashboards on the top.
+So why we chose DuckDB? What were our requirements? How we came to use DuckDB?
+There are a couple of things why we like DuckDB. The first one is speed. We were able to profile tens of GBs of data on your local laptop.
+So the demo we showed was just offline on this laptop only with subsequent performance.
+It's simple and lightweight, so it can be embedded into a very small binary size, which could be downloaded and easily started.
+It can scale up to hundreds of concurrent queries and scale up to hundreds of GBs of data.
+So the dashboard that you saw, there were almost 50-plus queries that were fired concurrently from that dashboard when that was loaded.
+Rail is open source, and we love open source technologies, so is DuckDB. So that was also one of the reasons to choose DuckDB as well.
+Here is another snapshot of DuckDB commits. This is again like a real dashboard.
+It's hosted on this demo URL if you want to dig further and slice and dice the different commits on GitHub.
+You can do that as well, but you can see that there are over 350 contributors on the DuckDB project, which is really great,
+and there is a good velocity with respect to all the contributions over there.
+Moving on to what specific optimizations we did across the stack, both in the front-end, the back-end, as well as the database side,
+what different optimizations we did in order to make it fast.
+It's not just one optimization that actually gave us the speed at scale.
+It was a series of small optimizations that added up to a subsequent performance,
+both starting from the application layer, the platform, and the engine.
+It was all across the stack, and I'll be going over those in detail one by one.
+The first thing you might have noticed is that the dashboard is very much focused on the time series where you can slice and dice filter on time.
+So we wanted the filtering on time to be very, very efficient, and DuckDB's storage format uses row groups to store the data.
+And with each row group, it also stores min-max of your timestamps.
+If you don't order your data correctly, you might end up with these min-max, which are spread all across the place.
+So when you run a query with a filter on a timestamp, you may need to scan all these row groups.
+So one optimization was to try to sort the data during your ingestion so that your min-max and indexes are more efficiently used.
+Here you can see there is a query which tries to figure out top-ten products by sales for like the first week of January.
+And on the left, when we are not ordered, it's scanning like two row groups, but it can scan only one row group and give the result back.
+There's one small tip that we noticed was that you also do not want to need to sort the data in a perfect way.
+If your input source is already partitioned by time, you can also just preserve the insertion order during ingestion.
+This is much faster than just resorting the whole dataset.
+Another thing we noticed was that we are doing a lot of filtering on dimensions, and comparing numbers is quite faster as compared to comparing strings.
+So there is a data type in DugDB which is enum, which you can use instead of string columns, which allows for faster comparisons and filtering on those columns.
+However, there was a trade-off that we had to do over there because now we are also converting a column type, which leads to higher ingestion time.
+Incremental ingestion also became harder for us because we now have to rewrite the column type where we need to add more values.
+For example, if there is a new user, there is a new campaign.
+If we are using it for that column, it doesn't work very well, but it works very well for columns like gender where the values are fixed and it doesn't change over time.
+The next optimization we did was query cancellation.
+As you go in the application, a user is interacting with different states, and if there are one state, when I click on the dashboard, it fires hundreds of queries.
+As those queries are, results are being streamed back and those queries are being executed, there are chances that the user sometimes goes ahead and changes the state of the dashboard by maybe adding a new filter.
+Clicking on another dimension value.
+All those things lead to a bunch of queries which are in the queue.
+We added a queue for those queries and we started cancelling those queries.
+This reduced the overall load on the database and saved almost 30-40% of the CPU cycles, which overall helped us to scale it even further.
+We also added a priority queue because not all workloads on your application are going to be the same.
+Interactive dashboard queries were the highest priority for us, so we wanted that interactive experience on the dashboard, but there are other workloads like schedule reports or API machine generated queries which could be executed at a lower priority.
+Having a priority queue helped us a lot in order to make the dashboards more interactive.
+This is an acronym Mike came with today around what you see is what you fetch.
+We implemented the delay execution in our dashboards.
+You can see in this slight animation that the rows are actually loaded dynamically as we are scrolling it down, then these things are fetched from the database.
+We believe that only compute what you want to show to your users, even though we have the scrolling experience here, but it is being dynamically computed.
+We do fetch like row groups and filter heavily on the data so that we don't end up computing things which we don't need to show to the user at all.
+Data modeling is also another technique which if you model your data correctly, you can reduce the overall complexity or overall data that needs to be scanned at the query time.
+You are essentially doing a trade off where you are pushing computations to your data modeling layer, to your ingestion rather than doing it at query time every time.
+Here is a data model which tries to do a bunch of things.
+I'll start with aggregation.
+This is like a sales data set.
+First, it tries to aggregate the data by day, which in itself reduces the amount of data by 10x.
+Just by doing that in my data models, I am now able to reduce the amount of data that needs to be scanned for each and every query by 10x, which improves the performance there.
+There are certain use cases where if the business needs allow you to retain certain amount of data, as the data gets old, the value gets decreased.
+If you are only looking at last few quarters of data, you may also choose to set some retention rules by applying a filter in your data modeling layer.
+You can order the data by timestamp as to you better utilize minmax indexes and finally, materialize the output of your model in real.
+That will store that as a materialized model so that it doesn't need to recompute the view every time.
+What we actually did here is that we leveraged SQL mainly for our data modeling layer, which allows you to set all these optimizations and do those in your data modeling layer itself.
+Here are a few resources around a blog post that we did on why we love REL.
+Here is a link on how would you like to try REL.
+It's a simple command as Mike showed, which you can use to download and try it yourself.
+I'll open up for questions.
+We can also grab questions on the hallway.
+Great question from the front of the audience.
+I think I recognize this gentleman as the creator of Click House.
+Great to see you, Alexi.
+Questions, how does it scale beyond one machine?
+It's a great question.
+Today REL runs, we do run DuckDB for single nodes, but we have been experimenting with other engines to achieve scale.
+So, fun fact is that Nishant and I worked together at the company that created Apache Druid.
+It was an advertising analytics business called MetaMarkets.
+We recently have been experimenting with Click House as well to achieve scale.
+So today REL's cloud version does use Apache Druid, and some of our customers have 50 terabytes or more of scale running this same application.
+What we like about saying like Click House is it may allow us to have the same sequel, dialect, same ergonomics from small scale to large scale without having to swap engines.
+So, but we look forward to trying that out more in the future.
+Great question.
+Other questions before we, I think we've got one minute left.
+Go ahead.
+Can we attach a mic for the base via Dr. D?
+Absolutely.
+I wouldn't recommend attaching per se, but maybe Nishant you can show in the demo.
+You can read from MySQL.
+You can read from Postgres.
+We support dozens of different connectors here.
+The key thing for REL is that we are not just attaching to a server.
+We're actually ingesting or orchestrating data into the compute, the in-memory compute engine, and then we co-locate the application very close to that database server.
+So, yeah, you can attach to any of these data sources and bring in, again, for real developer, you're right in your laptop.
+I have an example where I've got 100 billion events, 100 billion event systems can scale quite well on a single net.
+Okay.
+Thank you very much.
+We look forward to you trying it out and hearing from you on Discord.
+Bye-bye.
+Thank you.

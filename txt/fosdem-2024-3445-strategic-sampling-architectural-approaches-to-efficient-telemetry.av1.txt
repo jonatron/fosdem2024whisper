@@ -1,0 +1,386 @@
+Yeah, so welcome to this presentation about Open Telemetry and Sampling.
+Today with me is Julius.
+Hi everybody.
+Yeah, so we have to pass around the microphone.
+I'm Julius.
+I work at Cisco mainly in the telco domain.
+I'm doing a lot of infrastructure, cloud related stuff.
+Lately I had the task to add Open Telemetry to our stack and yeah, that's why I'm here
+talking about Open Telemetry.
+One second.
+Okay.
+Yeah, my name is Pinar.
+I work at RATED mainly on observability tools and they also have the chance to contribute
+to Open Telemetry.
+And what we discussed today is basically a quick recap for those who haven't been in
+the room earlier about Open Telemetry.
+We discussed traces, why it's important and basically how we should sample our traces
+and what is probably not a good idea.
+And then also some challenges that may occur when you would like to apply some approaches
+to sample your traces.
+So what is the Open Telemetry project?
+The Open Telemetry project is a project which merged between open tracing and open sensors
+a few years ago.
+It's a CNCF project which is quite fastly growing and the idea is to provide a vendor
+neutral data collection so that you don't get vendor locked in by some agents or you
+need to learn the stack always new.
+And the project consists out of multiple parts.
+There is a specification in API on SDK.
+So in case you would like to instrument your applications, there are auto instrumentation
+agents that we have seen earlier today as well as a collector which was also shown in
+the previous talk which is able to have different inputs, process them, send them to the back
+end of your choice.
+There are other helpers like Helmcharts and the Kubernetes operator which make our life
+on Kubernetes then way easier.
+So in this example we see a web shop which is instrumented using the Open Telemetry SDK
+and what we get from it, we mainly care here about the traces.
+For example, a user will interact with our gateway.
+The gateway will then enrich the context and add the tracing context on top.
+This one is then propagated to all our different services.
+Those services would then report the data that is created, for example, the spans with
+some metadata to a database which helps us afterwards to analyze it and visualize it.
+So for example, we get then this nice architecture view that we can see on the top as well as
+the gun chart like view on the bottom which helps us then to analyze basically how the
+request went.
+So if we have long delays, if we have some errors in between, we can just find this out
+and see it.
+So when we have a normal web shop, for example, the majority of traces is probably quite not
+really relevant for us.
+Traces of interest would be probably, let's say, transactions which have special attributes
+or error traces or high delays.
+And we should keep an eye on this because if we sample everything, this might turn out
+to be a bit more expensive.
+Here we have an example from my colleague Julius from their setup.
+It produces a decent amount of traces, around one million per minute.
+And if you would sample all the traces and directly ingest it, for example, into AWS
+X-ray, you would end up with around $250,000 just for sampling the traces with probably
+a lot of data that is not really relevant.
+If you would bring this down to, let's say, 0.1% or even less because you only are interested
+in this special attribute, some errors or some high delays, this becomes way more reasonable.
+We go down to $250, and if you have to explain to your manager that you would like to analyze
+your system and you would like to spend a quarter million, this is probably not the
+best idea.
+So the question is now, how can we bring this down to 0.1% or even less?
+There are some approaches.
+One would be head-based sampling.
+Using head-based sampling, the gateway in the beginning would make the decision if a
+trace gets sampled.
+This information is then propagated in the trace context, and we can then, for example,
+define a probability of 10% so that we would like to keep 10% of our traces.
+And so this is then usually configured in the SDK.
+So the SDK can be configured using some environment variables, which then leads to the point that
+we always need to restart our gateway because this is the instrumented part, as so on as
+the others, but the first one makes the decision.
+There are options to overcome this.
+There is the Jega remote sampler.
+This was originally introduced in the Jega project and the Jega agent and collector,
+which communicate up with each other.
+And basically the collector will have a list of configurations for the SDK, and therefore
+we can configure the SDK on the fly, which is then quite useful.
+There is another way to reduce the amount of traces, so we can sample always and send
+the data to a specific collector.
+And this collector will use then the probabilistic sampling processor to also bring down the
+amount of traces that we then finally ingest into our database or our service that whatever
+we take there.
+Another approach would be tail-based sampling.
+Tail-based sampling is slightly different.
+So here we would store the trace and all its spans that are associated to it in the
+collector, for example, that will receive all this data.
+And this collector will then make the decision if a trace should be sampled or not.
+And we will come to this decision later.
+You can define certain policies which then basically help you to determine if a trace
+should be stored.
+The setup is then a bit more complex because you add another component.
+And also then you will add extra cost because you need an extra collector which does this.
+In general we can say if we have rare events, so like there are sometimes small errors or
+sometimes high delays, we can definitely better capture them because we can guarantee that
+we have this.
+With head-based sampling you lose this information if we have a sampling rate of one percent and
+we have an error rate which is way less.
+This is not really working.
+So tail-based sampling also introduces some overhead.
+For this one million traces you need around these resources that are listed there.
+So basically an X large or two X large instance on AWS which will add another 130 to 260
+US dollars on top.
+But still when you compare the price it's still super reasonable.
+So the next thing is basically how would this look like in a setup when we introduce the
+open-talented collector with a tail-based sampler.
+We would have here, what you can see here is the service one which is requesting service
+two up to service four.
+And the trace context is there propagated and the trace one goes through them.
+In service three an error occurs so the span and the traces everything is reported to the
+tail-based sampling collector.
+And the tail-based sampling collector then will make the decision if this should be sampled.
+As we assume we have a policy which says we would like to store errors.
+In that case this one would be written to our database and then finally we can observe
+this trace.
+This is a configuration how it looks like when you deploy the tail-based sampling collector
+using the open-talented operator.
+On the left we see it's the kind open-talented collector.
+But the more interesting part is more in the config.
+In the config we define the receiver, processor and exporter.
+This is basically the input what we want to modify and then what we would like to export
+and where to send it.
+In the pipeline section we then glue this together and we can define the OTLP receiving
+part is what we would like to ingest.
+The processing part we have them there listed there and they will be processed in this order
+and then they will be exported in this case to Temple.
+On the right side we have more details about the tail-based sampling collector.
+And there we see for example the policies that are defined.
+There is the error-retained policy and on top without an error so it's an OR.
+We have another policy that says we would like to keep 10% of our traces.
+There are more options to configure those policies.
+I link them here in the slides.
+When you go to the GitHub page you see there's tons of.
+One interesting would be probably the OTLP, what is it?
+Scripting language name.
+I forgot it.
+Anyway.
+You can glue there quite complex policies if you like to.
+Another important thing is the numbers of traces.
+So you should tune the numbers of traces always together with the memory limit and the resources.
+The reason is with the numbers of traces we define how many traces we would like to keep
+in memory and the trace can have a different amount of data when so multiply spans, more
+metadata, less metadata.
+So this is basically a number which isn't useful to define the memory usage.
+And yeah, so therefore we should tweak the others too.
+And then we have the decision weight.
+Since we have tail-based sampling we have no defined end of a trace.
+This means we never can make sure that this trace ended.
+So there can always be a span that is reported.
+We should tweak it in a way that it's reasonable as short as possible but the longest we can
+expect or the longest trace that we might expect should be the number so that we don't
+end up with inconsistent traces afterwards.
+And especially if you have a CACD system that you are tracing, this number is probably way
+higher and if we had a 10 seconds value every step would be its own trace so we would then
+end up with inconsistency.
+The same when we want to replicate our setup here.
+You can see it's the same set of as before but now we have two collectors.
+What's happened here, the Kubernetes law balancer will send us to collector 1 and collector
+2 independently and now both collectors will do their decision on their own.
+So collector 1 will go and make the decision after 10 seconds and it will see in service
+3 there was an error span so it will sample this and write it to the database.
+While collector 2 and collector 4 will send the data to collector 2.
+This one will see the policy is not hit and it will just drop it.
+So next Julius will show you how to solve this too after we change the microphone.
+Like this, can you hear me?
+Right, so maybe it wasn't clear on this slide what you see here is actually a problem because
+one of our tail samplers decided to sample the trace while the other one decided not
+to sample the trace because the span with the error was only propagated to one of the
+samplers.
+So I will talk about how we can fix this by using smart load balancing in front of it.
+What we would like to have is a kind of load balancer which distributes all the spans that
+belong to one trace to a single tail sampler so that the tail sampler which is buffering
+all the spans can make the right decision in the end.
+Additionally, we would also like to create multiple instances of our load balancer so
+that we can scale every component because if you have a single load balancer that would
+be a single point of failure in our system.
+Yeah, so how do we do this?
+Introducing the load balancing exporter.
+So the load balancing exporter is also part of the open telemetry project.
+It consists of three main parts.
+The first one is a resolver.
+The resolver is responsible for finding all the upstream back ends.
+So in this case, this would be our tail sampling processors.
+There are multiple ways to do this.
+Usually this is done using DNS.
+This can be done using the Kubernetes API but it can also be done by just hard coding
+a list of back ends and IP addresses in there.
+Second, we have to define how to talk to our upstream back ends.
+You can define the protocol.
+I think at the moment there's only the OTLP supported but it's very easy to add additional
+protocols to that and people will do probably.
+The last thing we need is to define our routing strategy.
+So we have to define what traces go to or what the routing or the load balancing should
+be based on like a shouting key.
+By default, this is the trace ID but you can also specify it to be the Kubernetes service.
+Right.
+And the load balancing parts use a method called consistent hashing.
+I will not go too much into detail but this makes sure that the two load balancers, they
+don't have a state but they still sample or send traces with the same ID and spent with
+the same ID always to the identical tail sampling processor.
+Let's see how we can define this in code.
+It's pretty much what I just said.
+You define the routing key.
+You define the protocol that you would like to speak to the upstream back ends.
+You can define a sending queue which is acting as a buffer between the load balancer and
+the tail sampling back ends.
+You can define the resolver.
+In this case, we're going to use the DNS resolver.
+We make use of the headless service which the open telemetry operator is creating for
+us.
+It contains all the IP addresses of the parts of our tail sampling processor.
+And on the side, you can see the different configurations that you could use for static
+or Kubernetes-based resolvers.
+Right.
+So to resolve the problem, we can easily scale.
+There are some problems and there are some details that you have to care about when deploying
+the load balancing exporter.
+Once of all, the load balancer exporter only makes sense if you can export the traces faster
+than you receive them, of course.
+Because otherwise, the traces and the spans that will pile up and your sending queue will
+be at full capacity very quickly.
+There is a lot of metrics exported also by the load balancer exporter which you can observe,
+like the queue capacity, the queue size, and also the back end latency which you can use
+to make sure that the load balancing is happening in an equal fashion across your back ends.
+If this is not doing well, it looks like this.
+On the top, I'm not sure if you can see this.
+Hmm.
+It's not possible to turn off the lights, unfortunately, and we didn't have time to make the slides,
+like, inverted.
+Right.
+Okay.
+The problem is the queue capacity is always reached and traces will be dropped in that
+case.
+So it's not enough to make a big buffer between your two connections or between the connection.
+You need to make sure that you're actually exporting or writing traces faster than you're
+receiving because eventually they will overflow this queue.
+In our case, the problem was the frottling on the CPU, basically, because the tail sampling
+processors are very CPU intensive and also memory intensive.
+The next problem that we have is that we need to load balance the connection to our load
+balancers.
+So it sounds a bit weird, right?
+What you can see on the bottom chart is what happens if you just point your services at
+two load balancing exporters and let Kubernetes do the load balancing.
+You can observe that one of the exporters is handling, I think, it's 4,000 while the
+other one is only doing half of that.
+People who saw this before know it's probably GRPC connections, which are very long running
+and Kubernetes doesn't like to load balance that.
+What can we do instead?
+We can use the OTRP HTTP protocol instead.
+So this is using HTTP one.
+So the load balancing will be working as intended.
+However, we lose a bit of the efficiency of HTTP two.
+The headers will be recent all the time.
+The connection cannot be reused.
+As an alternative, we could also use some level seven load balancing, NVoy, basically
+instead of just passing the request to a different backend, we can inspect what's going on, take
+the individual GRPC packets which are flowing and route them to the different load balancers.
+NVoy is a beast.
+You need to understand it.
+You need people to maintain it.
+You need to deploy it.
+And so this is a more complex setup.
+And the last option we could see here is to deploy open telemetry in a sidecar mode.
+So what we saw before is basically running in the deployment mode.
+We have a central collector.
+Everybody is sending the traces to it.
+And in the sidecar mode, we deploy a collector alongside our ports.
+So if you have 10 ports, you would also need like 10 collectors which are running.
+You see the problem.
+You need more capacity on your cluster.
+And there's a bit of overhead there.
+Right.
+Last point we're going to talk about is autoscaling which doesn't exist yet in the open telemetry
+framework.
+Where I come from, our traffic is very depending on the time of day.
+So in the night, nobody is sending SMS, nobody is calling, whatever.
+But during the day, we have high peaks of load.
+So ideally, we will also like our tail sampling operation to be slower at night while it can
+scale up during the day so we can save on the resources which can be pretty enormous,
+as you saw.
+Right.
+And also what we observe is that the errors that we would like to catch usually happens
+during the times where there is the highest load because then things go wrong.
+Yeah.
+And here you can see that the amount of SMS send correlates with the amount of received
+spans.
+I'm not sure if you can see it.
+Okay.
+So what me and Bina did is we set out on a mission to kind of build a thing about load
+balancing, autoscaling solution that we can tie together.
+What we came up with is using some sort of a Kafka intermediate stage between the tail
+samplers and our load balancers.
+Doing some autoscaling on Kafka is a well-known problem and it's solved.
+So that was like a good fit for us.
+We had the idea to make the tail samplers whenever they come up, create a topic on our
+Kafka cluster representing this tail sampling processor.
+And the load balancer, on the other hand, will do list topics on that Kafka cluster,
+let's say every five seconds.
+So when we create the tail sampler, our load balancer will know about it because it can
+see the topic.
+And what the load balancer will then do, it will do the same thing.
+Instead of routing it to a different HTTP endpoint or different IP address, we will
+route the traces and the spans to a different topic on our Kafka cluster.
+So you have multiple tail samplers all listening to a single topic while the load balancer
+is just rebooting to all those different topics.
+Right.
+That's basically the written description of the image that you saw before plus the configuration
+options which we added in green.
+So we added to the load balancing exporter the Kafka protocol so now it can speak Kafka
+and send stuff using Kafka.
+You can defa...
+Sorry, I started in the wrong order.
+The first one is the resolver which does the list topics call.
+Then we have the protocol and finally on the receiver side, we have a similar topic,
+a similar setup.
+The only addition here is that we have the create topic call.
+So whenever the receiver starts, it will create the topic automatically for us.
+So we put this to a test, very basic test, Docker compose.
+I think we spun up like one load balancer and two receiver pods, sent some traces.
+And what we could see is that the setup is indeed working as intended.
+So the load balancing works 50-50, the traffic is split perfectly and we can also see that
+the topics are automatically created for us.
+If you think this through, you can see that there could be like a lot of problems.
+What happens if you want to scale down?
+What happens to the topics?
+Will there be cleanup?
+What if I clean up or delete a topic but there's still stuff in it?
+Do I have to think about, I don't know, that letter queues for the traces and spans that
+I missed?
+So definitely if you want to run this or deploy something like this in production, you have
+to put a lot more thought into this than hacking together, I don't know, 500 lines of code.
+Right.
+Yeah, the slide with the GitHub link is gone so you cannot find the code.
+Right.
+Which brings us to the conclusion.
+Quick recap, traces are valuable.
+If you have a complex system, they get even more valuable.
+Not all the traces are equally valuable.
+If you have a bunch of 200 or case, nobody's really interested in them.
+So you have to focus on the traces which are relevant for you or the ones that you're interested
+in.
+You can use head-based sampling or tail-based sampling.
+Head-based sampling is very easy and cost-effective but you cannot put all the configuration that
+you can do in tail-sampling.
+Tail-sampling helps to focus you even better.
+If you do tail-based sampling, you need to think about load balancing at the same time.
+Yeah.
+Right.
+And the last point with the proof-of-concept that we did was just to show it's very easy
+to extend the open telemetry framework with minimal code to achieve some custom solutions.
+So you have Kafka, you can just bring open telemetry or make it match to whatever you're
+running in production.
+All right.
+Thank you everybody for your attention.
+Thank you.
+Thanks for the talk.
+You mentioned that you could switch from GRPC to HTTP so that you would get a new connection
+every time.
+Yeah.
+So you could switch from the GRPC connection from time to time and let it reconnect.
+The GRPC connection should reconnect?
+Yeah.
+Yeah, you can do that every five minutes, for example, just to mean that the client side.
+Right.
+So that's something that had to go into the OTLP receiver side, which then, so the exporter
+side will then after five minutes just terminate the connection.
+Yeah.
+I was not aware that you can configure this in open telemetry.
+But Kubernetes has this tendency to reallocate the game, the connection in the same node
+anyways.
+Okay.
+If that's true then HTTP doesn't help.
+Good point, yeah.
+Any other questions?
+Yeah, thank you for the talk.
+So on the receiver there is the max connection age.
+So you can, you know, and I have a question for long running traces.
+So there is, you mentioned there is a limit like a timer.
+You can set like 10 seconds and then the sampling decision will be made.
+Is there a way to do it dynamically?
+So let's say I see a tag from, let's say Kafka or something that takes longer to process.
+And those traces would be sampled with a timer that is, I don't know, longer than the default.
+As far as I know, there's no dynamic timing.
+It's just a hard coded value.
+It was the number.

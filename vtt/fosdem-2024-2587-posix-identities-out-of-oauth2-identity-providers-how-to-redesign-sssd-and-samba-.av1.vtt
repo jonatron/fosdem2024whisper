@@ -1,0 +1,521 @@
+WEBVTT
+
+00:00.000 --> 00:18.800
+Thank you for coming for this final talk of our dev room and let's hope we even maybe
+
+00:18.800 --> 00:24.240
+get the demo working, whatever that means.
+
+00:24.240 --> 00:36.320
+So this talk is about how to get POSIX identities out of the OAuth identity providers.
+
+00:36.320 --> 00:44.240
+Literally not about how to get them out today, but how we want to change the existing operating
+
+00:44.240 --> 00:55.480
+system layers, which SSSD and Samba both are providing, to make it actually working and
+
+00:55.480 --> 01:06.560
+maybe gain something interesting in the process of it. So who we are. This talk kind of packages
+
+01:06.560 --> 01:18.640
+together a work we do at Red Hat on VAP, on Samba and SSSD and it's from me, Alexander
+
+01:18.640 --> 01:28.800
+Bokavoy, then Andreas Schneider and Sumit Bosa who is one of the core developers of SSSD and
+
+01:28.800 --> 01:43.760
+actually one of those three S in the name is Sumit. So is it. Yeah. And this talk is about a bunch of
+
+01:43.760 --> 01:52.080
+different projects and different protocols and we will try to really just reflect on what is there
+
+01:52.400 --> 02:00.560
+and maybe see some of the future that is there. The thing is that the POSIX identities is not
+
+02:00.560 --> 02:09.520
+really what people typically think about them and it's something that is driven by the requirements
+
+02:09.520 --> 02:17.920
+of a kernel or any unique separating system. And typically for the kernel the most important part
+
+02:18.000 --> 02:25.120
+is that when a process is started it needs to run on the certain identity and when this process
+
+02:25.120 --> 02:34.160
+needs to access a data stored somewhere that identity needs to be checked against identity
+
+02:34.160 --> 02:43.120
+associated with this data. And the way how it's done varies widely across multiple operating systems
+
+02:43.680 --> 02:51.760
+but on the POSIX side, so UNIX-like or POSIX-like operating systems which Linux tries to
+
+02:54.160 --> 03:01.360
+implement and outperform in this implementation what could be there, the certain things are kind
+
+03:01.360 --> 03:09.200
+of required. So UID and GID here you know it's user identity and group identity groups have
+
+03:09.200 --> 03:16.240
+association with when process start there is a primary group of that user that is associated
+
+03:16.240 --> 03:22.480
+with the process and that's how user get access to files not owned directly by the user but there
+
+03:22.480 --> 03:32.400
+are more elements in it and basically the work we do in the login process is effectively enable
+
+03:32.400 --> 03:39.120
+all the knowledge about these identities to the processes that will be started after the login.
+
+03:40.160 --> 03:46.320
+And we focus on the enterprise environment but sometimes now enterprise is really
+
+03:47.360 --> 03:53.600
+a small company that outsourced their authentication to a cloud provider and how
+
+03:53.600 --> 04:01.040
+cloud provider handles their authentication is not their own business that their own business is what
+
+04:01.120 --> 04:10.560
+they are doing but still the machines are here the workstations and they have this data that
+
+04:10.560 --> 04:16.560
+needs to be stored somewhere right and associated with different stuff. And if we look at the
+
+04:18.320 --> 04:25.200
+OAuth IDPS in this particular case I'm looking at the OIDC connect default claims
+
+04:25.200 --> 04:35.600
+that you request when you use OIDC client then it's literally like two claims that can be reused
+
+04:35.600 --> 04:43.520
+none of them is really useful for the actual operating system the description in both cases so
+
+04:43.520 --> 04:50.960
+the Geekos field on the POSIX user side and the description of a group that's literally all you
+
+04:50.960 --> 04:59.360
+can derive from the standard claims because if you get the name of the user from the OIDC claim
+
+04:59.360 --> 05:07.280
+that's not literally the name you want to use as a POSIX username or POSIX group name you may but
+
+05:08.000 --> 05:18.960
+here be dragons it might include the stuff like SQL sequences SQL things like drop tables
+
+05:18.960 --> 05:24.560
+and so on in those names and you don't want really to get them in so you want to have certain
+
+05:24.560 --> 05:31.920
+control over it and you don't get home directory you don't get shell that's what the login
+
+05:32.480 --> 05:40.160
+process needs to know to launch the initial process of the login you don't get UID GIDs and so on
+
+05:40.320 --> 05:52.800
+and more to that the access is authenticated so you cannot just come to this IDP ask over OIDC
+
+05:53.520 --> 06:01.360
+endpoint and give me user token or whatever is there you have to prove that you are who you are
+
+06:01.360 --> 06:12.560
+and you are who I DC client effectively so the fact is on a linux system SSH server has to know
+
+06:12.560 --> 06:20.000
+that this user exists in the system before it authenticates you and there's no way to get
+
+06:20.560 --> 06:28.000
+this authentication before the authentication of the user so it's kind of a cycle that we have to
+
+06:28.000 --> 06:36.880
+break somehow then yeah on the other side you have effectively to enroll this machine this client
+
+06:36.880 --> 06:43.200
+that will be talking to IDP and that means you have to store credentials somewhere the it is not
+
+06:43.200 --> 06:48.240
+the user credentials at the sort of machine credentials so we come back to the enrollment
+
+06:48.240 --> 06:56.320
+process similar to enterprise systems and there are requirements that it should be stored securely
+
+06:56.320 --> 07:06.160
+so we we got back to what hardware dependencies TPM for measuring that what we store there is there
+
+07:06.160 --> 07:12.000
+and so on so it's it's a lot of non-trivial stuff you start with simple things and you get
+
+07:12.000 --> 07:20.560
+to the point that yeah you want to have this all secure right and if we look at the host enrollment
+
+07:21.360 --> 07:31.680
+okay some IDPs allow you to dynamically create clients and sure you you can do that users who
+
+07:31.680 --> 07:41.920
+can do that they there is a process that you can follow so properly if you have user credentials
+
+07:41.920 --> 07:49.920
+then you can enroll create these clients store credentials for the client somewhere and ensure
+
+07:49.920 --> 07:56.880
+that they secure encrypted and what not available only to the processes that get there so again
+
+07:56.880 --> 08:04.880
+bind to TPM nice nice stuff that been talked especially at the virtualization framework
+
+08:05.600 --> 08:12.000
+dev room yesterday about the confidential VMs and so on so there's infrastructure brewing
+
+08:12.000 --> 08:16.560
+in the cloud not on the machines but luckily all these machines that have
+
+08:17.280 --> 08:26.000
+certification for windows right they have hardware TPM and all this so theoretical it
+
+08:26.000 --> 08:34.640
+should be there and actually it is used in a while because Microsoft Azure AD enrollment for the
+
+08:34.640 --> 08:42.000
+machine actually uses this it requires TPM and in the hardware it requires to during enrollment
+
+08:42.000 --> 08:50.640
+process to obtain certain tokens and get all of this stuff and store it and exchange cryptographically
+
+08:50.640 --> 08:58.160
+sign it data with it all the interesting part of it is that we yeah we figured out parts of it and
+
+08:58.160 --> 09:05.200
+force it Microsoft to document some of it we got help from them not for everything but there is a
+
+09:05.200 --> 09:12.800
+process and there is even progress a bit in in proof of concept implementation of the enrollment for
+
+09:13.520 --> 09:24.240
+Azure ID from David Mulder from somebody in and Susie and actually a few other people work together
+
+09:24.240 --> 09:31.760
+with him but if you're enrolled you really have to protect these credentials you have to do something
+
+09:31.760 --> 09:45.200
+to get them seriously not leaking anywhere and also you need to have some information on the IDP side
+
+09:45.200 --> 09:51.760
+to retrieve it and and that's the bigger question there's no information like I said we we need to
+
+09:51.760 --> 09:58.240
+define so what this work is about really is to define bits and pieces that we want to store for
+
+09:58.320 --> 10:07.200
+post-ex identities in in the cloud and the most important part like it was already asked in the
+
+10:07.200 --> 10:15.440
+previous talks it's all online only so Azure AD authorization authentication and authorization
+
+10:15.440 --> 10:22.560
+is also online only Microsoft doesn't support offline work with that well they do support some
+
+10:22.560 --> 10:29.520
+local accounts but then you don't get access to the cloud basis replicated data because it's
+
+10:30.160 --> 10:37.680
+well not authorized then and finally we can do this on Linux of course because we have Pumstack we
+
+10:37.680 --> 10:45.760
+can have local passwords and so on and this so but really if we don't have this information and for
+
+10:45.760 --> 10:54.720
+many public IDPs like Google, GitLab, GitHub and so on we wouldn't have this extension or something
+
+10:54.720 --> 11:00.560
+there we will only have whatever is there we'll have to generate this information so what we came
+
+11:00.560 --> 11:08.960
+in is the experience that we had already with Samba and SSSD that we generate these IDs based on
+
+11:08.960 --> 11:19.200
+certain properties it's hashing of certain values and placing the results of executing some
+
+11:19.200 --> 11:26.240
+transformations into the ranges that we call ID ranges it's an algorithmic approach yeah
+
+11:26.240 --> 11:33.360
+algorithmic approach and there are plenty of them so Sumit came with a few approaches nice one is for
+
+11:33.360 --> 11:41.200
+example this fully qualified one where you basically use the fact that you can use name with
+
+11:42.000 --> 11:50.720
+email like style or Kerberos like style with IDP domain being the suffix and then you split it so
+
+11:50.720 --> 11:58.480
+the suffix is used to map to the ID range the specific range for that one and then the first part
+
+11:58.480 --> 12:05.440
+is used to identify user within that range the downside is alias it would not be possible to
+
+12:05.440 --> 12:11.840
+support with this because algorithmic mapping basically gives you one-to-one mapping otherwise
+
+12:11.840 --> 12:21.600
+you have other problems and but it gets you stable mapping across multiple machines so then you can
+
+12:21.600 --> 12:28.320
+log in with the same user on multiple machines and get access to the same files so this is kind
+
+12:28.320 --> 12:36.640
+of an interesting story we will still continue working on it and if you have actually post-ex
+
+12:36.640 --> 12:44.480
+information then maybe you just expose it so effectively make an a separate app that you can
+
+12:44.480 --> 12:53.520
+query and retrieve the ID ranges retrieve the description of the algorithmic mapping and
+
+12:53.520 --> 13:01.600
+certain things and maybe even attributes for the users like like Andrei was saying for the
+
+13:01.600 --> 13:10.800
+AX where is where I can get my 50 additional user attributes that AX loves to have here you get them
+
+13:10.800 --> 13:17.280
+right you can get this kind of extension and the nice part here is that maybe if we make this
+
+13:18.080 --> 13:28.000
+app and interfaces kind of common enough then it could be reused between first multiple implementations
+
+13:28.000 --> 13:35.040
+but second between multiple domains and maybe then we can at least start thinking how we can build
+
+13:35.040 --> 13:40.960
+up trust and filter in and filter out this information somewhere but of course you can
+
+13:41.040 --> 13:46.720
+store locally but the problem with the local one local information is that you not always also
+
+13:46.720 --> 13:54.400
+trust it but maybe you trust the federation federated part because if the IDPs trust each other for
+
+13:55.040 --> 14:02.080
+federation like you have your own key local key clock and then you have registered
+
+14:02.800 --> 14:11.600
+ODP client against Google or GitHub or GitLab or whatever that is the federation right the
+
+14:11.600 --> 14:18.640
+GitHub now knows you and allows you to query data about the user from which is registered at
+
+14:18.640 --> 14:26.080
+GitHub or GitLab and if it provides you post-ex attributes would you trust them is this trust
+
+14:26.080 --> 14:34.160
+actually going forward that far maybe it is between the organizations that have much more
+
+14:34.160 --> 14:42.880
+control like research institutions and universities which have their own network of collaborators and
+
+14:42.880 --> 14:50.240
+they can guarantee certain properties but not in general I guess so we probably should do there
+
+14:50.640 --> 14:59.760
+and by the way they recognize in the OALF framework well they recognize the same problem so there is
+
+14:59.760 --> 15:07.360
+a work ongoing on defining a spec for this identity chainings which is essentially
+
+15:08.880 --> 15:20.000
+akin to Kerberos S4U protocol extensions and ability to track down who did what and against
+
+15:20.000 --> 15:29.600
+whom so finally all of this brings us certain identity we need to log in in and IDP authentication
+
+15:29.600 --> 15:38.320
+that Icar was showing before was really or Thomas was showing with Ansible free ABA is really what
+
+15:38.320 --> 15:47.360
+it is about and but the most important part is okay it's annoying to perform this online
+
+15:47.360 --> 15:58.080
+authentication every single time right it's annoying when you have to do SU or sudo and go
+
+15:58.080 --> 16:04.800
+reach for for that GitHub link and perform it every single time it would be good to have it once
+
+16:05.360 --> 16:13.840
+well to have it once we use Kerberos we cache the fact that we were authenticated initially
+
+16:13.840 --> 16:21.600
+and that cache and all the metadata about this fact can be in a Kerberos ticket so this is
+
+16:21.600 --> 16:30.560
+typical Kerberos flow in a normal environment and it assumes that you have this Kerberos KDC
+
+16:31.120 --> 16:39.520
+the K distribution center somewhere in data center or somewhere and what if we put this locally
+
+16:40.080 --> 16:48.000
+what I'm just sorry so one of the idea is when you are logged in you want to access
+
+16:48.000 --> 16:55.040
+certain services they do not have support for an IDP but they have support already for Kerberos
+
+16:55.040 --> 17:05.440
+so why not use Kerberos and use that already yep and we already do this so we basically have a lot
+
+17:05.440 --> 17:14.640
+all this in the environments like Samba, AD or free IPA they both provide KDCs and they both
+
+17:14.640 --> 17:24.000
+allow to get tickets with various properties check them and and so on we have actually authentication
+
+17:24.000 --> 17:31.920
+against the external IDP the OAuth 2 device authorization flow that IPA supports it's done
+
+17:31.920 --> 17:40.800
+through the Kerberos it's actually done behind the Kerberos KDC so when you run K-init to obtain
+
+17:40.800 --> 17:51.600
+the ticket or SSSD authenticates you it runs K-init against the server and KDC spawns a process behind
+
+17:51.600 --> 17:58.480
+it and runs the authentication against GitHub, GitLab and the others and all your key clock
+
+17:58.480 --> 18:06.800
+that's already worse but it requires free IPA deployment okay if we run KDC locally we can
+
+18:06.800 --> 18:12.480
+reuse more much of this code we only need to get this metadata securely but we'll
+
+18:12.480 --> 18:20.160
+ready store OIDC client credentials right somewhere so maybe it's the question of getting this
+
+18:20.800 --> 18:26.720
+information to that small part of the thing running on the local and surprisingly
+
+18:27.680 --> 18:34.800
+if you want to run this it's not that much is needed of course some changes are needed
+
+18:35.360 --> 18:41.840
+but we can reuse existing code we can do the work that was already heavily lifted and here's a
+
+18:41.920 --> 18:55.520
+demo a small demo so I have here a machine which is actually let's hope I I can show something
+
+18:59.920 --> 19:05.920
+this is just a podman ryanon container just fedora 39 custom because I did some
+
+19:06.720 --> 19:17.760
+customization of the config in it this is a normal system so I can show you
+
+19:19.760 --> 19:29.680
+that here's ryanon SSSD inside this system and it takes like 40 Mac memory whatever
+
+19:30.560 --> 19:38.400
+system system did treats it this way this is KDC running on the same system
+
+19:39.840 --> 19:47.760
+it only takes 1.6 megabyte if you trust what system did says here at least but yeah it's
+
+19:47.760 --> 19:53.440
+it's not the question of memory use right it's more a question of do we want to expose this for
+
+19:54.400 --> 20:01.680
+more than needed but maybe we can run this over a local host L.O. interface maybe we can put this
+
+20:01.680 --> 20:08.160
+into namespace isolate and give only access to certain things there it's still still not possible
+
+20:08.160 --> 20:17.680
+to do that fully bridge in the local host things with the namespace where there be 5 KDC run so in
+
+20:17.760 --> 20:24.400
+this experiment it's running on the host unrestricted so it's like listening on all interfaces
+
+20:25.840 --> 20:31.040
+but what I get is this so I'm logging in specifically as
+
+20:33.920 --> 20:38.800
+normal user well this is admin user but it's a normal user right we have
+
+20:39.360 --> 20:51.920
+password and I get the ticket as a part of that login so now I have configured actually this system to
+
+20:54.560 --> 21:02.400
+I think it's this way to use SSSD with jssapi that means that if there is a Kerberos ticket and
+
+21:02.400 --> 21:08.240
+you're allowed to use certain palm services with Kerberos ticket you will be allowed to use it
+
+21:09.360 --> 21:10.240
+we can check that
+
+21:15.360 --> 21:18.640
+I am able to just reach that
+
+21:19.680 --> 21:25.920
+sudo without entering password the fact that I need to press enter is a bug in communication
+
+21:25.920 --> 21:34.320
+between sudo and SSSD in this but specific setup it it doesn't require to do that in IPA setup for
+
+21:34.320 --> 21:43.440
+example but the fact is I got the ticket and I used this ticket to actually obtain another ticket
+
+21:43.440 --> 21:50.560
+the ticket to the host service on this machine that's the name of the machine that's
+
+21:54.800 --> 22:00.560
+that's the name of the machine it's nothing special just the example thing yeah so
+
+22:01.360 --> 22:11.360
+that is already possible I did small setup with SSSD for this but I can do this with other
+
+22:11.920 --> 22:23.840
+SSSD just handles Kerberos better than this but what we get as a part of it is that we actually
+
+22:23.840 --> 22:30.560
+solve in another problem because just when it was in November last year Microsoft announced
+
+22:30.560 --> 22:40.320
+that they finally found their way to kill NTLM and you know how they did this by introducing local
+
+22:40.320 --> 22:49.280
+KDC on Windows 11 machines just normal workstations so they are doing exactly the same they're
+
+22:49.280 --> 22:58.240
+introducing a local active directory stripped down to not be an active directory adjust the KDC
+
+22:58.240 --> 23:05.600
+effectively doing this stuff on the machine using an extension that was developed and sort of
+
+23:05.600 --> 23:15.600
+abandoned more than 10 years ago for Kerberos this IO kerb and reviving it we have almost support for
+
+23:15.920 --> 23:24.960
+in the MIT Kerberos so we can try and use this to to get it all working and then we get to the
+
+23:24.960 --> 23:32.800
+point how we control all of it through the identity provider and now I am circling back to the first
+
+23:32.800 --> 23:41.280
+talk of today of SpiceDB and Zanzibar maybe that's one of Answers how we can standardize
+
+23:41.280 --> 23:51.760
+some sort of like that and import or export access to that through the IDPs and of course this is a
+
+23:51.760 --> 24:01.440
+lot of changes and yeah I think we have basically no time to get through it but we will be talking
+
+24:01.440 --> 24:10.400
+about this in detail at Samba XP in April conference which will be online by the way so accessible to
+
+24:10.400 --> 24:20.720
+everyone so I encourage you to continue and follow up and if you're interested please ask questions
+
+24:20.720 --> 24:35.680
+on maybe mail in this or just shut the mail in yep thank you very much
+
+24:40.400 --> 24:41.940
+you
+

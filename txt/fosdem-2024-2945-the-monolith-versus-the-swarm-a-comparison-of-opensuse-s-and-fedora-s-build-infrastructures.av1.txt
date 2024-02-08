@@ -1,0 +1,237 @@
+Hi, everyone. Thanks for coming to my talk, the monolith versus the swarm. This is not
+about Starcraft. This is about build infrastructures. First about me, I'm Dan Cermak. I work at
+SUSE. I interact a lot with open SUSE and SUSE's build system, the open build service.
+Since I'm also a Fedora contributor, I also interact with Fedora's build system. Every
+time I switch between them, I get annoyed because of things that are in one and not
+in the other, and vice versa. At some point, I thought, well, maybe I could give a talk
+about that. Why, actually? Open SUSE and Fedora are very interesting in one regard, in my
+opinion. These are very similar distributions. They're both RPM based, and they look and
+feel kind of similar. For a certain amount of time, I also ran both from the same config.
+They work kind of the same, look kind of the same, but they have absolutely no common ancestry.
+They both use the RPM package manager, but SUSE started initially, I think, from Slackware,
+and then it became its own thing, switched to RPM, and Fedora came from the whole Red
+Head site, but there was never some kind of common path, and that also reflects itself
+in the completely different build systems, whereas open SUSE uses the open build service,
+which is the monolith in this talk, and one giant thing that makes everything. Fedora has
+50 million different services, some of every single one doing something else, or sometimes
+similar things, to which we'll get, and hopefully, maybe, we can also learn from each other,
+because each approach has advantages and disadvantages. But let's first take a look what you actually
+need for a distro build system. So this is a very, very simplified graph of what you
+need to do if you have, if you want to build a distribution, you need some kind of source
+control where you store your package sources. Usually, you would pick it, but that's not
+always the case, as we'll see with the open build service, and you have some kind of service
+that builds your RPM packages. Since we're talking about RPM based distributions, yes,
+we want to build RPMs, but if this was about a one-two, you could also build depths, whatever.
+At some point, you want to build your repositories, images, containers, all the other deliverables.
+You want to take a look, and you want to monitor all the package builds, find out if things
+start breaking. Then you want to push all the same thing to QA. I'm not going to talk
+about the QA part because, kindly enough, this part is the same. Both distros use open
+QA, and if you're not neither from Fedora nor the open Suzerworld, and you don't use
+open QA, you should. There's enough open QA people around here, and by that, I have
+fulfilled my contractually obliged commercial part for open QA, but still please do. It's
+cool. Yeah, and then you push all your deliverables to some mirrors, and you have your distro
+nice and simple, right? So, in practice, I'm going to breeze through very, very quickly
+through the open build service, and this whole thing, it deserves at least five lectures,
+so it's probably not going to be complete. Sorry for those of you who are not familiar
+with it. So, the open build service is what I would call the distro building Swiss Army
+Knife because if you decide you want to build a new Linux distro that's based on something
+Fedora, open Suzer, DBN, Arc Linux-ish, you can do that with OBS more or less immediately.
+The whole thing's been around for a long time, so I think what I've been able to pick
+up from the historical documents of which there are unfortunately not many, it started
+out as a replacement of a service called OrderBuild. The design phase began around
+something 2005, probably 2006, it started becoming used, and it was introduced to open
+Suzer factory, which then became open Suzer Tumble with the rolling distro in 2009, and
+it started to get more and more extended, so initially it was just building RPMs, and
+that was it. But nowadays it couldn't build not only RPMs, but DBN packages, Arc Linux,
+web packages, you can build containers, you can build virtual machines, it will build,
+it will create repositories, it will publish everything, and so on and so on. So, essentially
+everything that you need to build a distribution, the open build service will do for you. The
+one big feature of the open build services that it will give you automated rebuilds,
+so that's something that's unfortunately not there in the Fedora infrastructure, and one
+thing that annoys me very, very much, and I think other people as well. The thing that
+annoys me very much in the open build service is the custom version control system, which
+is unfortunately not gates. Yeah, and then as I said, OBS, there's a ton of features
+that are, so one thing that I'd like to mention that's especially useful for distro building
+is a so-called staging area, which you can use if you want to, if you send in stuff into
+the distribution, you can create a sub-project. If you're familiar with the Koji world, it
+would be something like an automated side tag where you rebuild everything that depends
+on your change, and if it's all green, you merge it into the distro, and that's nicely,
+nicely possible in OBS. So, when I said it's a monolith, I was actually lying, it's two
+monoliths. You have monolith number one, that's the OBS front-end, that's a giant Rails application
+that talks to MariaDB database, and the actual magic with the interesting parts that's written
+in Perl, please don't run away, but yes, but it works relatively nicely, and that's really
+where the scheduler is, where the dependencies are resolved, this thing, signs your packages,
+publishes packages, but the actual building part is related to the workers, which invoke
+the bespoke OBS build script, and that will build your RPMs, DBN packages, containers,
+and so on. But as the user, you really just talk to the front-end, which has an XML API,
+so you see it's from the early, early odds, it's no JSON, so too early for that, or you
+interact via the OSC command line. So let's take a look how this actually looks, though
+this is an example of the OBS web UI, remind you a little bit of copper from Fedora, and
+the whole open build service is organized in projects, a project is more or less a collection
+of individual packages, that then OBS will rebuild for you. So here, let's just make
+a hypothetical example, you create yourself, you have some Python projects, there you have
+some Python packages, and OBS will happily keep rebuilding those once there's some kind
+of dependency change. And that, to all of you who know copper, that looks exactly like
+copper, but the real magic of OBS comes in, that you can automatically, that you can add
+dependencies between your different projects. So imagine I now decide that I want to test
+out some change in pandas, but I need special dependencies for that, and I have found them
+in some other project, and now I will include them in my build route in this home-danned
+project. And then OBS will do the dependency tracking recursively across projects, which
+gives me a whole ton of flexibility for experimentation. And it will also do all the rebuild these
+stuff across that. So as you can already see, this is a very simple, very simple, very
+simple, very simple, very simple, very simple, very simple, very simple. And this causes,
+so every time someone for instance decides to rebuild GCC, and you take a look at the
+monitoring page of OBS, you see a giant spike, because every single person, more or less,
+in either some way, depends on GCC. And it also means, when I was showing this picture,
+I realistically only retained the last build, because otherwise it would run out of this
+space now. The version control, now we're getting to the Nasty part of OBS, unfortunately,
+so if you start interacting with OBS via OSC, which is the command line client, it
+will behave like subversion, but you will very quickly realize it's not subversion. It's
+something completely custom that is weird and wonky, and it's actually just communicated
+via an XML API. It does things like there's not really subfolders, there's also no branches,
+and I hope we can rip this out. Well, I hope we would have ripped it out 2009, but it's
+still there, because that's the one disadvantage of a huge monolith, ripping out individual
+parts is very, very hard. And then another thing, which is, I'm not going to give it
+the full justice. So, on OBS, you have the option to branch packages. So, you can do
+this, and if I say branch, I actually mean it's more like a fork. So, let's say you find
+a package and opens with a tumbleweed, and it's not behaving like you would want, for
+instance, it's twold. So, you branch it, i.e. it makes a fork, and what actually happens
+underneath it creates a so-called link, which behaves kind of like a floating rebase of
+the changes you made locally on top of the changes that are in the distro. And if you
+think this makes no sense, you are not the only one, it kind of makes sense, it's a
+three-way merge, but getting it right is a nightmare. There are cases where this is
+very, very useful, because it allows you to have downstream patches that are continuously
+rebased, and you don't have to do the rebase yourself, and that all sounds nice, until
+your patch doesn't apply cleanly anymore, and the whole thing breaks down and OBS doesn't
+tell you. I'm sorry I can't give this whole thing justice, because I think there's like
+four people who really understand this, and I'm not one of them. And the other four are
+not here, and two of them will not admit that they understand it. So, a very nice feature
+of OBS is the project con for one thing that allows you to configure how projects are built
+and published, that's just a config file, but the other thing is you can tweak macros.
+So you can really tweak RPM macros. So let's take a look at an example. Here if you would
+look at the upper two lines, that's just some config stuff, but below there you can really
+set macros, and once you change them, OBS will rebuild this project, because it will
+not try to do macro tracking, at least I hope so. And this gives you as a release engineer
+a lot of flexibility, because if you suddenly find out, okay, but I now want to quickly
+change this, you don't have to edit redhead RPM config, and then rebuild manually everything
+yourself, OBS will do this for you. And at last, let me just quickly mention submit
+requests, so this is essentially the equivalent of a merge request. If you have branched,
+i.e. forked the project, you can send your changes back, but what's also possible, you
+can do full submissions of a new package into a project. And that's also a very nice feature
+how you submit new packages into open source at umbilweed, which in my opinion is a much
+better user experience than in fedora, where you go to bugzilla, you upload your source
+RPM somewhere on the internet, then you make a packaging request, then you make a new repo
+request, and if you haven't given up at that point, then you'll eventually get a repo.
+And this makes it much, much simpler. So as I said, I haven't given OBS full justice,
+but we're nearly approaching already 15 minutes, so let's switch over to the swarm. As I said,
+this is not Starcraft, but so first part of fedora, Paga, that's the Gitforge, so this
+is really, this is really your classical Gitforge, sadly not as maintained anymore as we all
+would wish. It's a Python based, it's a Python based GitHub inspired Gitforge, looks a little
+bit like GitHub from 10 years ago and feature wise, it's unfortunately not much further.
+It started also as a very great idea, because every repo in Paga is I think four repos in
+total, you get your own Git repo, you get your repo for your issues, for your merge requests,
+for your metadata, for your wiki, you can do remote pull requests on Paga, so if you
+don't have a Paga account and you decide I still want to make a pull request and I don't
+want to put it up on Paga, you can put it somewhere else into a Git repository and make
+a pull request to that remote repository. I don't know if any other Gitforge that would
+support that, but sadly this thing has been mostly written by Pingu, sadly he can't work
+on that anymore and so development has been very slow and it's more or less just a question
+of time until this will be replaced with GitLab. The build system of Fedora, that's Koji, that's
+really just a, it's a very, I'd say relatively simple RPM build system that uses Mock to
+build your RPMs and in contrast to OBS, which gives you a lot of flexibility, Koji doesn't,
+which gives Koji the big advantage that it's very, very simple to understand, because you
+can't do fancy things. You have one build route, there's your packages and then you
+build your package with a fixed NEVR, so name, Epoch version release in that build route
+and once it's built, it stays there forever. So Koji persists, builds forever, at least
+real builds. There's ways how you can test changes, so there are side tags and you can
+also do build route overrides and nowadays Koji can also talk to the, to Pega, to the
+Fedora disk Git, but it's in itself, it's relatively, it's a relatively simple thing
+and it's relatively simple to understand, which is a great advantage for release engineers,
+because that's all what they have to interact with and it's not, I'd say Koji is not that
+hard to grasp. OBS, it's a different beast. So then, Pangee, what I've heard Pangee apparently
+gives a few people PTSD, but then, or at least the configuration file, but Pangee itself
+is really just a distro composition tool, so yeah, it creates the Fedora composes, all
+the centers composes and Pangee itself is just, is again, just a tool that executes
+a bunch of other tools, but you can summarize it essentially. It assembles first all your
+packages from Koji from the current state, checks which packages you need to create the
+current snapshot that is called a compose, then it runs the repo creation, also OS tree
+repo creation, but that's just a different repo and then all your images are built. And
+this is kind of interesting because this is different than it's done on OBS, so in this
+step you create your images from the created repos and then the whole thing is published
+or not if it fails. On the open build service, these two steps are separate from each other
+and also the repo creation of stable distribution or stable distributions like Fedora is done
+differently and I don't want to say that this approach is much better, but the approach
+that's done on OBS has the slight disadvantage because the steps are independent of each
+other, you can publish your images and not publish a repo or you publish them at slightly
+different times and then they are not exactly the same and you suddenly, you publish your
+images, you run a zipper up or zip it up and suddenly there's changes also there shouldn't
+be. So that's I'd say a release engineering main difference.
+Now we come to the real swarm part of the Fedora infrastructure, that's image and container
+building because there's not one service, there's at least four that I know of, OSBS,
+the open shift build service, image factory which I think many people pray that it will
+go away very, very soon, then Kiwi, that's the main image builder that's also used in
+OBS and OS build, that's the new thing. These all are kind of wired all into Koji,
+where they grabbed RPMs from Koji and built images and built images from that. So at least
+with OSBS every time I look at it I run away because it includes far too many fancy words
+that I don't understand if I just want to build containers or images. There's too many.
+MBS, that's the module build service, unfortunately it will go away so let's not waste our time
+with that. Koji is a very interesting thing, it's kind of a workaround in the Fedora infra
+for not having automated rebuilds because it does exactly that. So what you can see here
+is a screenshot from Koshai where it will track every time there's a dependency change
+of your packages in either Fedora or height or one of the other variants, it will tell
+you what exactly changed between a compose, it will run a scratch build, so that's a kind
+of non-production build in Koji that can be removed and if it succeeded everything fine,
+if it breaks it will tell you. And it will also tell you if your dependency suddenly
+failed to resolve. And everyone who's worked with OBS will know that the worst thing that
+can happen is if your packages dependencies failed to resolve because that's the one thing
+you don't get a notification about. And that's what really Koji does. And sadly the one thing
+that Koji cannot do is kick off real builds which would make automated rebuilds happen
+in the Fedora infra but that's then the problem that there's not enough build power available.
+Another thing that really does not a clear equivalent in the open SUSE world, that's
+Bodhi, this is an updates testing facility. So this is primarily meant for end users to
+test package updates. You can just log in, check out an update to your favorite package
+and you can vote on updates and if you suddenly realize this update breaks my system you
+can give it negative karma and it will not go into the distro on the next compose.
+And nowadays it's also used to gate draw height which might or might not be a great idea.
+I've heard both sides of that equation. So one thing that I'd like to also mention that's
+Fedora messaging. That's an AMQP based notification bus where every single of those hundreds of
+Fedora services sends their notifications to. Open SUSE has something as well but sadly
+what opens SUSE doesn't have is the equivalent of the Fedora message notifications which is
+where you can configure on which kinds of events you want to get notified and then it will
+send you messages on matrix or messages via email which might or might not be a great
+idea. It's a bad idea during a mastery build because rip inbox. Last thing, what about
+copper? That wasn't me. I'm going to pretend that doesn't happen. So I hope it's not the
+smoke alarm. So what about copper? Copper is a community build system and really not the
+main part of the bad of the build system. And now for my favorite part and because I talked
+too long, it's going to be quick. The good, the bad and the ugly of each of them. I'd
+say the good parts are on OBS. It's very flexible and if you want to carry out large scale
+changes that's the place to go because it's much, much simpler than to do it in Koji.
+And you have one place where you go and you do everything there and not 500 places like
+in Fedora. In Fedora on the other hand you have a bunch of simple individual systems.
+So every one of these things is pretty easy, pretty easy to grog by themselves and if you
+have to work with just one of them, it's pretty simple. And it's relatively easy to extend
+at least in the sense that one of those services doesn't do what you want to do, just write
+a new one because that's sometimes like it appears has been done in the past. The bad,
+getting started, it sucks on both sides. It sucks in individual ways, in different ways,
+but I must confess I didn't find the getting started experience in either of them good.
+On OBS it's the version control. It's terrible. I hope we can replace it. And handling of something
+like a release distribution is really weird because OBS has been built around the idea
+you want to constantly rebuild everything. And if you try to shoehorn something where
+you don't try to rebuild everything all the time, it starts to become ugly. And then the
+OBS dependency result. Okay, everyone who is clapping has probably worked with OBS.
+Short explanation for those of you who haven't. OBS does its own dependency resolution, doesn't
+use the package manager for that. And the dependency resolver is stupid and if there's
+a possibility to make a choice, it won't make it. And that's when you get this error. Yeah,
+no automatic rebuilds on Fedora. It sucks. I hate it. Please, can we fix that? And sometimes
+systems get misused. Yeah, and then the ugly. So on OBS the whole thing is just so darn
+complex. It's impossible to understand. There's maybe half a dozen of people who really know
+most of the things. And given that it's a giant monolith, it's impossible to extend
+unless you really know all the details. And on Fedora you have just far too many systems
+and far too ugly glue that then also leads to ugly things where you can't extend things
+and you have just duplication. So who's better? No one. Both setups just have their advantages
+and disadvantages. If you want to do development, do OBS. If you want to do stable distributions,
+Fedora. That's my personal preference. I haven't worked ever on Rails, so I don't know if it
+was set like in production. If you want to do both, oh, I wish we could just combine it
+and it would work, but I haven't found it. So I hope we start time for questions if there
+are. I'm sorry. You can send the hate mail to me when you find me. I'm going to run away.
+Thank you.

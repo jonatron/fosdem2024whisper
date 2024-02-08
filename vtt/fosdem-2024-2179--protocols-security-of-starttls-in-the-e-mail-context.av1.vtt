@@ -1,0 +1,914 @@
+WEBVTT
+
+00:00.000 --> 00:11.000
+Okay, so this is the modern email deaf room and I think I'm talking about something rather
+
+00:11.000 --> 00:12.680
+old and that is startillist.
+
+00:12.680 --> 00:16.760
+So this talk is titled, why is it better without startillist, security analysis of startillist
+
+00:16.760 --> 00:18.480
+in email context.
+
+00:18.480 --> 00:20.560
+And this is based on research.
+
+00:20.560 --> 00:25.800
+I've done some years back with Damian, so one of your lovely organizers here, Hanu Berg
+
+00:25.800 --> 00:26.880
+and Sebastian Schinsel.
+
+00:26.880 --> 00:28.880
+And my name is Fabian Easing.
+
+00:28.880 --> 00:34.360
+So since I have the honor of starting off this whole, well, the whole deaf room, I want
+
+00:34.360 --> 00:39.200
+to give you a quick overlook of at least the client side of the email ecosystem.
+
+00:39.200 --> 00:44.280
+And this is a graphic I have designed from a dissertation and so bear with me that the
+
+00:44.280 --> 00:47.400
+legend might not fit the context really.
+
+00:47.400 --> 00:53.200
+But that's basically, well, it's hard to read in that resolution, but this is basically
+
+00:53.200 --> 00:56.320
+a lot of the RFCs that go into the email ecosystem.
+
+00:56.320 --> 00:59.600
+No worries, I'll cut that down a bit.
+
+00:59.600 --> 01:02.360
+And I've basically identified three categories.
+
+01:02.360 --> 01:04.000
+One is network protocols.
+
+01:04.000 --> 01:06.680
+This is where we'll spend most of the time of this talk.
+
+01:06.680 --> 01:12.320
+So this is SNTP, POP3, IMAP and nowadays JMAP, not included in the graphic yet, sorry for
+
+01:12.320 --> 01:13.320
+that.
+
+01:13.320 --> 01:18.360
+Formattings such as internet message format and MIME, so the multipurpose internet mail
+
+01:18.360 --> 01:19.760
+extensions.
+
+01:19.760 --> 01:25.720
+And lastly, end-to-end encryption like S-MIME at OpenPGP, which probably no one uses.
+
+01:26.560 --> 01:32.400
+So in total, that makes up more than 150 RFCs.
+
+01:32.400 --> 01:36.320
+Yes, some of them are obsolete, some of them are deprecated.
+
+01:36.320 --> 01:41.440
+But if you really want to get the whole gist of just the client side of the email ecosystem,
+
+01:41.440 --> 01:44.080
+you will probably have to read a lot of them.
+
+01:44.080 --> 01:45.080
+And I've done that.
+
+01:45.080 --> 01:47.000
+And they have done that.
+
+01:47.000 --> 01:48.960
+So that's only one side of the mail, of course.
+
+01:48.960 --> 01:50.960
+There's also implementations.
+
+01:50.960 --> 01:57.520
+So over the course of my research, I've looked at more than 48 clients and more than 23 servers.
+
+01:57.520 --> 01:59.680
+And this is by far not all of them.
+
+01:59.680 --> 02:03.920
+So that's just the implementations I could get my hands on and not counting the ones
+
+02:03.920 --> 02:10.320
+I found on the internet where I really can't tell if that is one of the 23 or isn't.
+
+02:10.320 --> 02:11.720
+Okay.
+
+02:11.720 --> 02:15.960
+Since I also have the honor of starting off this protocol session of the email deaf room,
+
+02:15.960 --> 02:22.720
+I want to give you a quick, well, introduction to how an email gets from our sender Alice
+
+02:22.720 --> 02:24.360
+to our receiver Bob.
+
+02:24.360 --> 02:28.320
+So let's assume that both use some kind of mail user agent or what you would normally
+
+02:28.320 --> 02:29.600
+call a mail client.
+
+02:29.600 --> 02:32.640
+So for example, Mozilla's on the boat.
+
+02:32.640 --> 02:36.560
+So both also need a so-called mail service provider.
+
+02:36.560 --> 02:43.560
+That might be something commercial like mailbox.org or Gmail, you know, and well, that's basically
+
+02:43.640 --> 02:48.080
+necessary to get one email from the sender to the receiver.
+
+02:48.080 --> 02:54.560
+So Alice will first have to configure her MSPs, MSA or mail sending agent.
+
+02:54.560 --> 02:59.560
+So what she has to do in our mail client is basically fill out some kind of dialogue like
+
+02:59.560 --> 03:04.280
+this, put in a server, put in a port and choose an encryption mechanism.
+
+03:04.280 --> 03:08.680
+Let's say for the sake of this talk that she chooses stateless or the auto configuration
+
+03:08.680 --> 03:12.560
+told her to do stateless, which happens a lot of time.
+
+03:12.560 --> 03:19.120
+So then she will be able to submit that over S&TP or submission if you want to be pedantic
+
+03:19.120 --> 03:21.320
+to the MSA.
+
+03:21.320 --> 03:26.680
+And Bob will have to do the same configuration with the mail delivery agent of his MSP to
+
+03:26.680 --> 03:31.440
+be able to connect via POP3 and IMAP.
+
+03:31.440 --> 03:34.560
+And then he will receive the mail, obviously.
+
+03:34.560 --> 03:37.880
+So this is where we will stop for the sake of this talk.
+
+03:37.880 --> 03:40.560
+So I'll be looking at the first and the last hope only.
+
+03:40.560 --> 03:42.680
+However, I don't want to leave you hanging.
+
+03:42.680 --> 03:47.760
+So what's happening in between is mail transfer agent to mail transfer agent communication,
+
+03:47.760 --> 03:49.320
+which happens over S&TP.
+
+03:49.320 --> 03:55.520
+And I'll report here be dragons there and whoever has looked into that knows what I mean
+
+03:55.520 --> 03:59.920
+by that because that's generally from a security standpoint considered to be a pretty hazardous
+
+03:59.920 --> 04:06.720
+field just to the reasons how DNS interacts with that and how DNS works or doesn't work,
+
+04:06.720 --> 04:08.520
+they are and so on and so on.
+
+04:08.520 --> 04:11.880
+So that's not what we will be looking at during this talk.
+
+04:11.880 --> 04:18.320
+However, I think the first and the last hope are from a user standpoint, the most important
+
+04:18.320 --> 04:21.640
+hopes simply because your credentials are submitted over that.
+
+04:21.640 --> 04:26.320
+That means that you really, really want to have those connections encrypted by a TLS
+
+04:26.320 --> 04:27.320
+if possible.
+
+04:27.320 --> 04:31.720
+Or not only if possible, you want to do that.
+
+04:31.720 --> 04:36.080
+Okay, let me give you a quick introduction to IMAP because that's what I'll be basing
+
+04:36.080 --> 04:39.480
+my examples on and on start TLS.
+
+04:39.480 --> 04:44.520
+So every IMAP connection begins with a client connecting to the server on a specific port
+
+04:44.520 --> 04:46.600
+and receiving a greeting back.
+
+04:46.600 --> 04:51.440
+This greeting consists of this asterisk and then a status code in this case, okay, and
+
+04:51.440 --> 04:53.000
+usually a list of capabilities.
+
+04:53.000 --> 04:57.680
+In this case, the server says, I'm able to speak IMAP for revision one and I'm able to
+
+04:57.680 --> 04:59.800
+do the awesome login mechanism.
+
+04:59.800 --> 05:01.200
+So far so good.
+
+05:01.200 --> 05:05.880
+The client will then send tagged commands which consist of attack and a command as you might
+
+05:05.880 --> 05:11.040
+have guessed and will usually receive some kind of data in response.
+
+05:11.040 --> 05:13.000
+So that's called an un-tagged response.
+
+05:13.000 --> 05:17.880
+And in this case, these are again the capabilities we've already seen in the greeting.
+
+05:17.880 --> 05:22.760
+And finally, to signal that the server is done with processing this command, they will
+
+05:22.760 --> 05:25.520
+send a tagged response with the same tag.
+
+05:25.520 --> 05:29.400
+Okay, so far so easy.
+
+05:29.400 --> 05:31.200
+Now how does that TLS work?
+
+05:31.200 --> 05:33.880
+This basically is the same as you've seen before.
+
+05:33.880 --> 05:40.120
+The client connects to some port, usually for IMAP it's 143 via plaintext, via plaintext
+
+05:40.120 --> 05:41.600
+TCP connection.
+
+05:41.600 --> 05:44.600
+And now the server sends the start TLS capabilities.
+
+05:44.600 --> 05:46.480
+So that's the last capability here.
+
+05:46.480 --> 05:52.320
+And usually removes all the locking capabilities because we don't want to have clients lock
+
+05:52.320 --> 05:54.400
+in via plaintext.
+
+05:54.400 --> 05:56.280
+Then they will negotiate start TLS.
+
+05:56.280 --> 05:59.480
+So the client will say, hey, I really want to speak start TLS.
+
+05:59.480 --> 06:02.440
+The server says, yes, okay, we can do that.
+
+06:02.440 --> 06:06.640
+Then they'll do the TLS and shake and everything after that is encrypted.
+
+06:06.640 --> 06:10.600
+Okay, although attacks happen here.
+
+06:10.600 --> 06:14.320
+So we assume that the attacker is a meddler in the middle that can listen on the network
+
+06:14.320 --> 06:19.120
+connections, that can modify packets, insert additional packets and so on.
+
+06:19.120 --> 06:23.560
+But there will be no meddling with the TLS and shake, no trying to change any cipher
+
+06:23.560 --> 06:25.280
+text and so on and so on.
+
+06:25.280 --> 06:27.560
+So everything still happens in plaintext.
+
+06:27.560 --> 06:28.560
+Okay.
+
+06:28.560 --> 06:34.120
+At this point, you might be asking, so what is there even for an attacker to do?
+
+06:34.120 --> 06:42.440
+Well, an attacker could, for example, change this or this or remove this, change this status
+
+06:42.440 --> 06:46.320
+code, add something here or really do anything in between.
+
+06:46.320 --> 06:50.320
+So there's actually a lot of room for stuff to do.
+
+06:50.320 --> 06:56.000
+Of this, accumulated in USNIC security 2021 paper with the same title as this talk.
+
+06:56.000 --> 06:58.480
+And as I've said, this is a paper from 2021.
+
+06:58.480 --> 07:02.000
+So most of the bugs I'll be showing you today are hopefully fixed.
+
+07:02.000 --> 07:03.440
+For most of them, we know that they are.
+
+07:03.440 --> 07:05.960
+For some of them, we are not 100% sure.
+
+07:05.960 --> 07:09.920
+But most of them are fixed by now.
+
+07:09.920 --> 07:15.600
+So the questions we set out to ask were, first, are modern clients opportunistic?
+
+07:15.600 --> 07:19.840
+So StatiLS has the reputation of being an opportunistic encryption protocol.
+
+07:19.840 --> 07:24.320
+So basically, only if the client and the server can agree to do encryption, then they will
+
+07:24.320 --> 07:25.320
+do encryption.
+
+07:25.320 --> 07:28.760
+Otherwise, well, they will probably talk in plain text.
+
+07:28.760 --> 07:32.160
+This should never be the case for client-to-server communication.
+
+07:32.160 --> 07:35.960
+This is where this MTA to MTA communication falls into place.
+
+07:35.960 --> 07:40.200
+That is usually opportunistic, hopefully not as much anymore as it was in the past.
+
+07:40.200 --> 07:46.120
+But for clients to servers, you never want to have a plain text connection, actually.
+
+07:46.120 --> 07:51.080
+So if there is data sent in plain text, so let's assume we are doing TLS, but we are
+
+07:51.080 --> 07:53.360
+sending some data in plain text before that.
+
+07:53.480 --> 07:58.400
+And we wanted to know if there's any sensitive data sent in plain text to the server or to
+
+07:58.400 --> 07:59.400
+the client.
+
+07:59.400 --> 08:05.160
+The third question was, so if there is some data sent in the plain text, is it retained
+
+08:05.160 --> 08:08.840
+in the encrypted and authenticated context after the TLS handshake?
+
+08:08.840 --> 08:13.760
+So does anything slip over from one context into the next one?
+
+08:13.760 --> 08:16.120
+And finally, what happens in error cases?
+
+08:16.120 --> 08:22.400
+Specifically, we looked at alert mechanisms like the IMAP's alert code, which you will
+
+08:22.400 --> 08:23.400
+see in a moment.
+
+08:23.400 --> 08:24.400
+All right.
+
+08:24.400 --> 08:28.880
+To answer these questions, what we did was three-fold.
+
+08:28.880 --> 08:32.760
+So we built the email analysis tool kit, the security tool kit.
+
+08:32.760 --> 08:34.480
+I always forget what the acronym stands for.
+
+08:34.480 --> 08:35.480
+I'm not sure.
+
+08:35.480 --> 08:36.480
+It's East.
+
+08:36.480 --> 08:37.480
+And it's on GitHub.
+
+08:37.480 --> 08:39.360
+I'll put the link later.
+
+08:39.360 --> 08:47.080
+So what we did was build almost full-fetched IMAP, SMTP, and POP3 server to automate tests
+
+08:47.080 --> 08:52.640
+on virtual machines where we installed mail clients.
+
+08:52.640 --> 08:56.600
+So basically, you can write a config file, define what do you want the server to answer
+
+08:56.600 --> 08:57.760
+to specific messages.
+
+08:57.760 --> 09:00.520
+And if you don't, it does what a normal server would do.
+
+09:00.520 --> 09:03.960
+And otherwise, it will return whatever you told them to.
+
+09:03.960 --> 09:09.320
+So the second one was, we wrote some scripts for IPv4 Internet scanning to scan for a specific
+
+09:09.320 --> 09:11.480
+vulnerability on the Internet.
+
+09:11.480 --> 09:16.280
+And finally, we built also some local test scripts with which you can test your own implementations
+
+09:16.280 --> 09:18.640
+or your local installations.
+
+09:18.640 --> 09:20.640
+All right.
+
+09:20.640 --> 09:23.280
+So what were the key findings?
+
+09:23.280 --> 09:27.800
+The first finding was that clients can be tricked into not using StarTales at all.
+
+09:27.800 --> 09:30.480
+So they will leak credentials or emails.
+
+09:30.480 --> 09:33.680
+So what you see on the right-hand side is a classic StarTales stripping attack.
+
+09:33.680 --> 09:38.320
+So basically, you remove the StarTales capability from the greeting.
+
+09:38.320 --> 09:41.640
+Then the client might still want to do StarTales.
+
+09:41.640 --> 09:44.160
+So you just tell us, no, you can't do that.
+
+09:44.160 --> 09:45.440
+All of that happens in plain text.
+
+09:45.440 --> 09:48.360
+So why should the client not lock in?
+
+09:48.360 --> 09:52.000
+This thankfully doesn't work in most of the clients nowadays.
+
+09:52.000 --> 09:56.560
+So all of the StarTales stripping attacks, we found some of them, but usually they are
+
+09:56.560 --> 09:57.920
+not a problem anymore.
+
+09:57.920 --> 10:03.000
+However, we rediscovered a problem related to the pre-OS greeting.
+
+10:03.000 --> 10:08.040
+So the pre-OS greeting is used whenever the server can authenticate the client over some
+
+10:08.040 --> 10:09.040
+other channel.
+
+10:09.040 --> 10:13.040
+For example, people apparently use IMAP over SSH.
+
+10:13.040 --> 10:16.720
+And then you are already authenticated over SSH, so no need to re-authenticate to your
+
+10:16.720 --> 10:18.760
+IMAP server.
+
+10:18.760 --> 10:22.320
+So the client would receive this greeting from the server, which tells them, well, you
+
+10:22.320 --> 10:24.240
+are already authenticated.
+
+10:24.240 --> 10:27.160
+The client would then do StarTales.
+
+10:27.160 --> 10:28.360
+Wait a second.
+
+10:28.360 --> 10:34.680
+The IMAP-RFC states that the StarTales command is only valid in the not authenticated state.
+
+10:34.680 --> 10:36.800
+So they really can't do that here anymore.
+
+10:36.800 --> 10:38.440
+And most clients didn't.
+
+10:38.440 --> 10:41.680
+So of course, they won't block in then, because why would they?
+
+10:41.680 --> 10:43.200
+They are already authenticated.
+
+10:43.200 --> 10:48.560
+However, many clients decided to upload sent and drafted emails after that, because they
+
+10:48.560 --> 10:53.520
+are already authenticated, and their send folder is missing for some reason.
+
+10:53.520 --> 10:56.320
+So let's just upload that in plain text.
+
+10:56.320 --> 11:02.240
+So this worked in 15 out of 28 clients we tested.
+
+11:02.240 --> 11:07.040
+Thankfully only one library we tested, so one client library, was meant to be opportunistic.
+
+11:07.040 --> 11:11.800
+So opportunistic StarTales is really not the thing in clients anymore.
+
+11:11.800 --> 11:15.240
+That's at least fortunate.
+
+11:15.240 --> 11:20.400
+So the second key finding was that many clients process unauthenticated data that appears before
+
+11:20.400 --> 11:22.200
+the TLS handshake.
+
+11:22.200 --> 11:31.480
+So for example, we injected this alert message from IMAP, which then looks like this, for
+
+11:31.480 --> 11:34.520
+example, in Microsoft Outlook.
+
+11:34.520 --> 11:36.840
+This looks pretty real to me, if I look at it.
+
+11:36.840 --> 11:39.640
+And it also helpfully highlights links for us.
+
+11:39.640 --> 11:43.360
+So you can't do HTML in there or something, but you can still highlight links.
+
+11:43.360 --> 11:50.440
+So I might be tempted to click on that if the link looks somewhat convincing as well.
+
+11:50.440 --> 11:52.760
+So we found another case of that.
+
+11:52.760 --> 11:57.960
+You can basically all of these untaxed response I've shown you before, only somewhat bound
+
+11:57.960 --> 11:59.840
+to a specific command.
+
+11:59.840 --> 12:04.840
+So you can basically inject them at any point before the TLS handshake.
+
+12:04.840 --> 12:10.560
+And this results, for example, in this is, I think it's Sonabird, creating an attacker-controlled
+
+12:10.560 --> 12:12.120
+folder in your mailbox.
+
+12:12.120 --> 12:15.280
+And this stays even after the hijacked connection.
+
+12:15.280 --> 12:18.360
+Also not too great.
+
+12:18.360 --> 12:21.720
+So we were able to do this in at least 11 out of 28 clients.
+
+12:21.720 --> 12:25.120
+So still a lot.
+
+12:25.120 --> 12:29.600
+So what concerned us most was the last finding, that several servers were vulnerable to a
+
+12:29.600 --> 12:30.800
+long-known bug.
+
+12:30.800 --> 12:38.960
+So this bug was first detected by Vizavine M9's post-tix SMTP implementation in 2011.
+
+12:38.960 --> 12:41.040
+So more than 10 years ago.
+
+12:41.040 --> 12:43.560
+Should be fixed by now, right?
+
+12:43.560 --> 12:48.960
+So this was first described for SMTP, but we have described it also for IMAP and POP3
+
+12:48.960 --> 12:51.680
+and it's pretty straightforward that that should be the case.
+
+12:51.680 --> 12:53.680
+This is also a problem there.
+
+12:53.680 --> 12:58.560
+And basically what happens is the attacker injects a second command after the start TLS
+
+12:58.640 --> 13:01.160
+command in the same TCP segment.
+
+13:01.160 --> 13:05.040
+So basically this BNOUP shouldn't really be there.
+
+13:05.040 --> 13:09.920
+So and what happens usually for servers is that they read the whole buffer.
+
+13:09.920 --> 13:14.480
+So they read the whole socket into an application buffer, all data that is available, read both
+
+13:14.480 --> 13:20.600
+commands, process the start TLS command, send an AOK to that, do the TLS handshake, and
+
+13:20.600 --> 13:25.680
+that BNOUP remains in the application buffer to be handled after the TLS handshake.
+
+13:25.840 --> 13:30.800
+And at this point it's interinspirant to the server that this wasn't sent over TLS and
+
+13:30.800 --> 13:33.440
+this was basically sent by the attacker.
+
+13:33.440 --> 13:38.000
+So they also answer after the TLS handshake.
+
+13:38.000 --> 13:41.840
+So we were able to do that in eight out of 23 servers.
+
+13:41.840 --> 13:47.360
+Remember this is a 10-year-old bug and over the course of the 10 years more than 16 of
+
+13:47.360 --> 13:50.240
+the 23 servers were vulnerable at one point.
+
+13:50.240 --> 13:54.160
+So basically this is widespread problem.
+
+13:54.160 --> 13:58.720
+So we thought about that and thought well we can straightforwardly extend that to clients
+
+13:58.720 --> 14:05.080
+as well because if we can inject a command why shouldn't we be able to inject a response.
+
+14:05.080 --> 14:12.360
+So we did that and found 16 out of 28 clients basically vulnerable to the same bug simply
+
+14:12.360 --> 14:17.560
+because it wasn't described before for clients.
+
+14:17.560 --> 14:18.960
+So what's the impact of that?
+
+14:19.360 --> 14:25.600
+We were able to do credential stealing in IMAP and SNTP, stealing and send and drafted
+
+14:25.600 --> 14:27.640
+emails in both protocols.
+
+14:27.640 --> 14:32.000
+We were able to tamper with the mailbox in both protocols that have mailboxes, do UIS
+
+14:32.000 --> 14:37.080
+boofing in all three protocols, and we're even able to do HTTPS hosting under the IMAP
+
+14:37.080 --> 14:43.200
+certificate of the server, which is pretty bad.
+
+14:43.200 --> 14:45.280
+So what can we do about that?
+
+14:45.280 --> 14:49.600
+Our first recommendation for users was to disable StarTLS in their clients and I think
+
+14:49.600 --> 14:50.960
+that's still sensible.
+
+14:50.960 --> 14:54.440
+So not disable it totally but switch to implicit TLS.
+
+14:54.440 --> 14:56.280
+Please don't do plain text.
+
+14:56.280 --> 14:59.520
+So do implicit TLS instead.
+
+14:59.520 --> 15:04.840
+But we realize this might not be a workable solution for server developers and MSPs.
+
+15:04.840 --> 15:11.400
+So if you really must use StarTLS you should isolate the plain text phase completely from
+
+15:11.400 --> 15:17.320
+the TLS phase, from the encrypted phase, fix the buffering issues in the process hopefully
+
+15:17.320 --> 15:22.080
+and as a protocol measure we should really streamline the negotiation and lock down what
+
+15:22.080 --> 15:25.320
+is allowed before the TLS handshake.
+
+15:25.320 --> 15:31.080
+So only accept the bare minimum of messages before the actual TLS handshake.
+
+15:31.080 --> 15:37.160
+So as a final note, a quick thank you to all the developers of open source mail clients.
+
+15:37.160 --> 15:41.360
+The response time to our bug reports was phenomenal, much, much better than the commercial
+
+15:41.360 --> 15:42.960
+ones.
+
+15:42.960 --> 15:48.560
+So if you want to test your own clients or your own servers, all our testing scripts
+
+15:48.560 --> 15:49.560
+are available.
+
+15:49.560 --> 15:54.600
+We're happy for any push, any pull requests, it's pull requests, not push requests.
+
+15:54.600 --> 15:59.800
+This is the QR code I'll post it in the matrix chat after.
+
+15:59.800 --> 16:05.440
+So in conclusion, StarTLS only extends the attack surface.
+
+16:05.440 --> 16:08.880
+Not only do you want TLS but you don't really want StarTLS.
+
+16:08.880 --> 16:14.160
+StarTLS issues are widespread among implementations and cross protocol attacks are possible for
+
+16:14.160 --> 16:16.480
+example against HTTPS.
+
+16:16.480 --> 16:20.680
+So in conclusion, TLS is better without StarTLS.
+
+16:20.680 --> 16:21.680
+Thank you.
+
+16:21.680 --> 16:33.240
+Is there any questions in the room or in the chat which somebody wants to relay?
+
+16:33.240 --> 16:42.320
+Raise your hand and I can't with the microphone.
+
+16:42.320 --> 16:46.120
+I see people are impressed.
+
+16:46.120 --> 16:49.120
+Hi.
+
+16:49.120 --> 17:01.800
+Alexi, when we were doing, I'm up for revision two.
+
+17:01.800 --> 17:04.880
+I got some of your comments.
+
+17:04.880 --> 17:07.600
+Did we fix all of these?
+
+17:07.600 --> 17:10.320
+Can you reopen the PDF, please?
+
+17:10.320 --> 17:11.600
+There's a slide on that.
+
+17:11.600 --> 17:14.600
+I can do that.
+
+17:14.600 --> 17:17.000
+Are we at the beginning or at the end?
+
+17:17.000 --> 17:20.080
+So yeah, I'm up for revision two.
+
+17:20.080 --> 17:21.680
+Fixed at least most of the stuff.
+
+17:21.680 --> 17:24.080
+So pre-ass, there's a warning for that.
+
+17:24.080 --> 17:28.840
+Clients must require TLS or clients that require TLS must close the connections.
+
+17:28.840 --> 17:32.080
+So no more problems with pre-ass, hopefully.
+
+17:32.080 --> 17:34.960
+Alert responses got a warning.
+
+17:34.960 --> 17:41.080
+And I think this one is a specific comment on the buffering issues.
+
+17:41.080 --> 17:45.560
+What's missing from My Point of View is a comment for the clients to do that as well.
+
+17:45.560 --> 17:50.320
+So this client only mentioned servers, but the response injection is not handled in the
+
+17:50.320 --> 17:52.480
+IMF RFC currently.
+
+17:52.480 --> 17:54.880
+That's the only thing that's missing from My Point of View.
+
+17:54.880 --> 17:55.880
+Okay.
+
+17:55.880 --> 17:56.880
+Thank you.
+
+17:57.880 --> 17:58.880
+Dave?
+
+17:58.880 --> 17:59.880
+Is there a question?
+
+17:59.880 --> 18:05.280
+This will be a spotty day for me.
+
+18:05.280 --> 18:09.560
+So can you say something about the general security of email?
+
+18:09.560 --> 18:16.640
+When I send an email to you, can I reasonably trust that it encrypts all the way?
+
+18:16.640 --> 18:20.240
+That really depends on all the MTAs in between.
+
+18:20.240 --> 18:23.880
+So I wouldn't make any general comment on that.
+
+18:23.880 --> 18:29.680
+Maybe if you are using a somewhat securely configured mail server, and I'm using a somewhat
+
+18:29.680 --> 18:35.520
+secure configured mail server that should work, but I wouldn't count on it for all the
+
+18:35.520 --> 18:36.920
+servers on the Internet.
+
+18:36.920 --> 18:41.320
+So basically from our scans, we know that many servers are not securely configured.
+
+18:41.320 --> 18:42.320
+All right.
+
+18:42.320 --> 18:50.280
+Not sure if you have time for one more question if there's one or otherwise we proceed looking
+
+18:50.280 --> 18:52.040
+at the timekeeping.
+
+18:52.200 --> 18:54.560
+Is there any final question?
+
+18:54.560 --> 18:56.440
+So let's switch.
+
+18:56.440 --> 18:57.440
+Thank you.
+
+18:57.440 --> 18:58.440
+And thanks, Bobby, and again.
+

@@ -1,0 +1,222 @@
+Hello. Can you hear me all right? Welcome to the next installment in your regular scheduled
+entertainment. I think that's the great benefit of being scheduled after such great talks
+that everyone is in and with no break you can't leave. So you're kind of stuck with
+me for the next half an hour. So welcome. I hope you enjoy.
+So this is a very ambitious talk or at least as title suggests that it is. So let me actually
+start with talking what it really is about. And this talk is really about me and my experience.
+And hope, frustrations, aspirations, experience and some illustrations. So I'm Alex. I have
+been doing web performance, mobile web performance at Google in Chromium for the last eight or
+so years. So this talk is going to be pretty much about that. This is not going to be a
+practical talk. So because we don't have time. This is the first reason. The second is that
+there are way too many rough edges. So I wouldn't recommend this at this point to start to reproduce
+this. But hopefully this will be a source of inspiration. And those of you who are desperate
+enough and frustrated enough and have seen the problems outlined in this talk too many
+times, hopefully they will be brave enough to venture and try. There is a practical guide
+that I would recommend in the recent web performance calendar by the one and only great Annie Sullivan.
+I would recommend you go and check it out, preferably after this talk. But you know, I
+can't prohibit you from doing so. So this talk really is about problem solving and working
+with complex systems and trying to make sense of them. So the examples will be from Chromium.
+I will talk about Perfetto. But I think these examples hopefully will be an inspiration for
+a great variety of projects, both when building your sites and building other and working
+with other complex systems as well. So let's talk about performance and improvement performance.
+If you want to improve performance, as I imagine you are not totally adverse to, given that
+you are in this room, then I want to remind certain trivial things that you probably already
+know. The first is that performance problems are nasty. They are unpolite and they don't
+have the common courtesy of locating themselves in a nice isolated area of code in your project
+that you can master and just work on and don't bother with the rest of the stuff. So because
+of that, kind of knowing what to improve and where to improve and how to improve takes a
+substantial effort of the performance work. And the fact that more and more web is mind
+boggling complex with new APIs, both performance and non-performance, browsers getting more
+complex and bigger every day, various sites, drawing in diversity and in complexity and
+libraries and so on. So these all leads to all of us working on performance, spending a lot of
+time on a regular basis trying to understand what the hell is going on here. And what are
+the approaches? So the first approach that I have to mention is you can go and read the code.
+You are a very brave person and I wish you the very best of luck if you decide to do it, but
+it's not very practical. So modern projects are layers of up and layers of obstructions and then
+you have a listener and then you have 30 possible callbacks or entry points and then good luck.
+Usually, I give up at this point when I see like, hey, no, this is probably one of these 30 things.
+The second one is printf and it's possible variations. So it's console, it's log, it's other,
+just log it statements. And the second is the buggers. So GDB, LLDB, RR, Chrome DevTools, some of
+them are better than the others. But all of them, these approaches effectively don't scale to complex
+systems, especially if you talk about indeterminism when you test sometimes reproduces and the error
+sometimes reproduces sometimes doesn't then you are in a bit of fun. So when you have multiple
+processes and multiple architectures, multiple architecture components, then all of these,
+you know, these tools don't work particularly well. So they focus on low level details. Hey,
+what is this variable? And most often you want to know, hey, what this component is doing? And am I
+doing a good job? So enter tracing. How many of you are familiar with tracing in some form or the other?
+Some of them. So pretty much tracing is structured logging and visualization. I will go into this a
+little bit more further down the line. But as far as chromium is concerned, from the practical
+perspective, it means turning these annotations. So here we have a request resource from Java
+function that is being annotated with tracement macro. So we in C++, we emit some information when we
+enter this function. And we emit some information that we exit this function when tracing is enabled.
+And this will allow us to look at this nice timeline. Pretty much the x axis is time advancing in
+time. And here you can see that we have entered this function here, you have exited this function.
+And you can see which other functions were called inside of it, how long it took. And you can see
+zooming out what else the system has been doing across different threads across different processes,
+which is I think a good starting point and the basic infrastructure talk about. So if you wanted to
+use it to trade yourself, you can actually go to your IPF at a depth. And the examples in this
+talk are pretty much all from open Chrome example. So if you have a laptop, then you can go and follow
+it. Then the links to the slides should be on the FOSDEM site for this talk. But we'll back
+talking about how to make this useful. So you have this wonderful instrumentation. And this
+already is, you can use it as a fancy fprintf with search functionality. You can just record a lot
+of information and then look at it. But this is basically instrumenting the code you're already
+working on as a fancy fprintf. It's powerful and flexible, but not necessarily most convenient.
+And it doesn't win either compared to fprintf or debuggers out of the box. For fprintf, the basic
+debug loop is still faster. You had a single statement, you don't have to bother with opening
+anything anywhere. You just see the console output and you're done. So it gets less pleasant when
+you have to do it multiple times. And with debuggers, every all information is present. You can take
+you a bit of time to find it, but you don't have to bother with adding more annotations,
+recompiling and wasting time there. So like, and it's unrealistic to have all of the functions
+instrumented and captured in this race, because it's too much information both to record, which adds
+all of overhead and slow downs, but also it's a lot of information to go through and looking at it is
+not pleasant and not fast. So I will talk about finding opportunities for scaling this instrumentation
+and finding the opportunities where a few instrumentation points can give us a lot of information
+and substantially advance our ability to reason about what the code is doing. And enter Chrome task
+schedule. Chromium is implemented based on an event loop model. So we have a bunch of name threads.
+We have browser process with a browser main thread where which is responsible for coordinating
+everything. We have the render process with the main thread, which is responsible for running
+JavaScript, bling DOM and whatever. Or we have worker pulls, sorry, dedicated workers, which
+sites can create using new worker API. There is a thread pool for miscellaneous background work.
+And these is pretty much all there is and various place in the code. In the code base,
+I think we have, you know, a few thousand places. So maybe 10,000 nowadays,
+which basically post tasks. They get a task runner from somewhere and they post a task.
+No, the from here macro will talk about this in a second. But otherwise it's just a fancy lambda
+with some of safety thrown in. And here it is. So you post this task somewhere, you know, some
+thread or thread pool picks this up and it will run this task. Voila. And this is a great point
+for tracing instrumentation. And this is a great point to start looking at. So what it gives us,
+it gives us that we will have pretty much all of the places running Chromium and code.
+We will know about them and we will have some basic information. Here specifically look at
+posted from information. This is the result of from here macro expansion, which using some of the
+C macro tricks, give automatically without any further support, gives us file name on the function.
+So at least for every function, you have a basic idea of where this information, where
+this task has been posted from. And you can go to that part of the code base and start
+understanding what the hell is going on and why this task might be running.
+So then we can zoom out and we also have instrumentation for post task. And the post task and run
+tasks conveniently are linked through a flow event. And what this actually means that you,
+instead of looking at a single task, which might or might not be useful, you can also explore
+which tasks this came from and which tasks the task it came from came from here because of,
+I can't really zoom out and I can't really make it interactive. So I can't show the entire
+to all threads involved. So this is a view of a single thread. But hey, you can see I selected
+a single task. I can see an incoming flow that is coming from a thread pool. And as you can see
+that that thread pool task is coming from another task from the main thread. And so you can see
+that actually all of these smaller tasks running after a larger task, they have been posted from
+it. And these are, we know, these are related. So this is pretty much a very good starting point,
+but it doesn't give us everything. So there are a few other chalk points that might be useful to
+instrument and that have been useful to instrument that can, that improve our ability to reason about
+what is going on. Task scheduling is inherently inter-intro process. So it doesn't tell us about
+inter-pros communication, but fortunately in Chromium we have Mojo, which is an IPC subsystem,
+which we can also instrument and get pretty much the same information. But for cross-pros
+communication, we can know who is sending messages and we can connect the place which posted the
+message and places that received the message and to be able to trace this back through the flow.
+Capturing console logs and DV logs and debug logs and the both logs is also not a great source of
+information. If someone bothered to log it somewhere in the system, that's probably already useful
+for us. And being able to correlate this additional source with data with actual tasks that Chromium
+is using have been proven useful in many investigations. Capturing, instrumenting all of the
+blink binings and pretty much capturing all of the JavaScript functions, JavaScript calls that
+end up being implemented in blink is another great way to reason about what is going on and what
+the website is doing on and a couple of other similar infrastructure pieces. So the key takeaway
+here is that, hey, if you have complex systems, then probably you would do some good to instrument
+some of the widely used things and if you are familiar with this codebase, you will be able to
+make some informed judgment of what is going on and you will be able to spot outliers, something
+taking too long, log being held in case of performance regression or a functional regression
+or a flaky test, etc. And that's already a great step forward. So you have, you can look at it,
+you can like, if your test is flaky, you can run a thousand times, it will fail five times,
+you can open five phrases, look and see if you're lucky enough, you will be able to spot
+noticeable difference. But this is still not good enough for me. And the problem is that,
+despite having visibility into everything we're doing, this is very, very, very expertise intensive.
+So in order to be able to make good use of it, you have to kind of know everything. You have to
+know a lot about Chromium architecture. So as some of my colleagues say, you have to have a PhD
+in tracing and Chromium architecture to truly make this useful. And I have an inspiration of, hey,
+let's get it to the point that anyone, so any web developer can open and trace and instead of being
+discouraged and being intimidated by all of this mumbo jumbo, they can learn something about how
+Chromium actually works and get more knowledge about this. So an inspiration that I have is
+this slide and this diagram from a life of a delegation, talk from Chromium University,
+that is kind of similar to what we have already seen. It's a kind of a virtual timeline with a kind
+of boxers being connected by arrows. But if you look at it, then even if you are not deeply familiar
+with the browser architecture, then you probably kind of make some sense and you can make some
+educated guesses of what is going on. For example, if you see network stack doing start URL request
+as a one off stage, it's something that you can develop or get a reasonably good intuition for.
+And that's kind of the status quo that we currently have, which is pretty much exactly
+the same information, but slightly less useful, slightly less easier to read and slightly more
+intimidating. So for example, you can see tasks, you can see that hey, some of them are related to
+URL load the client, so you're getting information from the network. Someone, a navigation client,
+which kind of you know the navigation stack, you kind of guess what it is, but the level of
+intuitiveness is starkly different. So there are existing examples where we already do this in
+Chromium and we like take the care to reconstruct the high level events and the high level timeline
+for specific things. For example, this is an example of event latency. So specifically breaking down
+the timeline of steps and sequence of steps involved in presenting a frame. We're doing great on time.
+So the downside is that it's plumbing is very expensive and scaling this up is very difficult.
+When you have a big project, you have information, you need information from different
+you know corners of this project and plumbing is very expensive, both in terms of serialization
+costs, in terms of layering concerns, in terms of the amount of plumbing code that you need to
+maintain. And this you know difficult to scale and you know we haven't implemented this for too many
+exciting things. So let me talk about Perfetto a little bit. So Perfetto is the new generation
+tracing framework born from the ashes of Chromium tracing by a few great folks who have been working
+on Chromium tracing, got fed up with it, learned all of the mistakes that happened there and all of
+the things that we should shouldn't have done in the first place. And Voila Perfetto, which is
+nowadays widely used for Chromium and Android tracing. So it has fancy new UI, it has more
+efficient format, but the thing that brings a special place in my heart for it is the new
+SQL data model and query engine. So essentially everything that you can see in the UI is backed
+by a data model and UI is just running queries in the data model, against this data model and
+presenting it. And presenting it and you can very easily do it yourself. And you know we trace
+processor actually is compiled as a was module and running in your browser in a background
+thread. Voila web, we have gone, we've came very far. And this allows us to separate recording
+the trace and emitting the low level instrumentation and actually analyzing it and building high
+level data models. So this is probably the best example of Perfetto powers. I could
+hit it in a single slide. You can replicate this yourself if you go to Perfetto, if you go to
+open the Chrome trace, if you type colon into the search box, you will enter the SQL query mode
+and then you can copy and paste the query that I inserted there. Once again, you should have
+access to the slides and then it will pretty much give you the list of top 100 longest tasks that
+we ended up running there, which is already useful for analysis and can allow you to build more and
+more complex data models through different tables within SQL, which is kind of cool. So what are
+the next steps here? So I am right now trying to build in a navigation instrumentation,
+fancy navigation instrumentation as a proof of concept. The current prototype is kind of there,
+so you can see that we have a timeline. This is all pretty much based on the same low level
+information, but presents it in a more fancy version. And this then can be further integrated
+with the documentation. So this is just a not standalone box with a couple of words scribble
+on it, but we can also link to parts of Chromium documentation that outline what this stage
+is actually about, what are the concepts that you need to think about and make it generally more
+useful. One of the major complexities, why we haven't done this before, is that the complexity
+in a number of corner cases. When you talk about navigation, when you talk about typing the URL
+into the OmniBox, there are like a mind boggling complex number of cases from redirects to
+navigation, turning it to downloads to server returning to O4 and canceling the navigation
+that you kind of need to think about. And building this instrumentation without being able to test
+it is kind of a losing game. And the Sequel support actually allows us to feasibly write this
+testing coverage for these corner cases. I think I'm 15 out of 50 at this point, so some work to do.
+So yeah, I think that's all of the main content that I have. I have a bonus demo,
+which is kind of about DevTools, but I can also take questions.
+Eyeballing is, so the question is what's the best way of comparing these traces? I think eyeballing
+is probably a good place to start. So there are some early experiments of opening the traces
+times, say to some it and being able to link the timelines, but this is greatly depends on what
+kind of problem you're looking at. For example, if you are comparing the traces from tests,
+then the workload is more repeatable and you can actually go further in comparing it. For example,
+writing some Sequel queries and instructing some high-level metrics can get you very, very far
+and spotting if any high-level metrics changed or any derived things changed.
+If it's user's interactive, then probably eyeballing and going from there and seeing
+how much variance there is. Yes. Yes, some Sequel statement there.
+Yes, great question. The question is we have Sequel, but where is the database? The answer is it's
+all done locally. So this is Sequelite compiled into a WOS module with some helpers on top.
+So when you're opening a trace, it's running in your background thread in Sequelite instance.
+Everything is local.
+More questions?
+If not, I can actually go and show you my favorite House Party trick, which is an illustration of
+why it's actually quite important, I think, to think about data presentation. Sorry?
+More questions? No. Let me try to do this. Can you see what's going on?
+So let me open a trace in the performance in ground deftos that I have recorded earlier this morning.
+And this is something that you should be already familiar with, but the thing that some of you
+might not have realized, that there is nothing inherently magical or special about these deftal
+traces, apart from very good UI and a lot of UX thoughts that went into that. But fundamentally,
+they are just JSON-chrome traces, just with a bunch of categories. And you can actually open
+the very same information in Perfetto and actually look at it. And you already can see that the
+usefulness of this information is a bit different. We have to zoom and find our relevant parts,
+and we have been exposed with a low-level information, but no high-level insights.
+But then we have the network tracing. And the best way to illustrate that,
+further, is look at one of the network requests. Let me... Not this one. I want to find a network
+request from the deftools with the URL. And you can see that it... Some high-level stats, and you
+can see where it fits with other stuff. Psyllium shots also help. But then I can search by this
+URL, and I can also find the request ID and find all of the events, the low-level events that
+Chrome is tracing has actually meted. So all of the information about this network request is there.
+So if you can be bothered, you can actually go and correlate and go to all of these specific events
+and correlate them and reconstruct the same level, high-level takeaways. But it's going to be a little
+bit slower, a little bit less useful, and you won't actually be using it that much yourself, probably.
+So, yeah.

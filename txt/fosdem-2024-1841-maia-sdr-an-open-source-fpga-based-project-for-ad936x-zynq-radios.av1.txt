@@ -1,0 +1,177 @@
+So next speaker is Daniel Estes-Vest, did I get that correct?
+Yeah.
+Okay.
+And he will talk to us about Maya Estee or what, please.
+Thank you.
+Hello.
+I'm sorry for my voice.
+Hopefully I will manage to make it to the end of the talk.
+I think many of you have already seen this video or a similar demo of Maya's DR,
+but in any case I'm going to play it and talk over it to introduce what Maya's DR is.
+So this is an open source project with the goal of trying to get more people doing FPGA development
+for software defined radio.
+And at the moment what the project has is an alternative firmware for the Adam Pluto
+similar Zinc-based devices where what you can do is to use the full 61 MHz of bandwidth
+which is available in the radio frequency chip.
+And on the FPGA you can perform an FFT transform to computer waterfall.
+That waterfall is then showed on a web-based interface.
+So this is a demo with a cell phone.
+You can use that on your PC, on your mobile device, whatever you connect with USB.
+And then it just works.
+So the...
+There is no perfect audio.
+Okay, thank you.
+The FPGA design is coded in Amaranth which is a Python-based HDL and all the software is done in Rust.
+I introduced Maya's DR in 3D's Huffin in the software defined radio academy back in the summer.
+What is new since the summer, there is now support for all the devices, the Pluto Plus and the AntsDRs
+from Microphase and the nice thing about these AntsDRs is that rather than having the smaller Zinc-70-20,
+70-10 they have the larger Zinc-70-20.
+So that means that both the regular IIO stuff from analog devices and Maya's DR can fit together
+in one of these AntsDRs and you can use them both at the same time with HDR Plus Plus or GQRX or radio
+as well as with the web interface of Maya's DR, looking at the same signal.
+There is also a new feature which is Spectrum-pictured mode.
+It's an alternative to the previous mode which is average power.
+This is quite useful to detect burst short signals such as ADS-B or Bluetooth
+and the way this is implemented is there is actually a trick where you can basically reuse the same hardware on the FPGA
+either as a power integrator to compute average power or as a power comparator
+which is the thing you need to do to pick detection.
+And of course many backfixes, dependency updates and keeping up with the predict running.
+This talk is going to be quite different to the talk I gave at SDR Academy.
+It's going to be much more technical.
+The other talk was high level project based.
+In this I will show the key technical aspects of the project
+and my goal with this talk is if anyone sees something here and later on he tells me
+hey this looks quite interesting I would like to learn more about it or I know more about this stuff.
+Here is some additional information you might find useful or this component could be useful in my project.
+I would think this talk has been a huge success.
+The topics I will cover is the FFT, the DMA and the waterfall which is rendered in WebGL2 in the web browser
+and this is pretty much what you need for the demo I have shown because you do have a waterfall display
+you need to do FFTs, you need to send the data out of the FGA
+and then you need to use the GPU to render the image.
+The FFT is implemented in Amaranth as I said and you can even think of Amaranth in this case as a Python very large generator
+and this idea is nothing new.
+There are other open source FPGA implementations which use Python as a HDL code generator
+because oftentimes in an FFT implementation you want to have flexibility
+you want to tweak the pipeline stages or the bit widths or the structure of the FFT
+so having some way to generate the code or in this case expressing it directly in Python is quite useful.
+The focus is on good performance and low resource usage because the FPGA on the Pluto is not so large
+but we still want to get 60 MHz of bandwidth with good results.
+The architecture which is used is the single delay feedback decimation in frequency architecture
+that is the most common architecture of an FFT done in hardware as in an FPGA
+and I will show you some references and some diagrams if you ever want to learn how to implement an FFT on hardware
+or to do it yourself, I think these are quite good references
+they are the ones I used to learn how to do this.
+There is the option to do in RADX2, RADX4 and something which is called RADX2 to the power 2
+and I implemented these three options because they are the most commonly used
+and I wanted to do a trade-off of hardware resource usage
+and in the end RADX2 to the power 2 is the one which gives best results
+so that's the one which is the default but you could experiment and even individually select different RADXs
+on different pipeline stages because this is all Python classes so you can mix and match
+and construct your custom FFT if you need to.
+There is something on the FFT which is the Tweedle factor multiplication
+if you remember the FFT formula there are these exponential functions
+so that is often called Tweedle factors and you need to do a complex multiplication
+because everything is complex numbers here so for that you can use 3DSPs
+the DSP is the multiplier on the Siling's FPGAs
+and there is a trick to write the product of two complex numbers
+which usually has four multiplications as just three multiplications and some additions
+so you can use 3DSPs or a single DSP to save on FPGAs resources
+and the trick is the single DSP is running three times as fast as the rest of the logic
+so if you are doing 60 MHz then this is 6 times 3 I think is 180 something or whatever
+so that's how you manage to do your three multiplications per sample with just one multiplier
+you can configure the bit widths you use throughout the FFT pipeline
+and the truncation schedule because when you have an FFT usually you are summing up a lot of samples
+so if you keep growing your sample size in order not to truncate any of the least significant bits
+things get out of hand pretty quickly so you can select where you want to truncate those bits
+there's an optional window multiplication because if you are using these for spectrum display applications
+you not only do just the FFT you do a windowed FFT you use something like the black man window
+or whatever your humming window to smooth out the FFT have a nice roll off etc
+so there is this option to do it inside the FFT core
+since all of these is python the FFT is implemented by several python classes
+each of the python class has its own model which is a bit exact calculation of the same math
+that the FPGA is going to do and you can chain those classes to have the full bit exact model
+in python of the FFT and you can run that in simulations or whatever
+or compare it against non-pice FFT in continuous integration to make sure that your FFT is working
+this is also compared with simulations of the amount of code to make sure that the bit exact model is actually bit exact with the FPGA implementation
+this is all customizable so you have parameters in the constructor of the classes
+but for my SDR it's a 4k point FFT black man harris window 12-bit input because that's what we get from the ARF chip
+and a 10-bit output that's most convenient a thing if you don't want a huge output
+and we run with 62.5 MHz clock just to have enough clock speed to process the highest sample rate which is 61.44
+the resource usage is quite small only 6 dsp is one of those is for the window multiplication and 9.5 B ramps
+which is quite okay for the kind of storage that needs to go in show this in a minute
+so this is how the radix 2sqt FFT architecture looks like just let me briefly talk you through this
+so this is a 16 point FFT a radix 4 architecture would split this into 4 FFTs so you can see one here one there one there one there
+this is the divide and conquer approach on which FFT is based but the problem with radix 4 is that you are performing an FFT of size 4
+so you need to add four samples together and you also have this plus j minus j minus one so that's not so convenient for the FPGA
+so what we do is this FFT of size 4 we divide it into two again using FFTs of size 2 so you can see this is an FFT of size 2
+this is not a FFT of size 2 and here there are again two FFTs of size 2 now they are intertwined
+and the advantage by doing this is that the butterfly which is what this is called now only needs to add two samples together each time
+so that is less logic usage and compared to radix 2 which is the other alternative you get twice as less stages
+and what happens with the stages is each time you have a stage you need to multiply for by these complex exponentials by the two factors
+so if you get half the number of stages that means less multiplication so less DSPs
+and this is how it looks like once you draw the broad diagram because if you come back to the drawing the first FFT operates the first sample with the sample in the middle
+and so on and so forth so of course samples arrive in order what you need to do is to store your samples in a shift register
+so that when the sample in the middle comes in the first sample is already at the back here so that's basically how it looks like
+the DMA is the part that is used to copy the data from the FPGA to the DDR memory on the zinc
+and there are two use cases one is for the waterfall we want to copy one FFT at a time or rather one waterfall line at a time
+and the other one is the IQ recorder so another theater of my SDR is you can record up to 400 megabytes of IQ data on the DDR of the Pluto
+this is a continuous recording no samples are dropped and then when the recording is finished you can copy it over to your PC or mobile device using the USB 2
+of course it's going to be to take more time than to record because USB doesn't have enough bandwidth but still you can do it
+so there are two flavors of this DMA one is called Bram write and that copies the contents of a Bram this is used for the waterfall so the waterfall line is in a Bram
+and it copies it to a buffer in a ring in the DDR memory the other one is called stream write this reads data from an axis stream like interface
+and it writes all the data into a buffer this is what it's used for the IQ recorder the tricks here to get very low resource usage is to implement an axis 3 manager interface
+so if you work with silence IP everything is axis 4 but the fun thing about it is the silicon on the system on chip is axis 3
+so when you connect silence IP with the system on chip there's a silence protocol converter in the middle which is using some logic to do the conversion
+and the fun thing is axis 4 and axis 3 are quite similar one of the main differences is axis 4 allows for longer barsts
+so you have this protocol converter that will split the barst for you but even so if you are not using longer barsts then this protocol converter is basically doing nothing
+so rather than going with axis 4 we directly do axis 3 and comply with the shorter barsts and we can interface directly into the silicon
+the implementation is the most stupid thing ever the almost no control is required by software is just like pressing a button go record for the IQ recorder
+and for the waterfall it just runs on its own and it sends an interrupt to the CPU every time a new waterfall line has become bit to the ring buffer
+addresses and everything is hard coded at synthesis time so you can change it but you need to rebuild the FAA PGA image
+the upside we get is the brusseless usage is extremely low as you can see
+it's rather busy it's the interconnection of the zinc taken from Xilinx manual so let me walk you through even though it's fairly impossible to breathe
+here are the two CPU cores they are A9 ARM processors each of them has their own L1 cache
+the L2 cache is here and is shared by both CPUs in the middle is something called the SKU which is used to ensure coherence between all these three caches
+so if one processor writes to the cache the SKU will evict the line from the cache of the other CPU core so that they have a consistent view of the state of the system
+and then on the top right on the far right is the DDR controller so DDR is here basically we go from the CPU L1 cache coherence here L2 cache and finally DDR
+there are two ways of accessing the DDR from the FPGA one of the ways is through this port actually these are the two CPUs sorry this is the FPGA
+so you can go through what is called the ACP port which is the coherent port it will play the same role as another CPU so you get coherence for free but there are some downsides
+or you can go through any of these four ports which are the high performance ports they write pretty much directly on DDR but then what happens is you have changed something in DDR but the caches don't know about it so the software must manage your caches manually
+summing up the ACP port is good because it is fully coherent so hard work does the job for you the bad thing is there is only one such port and if we are writing continuously on DDR we are evicting cache lines which are actively used by the software
+because the eviction policy is random so we are basically disturbing the software usage of the cache it is not so good for performance on the other hand HP ports we have four of them but it doesn't disturb the L2 cache
+so it is completely independent of the software that is running but we need to manage coherence manually there are two ways of managing coherence manually one is not to do it which means mark the memory as uncacheable
+and that is simple but it is very very slow especially reads because for writes there is something which is called write combining that you can enable and it is still uncacheable but writes go in chunks so that is more efficient but reads even if you use neon instructions to do a mem copy out of these memory it is quite slow
+the other alternative is to mark these memory as regular DDR cacheable memory you need to manage cache invalidation manually so the good thing is you have fast accesses very fast like your regular DDR the bad thing is complex it gets really complex and really ugly because of one very specific thing which is here
+the Linux kernel has some nice DMA framework where you can manage caches for DMAs and all the things you need to do but we cannot really use this in this situation because we want to map a whole 400 megabyte buffer this is where our IQ recording sits in the DDR but this is a 32 bit platform so in 32 bit platforms you only have 4 gigabytes of virtual address memory
+and usually on a Linux system this is split as 3 gigabytes for the user space 1 gigabyte for the kernel and the kernel is already using many mappings in this 1 gigabyte space for lots of stuff so if you ask the kernel can you map for me this 400 megabyte DMA buffer it will say I am out of virtual memory I cannot do it within my 1 gigabyte address space
+so we cannot really map these DMA buffers into kernel space we need to map them into user space that's fine because we want to manage the data from user space but by doing so we cannot use the kernel framework to do cache invalidation for us we need to do it manually
+and the downside is the functions we need to call are basically private functions in the kernel they are not exported to outer 2 modules or any kernel modules so basically we need to patch the kernel to export those functions and be able to call them from our outer 3 kernel module
+and this is quite specific about this particular L2 cache and the L1 cache on the ARM CPUs this is basically what I was saying there's a Linux kernel module which manages the IQ recording and waterfall DMA buffers and takes care of doing cache invalidation when the memory is mapped by the user space
+so the user space always sees the fresh copy that the FPGA has written
+now let's talk a little bit about the WebGL waterfall this is coded in Rust using WebAssembly and WebGL so basically you are doing Rust but you are calling on a lot of JavaScript functionality which is present on the web browser to do all the WebGL rendering for you
+it uses a custom render entry and the waterfall data is stored as a 2D texture on the GPU memory
+this uses the same kind of doubly mapped buffer that we are using in radio for our buffers on the blocks because we want to have this nice scrolling waterfall which looks like a continuous thing it's not continuous it's a trick just 2 copies of the image are pasted onto the same rectangle and it can jump and you don't notice the difference because it mimics it's a periodic thing
+the fragment shader uses some GL function which is called texture and that performs a texture lookup so the 2D texture is actually power versus frequency and time and then you have your column map and you have those sliders to set the maximum power, minimum power, the column map you want etc
+so all of that is updated in real time for all the waterfall when you change the settings because it's the GPU for each render frame doing the full lookup on a 1D texture map
+usually when you are updating the waterfall you are doing so one line at a time because if you are rendering 30 frames per second you are only updating either one or no waterfall lines every 30th of a second
+so rather than copying all the 2D texture to the GPU each time there is something which is called text sub-image which lets you update a rectangle inside your 2D texture so that's the trick that it's used
+and then there are your usual frequency scales so you have text to mark the frequency axis there is something called lines draw mode to draw those and something which gets a lot of newcomers to WebGL I was a newcomer when doing this is now we are going to render some text
+but the problem is the GPU doesn't really have any text rendering functionalities and WebGL2 is rather low level so you can render text to show text what you need to do is to pre-render the text on some textures and then use the GPU to show those textures
+luckily we are running on the web browser so the web browser knows how to render text to something which is called 2D canvas so we use that we have the web browser write text outside of the screen and use that texture on the GPU that's the trick
+and in the interest of time I think I'm basically going to show a demo I had here
+so there is this web page which is a demo of the MySDR waterfall if you go to MySDR.org you can just open it and it should work in any recently modern web browser
+and you can see here this is recorded data this is actually a JPEG image just for the show but you have all the functionality of the waterfall you can scroll you can see signals and it keeps going
+and I think I have a couple more minutes so I can walk you through the code very very quickly this is the code of the waterfall demo you show just to show you that it's quite simple you can incorporate this on your own projects
+so basically what you have is we call this get window and document window and document our objects that you need to use in JavaScript to interact with the web browser
+we create a new waterfall associated with canvas which is on the HTML page we set up some parameters of the waterfall and the frequency your sample rate etc etc so we are calling a few methods of the waterfall to set those
+and then we have a generator in this case it's basically putting in the waterfall line by line taken from a JPEG image because this is a demo but usually it will take them from a web socket or any other source of data that you have
+and it's calling this potline function periodically so basically I'm out of time and the HTML is like this so it's really simple thank you
+I think we have time for one question where the next speaker comes
+is it difficult to optimize the HTML using Ambrant because it's lower level HTML like very long?
+no actually the question was if it's difficult to optimize the FFT implementation using Amant versus a lower level language such as Verloc
+and actually the fun thing is Ambrant is intended as a low level language even though it's Python and the author of Ambrant says it's even lower level than Verloc because it relies on describing flip-flops basically
+so for me it's the same mindset I would use with Verloc I had I want this logic I want these flip-flops and I can write it in Ambrant or Verloc so it's the same kind of low level but you have the full flexibility of Python
+it is either four so the question was in the 2DL Factor multiplication I had three multiplies but it's usually four so if you do it the normal way it's four multiplications two additions
+if you do a trick to group together some of the summands you can do it as three multiplications and I don't remember maybe four additions or something
+so yeah that's the trick if you look for it it dates back to Gauss and some Russian mathematician I think
+thank you

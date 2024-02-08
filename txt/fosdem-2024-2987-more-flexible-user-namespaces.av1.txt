@@ -1,0 +1,555 @@
+Okay, this is the kernel dev room.
+In case you wondered into the wrong room,
+the next talk is by Stefan Grabber about isolated user name spaces.
+All right, hello everyone.
+So, as Christian mentioned, I'm Stefan Grabber.
+I work for myself and I've been doing container stuff for the past 15 years or so at this point.
+I'm also the project leader for Linux containers.
+And with me, I've got Alex, who is a kernel engineer on the LexD team at Canonical.
+And basically this topic is something I've been thinking about
+and talking to a bunch of people, Christian, whoever else was at Plumbers for the past three, four years at this point.
+So, since about 2018, and I got lucky enough to have Alex at Canonical
+who's been able to actually get this thing working.
+So, bit of an intro, what are the user name spaces?
+To just kind of give an update on the current state of things before we try and replace it all.
+So, user name spaces were introduced back in this, well, fully introduced back in 312, 313-ish.
+That's back in 2013-2014 timeline.
+They allow for the creation of a name space, obviously,
+in which one can map one or multiple ranges of UIDs and GIDs.
+So, you effectively decide that, oh, in this name space, my UID 1000 is equal to UID 100,000 on the host or something like that.
+This allows for much safer containers because you can now map routes in the container
+to be something other than route on the host.
+So, even if something bad was to happen and you could escape the container for some reason,
+then you would end up being a nobody user on the system instead of being real route.
+That's kind of the idea.
+It's been used a fair bit in some container managers, especially the ones that we developed.
+So, Alex, Alex, they incurred all of those user name spaces quite extensively.
+It is also possible to use in Docker, Podman or other now, but doesn't tend to be the default.
+So, just to kind of show the current state of things again, so if I turn that one on, there we go.
+Let's just take a quick look at how that stuff works.
+So, as a completely normal random user name system, I can just do user name space, stream map, and now I'm route.
+Except I'm not, but I'm route in that name space anyways.
+So, when you do that, it just maps the route user to your own user.
+So, my own user, my laptop is UID 21105, and that's what route is in there.
+That works, but nothing else is mapped.
+So, if I try to actually switch to any other user, things are just going to blow up.
+Actually, this user doesn't even exist, but this will exist, because nobody would.
+And, yeah, it's just not going to work.
+So, the plain doesn't exist, which is going to cause a bunch of interesting side effects,
+like everything belonging to nobody, no group, all that kind of stuff.
+But, that's for an individual user just creating a community and privilege name space, and that works.
+Now, if we look at doing the container instead, so if we just create, as I was using in CURSE in this case,
+just creating an Ubuntu container, there we go.
+And, if we go in there, then that container is going to have an UID map and a GID map.
+So, in this case, it means UID 0 in the container is mapped to UID 1 million on the host,
+and the following 1 billion UIDs and GIDs are mapped the same way.
+So, UID 1000 would be UID 1 million, 1000 whatever on the host.
+We can also do, as I said, multiple maps, so you can start doing kind of punching type stuff.
+So, if you go and modify and you say, hey, actually I would like UID 1000 on the host to be UID 5000 in the container.
+I think that's in that order. It works.
+Then, you start the container back, and if you look at the map, did I forget to do something?
+So, G1.
+Oh, I looked at G. Oh, that's why. Hey, look at that.
+It shows you can actually do maps differently for UIDs and GIDs.
+So, yeah, UID does have that punch in the middle, which effectively causes three maps.
+That works. That's been around. It's fine.
+That's the status quo effectively.
+Now, what's wrong with this stuff?
+Well, so the current implementation, it relies on still a single global UID and GID space.
+And you get to then map, like create namespaces and map there UID and GID back to some trunk of that global UID space,
+a global UID GID space.
+That works.
+But you can create overlaps.
+So, you could have multiple containers that actually map to the same thing.
+You can have some random processes on the host that actually use the same UIDs and GIDs as you're trying to use in some containers.
+And that can cause some issues.
+That can cause the occasional oops, I've got way more privilege than I intended to have.
+And also, it can cause some issues with like potential denial of service attacks if you're starting to like use user specific limits or that kind of stuff.
+There is a way to try and avoid that, which is using shadows, sub UID and sub GID files,
+along with some helpers called New UID Map and New GID Map.
+And the idea with those tools is you get to actually assign for each user what maps they're allowed to use on the system.
+And so long as everyone uses those helpers and everyone looks at the file, there shouldn't be any conflicts.
+The problem is that not everyone uses the helpers and not everyone looks at the file.
+And even when they do look at the file, the tools that write the file gets really confused sometimes.
+This is an example of what happens when it gets really confused.
+I mean, nobody in this room hopefully can figure out what the root user actually gets as far as allocation,
+because even if you could, it's just broken.
+There's like, they actually overlap each other in conflict to the point where if you actually try to figure it out,
+it just ends up with something that's invalid.
+That's a bit of a problem.
+And just the general concept hasn't really worked out.
+So in practice, most tools at this point just ignore those files entirely and just do whatever they want.
+But that can have security implications, which is not ideal.
+So what can we do about this issue?
+Well, what if we had a lot more UIDs than GIDs?
+I mean, that would fix everyone's problems, right?
+Like, what about a lot more of them?
+Like, about, say, 4.2 billion times as many.
+Well, yeah, that's effectively what we've been doing.
+So in the Linux kernel, a UID or a GID that's represented as a UN32.
+We've changed that to a UN64.
+That obviously comes with some interesting side effects, which we'll get through.
+But that's the general idea, and that's the kind of concept we came back with at Linux Planner as kernel summit back in 2019.
+Now, yeah, but that's going to break everything, right?
+Well, it doesn't have to.
+So we obviously can't change user space to use 64-bit UIDs and GIDs.
+We're not going to even try to do that.
+That would be a very bad idea.
+And we would actually just move the problem, not fix it.
+No, what we want to do instead is keep that on the in-cannel and have, of that 64-bit,
+32-bit is your normal user-visible UID and GID.
+32-bit is effectively an ID, like a namespace ID, if you wish.
+And the obvious issue with that now is, okay, what happens with persistence,
+what happens with anything that is not in that namespace looking at those kind of IDs?
+You're going to have issues there.
+Well, if it's a process outside of the namespace looking at a process running in such a namespace,
+we can use the credential attached to the user namespace to figure out who created the user namespace
+and use that as kind of the proxy ID we show.
+So that's one thing we can do.
+On the file system side, we're going to go into more details in a tiny bit,
+but effectively we absolutely don't want the file systems to be aware of any of that,
+like file systems, still 32-bit, still normal.
+That means that out of the box, you won't be able to write or even really read anything.
+But thankfully, there are mechanisms in the next channel now that makes it possible
+to actually handle those kind of translations and mappings, which then fixes that.
+So how does that stuff work?
+So here you've got a tiny bit of code that actually creates one of those namespaces.
+So you do unshare user namespace, as usual,
+and then normally you would go ahead and at that point write your map.
+So you would normally write your ID map and your GID map.
+Instead, we just write to that magic file and say, hey, we want an isolated user namespace.
+And then we switch to the root user, and we're done.
+At that point, you are running as root inside of that isolated user namespace,
+and you get to use every single UID and GID that you want.
+As mentioned, don't try to access the file system.
+That is not going to work well.
+But as far as you being able to like spawn process, like actually switching user
+and messing with those users, that's going to work.
+And there's quite a few more things you can actually do in that stage,
+even before you look at any kind of data persistency or any other kind of stuff.
+So, okay, fine, file system, what happens there?
+All right, so on the file system front, there are kind of two different things you can do.
+The first one is, hey, you're in a user namespace, you can unshare also a mountain namespace.
+Now in that mountain space that you own,
+anything you can mount is owned by your namespace, and you can write to that.
+Obviously, we don't allow mounting most stuff inside of a user namespace
+because that would be a terrible security risk.
+So, your options are mostly tempFS, you can also mount fuse,
+and you can mount a few other select file systems in there.
+And if you do, on those, you can, because they are effectively visual,
+we're created from within a namespace, you can persist,
+like whatever UIDs you see inside of that namespace will be written as search on that file system.
+That works perfectly fine.
+Now, if you care about normal file systems and persistency and all that kind of boring stuff,
+well, then that's when you need to actually use a new feature,
+which was introduced by Trish Novodev, a wallback called VFSIDMAP.
+And with that, it lets you, so that does need a privileged operation, obviously.
+But as a privileged user, you can now say this mount on the host needs to be,
+like on outside of the namespace, needs to be exposed inside the namespace at this path,
+and this map is applied for the transition between the two,
+which most often for us means we just want to map one to one from inside of the ASA to the namespace to the host.
+So, if you write as UID 1000 in that isolated thing, it shows up as 1000 on the file system.
+So, that's effectively how you handle the persistent thing.
+You need to pick specifically what files you want.
+You need to go through a privileged helper type tool to pass those through as VFSIDMAP to mount.
+And then you get to actually use this thing.
+So, let's take a look.
+I'm going to go into, what's the, actually I have that in my notes.
+Just trying to figure out what the name of the VM is now.
+User analysis. This guy.
+Pretty sure. Yeah, there we go.
+Okay, so this is a virtual machine which is running Alex's patch set on top of the current 6.8 RC1 kernel.
+And right now I'm, right now I'm rude, so let's not do that.
+So, I'm going to switch to the open to user,
+and I'm going to go into a folder where we've got some tooling that we've used to say that stuff up.
+So, if we look in here, we've got a tool called goisolated.c.
+If we go look at the code for that, it's pretty much a slightly longer version of what I showed on the screen earlier.
+So, it does an unshare.
+It sets the isolated UNS bit, and after that it switches to both UID and GID to root in there,
+and then it execs whatever command I'm passing it.
+Okay, so the way we're going to call that is we're going to call it as, well, call that wrapper,
+and then have it called unshare, and we're asking unshare to also unshare effectively the mount namespace,
+the pid namespace, and to fork.
+So, that gives us mostly a mostly functional container.
+Okay, so we do that, and now we're rude again.
+But this time, if we go look at the maps, so your ID map is empty, GID map is empty.
+So, there's no maps there, because we did not ask to actually map anything to the host,
+we just have that isolated user namespace.
+Okay, so we've got, fine, a query route, we could do that before, it's okay.
+We've got another helper here called setUID.C, which is also extremely simple.
+All it does is it changes your UID, and it execs the command.
+So, okay, fine.
+So, let's do setUID 1000 bash.
+So, that worked.
+That's something that would not normally work.
+Normally, a normal unprivileged user cannot create a username space and gets more than just their own ID.
+So, you can make route work, but you can't make an arbitrary number of users work.
+So, I can do, you know, just mash the keyboard, whatever number, and that works.
+So, you get to do that, and now, let's see, what does it want?
+Okay, fine.
+I just need to get a second shell, and we're going to go back inside of that VM.
+So, isolated userNAS bash, default project.
+Okay.
+So, now if we look at the tree from outside of that namespace, what we see is, and you
+see, I can't actually highlight, so you see it kind of towards the middle of the screen,
+you see switching to Ubuntu user, there's a share, then there's the unshare, then there's
+another share.
+And we see that the whole tree looks like it belongs to the Ubuntu user.
+That's not true.
+We know it's not true, because that last bash is actually under that whatever user I ended
+up typing on my keyboard.
+But because that can't be represented to the host system, as a real UID, it shows, as
+we said, whoever created the username space, which in this case is the Ubuntu user, so
+it shows the tree as belonging to the Ubuntu user.
+If we go back here, and we look at the process tree, we're going to see something quite different.
+In this case, the host IDs can't be represented, so they all show up as the kernel overflow,
+so nobody know group.
+But then our own processes do show correctly, so we see root, root for the first two, and
+then we see what is it, like 4788, which is what I just matched on my keyboard earlier.
+So that works.
+Okay, fine.
+With that, if I try, like even as that root user, if I try to touch anything, I'm going
+to have a bad day, as I said.
+Five systems don't like this, so they just tell you, no.
+Okay, that's fine.
+But now if I go ahead and I mount a tempFS, so I'm at the tempFS on slash temp, hey,
+now, yeah, this works.
+I can do that.
+It's fine.
+If I switch to render my random user, and I go here and foo, okay, that works.
+And if I look from this level still, oops, we've got foo, did I create foo twice?
+Yeah, I did.
+Okay, I should have actually created bar.
+That would have been nicer.
+So I can do that.
+Okay, so now we've got two files, one created by root, one created by 4788.
+You might notice that my statue ID wrapper thing doesn't bother with groups, so it only
+changed the user and other group.
+It's fine.
+And we see those two files.
+But now what happens if we try to look at the same two files from, again, from outside
+of the namespace completely?
+Stefan?
+Yep.
+Do you want to take questions during the talk?
+Well, I can probably do in like a minute for during the demo, yeah.
+That might be easier than going back to demo at the end.
+So just here, if we go look at one of those processes of 556, and we ask for the root file
+system, we look at demand.
+Again, I'm outside of the isolated user namespace, so everything shows up as we ever created
+the user namespace.
+So we see Ubuntu Ubuntu in this case as the owner for those files.
+Event are, it's not quite, it's not actually the real thing, but that's what's going to
+happen in this case.
+I'm just going to show the last piece, and then we can take a question for the demo,
+which is the persistence piece.
+So in this case, again, my user name, I've created a space works.
+I've got multiple users in there.
+That's fine.
+I can write data so long as I write it on a tempfes, but none of that is obviously persisted
+in a meaningful way, and there's no way for you to do that.
+You can access some files, as you've seen, like I've been using comments and stuff,
+that works, but it only works if only random user, as in if the order permission would
+allow it, because no other permission checks can actually work.
+Now, if we go back here, we've got another tool.
+I just need to find the usage for that one again.
+In my notes, there we go.
+So, in this, enter, yeah.
+Okay, so I need the process ID, so it's 556 we're using, and 556.
+So what that comment does is it enters the map namespace, but not the username space
+of the target process.
+It runs a comment from the host, which uses VFSID map, to then map from the host my home
+directory to a share folder inside of that namespace.
+So we do that.
+And now here, if we go look at that share folder, hey, the UIDs and stuff actually do
+resolve.
+Okay, that's cool.
+Well, if we were to go look at the non-map version of it, which is this, the dot.
+So now, as root, I could go in that share Ubuntu and touch foo, and then as a, so if
+I do my set UID thing, and I switch to 1000 inside of there, and I touch again in the
+share, and we'll do var.
+Oops, sorry, Ubuntu, var.
+And actually, this one should have been also share Ubuntu foo.
+Okay, so that worked perfectly fine.
+If inside of the namespace, we go look at those two files, we see the ownership cannot
+be having the way we expected.
+And remember, like when I did that earlier, looking from the outside, it was all belonging
+to that fake Ubuntu user, because that was the owner of the namespace.
+But this time, we're doing it through a map.
+So if I go look at the file system tree here, we see that it just went through the map and
+actually persisted the data going through that map as expected.
+There was a question?
+Yes.
+Yeah, hey, you showed how you touched a file as a root user, and then you changed to the
+unprimitive user inside this isolated username space.
+How is it possible that this unprimitive user is able to touch a file owned by a different user?
+Is that how it's supposed to work?
+That's a good point.
+Yeah, so it was the same group, that's sure.
+Because my setUID binary is kind of messed up and it only changes the UID and not the
+GID, combined with the default UMask, it was allowed to do it.
+If my setUID binary had done the right thing, which is change both the UID and the GID,
+that would have failed.
+Good catch.
+Yeah, so that's effectively how that stuff works.
+There are a bunch of other places where you will see resources owned by an isolated user
+namespace from the outside in one way or another.
+Those are going to be showing in this case as the owner of the namespace.
+We're doing the owner of the namespace instead of going with the overflow UID, because the
+overflow UID has been, I think, one of the biggest confusion caused by the user namespace.
+With the normal user namespace, anything that cannot be represented is going to show up
+as that overflow UID.
+The problem is that the overflow UID is, effectively, the nobody-no group under POSIX, which is 65534.
+The issue with that is that this is also an actual user.
+You end up with that really weird thing where you can have some stuff that shows up as the overflow UID.
+I guess one example you could do is, say you've got a process tree, you've got a user namespace in there,
+you've got some processes running in there.
+They show up as the overflow UID if you look at those from another user namespace.
+Then if in another user namespace you actually switch to the nobody user,
+you will think that what I am, UID 65534, those processes run according to everything,
+are 65534, I should be able to kill them.
+No, you can't, because they're not actually running as that UID.
+That's been causing a ton of confusion.
+We're trying to do things a bit differently here and hopefully make things slightly less confusing.
+Remains to be seen, but hopefully.
+There was something else?
+The question is, maybe I misunderstand this part of the demo.
+Is this 4nbar files, they have the owner and the group of user,
+is it still inside the container or is it visible outside of the container as root?
+Is it like an escape from this namespace or not?
+Or is it because it is inside and a center?
+Which one, the one I'm looking at right now?
+Yes.
+This is completely outside.
+From inside the container we were able to escape as root.
+That's how.
+That idea of ID mapped mounts.
+With an ID mapped mounts, that's effectively what you allow.
+If you provide an ID mapped mounts with the full map, then yes,
+the user is totally allowed to create a file that's owned by root and even make it set your ID if they want to.
+That is possible.
+That is why you need a privileged helper to be able to set that up.
+In most cases, what we do is the path you actually share comes from a non-traversable path
+on the host so that no user on the host can access any security binary you might be able to create in there.
+That's a specific use case, for example.
+Or you could use a map and don't map the ID zero.
+Wait a second, please.
+When, for example, what other users like Portman and so on do,
+they use this with OvalAFS or together with OvalAFS and they, for example,
+ID map the underlying mounts that are used for OvalAFS,
+but they leave the up amount where the actual writes occur un-mapped,
+which means that the writes that actually then go to disk still occur as the container user ID and GID.
+So there are different ways to actually use this.
+This is just specific to Lexi, for example.
+Lexi or Incus, but specific.
+You need to be very careful when you use that because indeed there is that pretty serious risk.
+If you do allow writing as UID zero on the host, then yes, you can start doing set UID stuff if you're not careful, for sure.
+And one thing, for example, you can do, even if you do that, you can, like the ID mappings attached to a mount
+are completely independent of the username space.
+So, for example, you could say, I want to ID map this mount, but in this mount, you can't write as root.
+So the UID zero isn't mapped.
+So you can't even create any files as UID zero or GID zero.
+So you could, for example, delegate.
+Yeah, it's kind of similar.
+Only that in this case you can't write as any user at all.
+Like it's basically the kernel tells you fuck off.
+The kernel tells you to go away because you get the overflow.
+But that's, for example, what I tend to do if I share specific data from the host into a container.
+And the container, for example, is privileged.
+I just don't map UID zero in that mount.
+And then even a privileged container can't write as UID or GID zero on the host.
+Yeah, so in HPC we have this kind of trick of like using sec-cop to, like, ignore basically set UID and CGID calls
+so that people can actually install packages as root as themselves.
+Have you thought about basically like aliasing everything that's within the isolated user namespace to the user that's created it as far as persistence goes?
+Well, it gets messy.
+I mean, every time you try to map multiple UIDs to a single UID, obviously the reverse becomes impossible, which causes a lot of problems as it turns out.
+I mean, in your case, like what you, you know, I mentioned that you can use Fuse and that's potentially how you could do, how you could do kind of whatever you want.
+Because at that point, any unprovided user on the system can create one of those, one of those isolated user namespaces.
+Then they can mount a Fuse file system of their choosing in there and then they could pivot root to that and make the Fuse file system their root file system.
+And then Fuse can do whatever it wants as far as keeping persistence here of UIDs and GIDs.
+So if you don't care about that crazy performance, that's probably the easiest way to handle that.
+Because you could use Fuse as a de facto overlay file system that writes that metadata on the side effectively.
+So, but for things like NFS and things you would have to proxy everything through this Fuse file system.
+Did you think about using file system extended attributes to store the UIDs and GIDs that can...
+Funny you mentioned it, because when we were designing the user namespace back in 2014, that was actually one of the ideas initially.
+It was like, hey, we could do something out of the start and just use extended attributes everywhere to store that stuff.
+As it turns out, that becomes really, really painful because not all files and implement them correctly.
+It doesn't scale.
+Yeah, effectively it doesn't scale. That's kind of the issue.
+But it could be used like I said, like with the Fuse thing, that could be a way that you store that.
+You might use a user extended attributes to just store that metadata that way.
+I think we're just going to keep on with the slides for a tiny bit and we'll do questions again at the end.
+Otherwise, we might just run out of time.
+Okay, can I just ask one? How do you do punching through the namespace map?
+The use cases using architectural distribution emulation containers, I punch my own UID through and my home directory.
+So I still have it in the distribution I'm emulating.
+So technically, there's nothing that prevents you from still using UID map and GID map.
+So you can use the combination of the two.
+It's more fun to show with none whatsoever because that's more fun to show as a committee and previous user.
+But there's technically nothing that prevents you from using a mix of the two to actually fully map a single user's shoe if you wanted to.
+All right.
+So isn't that going to be a massive change?
+That's kind of what we thought.
+Initially, we're like, well, the user namespace patch sets for anyone who looked at it back in 2013, 2014, that was rough.
+It needed changes to every single file system.
+It was absolutely massive when Eric was doing that work.
+But because the Linux calendar is mostly written in macros, it turns out it's not so difficult these days.
+So to our astonishment, really, we're looking at a very, very small patch set to actually do everything that was in that demo.
+And a bunch of it is kind of infrastructure type stuff.
+And then there's the actual type change.
+It wasn't so bad.
+We're not fully done.
+There are a few more issues that still need to be resolved.
+It possibly will be a bit larger than that, but not by much.
+And that's definitely something that's quite reviewable and that is hopefully not going to be scaring people all too much.
+It shouldn't be too difficult because you actually shouldn't have to touch the...
+Right, exactly.
+As far as all the VFS stuff, we've not changed anything.
+We still do 32-bit, but it's all fine.
+And for the rest, it's actually just some types that had to be changed and the rest works.
+I mean, the main thing is kind of like add the boundaries just like, oh, we need to go and pull the user credentials out of the user namespace to figure out what to show.
+But that's the main thing, really.
+If you do scan the QR code that gets you to the GitHub repo with the tools that I showed, as well as the link to the kernel tree that was used.
+I don't know if you put the link to the package as well.
+If not, we can add that afterwards.
+Because I did build the kernel I'm using.
+I built it for Debian 11.12 and Ubuntu 20.04, 20.04.
+So if people want to play with that, you can totally do it.
+All right, so what's next?
+Well, we've showed this work at the Linux Plumbers conference and the next kind of summit back in November.
+And at the time, the demo wasn't working quite as well because we just had a bad build that day, which was unfortunate.
+This time, the demo, everything works.
+We've talked to a whole bunch of people as well.
+I mean, Christian, I will say, we're very close with Christian, so we made sure that all of the VFS stuff and what I think can make sense.
+The real next step is going to be sending an RFC to the containers kernel mailing list to try and get some feedback there.
+Hopefully, Eric is around to actually look at it.
+He's a bit of a hit or miss here as far as answering stuff.
+But hopefully, we get to have that reviewed by the username space maintainer.
+Before we do that, there are a few more things.
+We want to be able to run kind of normal LXA, LXA, and in-cars type containers with this feature.
+And for that, one issue we've got right now is around CGroupFS and the CGroup namespace.
+So what we want to be able to do is create entries in the CGroup tree.
+Normally, you would then turn them to the right thing, which is a bit impossible.
+And after that, you would do the unshare of the CGroup namespace, and then you can use that from inside the container.
+So the impossible part is that we see a bit of an issue, so we're looking at how to fix that.
+I think that we've bounced a bunch of ideas over the past few days with Alex.
+I mean, one of them is to effectively do a VFS ID map type stuff on top of CGroupFS.
+We'll see if Christian wants to kill us when we send out.
+That's one of the ideas. There are a few other tricks that could be done to make CGroupFS be more aware of the 64-bit thing
+to handle those specific cases to be seen.
+But that's one of the issues right now that prevents a straight up Alexi container from just working.
+There's also still some work to be done around SEM creds, like passing around U creds and that kind of stuff
+to make sure that this also passes the credential of the creator of the username space instead of an overflow UID.
+It's different, yes.
+So there are a few more bits here and there as far as those boundaries are just in to look at and make sure that it's kind of consistent as far as what's exposed.
+Once that's actually been sent, hopefully reviewed, or hopefully merged, there are a few more things that we would need to consider doing on top of that.
+The biggest one of those being nesting.
+So being able to create either an isolated username space inside of an isolated username space, because who doesn't like total other way down,
+but also being able to create a normal username space inside of an isolated username space.
+Why?
+Well, it's the usual reason.
+The usual reason is someone wants to run their old Alexi, Docker, whatever thing inside of a container.
+That's such a tough thing we shouldn't do.
+We shouldn't mix isolated and regular.
+Isolated should only do isolated and not have any ID mappings attached and as regular user as an isolated user and as I think it's just painful.
+We have to see just how nasty it gets.
+I mean, I agree with the main case we care about, but she's going to be isolated and in isolated because that's what we mostly want for testing and whatever.
+Regular in isolated, we'll have to see just how many people we break and how bad it would be to fix.
+If it's trivial to do, then maybe if it's a massive budget to make it work, then it's not worth the effort.
+I agree.
+And that's it.
+So we can do more questions.
+I think there were a few more.
+So you can only really write to a tempFS unless you start doing the UID map maps.
+Right.
+TempFS or fuse.
+And fuse is kind of magic because you can do a lot of stuff with fuse.
+Yes.
+But is there any way to...
+So I want to use this in make or aside too.
+I used new UID map and new GID map now and Landerhate said because it's such a UID and everything.
+It just sucks.
+So the problem is like writing, making these images takes quite a bit of space.
+So if I have to do it all in the tempFS, the machine is just going to run out of memory.
+Is there any way to get the tempFS back by, I don't know, a swap file or something so that I can actually somehow get this stuff?
+Possibly.
+I mean, I don't know if the tempFS supports that.
+Maybe some of the other virtual file systems have something similar.
+Like can we...
+Is there like a tempFS backed by file type stuff in the kernel?
+No, I think so, right?
+I mean, yeah, right now you would do fuse.
+And fuse, you can make it write to whatever the hell you want.
+The question is going to be performance.
+Yes.
+Fuse got a lot better because of the work on Vata UFS.
+They've done a lot of optimizations for that.
+Yeah, that's fine.
+Any questions anyway?
+I mean, we're looking at VFS at like an previous support for a bunch of other file systems kind of underlined,
+but they're mostly networked type file system which will probably not help you a lot.
+Yeah, hey, so maybe I missed it, but can you actually figure out from the outside that you are using this isolated?
+I forgot to show that.
+Yes, you can.
+Does that actually work?
+Yeah.
+Okay.
+I think personally that like the issue with a lot of interfaces in the kernel is that you cannot figure out that something is actually happening or not.
+Yeah, so in here, like you see everything belongs to the open-to-user,
+but if I look at that use UID 556 and I look at the status file and we look at the UID,
+you see this isolated UIDs and associated GID in there,
+which shows you the inside UID and GID.
+So, you can actually figure it out that way and it gets you all of the different ones like the effective and all of those.
+So maybe not to you, but a general comment.
+Can we actually have this in adjacent or something in the kernel?
+Because there are lots of tools that are parsing this and they are doing it incorrectly a lot of times.
+Yeah.
+It's possible because this file gets generated as a SQL file in the kernel.
+So it just gets generated line by line.
+So JSON is just too hard, too complex for the kernel.
+So that's why.
+Yeah.
+But you know, we can have Tycho add something to that Libre source or whatever we come up with as far as libraries to also pass that file.
+Because we're looking at parsing all of those stupid files.
+I think this file is like extremely easy to pass compared to mountain 4 or CPU and 4, a bunch of the others.
+But yes.
+There was concern about a security around username, name spaces and I think about APAMO restriction.
+Yeah, Ubuntu had fun with our one.
+So is that helping in some ways?
+No, it's going to make it worse for APAMO.
+I think that.
+It's like a bunch of distros initially were of the opinion that username space is the devil and we should just prevent everyone from using it.
+Unless you're rude, which cannot affect the purpose to an extent.
+So this they can have the big hammer turn things off.
+Then Ubuntu did a really weird thing recently and it's just in Ubuntu kernel, which makes it even worse.
+Which is that you get to only use username spaces on Ubuntu if you're running from a program that has an APAMO profile that allows it.
+That has caused a lot of people to stop using Ubuntu kernel.
+Because that's really it's kind of weird and there's no other way to kind of opt out of this particular feature.
+It is kind of bizarre.
+So we'll see this.
+I mean, it's still going to be a username space.
+So any kind of concerns around those users and being able to like you're still in a user space.
+You can still create network devices.
+You can still access more APIs than you normally can as a community and privilege user.
+So those concerns are still valid and I expect that for any distro that offers knobs to turn things off will also effectively turn that one off at the same time.
+The question, the thing, Tara, is this is going to make adoption of username space in other applications for other developers significantly easier.
+Which may put some pressure on distros to not outright block things because they're going to be blocking actual useful workloads.
+We have one minute.
+Yeah, one minute.
+We can probably do like one more question or people can always catch me afterwards.
+If you do unshare network in a username space, then that's unshare privilege escalation.
+Yeah.
+Because of all the UAFs and network.
+So just with that last question and if anyone has more stuff, I'm happy to take them afterwards.
+So in the patch that I didn't see like any test, how much effort have you put into like first thing this or like write test for it and check for intended interactions.
+So testing is interesting.
+I don't know if we actually have a lot of username space tests in the camera, which is kind of unfortunate.
+I think that's something that should be improved and we should probably take a look at trying at starting to get that ball rolling with this one.
+That would be really good to say.
+Because like the VFS stuff is very well tested.
+The username space stuff, not so much.
+That's our plan to write this test.
+For non-isolated case and for isolated tool.
+So we want to write tests for both isolated case and for non-isolated tool.
+Because we have not so much yet.
+Alright. Thanks everyone.

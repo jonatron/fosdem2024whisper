@@ -1,0 +1,173 @@
+Thank you for coming for this final talk of our dev room and let's hope we even maybe
+get the demo working, whatever that means.
+So this talk is about how to get POSIX identities out of the OAuth identity providers.
+Literally not about how to get them out today, but how we want to change the existing operating
+system layers, which SSSD and Samba both are providing, to make it actually working and
+maybe gain something interesting in the process of it. So who we are. This talk kind of packages
+together a work we do at Red Hat on VAP, on Samba and SSSD and it's from me, Alexander
+Bokavoy, then Andreas Schneider and Sumit Bosa who is one of the core developers of SSSD and
+actually one of those three S in the name is Sumit. So is it. Yeah. And this talk is about a bunch of
+different projects and different protocols and we will try to really just reflect on what is there
+and maybe see some of the future that is there. The thing is that the POSIX identities is not
+really what people typically think about them and it's something that is driven by the requirements
+of a kernel or any unique separating system. And typically for the kernel the most important part
+is that when a process is started it needs to run on the certain identity and when this process
+needs to access a data stored somewhere that identity needs to be checked against identity
+associated with this data. And the way how it's done varies widely across multiple operating systems
+but on the POSIX side, so UNIX-like or POSIX-like operating systems which Linux tries to
+implement and outperform in this implementation what could be there, the certain things are kind
+of required. So UID and GID here you know it's user identity and group identity groups have
+association with when process start there is a primary group of that user that is associated
+with the process and that's how user get access to files not owned directly by the user but there
+are more elements in it and basically the work we do in the login process is effectively enable
+all the knowledge about these identities to the processes that will be started after the login.
+And we focus on the enterprise environment but sometimes now enterprise is really
+a small company that outsourced their authentication to a cloud provider and how
+cloud provider handles their authentication is not their own business that their own business is what
+they are doing but still the machines are here the workstations and they have this data that
+needs to be stored somewhere right and associated with different stuff. And if we look at the
+OAuth IDPS in this particular case I'm looking at the OIDC connect default claims
+that you request when you use OIDC client then it's literally like two claims that can be reused
+none of them is really useful for the actual operating system the description in both cases so
+the Geekos field on the POSIX user side and the description of a group that's literally all you
+can derive from the standard claims because if you get the name of the user from the OIDC claim
+that's not literally the name you want to use as a POSIX username or POSIX group name you may but
+here be dragons it might include the stuff like SQL sequences SQL things like drop tables
+and so on in those names and you don't want really to get them in so you want to have certain
+control over it and you don't get home directory you don't get shell that's what the login
+process needs to know to launch the initial process of the login you don't get UID GIDs and so on
+and more to that the access is authenticated so you cannot just come to this IDP ask over OIDC
+endpoint and give me user token or whatever is there you have to prove that you are who you are
+and you are who I DC client effectively so the fact is on a linux system SSH server has to know
+that this user exists in the system before it authenticates you and there's no way to get
+this authentication before the authentication of the user so it's kind of a cycle that we have to
+break somehow then yeah on the other side you have effectively to enroll this machine this client
+that will be talking to IDP and that means you have to store credentials somewhere the it is not
+the user credentials at the sort of machine credentials so we come back to the enrollment
+process similar to enterprise systems and there are requirements that it should be stored securely
+so we we got back to what hardware dependencies TPM for measuring that what we store there is there
+and so on so it's it's a lot of non-trivial stuff you start with simple things and you get
+to the point that yeah you want to have this all secure right and if we look at the host enrollment
+okay some IDPs allow you to dynamically create clients and sure you you can do that users who
+can do that they there is a process that you can follow so properly if you have user credentials
+then you can enroll create these clients store credentials for the client somewhere and ensure
+that they secure encrypted and what not available only to the processes that get there so again
+bind to TPM nice nice stuff that been talked especially at the virtualization framework
+dev room yesterday about the confidential VMs and so on so there's infrastructure brewing
+in the cloud not on the machines but luckily all these machines that have
+certification for windows right they have hardware TPM and all this so theoretical it
+should be there and actually it is used in a while because Microsoft Azure AD enrollment for the
+machine actually uses this it requires TPM and in the hardware it requires to during enrollment
+process to obtain certain tokens and get all of this stuff and store it and exchange cryptographically
+sign it data with it all the interesting part of it is that we yeah we figured out parts of it and
+force it Microsoft to document some of it we got help from them not for everything but there is a
+process and there is even progress a bit in in proof of concept implementation of the enrollment for
+Azure ID from David Mulder from somebody in and Susie and actually a few other people work together
+with him but if you're enrolled you really have to protect these credentials you have to do something
+to get them seriously not leaking anywhere and also you need to have some information on the IDP side
+to retrieve it and and that's the bigger question there's no information like I said we we need to
+define so what this work is about really is to define bits and pieces that we want to store for
+post-ex identities in in the cloud and the most important part like it was already asked in the
+previous talks it's all online only so Azure AD authorization authentication and authorization
+is also online only Microsoft doesn't support offline work with that well they do support some
+local accounts but then you don't get access to the cloud basis replicated data because it's
+well not authorized then and finally we can do this on Linux of course because we have Pumstack we
+can have local passwords and so on and this so but really if we don't have this information and for
+many public IDPs like Google, GitLab, GitHub and so on we wouldn't have this extension or something
+there we will only have whatever is there we'll have to generate this information so what we came
+in is the experience that we had already with Samba and SSSD that we generate these IDs based on
+certain properties it's hashing of certain values and placing the results of executing some
+transformations into the ranges that we call ID ranges it's an algorithmic approach yeah
+algorithmic approach and there are plenty of them so Sumit came with a few approaches nice one is for
+example this fully qualified one where you basically use the fact that you can use name with
+email like style or Kerberos like style with IDP domain being the suffix and then you split it so
+the suffix is used to map to the ID range the specific range for that one and then the first part
+is used to identify user within that range the downside is alias it would not be possible to
+support with this because algorithmic mapping basically gives you one-to-one mapping otherwise
+you have other problems and but it gets you stable mapping across multiple machines so then you can
+log in with the same user on multiple machines and get access to the same files so this is kind
+of an interesting story we will still continue working on it and if you have actually post-ex
+information then maybe you just expose it so effectively make an a separate app that you can
+query and retrieve the ID ranges retrieve the description of the algorithmic mapping and
+certain things and maybe even attributes for the users like like Andrei was saying for the
+AX where is where I can get my 50 additional user attributes that AX loves to have here you get them
+right you can get this kind of extension and the nice part here is that maybe if we make this
+app and interfaces kind of common enough then it could be reused between first multiple implementations
+but second between multiple domains and maybe then we can at least start thinking how we can build
+up trust and filter in and filter out this information somewhere but of course you can
+store locally but the problem with the local one local information is that you not always also
+trust it but maybe you trust the federation federated part because if the IDPs trust each other for
+federation like you have your own key local key clock and then you have registered
+ODP client against Google or GitHub or GitLab or whatever that is the federation right the
+GitHub now knows you and allows you to query data about the user from which is registered at
+GitHub or GitLab and if it provides you post-ex attributes would you trust them is this trust
+actually going forward that far maybe it is between the organizations that have much more
+control like research institutions and universities which have their own network of collaborators and
+they can guarantee certain properties but not in general I guess so we probably should do there
+and by the way they recognize in the OALF framework well they recognize the same problem so there is
+a work ongoing on defining a spec for this identity chainings which is essentially
+akin to Kerberos S4U protocol extensions and ability to track down who did what and against
+whom so finally all of this brings us certain identity we need to log in in and IDP authentication
+that Icar was showing before was really or Thomas was showing with Ansible free ABA is really what
+it is about and but the most important part is okay it's annoying to perform this online
+authentication every single time right it's annoying when you have to do SU or sudo and go
+reach for for that GitHub link and perform it every single time it would be good to have it once
+well to have it once we use Kerberos we cache the fact that we were authenticated initially
+and that cache and all the metadata about this fact can be in a Kerberos ticket so this is
+typical Kerberos flow in a normal environment and it assumes that you have this Kerberos KDC
+the K distribution center somewhere in data center or somewhere and what if we put this locally
+what I'm just sorry so one of the idea is when you are logged in you want to access
+certain services they do not have support for an IDP but they have support already for Kerberos
+so why not use Kerberos and use that already yep and we already do this so we basically have a lot
+all this in the environments like Samba, AD or free IPA they both provide KDCs and they both
+allow to get tickets with various properties check them and and so on we have actually authentication
+against the external IDP the OAuth 2 device authorization flow that IPA supports it's done
+through the Kerberos it's actually done behind the Kerberos KDC so when you run K-init to obtain
+the ticket or SSSD authenticates you it runs K-init against the server and KDC spawns a process behind
+it and runs the authentication against GitHub, GitLab and the others and all your key clock
+that's already worse but it requires free IPA deployment okay if we run KDC locally we can
+reuse more much of this code we only need to get this metadata securely but we'll
+ready store OIDC client credentials right somewhere so maybe it's the question of getting this
+information to that small part of the thing running on the local and surprisingly
+if you want to run this it's not that much is needed of course some changes are needed
+but we can reuse existing code we can do the work that was already heavily lifted and here's a
+demo a small demo so I have here a machine which is actually let's hope I I can show something
+this is just a podman ryanon container just fedora 39 custom because I did some
+customization of the config in it this is a normal system so I can show you
+that here's ryanon SSSD inside this system and it takes like 40 Mac memory whatever
+system system did treats it this way this is KDC running on the same system
+it only takes 1.6 megabyte if you trust what system did says here at least but yeah it's
+it's not the question of memory use right it's more a question of do we want to expose this for
+more than needed but maybe we can run this over a local host L.O. interface maybe we can put this
+into namespace isolate and give only access to certain things there it's still still not possible
+to do that fully bridge in the local host things with the namespace where there be 5 KDC run so in
+this experiment it's running on the host unrestricted so it's like listening on all interfaces
+but what I get is this so I'm logging in specifically as
+normal user well this is admin user but it's a normal user right we have
+password and I get the ticket as a part of that login so now I have configured actually this system to
+I think it's this way to use SSSD with jssapi that means that if there is a Kerberos ticket and
+you're allowed to use certain palm services with Kerberos ticket you will be allowed to use it
+we can check that
+I am able to just reach that
+sudo without entering password the fact that I need to press enter is a bug in communication
+between sudo and SSSD in this but specific setup it it doesn't require to do that in IPA setup for
+example but the fact is I got the ticket and I used this ticket to actually obtain another ticket
+the ticket to the host service on this machine that's the name of the machine that's
+that's the name of the machine it's nothing special just the example thing yeah so
+that is already possible I did small setup with SSSD for this but I can do this with other
+SSSD just handles Kerberos better than this but what we get as a part of it is that we actually
+solve in another problem because just when it was in November last year Microsoft announced
+that they finally found their way to kill NTLM and you know how they did this by introducing local
+KDC on Windows 11 machines just normal workstations so they are doing exactly the same they're
+introducing a local active directory stripped down to not be an active directory adjust the KDC
+effectively doing this stuff on the machine using an extension that was developed and sort of
+abandoned more than 10 years ago for Kerberos this IO kerb and reviving it we have almost support for
+in the MIT Kerberos so we can try and use this to to get it all working and then we get to the
+point how we control all of it through the identity provider and now I am circling back to the first
+talk of today of SpiceDB and Zanzibar maybe that's one of Answers how we can standardize
+some sort of like that and import or export access to that through the IDPs and of course this is a
+lot of changes and yeah I think we have basically no time to get through it but we will be talking
+about this in detail at Samba XP in April conference which will be online by the way so accessible to
+everyone so I encourage you to continue and follow up and if you're interested please ask questions
+on maybe mail in this or just shut the mail in yep thank you very much
+you

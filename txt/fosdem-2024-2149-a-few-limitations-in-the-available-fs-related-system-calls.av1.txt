@@ -1,0 +1,307 @@
+Okay. Ready for almost our last talk. Again, this is the kernel development room. Nobody
+got lost, hopefully, here. Our next talk is by Nick about limitations in the available
+file system calls.
+Okay. Now it works. Okay. Great. Thank you. Okay. So, hello. Thanks for having me here.
+Nick, I work at FORF. It's a research center in Greece, and I mainly do prototype bring-up.
+So, they give me boards and chips, and I make them boot Linux. We mostly work on RISC-5
+prototypes these days, and this is one of the projects I'm working on with the teams
+to bring RISC-5 to the cloud server region. So, I've played with the kernel. I have some
+driver experience. I've contributed here and there, but I'm totally clueless when it comes
+to file systems. So, while working on this project, I wanted to take a backup of my home
+folder, and I wanted to preserve as much as possible. And also, I had another use case
+when I wanted to take a backup of a really large media library we have in our radio
+station, our open source radio station in Crete, in the university. So, I tried, I was
+looking at the available programs out there like copy, r-sync, and stuff, and I sort of
+wondered what would it take to implement such a thing with the current APIs available in
+the kernel. And so, let's begin with what it takes, what it means to copy a file. First,
+you have to preserve the file data. You need to do this in an efficient way, and you do
+not want the files to be larger when you copy them to the destination, or you want to be
+also space and time efficient. And you also need to preserve file metadata, and file metadata
+is, again, the permission bits, like retry, execute for group and users and others, the
+ownership, like a user and group IDs, the timestamps, and there are some old school attributes
+which basically 32-bit mask used for tracking some attributes that were used to be file system
+specific, and then you have the extended attributes, which is a list of key value pairs that you
+can use. So, let's see what we have to the available API we have for that. For copying
+data, okay, you can, we have the naive approach, you can just open the source and destination,
+read from one copy to write to the other, and then close them, but this is not very efficient
+because you have to copy data to user space from kernel and then copy them back. So, you
+have send file, which is a more efficient way of doing this. This is a system called
+that's, so read, write, it's the most portable way, everyone has this. Send file is Linux
+and free BSD. So, what you do with send file is you have to file descriptors, and then you
+give them to the kernel, and kernel does the copying for you, so you don't have to read,
+move stuff to the user space and back. And then we have a new system called that's Linux only,
+and it's supposed to be the most efficient of all. It's called copy file range, and it's,
+it, it's the goal of the system called is to also take into account file system optimizations like
+copy and write, like, refling, like for example, when you want to copy two files on a server,
+on an NFS server, then the, instead of bringing them to the client, do the copy and send them back,
+you tell the server to do it for you. So, this new system called is, aims to do all sorts of
+optimizations for you, and from what I've read, they also want to do optimizations at the block
+level. For example, NVMe has this operation where you tell the controller to copy blocks for you,
+instead of doing it from the CPU. So, they aim to take advantage of these things as well,
+and this aims to be the new API for copying files. It doesn't work across file systems, it works,
+it has some limitations on how, where you can use them, but it's pretty cool. And it's, when we
+copy files, we not only want to copy the data, we only also want to preserve the holes, because I
+mentioned we want to be efficient in space as well. So, what this, this is, is some files that,
+for example, you have a large set of zeros, instead of storing them in the disk, you just truncate
+the file, and the file system driver will bring you back zeros, but you won't, you won't waste any,
+any space on the disk for that. And you have a L6 system call for that, so you seek for the next
+chunk, and then for the next hole, and you truncate. So, you want this, you want to do this for
+preserving holes, and not have the file growing when you move it. So, that's for preserving data.
+How do we preserve metadata? Okay, you have CHMOD for the permission bits, it's a, you have,
+you can have CHMOD, or the family of system calls, and you have CHMOD at, which takes an
+opath descriptor, which is very useful, I'm going to come back to that. You can use CHMOD for the
+ownership, and you have UTIM and S for ATIM and MTIM. So, two of the timestamps we have
+for the old style 32-bit attributes, there is an IOCTL, which is not portable. This is a set of
+FS flags, that some of them are file system specific, so it's not that you can preserve them
+while copying from one file system to the other, it won't make any sense to have the same flags,
+some, some of these flags do not make any sense for other file systems. There are some flags that
+are common between all file systems, like the immune, the immutable flag, or the append flag,
+which tells you that you are only able to append to this file, or that the immutable flag tells
+you that you are not able to do anything with it, even the root cannot do anything with it.
+Pretty useful for backups, for example, when you take the backup, you can mark the file as immutable,
+and then if some, for some reason, someone's doing RF minus RF, it will not delete the file,
+it will not be able to change it. So, but the IOCTL is not portable, it's a hackish way of doing it,
+it's a long way of doing it, so now we have the extended attributes, which is a better API
+for having attributes to the, adding attributes to the files, and this is used for all sorts of things.
+It's used for storing capabilities, it's used for security modules like SELinux, AppArmors, Mac,
+you can use it for access control lists, X4 uses this to store data in the iNode,
+it's crazy, I mean it's a huge list of extended attributes out there, there is even a configuration
+file where it gives you like a filter on which attributes you can preserve between file system
+and stuff, and honestly there is not a central place where you can get documentation on this,
+you have to look, find your way around it, so this is the way of preserving extended attributes, so
+let's see some problems so far. So, copy file range, as the man page says, may expand
+whole holes on sparse files, so this system called that's meant to be, you know, the whole
+source of optimizations when copying, like taking into account various file system and block level,
+even block level optimizations will expand holes, so you need, you can use this for copying chunks
+of files because you need to copy a chunk, do truncate and then the next chunk, so you cannot
+use it like to copy the whole file and forget about it, this also makes it, this both the
+instant file and copy file range, there are no IO hearing ops for that, so for example,
+if I want to copy a whole directory and I could do a batch of system calls in IO hearing for every
+file and then let the kernel copy the directory and come back when it finishes, I cannot do that,
+we have IO, you have IO hearing ops for read and write and the others, and even we even have IO
+hearing ops for the extended attribute system calls, but not for sent file or copy range, if copy
+file range didn't expand the holes and we could have an IO hearing op for copy file range, it could
+be great because we could just put it there and it will copy, it would be much better for, you
+know, copying batch of files, we would have to do system calls all the time for seeking and truncating
+and I mean it's meant to be the optimal solution, the other problem is that the opath descriptors,
+the op variants of these system calls, they take, instead of having the whole path string,
+you give a descriptor which is an opath descriptors which describes points to the directory, let's say,
+to the path, this is very useful because you don't have to, so you don't have to carry the
+string of the path all the time and it's more safe for multi-threading because for example,
+if you change directory while you're doing stuff, things will be messed up, so it's better to use
+opath file descriptors, opath descriptors, you get those from open app, you get from open,
+open gives you these types of descriptors that are very useful, but we don't have ad system
+calls for extended attributes, so we do have for everything else, but there are no ad variants
+for the extended attribute system calls, which it's a bit messy because you can use this for the
+rest of your process, like for copying files, for changing, for u-times, for changing the timestamps,
+but not for chmod, for cho, but we don't have it for extended attributes.
+You mean with opath file descriptors? Yes, I think that doesn't work, but we do have
+fsetx, adderat, and fgetx, adderat. We don't have it at, no.
+I mean you can't look up, yes they only operate on a specific fd, but I mean...
+No, no, no, for example, for chmod and cho, in u-times, then you all have ad variants,
+you can use opath descriptors. We don't have ad variants, sure, but I should probably...
+Yeah, you can do some tricks with proc self and get file descriptors from there and resolve the
+path, but it would make much more sense to have ad variants for those system calls as well.
+We didn't have chmod ad, but that got fixed on 6.6 with the chmod.2 system call, so now this is
+covered, and something else that's weird is that the u-times and ad allows an empty path flag,
+but it's not in the man page, so we need to update the man page for that.
+So that's one thing, it would be great if we had system call variants for the extended attributes.
+It would also make sense instead of having to use ioctl for the old school attributes to have a
+more portable way of playing with them, so maybe if we could use, if we could wrap them around an
+extended attribute, it would be better, I guess, because we wouldn't have to resort to ioctl,
+we could have a portable, like have one attribute for immutable, one flag, or one attribute for no
+dump that map to the old school bitmux, so that we have one API for all attributes, the old ones
+and the new ones, which is portable and not ioctl, and by the way with ioctl you cannot use
+opath descriptor, so that would be better. Another thing that I told you about before is that for
+the extended attributes, I couldn't really find documentation in one place, I had to look over
+the place and there are some of them that are not documented in the kernel, they're documented elsewhere,
+so it would be great if we had documentation for all the extended attributes the kernel
+understands and the permissions required for accessing them, because there are, for example,
+security and trusted namespaces that you can only access when you have the DAC admin and going,
+this is the next part, and you have some others that you need for security capabilities, you
+need setcap, for example, so it would be great if we had documentation for all the extended
+attributes out there and how you can set them, what do they do, so in terms of capabilities,
+when you do a backup, you probably need a couple of accurate search so that you can read the
+source hierarchy without being the owner of the files that you're copying, if you want to make copy
+special files like devices, you probably need cup and k-node, chown for doing, for changing the
+ownership after you've copied the file, you probably want, you want for again cup of owner to be able
+to set the timestamps and most of the extended attributes in order to set the immutable and the
+append attribute, the old style attribute, you need the Linux immutable capability,
+so what I want to point out here is that this is a bit inconsistent, for example, we have
+a capability for one attribute for the append and the immutable, and then we have another capability
+for the capabilities for an extended attribute, and then for two families of extended attributes,
+we have Capsis admin, which is an overkill, we don't want to use Capsis admin, so it would be,
+it would be nice if we discuss this a bit, like how should we arrange capabilities, how should we,
+how should we, maybe we should introduce more capabilities or review how these are being used,
+obviously we cannot, I mean break backwards compatibility, but it would be nice if we had that,
+I mean this goes also into discussion regarding documentation, like we could have a documentation
+or what you could do with this attribute, which capability you need to play with it,
+and what it does, so it would be, it would be helpful to have that, and then we could discuss
+how we could break Cic admin or how other capabilities we could introduce for maybe other
+special attributes, like for, I don't know, ACLs or something. So another discussion,
+when do backup file, let's say that we have done already a backup, and now we want to update it,
+first thing you do is like you check modification times, okay, you can see with them, with them time
+from one and the other, and make sure that if they're not the same, then the contents of the file
+have changed. M time only tracks the modification of the contents of the file, if you changed
+anything related to metadata, if you changed permissions, if you added an extended attribute
+or replaced an extended attribute, then you, M time will not catch this, C time will catch this,
+which is the last change attribute, but unfortunately you cannot preserve C time, so when you copy
+the file for the first time, the creation time, the change time on the backup, it wouldn't be the
+same as the source, so when the source C time changes, you cannot compare it with a backup.
+So it would be useful, and so maybe it changed a bit later, maybe, I don't know,
+you cannot compare them because they are in a different system, different time zones, I don't
+know, and you have no control over that. So if metadata changes in a file, you have to read
+them all and compare them by hand, so for example, if I add an extended attribute, I have to read
+all the extended attributes of the source, all the extended attributes of the target,
+and then see if something changed, because I cannot rely on C time, because I cannot preserve C time.
+So some tools, I mean, are synced, checks for M time, and if you want to be more safe, it uses
+CRC, CRC is unreliable, it's not secure, it says for security, but you can make your way through,
+you can change the file and preserve the checksum by adding some extra stuff afterwards.
+Shall be better, both these approaches are not nice because you need to read the whole file
+both on the source and the target and compare. We could use measurements from IMA, but we cannot
+expose those, we cannot transfer them through NFS, so if we are copying files from the NFS,
+NFS server and copying them locally, you cannot get the measurements on the server.
+There were some discussion around this, there were some patches, they were rejected,
+because I don't know there were some licensing issues, like IMA's, GPL, and NFS is different,
+they couldn't standardize this, so they could do an RFC call, whatever. So if we have measurements,
+we cannot expose them, I mean, even if I, like, so if we had, we could, I could at least compare them
+and make sure that the file contents were the same or changed, because M time is not reliable,
+I mean, if someone changes the file, they can reset M time, and I may not take a backup of it and
+leave any secure copy there. So we have a problem there, and I suggest that one approach to this
+problem, okay, obviously if we could expose IMA measurements through NFS, that would be the most
+appropriate way, because we could have, like, secure trusted hashes that we could use, but
+one way of doing it is if we could preserve C time, if we could preserve C time, when we copied
+the time, the file for the first time, we could have the same C time on the backup and the source,
+so if the C time changed in the source, we would, we could check it with the backup, we would know
+that something changed not only in the contents, like in the case of M time, but also in metadata,
+so we could use this to skip the file if something didn't change, instead of having to
+check all the metadata and compare and then skip, and also because when M time changes,
+C time also changes, if someone tampered with M time, if someone tampered with the data and then
+reset M time, because C time would change, we could also catch this. There is no API for doing that,
+and the reason is, there are various reasons, but the most obvious one is, like, there's a
+chicken and egg issue, like when you set the C time, because the C time tracks the changes of,
+any change you do to the I, no, it would need to update itself, so it will change the C time again,
+so if you set it in the past, for example, and when you do the change then it would need to be
+updated to indicate that it changes itself, so there's, I mean, semantically it's a bit of an issue,
+it's not another issue that when the C time is in a remote system and you try to change it
+locally, it wouldn't work, if you give the command, let's say, to change it, it wouldn't work, because
+on NFS the server tracks C time differently, so it's not that easy, and there is this discussion
+about C time, okay, C time currently is only maintained by the kernel, there is no API not
+even for the root, and there is this notion that this could be used for forensics, like for tracking,
+like malicious modifications to the file, but if someone is privileged then it can do other
+things as well, it can change C time by modifying the system time, which already, there are already
+programs out there that do this for you, or you can just open the file system, change the date on
+the file system and come back, and you can even do this without crashing the whole thing, because
+now we have FS freeze, and I tried it, it works, so I believe that since this is currently, it's
+doable, people can't tamper with C time, privileged users, I suggest that we have an API for doing
+this in the proper way, not in a hackish way, and maybe with a new capability for that,
+it's the same way that we have a capability for immutable, let's have another capability for
+C time, and I don't know, change U time, and so my introduction, another system call for that.
+I was thinking of birth time or creation time, like should I preserve that as well,
+and I didn't really find a use case for it, there are programs that already create, remove the file
+and create a new one, like Vi does, so this timestamp doesn't say much, but there were
+some discussions like this, there is a Windows, like in Samba, there are similar timestamps
+for another operating system that tell you where the file was created in the first place,
+and yes, that's why they added this, maybe we could have, instead of trying to preserve this,
+which is an immutable timestamp, maybe we could have like a common standardized extended
+attribute that we could carry around, I don't know, we could obviously have timestamp inside
+the file, but not all file formats support this, and then final, how do we back up encrypted files?
+So with eCryptFS, you could just copy everything as is, because the metadata and everything needed
+to decrypt the file is in the file itself, and then you also copy the configuration like the
+eCryptFS, which contains the wrapped key and stuff, but if you encrypted the files with Fscript,
+which is the new way of doing things, you cannot back them up, you could use, you could figure
+out if a file or a directory is encrypted, you cannot figure this out for a sim link, because
+in order to take this, you need to do an IOCTL, so IOCTLs don't operate on no path descriptors,
+and currently there is no API to copy, to back up files encrypted with Fscript,
+the only way of doing is to decrypt them first, and copy them and then re-crypt them,
+but this beats the purpose of having them in an encrypted form in the first place, if in order
+to do a back up, I need to re- decrypt them then, there is a window of opportunity there for an
+attacker. So that's all, that's a summary of what I'd like to discuss or what the issues I found,
+again, I'm not a file system expert, I don't know what would it take to do these changes in the
+kernel, I've only seen this from a user perspective, and that's it, thank you.
+Can you go back to the original slide, so tracking C time and M time changes, this is something that
+Jeff Layton has worked on in the context of NFS, because they also want to track changes to files,
+they have a need for this internally to NFS itself, I'm not completely sure how it works,
+but we do have internally something which is called the iversion, which is the i-note version,
+but we haven't really exposed this to user space, and the idea is that you get an updated iversion
+every time, for example a data or metadata change occurs, so that could be thought about exposing
+this to user space, but we weren't quite sure if we can have a consistent definition across
+all file systems for this, but anyway you should probably talk to him about this specific stuff,
+I think someone proposed listset get x-adder at system calls a while ago, and no one was really
+opposed to adding those, though I kind of questioned the value of them a little bit,
+my main gripe with them had been that the original proposal made it so that you can use
+opaf file descriptors to set x-adders, which I think is just opaf file descriptors are limited,
+and if we add ever more functionality to them, that you for example can set x-adders to an opaf
+file descriptor, at some point defeats the purpose of having an opaf file descriptor.
+It's for consistency, I mean you have it for the rest of it, you have it for ch-mode, for ch-own,
+for u-time and so, it makes sense to also have it for x-hub, right?
+Yeah sure, as I said I'm not really opposed to it, just a bit weird, because in a way that the
+thing that I don't quite understand yet is if you have open-at or open-at2, and you have a file
+descriptor, a starting point file descriptor, and then you want to back up, I don't know,
+you want to extend the attributes further down the tree, then you could do an open-at,
+open this file, and then pass that to fget get x-adder.
+Well if there are workarounds there you can also go from proc-self and get the descriptor and resolve it.
+Yeah and the thing is, the thing is what I'm saying is like a lot of these,
+a lot of the newer stuff that we have in open-at2 which have lookup restrictions where you can,
+for example, don't cross into another file system, known and so on, all of that stuff is not available
+with, for fset x-adder and get x-adder and so on. But anyway, I'm not opposed to adding this,
+if it's useful it would probably be easy to do. Yeah, I don't quite remember the IOC get set flags,
+this is not exposed in static sets, I assume everything that we have in IOC get flags.
+I don't remember, so the statics will tell you, because you also have an IOCPL for determining
+if it's encrypted or not, which you cannot use or see or on Syslinks, Asimlinks because you cannot
+use it. For the immutable, I don't remember, it has the, I remember that the immutable and they're
+not damp, they are reported, are part of the statics, so you could get them with statics,
+but how do you set them? You cannot set them in another way other than the IOCPL. So I was,
+I thought that since we already have the x-adder interface for setting attributes, maybe we could
+map those old attributes to some new extended attributes that set them through this way, so
+that we have a common API for all of them instead of resorting to IOCPL and use these flag...
+We probably need to talk about this a bit more because I don't understand what you mean by
+mapping those two x-adders, but in general the x-adder interfaces, they're somewhat broken,
+the complete API is somewhat broken, like if you, for example, if you set 1000 or 20,000 extended
+attributes on a file, then LIST X-Adder won't even return them to you anymore, because it will tell
+you, oh, it's limited to, I don't know, 64 kilobytes or less, and if you go over that, you can't list
+them anymore, like the whole API is fucked, so I mean... Yes, but yeah, it's used for everything,
+okay? I agree with you. It's even used for inline data, okay? X4 uses extended attributes to store
+data in the, I know it itself, so yeah, I get it, but I need to preserve them, I need to preserve
+both of them, so since this is what has come up with, let's at least, I don't know, at least bridge
+the gap between the old one and the new one, I mean, in the same way I have immutable and
+append, and I have to do the IOCTL, just give me a standardized extended attribute to do this,
+so that I only have to use one API, and not, because with the IOCTL, you can, you should also mask
+the flags that are not file system specific when you do it, and with the extended attributes, you can...
+You should or you can? You should. When you read the flags, you mask those that are file
+system specific, so that when you preserve them, you do not try to set a flag to a file system that
+doesn't make sense of that file system, so yeah, it's a mess, so if we had a extended attribute
+for wrapping this, we could, for example, get an error in this case, or it should be, we had, we had
+one API for the whole thing, which to me, it would look much cleaner.
+I don't know what would it take for copy file range or send, that's, or for send file to become an
+IO during op. That probably, I just sent a patch to Yen, so I'm pretty sure he's happy to take this.
+And I don't know what, if we had this flag, because config file range has a flags attribute
+that's not being used right now, it's just empty, so if we had the flag there for, you know, preserving
+holes, that would be great, because I wouldn't have to do all this back and forth to determine where
+the hole is and preserve them. That would be great, I guess. I don't, I guess, I, I, I, I, I, I, I, I, I,
+I, I, I, I haven't seen the code, I don't know what would it take, that's why I wanted some feedback
+on this, like, if this would break things, this would be too much to ask, I don't know.
+So, um,
+yeah, that's a approach, yeah, that's a good approach. It looks to me that this will be a lot easier
+if there was some sort of generic, uh, API to dump, uh, tree, our SAP tree in the file system,
+any file system implements that on its own, and then you get something generic,
+and then there's something to restore that. So, with Hal, let's say, a system called that would
+do the whole thing. Yeah, exactly. Because the file system knows better. Yes, but, I mean, they tried,
+they are already trying to doing that, at least that's what I understood from the documentation,
+with, um, uh, with the copy file range, at least for the data stuff. Yeah, but just for the data,
+what I mean is you, it doesn't have the holes, but, so you say we could have, like,
+something similar for the, for the whole attribute thing. Yeah, you give it a directory, and then
+it, it passes from that, the entire file system, and gives you something with all the attributes,
+holes, and whatever the file system supports, and then you can re-import that into another
+file system, and maybe you add some filter to it so that it doesn't give you something that it
+doesn't support in the other files that you want, or whatever. Currently, this filter is in a config
+file on ETC, and user space needs to be... Yeah, but it's user space-based. There is not a registry
+for all these attributes. That's one of the problems, right? I don't even know how many there are.
+And the other thing is, perhaps, it will make more sense to, instead of doing APIs like copy
+file range, to use the splice concept and implement it for pipes and sockets as well.
+Send file does this internally. So, the previous one, send file, it uses, internally, it uses splice
+for doing this in Kendo space. But it doesn't support the same kind of, like, going over holes and
+that sort of thing. Yeah, you still need to come back, but that's why I was saying that, since the
+new API is meant to be called file range, and it has a flag attribute there that we can use, maybe
+we could introduce a flag for this. That would make more sense, because send file is already being
+used, and it would break things we want to be about. Sorry, we're out of time. Okay? Thank you, everyone.

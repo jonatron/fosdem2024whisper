@@ -1,0 +1,294 @@
+Okay, so thanks video team for fixing this.
+So that was very helpful and now few minutes late, but we just, you know, do the same talk
+a bit later, same 20 minutes slot plus five minutes Q&A is quick wit François.
+Welcome.
+Should I say it is it sufficient?
+Yes, I should be okay.
+Hi everyone.
+I'm very happy to be here.
+Thanks for having me in this room.
+We have been working like on observability since three years at quick wit and I would
+like to present here what we have done during the three years of outcome of it at least.
+First I will introduce myself a bit.
+So I'm François.
+I'm working on the core engine of quick wit, which is a search engine.
+I also the co-founder of quick wit and I also work a lot.
+I'm working a lot on the graph and data spring that I will show you in this presentation.
+So for this, for the agenda, I would start like with taking a step back, a short one
+and then we'll talk about like the problem of cardinality that we can have with metrics
+and then I will show you like very briefly the engine of quick wit and how it works.
+And finally, I will show you a demo of quick wit working in Grafana for application monitoring.
+So let's start by taking a step back.
+So I'm showing this graph.
+It's not mine.
+This diagram is from Ben Siegelman.
+This is a Googler who works on the distributed tracing dapper, software dapper when he was
+at Google and you co-founded also LightStep, which is a company doing observability and
+monitoring stuff.
+I kind of like this diagram because it summarizes all the complexities, the intricacies between
+monitoring and observability and the different signals that we can get from our applications
+or our servers.
+So at the bottom, you have the three signals or the three pillars.
+It depends on how you call them.
+Traces, metrics and logs.
+And generally, you store them in different databases, metrics, you store them in time
+series databases because you want something optimized for it and it can be very optimized
+for this kind of data.
+And for trace and logs, it depends.
+You can store them in a search engine or you can store them in dedicated storage.
+I'm sure you know tempo and loki, loki for logs and tempo for traces.
+And on top of it, you try to build your monitoring software with alerts on metrics or could be
+on logs or even traces if you can.
+So let me talk a bit about how the problem of cardinality here.
+At the bottom, you can see that metrics goes always into the TSDB, but you can also put
+some traces information into your TSDB.
+But in this case, you need to be very careful about what you did because in traces, you
+can have a lot of labels and you can be very, very accurate about what's happening.
+So that's why I just want to stop there a minute.
+When you want to monitor a distributed system and we all generally have that somewhere in
+our job, they can fail for various number of reasons, even for a tremendous amount of
+reasons.
+And so you may want to label everything like if you have a software that is deployed with
+different versions, you want to have this version label, same for the host, same for
+the customer ID, if you are a SaaS, for example, you can have thousands of them.
+And you want also to monitor your services, your endpoints.
+In summary, your cardinality will explode and this will be a problem for your time series
+database.
+It's a problem, it can be either a performance problem or a money problem because if you look
+at data dock pricing, for example, you will pay $5 for 100 custom metrics.
+So if you want custom metrics because that's it, if you want something very specific to
+your business, in this case, it will cost you a lot.
+So generally, you don't want to have all those labels on your metrics.
+You want to control and just keep a low number of them.
+That's not the same for traces.
+In general, traces, you want to keep everything so that you can dig into, like, really understand
+the full trace, each unit of work in your software, you will be able to understand for
+each customer, for one customer particularly, for one request ID or for one user ID, you
+will know what happened in your system.
+So generally, you keep everything in your traces.
+And that's what I will talk about today and that's what QuickWit is for.
+So QuickWit is an engine that is storing logs and traces and particular traces.
+It does not handle metrics.
+And it is a bit different than other search engines in the sense that we decoupled a compute
+storage.
+So we have the same approach as low key and tempo on this, that chip storage is great.
+If you use an object storage, it's also very reliable.
+So you don't lose your data and you have all the benefits of decoupling your write
+pass, your read pass.
+It's really great when you want to scale to a lot of data and that's the case in observability.
+And last point is that we worked on the search part a lot so that it can stay sub-second
+even if all your data is on object storage.
+And I will explain how it works very briefly.
+So the engine architecture is quite simple.
+It's globally the same for this kind of decoupled compute and storage architecture.
+You will find the same for a tempo, for example.
+So at the middle, you have your object storage where you store your data.
+This is the source of truth.
+On the left side, this is the write pass.
+And on the right side, this is the read pass.
+So on the right pass, you have your incoming, gizand documents, could be traces, could be
+whatever.
+And you have your indexes that is running.
+And each 30 seconds typically or each 15 seconds, it will build what we call a split
+in QuickWit.
+This is a file where we put all the data structures that are used at search time.
+So it's several well-optimized data structures to be searchable on object storage.
+So we create them, the indexer creates them, and then upload it to the object storage.
+So you will have a bunch of splits that are put on the object storage each 30 seconds,
+for example.
+And each time you put the split, you also put one row in a meta store.
+It could be a PostgreSQL database or it could be just a gizand file stored on the object
+storage.
+So we will add just the metadata of the split in it.
+And once it is inside the meta store, like the metadata of the split that was uploaded
+on object storage, on the object storage, then the searcher is able to search it.
+So you have this nice decoupling where then if you want more searchers, you just have
+to increase your number of searchers.
+You can even shut all of them down.
+That's not a problem.
+So that's for the high-level view.
+To understand why QuickWit is fat on object storage, I have to show you also how to do
+how a split is made.
+This is an interesting part because it shows you also the different data structures that
+we are using.
+And it will help understand how we can achieve fast search later on.
+So you have basically three data structures in the split and one thing that we call a
+hard cache.
+The first data structure is the doc store.
+It's a row-oriented storage.
+So if you have a document ID, we will give you the whole jizz and document.
+The second data structure is the inverting index.
+So in this case, if you are looking for a user ID or a quest ID or a keyword, it's optimized
+in the sense that if you give a user ID, we will retrieve immediately the list of document
+ID that contains this user ID.
+So it is very fast.
+And then you just have to retrieve a document from the list of whose document ID is.
+The third data structure is the column now store.
+So here it's for doing aggregations.
+If you want to do analytics on your logs or traces, we will use this column now store.
+You can have a lot of columns.
+You can have spare columns.
+That's optimized for that.
+And the last part is what we call it's a split footer that we keep in general in the memory
+of a searcher because it's very, very small.
+I put it 0.07% of the size of a split.
+So it's very, very small.
+For that, it's cool because you can always keep it in your cache on your searcher.
+And in this hot cache, you will find all small pointers to the other data structures so that
+when you make a search request, you will need only to make one or two requests to your object
+storage to find the response.
+So that's why I said when we optimized QuikWit for object storage, it's because of that because
+we optimized those pointers.
+We put that in one footer that we can keep in cache.
+So just the next part now, I will explain you a bit how spans are stored in QuikWit.
+Okay.
+I have only eight minutes left, so I need to speed up it.
+In QuikWit, you can model things as you want.
+You can put any documents.
+But for span generally, you want to stick to the open telemetry data model.
+So what we did for this demo is that we used the data model based on the open telemetry
+data model.
+Well, you have a bunch of fields that are always there.
+And you have also some dynamic fields like resource attributes and span attributes.
+All those are very dynamic.
+So I put some random examples here where you can generate random keys and random fields.
+And here are the nice things that QuikWit is also shameless so that we can store every
+inverting index and the columnar storage.
+We can store all those dynamic fields without declaring which fields you have or which you
+don't have.
+It will index everything in the inverting index and in the columnar storage.
+So it's nice when you don't know in advance all your attributes that you have on your
+spans.
+So it's time for the demo.
+So for the demo, I prepared a demo for application monitoring.
+So my first problem was generating spans, traces that are understandable for this kind of goal.
+So I discovered recently a tool called, which is an extension of K6, which is like a project
+from Grafana for testing, for load testing.
+And there is a nice extension to generate traces.
+I will show you a bit or it works.
+And then I deployed a QuikWit cluster on Kubernetes and I did a Grafana instance to show you the
+results.
+So a word on the XK6 extensions.
+It's a nice extension just to, you can declare some spans.
+Like here I put some services like shop backend, ethical service.
+And you can declare whatever you want.
+So it's a template and then you can set the cardinality.
+You can set if you want some random attributes.
+So it's pretty nice to stress test and see if your engine can handle high cardinality
+fields, can handle like many random attributes.
+So it's pretty cool.
+So let's do the demo because I prepared it's live.
+Can you see it?
+Maybe I can zoom it a bit.
+So here I'm a heating or Kubernetes cluster and the index in which I'm setting traces.
+So we have approximately here now 341 million spans.
+So if I do a refresh, you will see this number moving.
+So now we have 355 millions of spans.
+So great.
+You can see that the uncompressed size of the document that are ingested in QuikWit have
+around 200 and almost 300 gigabytes of size.
+And that it's less, we compressed data a lot in QuikWit.
+So here it's around you can divide by seven on this example, the size of the data ingested
+in QuikWit.
+So here the size of Publish Plits is the size that is taken on the JStorage by QuikWit.
+So what can we do?
+So we are sending a lot of traces just to confirm that it's live.
+So here it's just a dashboard based on QuikWit Prometheus Matrix.
+So it's live.
+I launched it I think six hours earlier today.
+So I'm just sending traces at 11 megabytes per second.
+That's not huge, but it's already pretty decent because it represents around one terabyte
+per day.
+And you can see that it is running with only one indexer.
+And we have one indexer that is not really doing a lot of things.
+It is using between one CPU and two CPU here.
+The spikes are due to the compaction that we are doing because QuikWit generates a lot
+of splits.
+And so we need to merge them.
+We need to merge them so that we reduce the number of threads that we will do on the object
+storage.
+So great, it's working.
+It's live.
+And I can show you that we can search traces with it.
+So let's have a look.
+So I'm running a search query on all the documents.
+So you have a lot of them here.
+You can see that per minute here you have one million spans.
+So that's a lot.
+And we can focus on maybe I want to remove QuikWit traces.
+It should work.
+It's service name, I think.
+Okay, great.
+So here, as we are sending QuikWit traces in QuikWit so that we can monitor our own cluster
+with it, so now I'm selecting only the traces that I'm generated for this demo.
+So for example, we can look for query articles.
+So here, for example, what I can do is focus on one span ID.
+So as we have an inverting index, you can look for very accurate attributes.
+So here I took a span ID, but I guess we can do this on another.
+Let me check.
+I need to check article two card.
+So now I want to focus on this one because I added on this span particularly a high cardinality
+field for the demo.
+So you can see here that you have this random attribute with this random value that is here.
+So I can focus on it.
+And very fast I will get the results.
+You can see that this attribute value happens only very rarely.
+And it's with a search engine, it's even faster when you have this kind of query.
+So that's nice to search through spans, but generally you want to dig into one trace particularly.
+So you can use a Yeager plugin that is pointing at QuickWit cluster and it will return all
+the spans for the given trace.
+So it's easy to go from one span to the whole traces.
+But usually you want more from your data.
+And by that I mean you want to monitor your services.
+Looking at one particular span is very nice, but when you know what you are looking for,
+but when you don't know, it's better to build this kind of monitoring dashboard.
+So here, okay, I will try to go a bit earlier in the past.
+Yeah, good.
+So I have set different panels.
+The first one is like a data histogram and I'm counting HTTP requests.
+So for calling HTTP requests, I'm using span attributes.
+I can show you that.
+So here I'm saying I want all HTTP requests.
+So I'm using like the open telemetry semantic for that.
+And I'm saying, okay, I don't want all other spans.
+I want only those ones who have at least one HTTP target.
+And here in the second panel, I'm doing like a group by by status code.
+So I'm using again like a dynamic attribute that is the status code.
+And I'm doing a group by on it and building this data histogram.
+This one is a bit the same.
+So here instead of doing a group by on a status code, I'm doing a group by on target.
+So if you want to monitor your endpoints, that's useful.
+This one I can show you a bit more because here it's not the count.
+We are computing the sum of the duration of each span.
+So I'm doing group by on each target and I'm summing all the span duration.
+So you have a good feeling about the time taken by each of your target,
+your each endpoint.
+But that's not enough, right?
+You want something that is more useful.
+It's nice to see this, but it's not enough to take a decision like is there a problem or not.
+The last one is the P95 latency panel is more for that.
+So you can see that you have a nice, smooth latency,
+a P95 latency on all your services, except for this one.
+This is normal because I sent some traces with different latencies.
+So we will dig into that.
+So we know that maybe there is a problem here.
+The panel average latency here is just the average.
+I think you understand that.
+And this one is also interesting because I'm sending spans from two virtual data centers.
+So one is CDG and one is a BIHRU.
+And so you can see that most of the spans are coming from CDG here.
+So for example, if we want to dig into why there is a problem on the P95 latency,
+and I will stop after that.
+I will just show you that you can add your query here and say,
+okay, I want to look at all the spans that are over one second and one second, 0.1 seconds.
+And so you can see that only the endpoint article, so card is problematic.
+You can see that maybe there is a problem in the data center because you have suddenly more requests here.
+And of course, if you go up to two seconds, then you see that here the color has changed,
+but it's coming from this data center.
+And if you want to dig into one particular traces, you can open like and have a look at it.
+So that's it.
+I think I will stop there because time is up.
+If you have questions, come and see me.
+I will be happy to answer them.
+And also I have some stickers and hoodies, so don't hesitate.
+I'm happy to give you some.

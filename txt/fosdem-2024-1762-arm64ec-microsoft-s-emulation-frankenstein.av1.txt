@@ -1,0 +1,505 @@
+Alright, so time has flown. This is already the last talk for the emulator development
+room today. Thanks everybody for showing up. It's a crazy turnout. Today we've got Peter
+who's going to talk about a really interesting feature from Microsoft Windows. Is there a
+question already at the start? Let's get what's happening here. Oh, okay. Alright, so Peter
+has a lot of C++ experience and he can talk more about what he's going to do. So let's
+give him a hand.
+Okay, so first of all, why am I here at FOSDEM talking about some closed source Microsoft
+attack? That's what you're all thinking, right? So let's address that question first.
+So if you don't know me, one of my hobbies is hacking on LuaJet, which is a free and
+open source JIT compiler for Lua. And LuaJet recently gained support for Windows on ARM
+64. Or at least I thought it did until this guy came along and was like, so do you support
+this other Windows on ARM 64? And we're like, wait, wait, what? You did what? So first I
+was horrified, then I was intrigued, and now I'm here speaking to all of you about what
+it is. So that went well. So hopefully I'm going to take you all on the same journey
+that I went through, kind of figuring out what this thing is, what it does, why it does
+it, and whether it does what it says it should do. Before we get into any of that, I'm talking
+about some Microsoft tech I do not work for. Microsoft, I'm talking about emulating Intel
+on ARM. I don't work for either Intel or ARM. If you know about LuaJet, you might have
+heard of Mike Paul. That's not me. Any of yous herein are my own, bugs are my own. If
+I'm wrong, that's my fault. Right then. Let's go into things. So we're going to do three
+kind of broad chapters here. First, we're going to have a general look at doing emulation
+of Intel code on ARM. I'm going to get really bored saying 64 all the time. So when I say
+Intel, I mean X64 code, and when I say ARM, I mean ARM 64 code, because otherwise all
+of 64 is going to get way too much. Then we'll look at this ARM 64 EC thing in particular,
+and then a bit of time about how LuaJet ported to this thing and whether that worked and
+how it worked. So emulation 101. You take Intel instructions like that one there, you
+turn them into ARM instructions like those three there, and you just do this for every
+single instruction that you find. How hard can this be? We've got this entire room to
+talk about doing this. One Intel instruction may become several, because Intel instructions
+are often more complex than ARM ones. If you're not familiar with assembly code, the square
+brackets here are memory loads or memory stores. In this case, they're all loads, but they
+could also be stores. I mentioned this because memory is complicated. Memory is what makes
+this more complex than it might look. Here are some of the things that I forgot to mention
+on the first slide. Let's start with memory ordering. If you have several threads that
+are all trying to work with memory at the same time, you can do cross-thread communication
+through memory, which on Intel often works. Intel gives you a very nice memory ordering
+properties, so you don't need memory barriers all that often. Whereas ARM is whatever, if
+you want to do cross-thread memory stuff, you will want some barriers in there to make
+it work. If you are trying to emulate the Intel code on ARM, you need to insert extra barriers
+that weren't there, otherwise we're going to introduce some concurrency bugs that weren't
+there. The annoying part here is that most memory operations aren't doing cross-thread
+stuff, but if you're doing an emulator, you don't know which instructions need the barriers
+and which ones don't, so you have to throw in the expensive memory barriers for almost
+every load and store, which is going to slow you right down. This middle question mark is
+saying, so memory is not just a big array of bytes. Memory is working out into pages,
+and those pages can have protections on them and other stuff, and all they make mapped
+to a PCIe device rather than going to RAM. You've got a question like, do you emulate
+an MMU and a bunch of things on it, or do you just pass it off to the host and let the
+host do whatever it would do? The final question mark here is flags. If that doesn't yet mean
+anything to you, that's good for you. Where can I get to the flag next? Because flags are
+a pain. Most Intel instructions, when you run them, they'll give you the main result
+that you're trying to get. They will also give you this array of six flags. Meanwhile, on
+ARM, some instructions will give you flags, and those that do only give you an array of
+four flags. I'm not a mathematician, but four is less than six, right? We've got a
+slight problem here. The question is, can we emulate the two that we don't have? Let's
+just run through all the flags. This could be a quick summary of what they are. We've
+got Z or ZF, just telling you whether the actual result, your main computation was zero or
+not. SF or N is telling you whether it was negative or not. Then we get to PF. Now, PF
+is great. Intel added PF in 1972 to give you the parity of the low eight bits of whatever
+it is that you were actually doing the computation of. Because back in 1972, you wanted a one
+bit checksum for doing modems and stuff. Intel being Intel, they've kept it ever since.
+You can emulate this thing on ARM. You just need to do a pop count of the low eight bits
+of whatever it is that you computed. If you know ARM assembly, you'll be like, wait a
+minute, there is no pop count instruction for general purpose rotors. We'll just gloss
+over that one. Then you've got the overflow flag or OF or V. That tells you whether any
+overflow happened during your computation. Useful for doing checks. Arithmetic and stuff.
+Then we've got CF and C, which is an extra carry bit in or out of your addition or subtraction.
+Fun point here is that there are two possible meanings for this flag in subtraction. And
+guess what? Intel choose one meaning, ARM choose the other meaning. If you're trying
+to emulate one on the other, you often have to flip the value of this flag to make them
+match up. Thankfully for this, ARM in ARM V8.4 added an instruction called CFINV, which
+for flipping the value of that flag added to make doing this kind of emulation easier.
+The final flag ARM doesn't have is AF on the right there. AF. AF is if you're doing
+binary coded decimal arithmetic. If you've never done any of that, good. Again, good
+for you. Intel thought back when they made these chips back in the 70s, BCD was a thing
+that people did. To make it fast, they added this extra flag that gives you the carry bit
+out of the low four bits of your computation because BCD uses groups of four bits. You
+can emulate the AF flag if you need to. We're doing a bunch of extra work to compute these
+things that we'd rather not do. A good emulator will try and work out when it doesn't have
+to compute anything at all or if it can defer the problem and hope that you don't actually
+need the answers at all. If you do have to compute them, there's extra work to do here
+which will slow you down. Start flags quickly. Next up, there are a bunch of existing solutions
+for doing emulation of Intel on ARM. Q emu we've heard quite a lot about here. With two
+flavors of Q emu, there's system mode and user mode, which boils down to in system mode,
+which will emulate an MMU and a bunch of devices on it, whereas user mode won't, so it's pushed
+off to the host. Therefore, Q emu user is much faster, but can't emulate as many things.
+There are a bunch of other open source solutions in the middle here. Starting with Justine
+Tini's Blink, which if you've not seen it, is part of a portable executable project for
+emulating Intel on anything. Her take is like, you know, we don't need a JVM with a portable
+bytecode that's used Intel code as a portable... Anyway, it does actually work. There's FeX
+emu that I'm not overly familiar with, but I think they're trying to be like Q emu user,
+but faster by only doing certain emulation of certain things on certain other things.
+I basically only Intel on ARM, whereas Q emu does everything on everything.
+Box 64 I wanted to mention because they pull this Q trick of saying, we will spot when
+you're trying to emulate a library that we've heard of, they're like, yeah, that's libc,
+that's SDL. I'm like, well, we won't emulate it. We'll just like, swap it out for our native
+version of it, which makes it faster because you don't have to emulate as much code. Obviously,
+the other big one that's not open source is Apple's Rosetta 2, which cheats by solving
+things in hardware. So, you know, this slide again, yeah, Apple solved this problem in
+hardware, this problem in hardware, this problem in hardware. So, you know, they cheat by adding
+extra hardware to their chips, and that makes that emulation extremely fast. Good for them,
+less good for other people. So, Apple can make a very appealing pitch to their developers,
+which is, you know, you can keep on with your kind of Intel code, and it'll like run fast
+on our custom hardware still. Or you can import it to ARM code, and it'll run even faster.
+I know Apple will port all of their kind of first party code, and the programmers in their
+ecosystem will do what they are told. Apple says you port your code, they will put their
+code. You know, the trade-off of working in a kind of Apple type system. Meanwhile, Microsoft
+have a far harder time. Like, you can target Intel, but it'll be dog-snow. Okay, not good.
+Or you can port your code to ARM, but you can't if you've got something like closed source
+library or plugins as part of your program. And this being that Microsoft's ecosystem,
+of course there are closed source libraries or plugins. So, yeah, Microsoft are in a really
+hard place here. And when I say slow, I mean slow. So, to give you a kind of idea here,
+I took the AllureJet benchmark suite, and I ran it on this Mac here as ARM code, 33 seconds.
+Fine, fine. Compiled it as Intel code, ran it under, was that a 2? 44 seconds. I mean,
+not great, but it's not a massive slow down. You can live with that. I ran a Windows VM
+on this thing, and the ARM version then took 37 seconds, which is a little bit slower.
+I'm not sure whether that's part of the VM or part of Windows slowing it down, or because
+Windows is running with 4K pages rather than 16K pages, same kind of ballpark. Then take
+the Intel version and run it under Windows' emulation, 106 seconds. Yeah, this is not
+good, not good. So, you know, you are someone at Microsoft, okay, so option one, I emulate
+the Intel code, it's too slow. Option two, I port it to ARM, is possibly impossible.
+At this point, I like to imagine some mad scientist at Microsoft, like, so, can we take
+two bad options, blend them together, and get a good option. Which, when you put it
+like that, seems insausable, but it turns out to actually work, surprisingly. So, that
+gets to part two. What is ARM64 EC? I, this crazy idea to get out of this error or to
+spot. Which is, let's let you port part of your application to ARM code. So, you know,
+if there are any kind of Intel bits that you can't port, because they're plug-ins or
+closed source, sure, leave them as like Intel code, but the stuff that you can port, you
+should port, and you can mix them all up, like, together, and allow you to like, cheaply
+interrupt between the two parts. And, you know, this is ARM64 EC. The ARM code is compact
+able with the emulated Intel code in a way that should hopefully work. Hopefully. So,
+that's the kind of thing. Big plan. But what does this mean? Like, how do we actually do
+this? Like, we're going to have to share the virtual address space between the Intel parts
+and the ARM parts, okay? We're going to need to share data structures out between the Intel
+parts and the ARM parts, okay? We're going to need to share call stacks between the two,
+fair enough. We're going to make things a little bit simpler by saying we can only
+kind of switch between Intel and ARM when you make a function call or you return from
+a function call. Or when you throw from a function and catch it higher up, that's, you
+know, painful. We're going to have to adjust how we do function calls a little bit to make
+this work, but ideally not too much. So, we're going to kind of delve into each of these
+points in turn. A shared virtual address space means, you know, you have all of your, you
+know, kind of address space and there's X people code in there and you have to know for
+any piece of X people code, is it ARM code or is it Intel code? So, we need an extra
+bit on every page to tell you kind of which one it is. I mentioned kind of doing cross
+thread communication earlier. Obviously, you know, our address space can have several
+threads in it. We're all trying to kind of talk to each other and any kind of Intel code
+running under, emulation still needs all of those extra barriers to be put in by the emulator,
+which will, you know, keep it slowed down but keep it correct. Meanwhile, any ARM code,
+Microsoft thought, just, you know, let the programmer that's doing the port put in the
+barriers where they have to be, which, you know, solves that problem at the cost of, you
+know, the programmer has to actually think. You can't just like recompile and not change
+your code and hope it works. So, all of that is kind of fine. Let me go to shared data structure
+layouts. Now, this starts off looking fairly simple. We say, you know, this is some kind
+of data structure. Let's make it compatible between Intel and ARM. Obviously, we can't
+change the Intel code, the whole point is we're kind of running free existing Intel code
+under emulation. So, we have to, you know, in ARM 64 EC mode, all of these types need
+the same size and alignment as ARM Intel. So, you know, longs are four bytes because windows
+doubles are eight bytes, pointers are eight bytes fine, function pointers, again, eight
+bytes. And this being why we needed an extra bit on every page to tell you whether it's
+Intel code or ARM code, because you might think, just like put it in the function pointer,
+but like there's no space. You have to make them one bit bigger to tell you whether they
+are Intel ARM pointers, which we can't do. So, we have to put that bit on the per page.
+But, you know, this all looks fine so far. Things get more interesting, though. So, if
+you're a C programmer, you'll know about set jump and long jump, which are C's equivalence
+to throw and catch. And there's this structure called jump buff that kind of tells you when
+I catch, this is the CPU state to kind of go back to when I do my catch. And you can
+pass the jump buff, you know, around, you know, you'll set it over here and use it over
+there. And in particular, in ARM 64 EC, you can do a long jump from Intel code to ARM
+code or from ARM code to Intel code. So, this jump buff guy has to be kind of compatible
+between the two. As I said, jump buff contains the CPU state that you want to go back to.
+But, like, Intel CPUs and ARM CPUs have different amounts of CPU state. So, that's going to
+be fun. To make it even worse, there's this Windows structure called context in all caps
+that contains the entire CPU state for a particular thread. But, again, you can pass around and
+do things with. And, yeah, so that guy has to be the same size as on ARM 64 EC as it
+is on Intel, despite there being a different amount of CPU state. So, this is starting to
+look a little hairy. So, what is all of the CPU state that we have to fit in to make these
+data structures compatible? So, we want a quick table here of, like, the user-visible
+CPU state on Intel and on ARM. ARM in one column, Intel in the other. I'm going to go
+through row by row to kind of go through them quickly. To, like, general purpose registers
+to start with, Intel has 16 of them, ARM has 32. You will notice we can't fit 32 into 16.
+This is going to be a slight problem. Next row is not so bad. We've got a bunch of, like,
+weird kind of edge cases. We've got RIP and PC. They're, like, the same thing. PSA and
+PSA because they're the same thing. The two FP things on ARM, we can fit into MX, CSR
+on Intel, but that much is fine. We've got the spare GS thing, which we'll come back
+to later. Next row is our floating point or vector registers. Again, Intel has 16, ARM
+has 32. 32 is more than 16. So, again, problem there. The bright sparks in the audience might
+say doesn't modern Intel with, like, AVEX 2 and AVEX 512 have far more registers than
+they're far larger. Yes, but ambient laters can't use AVEX or AVEX 2 or AVEX 512 because
+of patents. So, we're stuck with the kind of old, kind of, 16 of them and not only 128
+bits wide. This final row is interesting because Intel way back added the AVEX 87 stack, which
+is 880-bit floating point registers. ARM has no such thing because this is, like, this
+old weird, like, legacy thing, but this is actually really good for us. So, our question
+is how do we fit all of the ARM column into the Intel column? So, let's start with the
+floating point registers and we'll say, okay, let's pretend ARM only has 16 of them. Problem
+solved, right? If you're writing ARM 64 EC code, you cannot use the high 16 of these
+guys. I mean, it'll come in a performance cost, but it'll make things work. The other
+way we had problem was with this first row, where we'd like to be not quite as extreme
+as throwing away half of them. So, we've got, like, 16 that we can fit over here. One can
+fit in GS and then 10 can fit down there. So, 16 plus 1 plus 10 means we can fit 27 of
+these guys in here somewhere. It works, it works. But we are still down 5. So, they'll
+become 5 general purpose registers that you cannot use. So, Microsoft said, okay, you
+just can't use X13, X14, X23, X24 or X28 in addition to the 16 factor things that you
+cannot use. So, this is the cost of making your data structures compatible between the
+two and it seems like a fairly high cost, but, you know, such is life. Moving on, we are
+sharing our call stacks between Intel and ARM. If you're familiar with Intel and ARM,
+your first point will be, so, doesn't like ARM put the return address in a register,
+whereas Intel puts it on the stack. Yes, we're going to have to fix that one up. The problem
+that you might not have noticed was that ARM requires your stack points to be 16-byte
+aligned when you use it for a load or a store. Intel merely recommends this very strongly.
+But doesn't actually check for it. So, you can very happily run with an only eight-byte
+aligned stack for a very long time and not notice that you've done anything wrong because
+it doesn't actually check for it. So, we're going to have to fix that one up, that one
+up too. So, a bit of work required to make these things work, but, you know, we can understand
+what that work is. And then we get to the actual meter things of, like, how do we switch between
+these two modes? We've made these things of compatible-ish or we've understood how
+to make them compatible, but how do we actually switch between Intel and ARM? So, if you're
+at use for assembly, you'll know what a calling convention is, which is, like, when we make
+a function call, where do we put the arguments for that call? Which registers contain when
+or what do you put on the stack when? And then, like, you can read these, like, long
+docs from ARM or from, like, other people about how to do this. And then there's a set
+of these rules for ARM, a set of these rules for Intel. We don't want to change those rules
+too much because, like, they mostly work, but they're not the same rules. You have to,
+like, put things in different places between Intel and ARM. So, we have to do some work
+to kind of fix that one up. And the work that you have to do will depend on the types of
+the arguments and the type of the return value of your function. So, we're going to need
+some kind of code for doing this work, and this code has to live on the ARM side of things
+because, again, we're trying to run Intel code that doesn't know it's running under
+emulation, so we can't change it. We can't add extra stuff in there. We have to add
+the extra stuff on the ARM side, which means if you're writing assembly code in ARM 64
+it's like, how do I do a function call? This is how you do a function call. Step one,
+as you would normally put the arguments where they would be for a normal ARM call, and then,
+like, so, am I calling Intel or am I calling ARM? On the left-hand side, we've got the
+am I calling ARM column, and it, again, works like a normal ARM call other than this mystery
+box about exit points in X10 that I'm going to gloss over from now and come back to later.
+But other than that box, the left-hand column is a fairly normal function call on ARM. You
+put the results where they're meant to be, you call the function, you get the results
+back from where they are normally meant to be. The weird case is the Intel case on the
+right here, where we reduce some other things. Where we put the function that we want to
+call in the X9 register, has to be X9, and then we call an exit function. You're going
+to say, Peter, what is an exit function? And I will get to that in just a bit, but I want
+to address a different point first, which is this code has a branch in it, right? Everyone
+prefers straight line code to branchy code. But, like, we can get rid of these branches,
+mostly. You know, we'll have to have to do, like, both of these two steps, and push them
+up there, and then combine both of the calls. Because, like, this row, we're going to do
+a function call. We just don't know, like, where to yet. So, like, some kind of, like,
+conditional marks on where we want to call. And then we can make this whole lot straight
+line code. At which point, it'll look like this. You know, first box is the same. Second
+box is, like, we've pulled up both of the previous steps and just done both of them.
+This middle step is calling this magical mystery function from Microsoft. And then you do a
+call to somewhere. And then this last box is the same as previously. And if you're wondering,
+what does this magical mystery function from Microsoft do? You know, it turns this side
+back into this side. I mean, so, if you're reading assembly code, this is what you will
+see, but this is what it does. And now, I'll get to the previous point of so, what are
+these exit functions? So, they kind of fill the gap in. They kind of, the extra bits you
+have to do to transition off to arm mode. Which is we have to take the arguments that
+we carefully put in their arm places, take them out of their arm places, and put them
+into where they should be for the Intel style call. Which, you know, a bunch of work, but
+it's fine. And then ensure that the function that we want to call is still in X9. And then
+we call the next magical mystery function from Microsoft. And we have to do it in a
+special way. We have to put the address of this function in X16 and then call X16. Which
+is going to seem weird, but we're going to have to see why in a bit. And once the magical
+mystery function kind of comes back, we take the results from where they would live in
+Intel world, pull them out of that world, and put them where they would be for an arm
+world, and then we return as normal. So, okay. Next up, let's look at this magical mystery
+function. Which is this guy. So, first box in the top left. I mentioned that ARM puts
+return address on the register, whereas Intel puts it on the stack. This first box is fixing
+up that problem. Then the rest of the left-hand column is your kind of usual loop for emulating
+a CPU. You know, we get the next instruction. We do it somehow. Then we move to the next
+instruction and we do that one. In practice, there's going to be a far more complex logic
+in here. So, you know, like optimize stuff. And you're like, you know, jit compiler or
+AOT compiler or all sorts of clever stuff in there. But as far as we're concerned, as
+well as what it does, this kind of describes what it does. At some point, it'll say, wait
+a minute. You're now asking me to go back to ARM mode, because I've found code that's
+no longer like Intel code. We are doing some kind of mode switch. Now, I said earlier,
+mode switches, we've said they're only going to happen at function call or function return.
+Oh, go. If we've now gone from Intel's ARM, this is either a call or a return. And how
+do we know which? And the cheeky part there is that we look at the four bytes just before
+where we're going to start running and say, is this a call X16 instruction? Why is that
+the question? Because we have to call this magical mystery function as a call X16, which
+means if we just found that, it means we've just come back from the call that we were
+doing. We are in a function return type thing. And we set the return pointer to the code
+we want to run to, and we go to it. And this final column means that we're doing a function
+call, because the four bytes before where we're going to are anything else. And then
+we need to do, again, the opposite problem of where your return address wants to be. Is
+it on the stack or is it in a register? So we fix up that problem. And then we've set
+X4 to be the stack pointer. Why do we do that? Because the next step is to say we have to
+forcibly realign the stack pointer. Because remember that point where I said like, Intel
+code doesn't care about your alignment for as ARM does, this is where we fix that problem.
+And then we tail call X9's alternative entry point. Remember, X9 being the sting that we've
+inferred is a function tool that we're trying to make. So we do a call to almost that function.
+Again, you're going to say, Peter, what are these alternative entry points? So that's next.
+So every ARM function that could be called from Intel needs a so-called alternative entry point
+for handling when it is called from Intel. And it does all of the gubbins that have to be done
+to make this transition work. The only question is how do you find this alternative entry point,
+which is you put the offset of it in the four bytes before the start of the function,
+which is handy because we already had to read those four bytes to check whether they were
+that guy. So if they're not that guy, then they are the offset of this guy. And what is in one of
+these guys? Ignore the right hand column for now and look at just the left hand column,
+which point in the left hand column is mostly the opposite of what we saw earlier. We have to
+take the arguments from where they are in Intel and pull them out of there, put them where they
+should be for ARM land, call the real part of the function, and then take the results out of
+there and put them where they should be for Intel, and then call the next magical mystery function.
+The only interesting part here is this first box where we're saying if there are arguments that
+come off the stack, we can't read them from the stack point, we have to read them from x4. Why is
+this because of this forcibly realigning sp? You can no longer read your arguments from there
+because we might have changed it to realign it, but x4 tells you where they used to be. So that's
+fine. The interesting point is that the logic on the slide only depends upon the types of the
+arguments and the types of the return. It doesn't actually care about what the function actually
+does, and therefore you can kind of share these guys between multiple functions if those functions
+have the same type, which is good for like, you know, code sharing keeps your memory usage down,
+your iCash is happier, whatnot. But if you want to, you could write one of these per function,
+which point in the right hand side becomes an option that you could do, and then you can
+kind of skip the kind of calling in the other bits, just put the copy of your function in there,
+if you so wish. Okay, so next magical mystery point function is this guy. Don't worry,
+you've seen most of this side previously. It's all the same side except for the first box in the
+top left, for which you're going to ask, so what does this box in the top left do? What is the
+value of lr that we have up there? And if you trace all the stuff through, you'll see it's the
+same lr that we popped over on this side, which was the return address that we popped off the stack
+because we think the Intel code just made a function call, at which point what we're putting
+back in the top left is the return address to go back into Intel mode. So it all kind of works
+out. As you've seen this slide previously, at which point we have run out of magical mystery
+functions, so you know, there's a hard part over, that all kind of works out. So that tells you
+roughly very quickly what arm64 EC is, what the kind of code for it will look like,
+so next up, the kind of the lured part of how did I make lured work with this thing. So if you
+know lured, it's written in a mixture of assembly and C, and notably the interpreter is several
+thousand lines of assembly code, which is, you know, fun. So porting that code, that assembly
+code to arm64 EC, means that we can no longer use the versus that we said we couldn't use,
+they don't fit in the context structures. So we lose v16 to v31. That's fine, didn't use them to
+start with. x13, x14, again didn't use them to start with, not a problem. Unfortunately we did
+use x23 and x24 for various things, but because of what they were used for, they could be reworked
+to not require them with some almost zero cost tricks, so that wasn't too much of a pain. Losing
+x28, more annoying, that kind of required extra loads and stores to kind of split. In this regard,
+the jic and pilot was actually easier to port than the interpreter, because the jic and pilot
+could already just not use certain things, so you just had to add some things onto the list of
+what it can't use, and like, you know, it'll then just not use them. Again, there will be some kind
+of like perf cost to not using them, but it wasn't hard on the kind of porting side. Next up is
+handling these mode switches. So the C compiler will do most of the work for all of the C parts of
+Lerget, but again, it won't handle the assembly parts. So there are kind of three parts, therefore,
+that it doesn't really handle. One is the interpreter opcode for calling Ler API C functions. That
+one's fairly simple, like the, it's only one place, it can only call one type of function, and the
+type of that function is super simple. So that one's fine. Harder is the ffi. So if you're not
+familiar with the ffi, it's the Lerget's foreign function interface, and it lets Ler code call
+C functions of any type. Whatever type you want, it'll call it for you, and it'll just make it
+work. And you can also jit compile your ffi calls in most cases. I say with simple types, like most
+types are simple, so you can jit compile most of them. We also support ffi callbacks, but you can
+take a Ler function and make it into a C function, and then C code can call you. So again, it's like
+Intel code is trying to call your kind of ARM code that you created from your Ler code. You have
+to make that one work. That one's actually not too bad. 10, great, thank you. So the hard part is
+these two, just because they're kind of arbitrary types of function. So this is what I made Lerget
+do for interpreted ffi calls. So the good thing about ffi calls is that they are one shot calls.
+You give the ffi a pointer to call, and the type to use it to call it, and it'll go and do it,
+and it'll do it once. Because you're doing it once, you can look at the thing that you're trying to
+call it like so. Is this ARM code or is it Intel code, and just do the right thing for whatever
+it is that you're trying to call? Which gives you this nice, simple diagram. There is a slight
+problem with this diagram, though. So this is what we're meant to do. This is our slide from
+previously, and this is what we're actually doing. The right-hand side is just like we've
+inlined the exit tank, it's all fine. The left-hand side has a slight problem. I skipped over this
+box a while ago, and it's like we'll just forget about that box. And you'll notice that it's missing
+on this side, which will mean that certain things don't work. And the question is what doesn't work?
+So this is why I have to now tell you why this weird box is there on the left about putting a
+thing in X10 when there's no obvious reason why you need to do it. So let's answer that question,
+which is if we are making a function call and we are ARM code, and we might call Intel code,
+then we will need an exit tank. Hopefully we've now covered what those do and why you need them,
+and things of that mind, etc. If you want to do a function call, you need an exit tank,
+and to know which one to use, you have to know the type of the function that you want to call.
+Now, there's a particular subset of functions that don't know the type of the thing that they
+want to call. You might say that that's kind of weird, but let's just run with it for a while.
+And furthermore, these functions don't know their own type, also weird, but what they do know is
+that their own type matches the type of the thing that they want to call. Now this may sound like
+a somewhat contrived set of properties, but it does actually crop up enough in practice that
+it's worth caring about. So to let these weird typeless functions that don't know their own type
+and don't know what they're calling, to make them work, we give them an exit tank in X10. So
+if they are ARM code, they can just like, you know, run and say, well, whoever calls us put the
+appropriate thing in X10, and that will let us do the call that we want to do. So that means that
+if we end up calling one of those functions, and it then wants to call an Intel function, then this
+isn't actually going to work, but in practice it's actually fine. It's not yet been a problem. It
+could be fixed, but it's going to be like a pain to fix. You might ask, why is it going to be a
+pain to fix? That's because the FRI can call any type of function. So we can't just like
+preprepare an appropriate function for every single type of function. That's going to be way
+too many functions. So we have to jit compile the function that we want to use. And I mean,
+like really, like, can we just like not do that? Yeah, I just rather not do that yet. So I've skipped
+it. But it works. So, you know, great. That was interpreted, FRI calls. Then we've got jit
+compiled FRI calls. They're different because you will jit compile your call once, but then run it
+multiple times. So if we are jit compiling a call through a function pointer, we don't know
+whether that function pointer will be Intel or will be ARM. So we have to kind of do what we're
+meant to do more closely or almost do what we're meant to do. So, you know, we prepare the
+arguments as if it were a ARM call. If it ends up going to Intel, then we'll use an exit function
+to fix it up. We do the prep work that we went to do for the magical mystery function. All
+but again, I didn't want to jit compile an exit function for every possible type of thing that
+we might call. Because like, we're already jit compiling a function. We don't want to jit compile
+a function in addition to that at the same time. It just gets kind of hairy. So again, I cheated a
+bit and said, well, let's just write one function. They can handle like every case that can get jit
+compiled and just pass it the signature that it has to kind of pretend to be and just put that in
+some other register. And again, this will work fine in practice unless we hit the case of calling
+one of these typos functions that doesn't know their own type and it wants to call Intel and it
+happens to trash X15 that I've used to like, stash this X foot piece of state in. So again, not
+quite following the rules, but again, it works fine in practice. And then the slide that you've
+possibly all been waiting for, like, does this whole thing work? So you'll recall the first two
+lines from previous day. We said like, native ARM code ran in 37 seconds. The Intel code running
+under relation to 106, whereas the R54 you see code takes 38, which is pretty good, right? So we're
+kind of saying here, this is, it's native ARM code, so it should be close to 37 seconds, but it's
+making a combination such that it could call Intel code as and when it needs to. And making those
+combinations will slow you down by a few percentage points. But you know, you're in a much
+better place than you would otherwise be. And yeah, this crazy idea of Microsoft actually works.
+I can do one more slide or questions. Do you want to do? One more slide. Okay, great. So problems
+you didn't know that you had. Yeah, Linux has LD preload, which if you've used, you know, I want
+to let you know, change the malloc that I call or like, make F sync not slow. LD preload, great.
+Mac OS has LD, the old insert libraries, same thing, not quite the same details, but like the same
+thing. Windows doesn't have such a thing. It has ad hoc machine code patching. Yeah. And as a bonus
+point, Microsoft research used to sell a product called detours for doing this. Possibly like
+Microsoft research is only consumer facing product. Unsure. They made that open source on
+GitHub in like 2016. So you can go and find detours on GitHub and it will do 0.3. So you know how
+code lying around in your Intel code that expects to be able to go into other functions and patch
+them up. So to make this work, we have to take our functions and wrap them in a small Intel shell.
+So if you look at the shell, you're like, yeah, that's in the Intel code. I'll just patch that for
+you. And that's fun, right? So one of these magical mystery functions can kind of spot these
+shells and kind of skip right over them. But yeah, those shells are going to be here to make this
+thing work. That shouldn't be a problem in the first place, but it is because Windows doesn't
+have any of these systems. Bonus funds. Let's get back to here when we don't have to worry about
+the bonus problems. Okay. Great. Thank you, Peter. We have time.
+All right, let's do some questions. I'm going to start with one from online because otherwise
+we won't forget it. Can Intel code call ARM code? Oh, yes. Quick yes. Yes. Hands. This is the loop.
+Am I now trying to call ARM code? No. So I'm going to call Intel code. No, I'm trying to call ARM
+code. So we go over here and we go through the stack for calling ARM code. Yep, it all works.
+All right, one more time, hands, because I wasn't paying attention. I'll start here.
+How do you decide which code you can compile to ARM and which parts of the code you cannot
+and have to leave as Intel? So for the Luiget case, it's fairly simple because there's already an ARM
+version of Luiget. If you're going to write your own program, the advice is start with
+the hot parts and port those first. If that works, then you can slowly port more and more.
+I can get incremental speed improvements after you're porting more and more code. Over.
+Next question. Close by. Okay. Hi. Very nice presentation. Thank you.
+Hello. Okay. Yeah. Thank you very much. It was a very nice presentation. I was just curious
+what your experience is with the tooling support for these. What support? Like tooling support for
+these AVI, like the bloggers, compilers, what the support is like, if it's easy to use or. So yeah,
+the Microsoft C compiler can handle all of this fine. I think clang in LVM, kind of getting a few
+patches solely, but I'm going to be there for a while. The Visual Studio debugger for this stuff is
+great. You can single step through from ARM code to Intel code. I like not even notice that you've
+done a mode switch, which was kind of scary. Like, okay, single step, single step, single step,
+wait, what? I'm now in like ARM code. Okay, fine. So yeah, the Microsoft tooling is very good.
+The open source tooling not yet, not yet really there.
+So what I don't, maybe I've missed it, but what I don't quite understand is what I see here is the
+ARM64 AVI has been changed to match the Intel AVI a little bit more, right, to make this work. Yep.
+So how does that work when calling ARM64 Windows API functions? Do they have ARM64 EC versions of
+all of them? Yep. Wow. Yep.
+Yes, I have another question. It's a bit related to the question that was just asked about tool
+sense. Do you know other open source tool sense that support ARM64 EC, like GCC or maybe other
+GIT compilers? Yeah, that's my first question. Yeah, I've seen some patches land in Y and in
+Clang and LVM, but I kind of, I suspect they're all kind of starting to do things rather than like full support.
+Okay, another question and maybe, maybe I'm not sure I understood, but so you have
+LuaGIT users that want to call, do FFI basically with X64 code. So that's basically why you implemented
+the... Yeah, yes, most of your program is in Lua.
+Thank you.
+Any more questions? Oh, yeah, of course.
+Just, I think I didn't get, so you reduced the number of ARM registers, but wouldn't it possible to
+spill them to memory when you do the mode switch?
+Here's my cutout. So I'm going to run around.
+Here you go.
+Yeah, so it's, you can't spill them because you don't have any way to spill them to.
+Like if it was only the operating system that did mode switches between threads, you'd be fine.
+But you know, you can call such jump and long jump and there's like, there's not space in the jump
+buff to put the extra things. Or if you're really adventurous, you can do kind of user space
+scheduling in Windows. You know, you can call suspend thread and then like resume thread and
+like move your contacts in between threads. And you know, you could have Intel threads doing this
+onto your ARM threads. The Intel threads don't know that they're doing this to ARM threads.
+So you don't have any extra space to put the ARM states because they didn't know that they'd need
+this extra space.
+Yeah, I'm going to be running. We have somebody all the way in the back who's been waiting for a long
+time. Sorry, I didn't see you. I'm going to have to run back. I said a question to you.
+How do you deal with the red zone?
+I was like, why is he not answering?
+So short answer, Windows doesn't have a red zone in either Intel or ARM.
+So that's mostly fine. There was a related concept of home space for the first four
+integer registers in a kind of Intel call. And yeah, you have to handle that. So when you're
+doing your marshalling and remarshalling of arguments, you need to leave space for the
+home space as you would for a normal Intel call. So yeah, there is no red zone, but the closest
+equivalent thing, yes, you have to handle.
+Are there more questions? Are we? Oh, great.
+How long did this take you to figure out?
+Probably not very long. I mean, the documentation is pretty good on the
+Microsoft side. So possibly a week or two, probably.
+One more over there.
+So is there any way to call like regular, let's call them closed source ARM 64 Windows components,
+or is it complete separation?
+Completely separate. Any more questions?
+Oh, were you going to elaborate on the answer? Of course, yeah. I thought that was a really
+short answer. I'm just trying to save myself from running.
+Yeah, completely separate. So yeah, any kind of ARM only DLLs you can't call into,
+you have to have these special ARM 64 EC DLLs. Thankfully Microsoft have already done that for
+all of the kind of system libraries. So anything from Microsoft you can already call. But yeah,
+other code has to be in this weird mode to make it work.
+Any more questions? Yeah.
+Really making me work this year. Where were you?
+I was wondering, like, is there already examples of software that uses it because you can
+find it quite easily because the executable is like a different type that it uses? Because I,
+is there any like software, I haven't heard of this feature before, but like so far already
+using this major things?
+Yeah, so the person that opened the issue on the Lujo project is apparently using this thing.
+I mean, I'm told that most of like Microsoft like Office and similar are running in this mode
+so that you can have your Intel type plugins work. But yeah, apparently there's a user for
+this stuff of the Lujo thing and using it. The last question or was that the last question?
+Can we pass it? Sorry, what did the EC stand for?
+Emulator compatible. Am I stealing it from you? Emulator compatibility.
+That's what it stands for. If that was the last question, then let's thank Peter one more time.
+So am I still, yeah, with that, that closes up the Emulator Development Room this year.
+I want to thank you all for coming.

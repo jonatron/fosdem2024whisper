@@ -1,0 +1,686 @@
+Can you hear me?
+I think so.
+It's working but not in a loud kind of way.
+Anyway, I have a loud voice, so that's not a problem.
+So I'm happy to be here.
+I was here four years ago with everything that happened,
+and I gave a talk on foreign memory API,
+and it was an incubating API in Java 14, I think.
+So I'm happy to be here now to talk about the foreign function
+of memory API, which is a finalized API in the upcoming
+Java 22 release.
+So why did we do this API?
+The main reason is that the landscape around
+Java application is changing rapidly.
+With the rise of machine learning,
+it's Java developers often need to do tasks
+that they necessarily didn't have to do before,
+such as talking to highly optimized linear algebra
+library that are not written in Java,
+they are written in C, C++, or for trans sometimes even.
+And the only way to reach to those libraries sometime is
+just to reach into native code directly.
+So these libraries will not be ported in Java,
+most of the time because they keep changing.
+So a new library pops up nearly every month with
+a new kind of idea in order to do offloading of computation
+to the GPU.
+So how do we talk to native libraries in Java?
+We do that with JNI.
+How many of you have used JNI in this room?
+OK, fair number.
+So good audience.
+With JNI, you can declare native methods.
+Native methods are like absurd methods in the sense
+that they don't have a Java method body,
+but they have a body that is defined somewhere else
+in a C file or a C++ file.
+And it can be C, C++, even assembly
+if you like to play with it a little bit.
+JNI is flexible, but it has a little bit of issues
+in the sense that it's what we call a native first programming
+model.
+So it pretty much focuses on giving you access
+to Java functionalities from the native side of the fence.
+So when you write in JNI, you realize that quickly you
+are basically shifting all your computation logic
+from the Java world to the native world
+in order to minimize the number of transitions back and forth.
+And that can be a problem.
+There's also no, I guess, idiomatic way to pass data
+to JNI.
+Yes, you can pass objects, but that has an overhead.
+Sometimes a lot of developers end up
+passing logs as pointer, as opaque pointer
+that are stored in some Java objects.
+And that kind of works.
+So the problem with native function, as I said,
+they never exist in isolation.
+They always have to manipulate some data.
+And this data is often off heap, of course.
+And there are not very many libraries in the JDK
+that allows us to do off-heap memory access.
+One of them is the DirectBuffer API.
+So probably you are familiar with DirectBuffers.
+They can be passed to native methods.
+And there are some JNI functions that
+allows us to, for example, get the pointer that
+is backing a DirectBuffer.
+So that the JNI code can manipulate the buffer directly.
+One of the issues with DirectBuffer, perhaps the main one,
+is that there is no deterministic way to free or unmap
+a byte buffer.
+So if you are done using your off-heap memory,
+you basically have to wait for the garbage collector
+to determine that the byte buffer is no longer
+reachable from your application.
+And that can have a latency cost.
+There is also a problem in the addressing space.
+The byte buffer API was born in 1.4 time.
+So quite a few years ago.
+And we only use ints as offsets there,
+which means the maximum addressable space is 2 gigabytes.
+With minus 1, yes.
+With the advent of persistent memory,
+these limits are starting to be a little bit tighter.
+Also, there are not many addressing options provided
+by Buffer.
+Either we go on the relative addressing scheme
+where basically we say, put in, put in, put in,
+then we rely on a mutable index on the byte buffer
+to keep track of where we want to store the bytes.
+But that's low because we have to mutate some state
+and then situ optimization have a little bit more trouble
+coping with that.
+Or we go fully explicit.
+And so we put offsets everywhere in our code.
+And that makes our code a little bit more brittle.
+So this is what happens when you want
+to access an IT library.
+You have a client.
+You have an IT library.
+You have some JNI Goop in the middle.
+What's inside the JNI Goop?
+Well, a little bit of everything.
+There are some native method declarations in the Java code.
+Then if you compile this code using Java C dash H,
+you have to use a special option, which
+will generate the site headers file
+that you need in order to implement your C JNI function.
+So you go over to C, you implement your JNI function.
+You compile that function, the C file,
+which is your client compiler of choice.
+You get back a shim DLL.
+This DLL is not the library that you
+wanted to talk to in the first place.
+This is just some extra glue code
+that you need in order to get to the library that you want.
+So now you have two native libraries,
+the one you want to talk to and the JNI DLL.
+And that's a little bit suboptimal.
+So what we need instead is a Java first programming model.
+So something that allows us to reach
+into native functions directly only used in Java code.
+We also need, since we want to model off-it memory
+in a more sane way, we need a replacement for the by-buffer
+API, something that is more targeted at the use cases
+that FFI has.
+So we want deterministic allocation.
+We want bigger addressing space.
+We want better ways to describe struct layouts
+so that we can access memory more easily.
+And also we want to tie everything together.
+So we want to define tools that allows
+us to automatically generate bindings for native library
+in one shot.
+And we'll see a little bit about that later.
+Ultimately, our goal is not to replace existing frameworks,
+such as JNA, JNR, for example.
+I think Charlie is going to talk about that maybe later.
+But to help some of those frameworks
+to overcome the workarounds that they
+have to keep doing all over again,
+because they don't have a proper API to deal with pointers.
+They don't have a proper API to free pointers
+when they are no longer used.
+And so hopefully some of this stuff
+is going to come handy in those cases, too.
+So Panama is not just about the foreign function memory API.
+Of course, that's a huge part of Panama.
+But Panama also contains the vector API,
+which is an end API to access SIMD computation
+from Java code directly.
+But there's also Babylon, a project that recently sprung up,
+which allows us to see what's inside the body of a Java
+method with a nice IR that can be introspective using Java.
+So what can you do with Babylon?
+For example, you can take a Java method that
+contains a loop, for example.
+And you can inspect that loop.
+You can turn it into a GPU kernel.
+And then you can use FFM to dispatch that kernel
+using CUDA to the GPU.
+So Babylon and FFM kind of comes together
+and provides us a better and more robust solution
+in order to do on GPU computing.
+The main instruction when it comes to accessing memory
+is called memory segment.
+That gives us access to a contiguous region of memory.
+There are, of course, two kind of memory segments.
+This is similar to white buffer.
+There are heap segments that are backed by on-heap memory.
+And native segments that are backed by off-heap memory.
+All segments have a size.
+So if you try to access a segment out of bounds,
+you get an error.
+They have a lifetime, which means they are alive.
+But then after you free them, they are no longer alive.
+So if you try to access them when they are no longer alive,
+you get an exception.
+And some segments may also have confinement.
+So they may start in a thread, and they can only
+be accessed in the same thread where they started from.
+How do we use segments?
+Well, it's not too difficult.
+It's very similar to white buffer.
+You can almost see the translation,
+the mechanical translation from the white buffer API
+to memory segments.
+Let's say that we want to model a point that
+has fields x and y.
+So what we have to do, we have to allocate a segment.
+We do that using an arena.
+We will see a little bit later what an arena is.
+Let's just go with me for a minute.
+We have to allocate a segment in 16 bytes,
+because the coordinates are 8 byte each.
+And then we put double values into each coordinates, one
+at offset s0 and another at offset 8.
+And that's how we populate the memory
+of that particular segment.
+So one of the issues that we have in this code, of course,
+is that we are using an automatic arena.
+An automatic arena is essentially
+providing an automatic, the allocation scheme,
+which is similar to the one that is used by the white buffer
+API.
+So we are not going to get any advantage here.
+But we can do one better.
+In fact, this is actually where we spend the most time
+designing the memory API.
+Java, as you all know, is based on the very idea
+of having automatic memory management, which
+means you only care about allocating objects.
+The garbage collector will sit behind your back
+and automatically recycle memory when no longer used.
+This is based on this concept of computing
+which objects are reachable at any given point in time.
+Problems with this approach is that computing the reachability
+graph, so which objects are reachable at any given point
+in time, is a very expensive operation.
+And you can find that garbage collectors, especially
+the one of the latest generation, the low latency
+garbage collectors, they don't want to materialize
+the reachability graph as often.
+So if you try, for example, to allocate
+a lot of the red buffer using ZGC,
+you will see that there's a lot more time
+before the, by buffer, is collected
+compared to having something else where you can actually
+thermistically release the memory.
+So that's a problem.
+Another problem is that the garbage collector
+doesn't have knowledge about the off-heap memory region that
+can be attached to the red buffer.
+The only thing the garbage collector sees
+is a very small instance, a very small by buffer instance
+that is like, I don't know, 16 bytes or something more.
+But it doesn't seem that maybe there
+are four gigabytes of off-heap memory attached to that.
+So there's no way to prioritize that collection.
+And also, garbage collector only can keep track of an object
+as long as if it's used from a Java application.
+So if that by buffer escapes to native code,
+then it's up to the developer to keep that object alive
+across the native code boundary.
+So you have to start playing with reachability fences,
+and your code suddenly doesn't look as good anymore.
+So what we need is a new way to think
+about managing memory resources explicitly.
+And that's challenging because we
+are sitting on top of a language that
+made its success on the very idea of basically never
+worry about releasing memory ever,
+because the garbage collector will do it for you.
+So what we introduced was an abstraction called arena.
+And arena models the life cycle of one or more memory segment.
+All the memory segments are allocated with the same arena
+at the same lifetime.
+So we call this a lifetime-centric approach,
+because first you have to think about what
+is the lifetime of the memory that you want to work with.
+Then you create an arena that embodies that lifetime,
+and then you start allocating memory.
+There are many kinds of arena.
+Of course, there is the silly global arena that you can use.
+And basically, whatever you allocate, it stays alive.
+It's never collected.
+There's the automatic arena, which we saw before,
+which basically gives us an automatic memory management
+scheme, which is similar to the buffer.
+But then there are the more interesting confined and shared
+arenas.
+These are arenas that support the autoclosable interface.
+So if you call close on that arena,
+all the memory that has been allocated with that arena
+will basically just go away deterministically.
+We don't need to wait for the garbage collector to do that.
+There are strong safety guarantees.
+Regardless of whether you are in the confined case
+or in the shared case, it's not possible for you
+to access a segment after it has been freed.
+And in the shared case, we had to do a lot of JVM black magic
+in order to make this work.
+Because of course, you can think, well, we just put a lock.
+Whenever you access a memory segment,
+we'll check whether the segment is still alive using
+an expressive operation.
+And then you realize that memory access is 10x slower
+than before.
+So what we did instead is, with the help of the GC team,
+we relied on some safe pointing mechanism
+to make sure that it is never possible to close a segment
+while there is any other thread that is trying
+to access the same segment.
+That works very well.
+Of course, it's a little bit more expensive
+if you need to close shared arena very frequently.
+But hopefully, you won't need to do that.
+So what we are trying to do here is to find an epibalance
+between the flexibility of C automatic memory management,
+sorry, the thermistic memory management,
+where you have to do free and maloc explicitly.
+That's very flexible, but it's also very unsafe,
+because you can have use after free,
+you can have memory leak, or the extreme safety of Rust,
+which comes at the expense of some flexibility
+when you try to code.
+Because if you want to do, for example,
+secret data structures in Rust, like a link list,
+it becomes very, very, very difficult.
+So Java is trying to sit in the middle.
+And I think we've done a good job doing this.
+So how do you work with explicit arenas?
+It's basically the same as with automatic arenas.
+The only difference here is that now we
+are using a try with resource statement.
+So we create the arena inside the try with resource block.
+We do the allocation.
+We populate the point struct.
+And then when we close the brace, all the memory goes away.
+So this is much better than the direct buffer counterpart,
+especially if you need to frequently allocate off-heap
+data structures, because we no longer
+put load on the garbage collector
+just to clean up the off-heap memory.
+So one thing that we need to still improve on this API
+is how do we access the fields of the struct
+that we want to operate with?
+In the example that I showed previously,
+we had to say, well, I want to access off-heap zero.
+I want to access off-heap eight, because we
+knew these were the offset where my fields are.
+But what if we could just declare
+what is the layout of the struct that I want to work with?
+What if we can translate the struct point 2D definition
+that we have in C into a Java object that models
+the same layout?
+Then we can start asking interesting questions,
+such as what is the layout of the field x or y.
+Give me avarendo for accessing the x field.
+And that is exactly what we are doing here.
+So instead of just relegating the definition of point
+2D in a comment, we actually define
+the layout of the point struct as an object, as a Java object.
+And then we use this object to derive the two varendals, one
+for accessing the x field and one for accessing the y field.
+Then inside the try with our sources,
+we can just use the varendal to access the fields.
+We don't have to specify the offset eight for the field y,
+for example, because the varendal will encode all the offset
+computation automatically.
+At the same time, look in the allocation expression,
+the very first inside the try with our source block,
+we can see that we are just using
+passing the layout to the location routine.
+And the layout, of course, knows what
+is the size of the block that we want to allocate.
+So switching gears a little bit, let's
+start talking about FFI.
+The main abstraction in FFI is called native linker.
+This is an object that essentially embeds
+the calling convention of the platform in which the JVM runs.
+It provides two capabilities.
+The first is it allows us to derive a method
+end all that targets a native function.
+So we can basically describe the native function
+we want to call, get a method end all,
+and just call it from Java.
+The second capability is kind of the reverse of that.
+So we have a method end all that describes
+on Java computation.
+We want to turn it into a function pointer,
+so a memory segment, that then we can pass back to native code.
+In this approach is inspired to, for example,
+Python C types or lib FFI.
+These are kind of the main inspiration.
+So we want to be able to describe a function from Java,
+so then we can call it directly.
+It all builds on the abstraction that we've seen so far.
+So we use layouts to describe the signature of C functions.
+We use memory segment to pass addresses or structs.
+And we use our in-apps to model life cycles of upcalls
+and to model the life cycles also of loaded libraries.
+So when we want to call a native function,
+so here I define a function distance that take a point,
+returns the distance of the point from the origin.
+Actually, doing that in C is a little bit more convoluted
+than it looks like, because it essentially depends
+on the platform we are on.
+So if we are on Linux, we will have to look at some rules
+that are called the CSV calling convention.
+And that tells us that, for example,
+structs that are as big as the point to destruct
+that we have here can have their fields pass in registers.
+So the only thing that we need to do when
+calling the distance function is to load the first floating
+point register with the value 3, the second floating point
+register with the value 4, then we just jump on the function.
+But if you are on Windows, even if you are on X64,
+but on Windows, there is a completely different set
+of calling convention, which actually tells us
+that any struct that is bigger than 64 bit,
+such as our struct here, will be passed in memory instead,
+which means the struct has to be spilled on the stack,
+a pointer to the stack has to be stored in the RCX register,
+and then we jump to the function.
+So same function, same architecture, because X64,
+completely very different set of assembly instruction
+that needs to be generated in order
+to act as a trampoline from Java code, for example, to C code.
+So that's why it's important that we
+are able to describe the signature of a C function
+to the linker, because the linker then
+will inspect the signature of the C function
+and will determine what is the exact set of instruction
+that we need in order to go from the Java
+code to the native code underneath.
+And so how do we do this?
+Well, when we call the down call end on the native linker,
+we will pass, of course, the address of the function
+that we want to call.
+This is obtained using a symbol lookup,
+which we won't have time to investigate in further detail.
+But it will basically give us the address
+of where the distance address function lives.
+And then we provide a function descriptor.
+This function descriptor is nothing but a set of layouts,
+one for the return type and one for the argument.
+In this case, we know that the return type is double.
+So we use a double layout.
+And the argument is actually the point
+to this track that we defined before.
+So that same layout can now be reused in order
+to describe the signature of the function.
+Then inside our try with the source,
+we populate the point as before.
+And then we can call the method end.
+So we just pass the point memory segment
+to the method end that we obtain.
+And that means that we will be able to pass the point by value
+to the C function.
+And nothing else needs to be done,
+because the linker will figure out exactly what set
+of machine instruction to generate in order to go there.
+So of course, when we talk about native function,
+we always have to keep safety in the back of our mind, right?
+Because whenever we go into native,
+the operation is fundamentally unsafe.
+We could, for example, make a mistake
+in describing the signature of our target C function,
+which means the assembly step that we have
+is not correct for calling that particular function.
+We may cause all sorts of issues.
+The foreign code may attempt to free memory
+that has already been freed from Java code.
+Or we may get a pointer from native code.
+We may try to resize the pointer,
+but we got the size wrong.
+And so we are suddenly trying to access memory
+that is not there.
+So in the FFM API, there is a concept
+that is called restricted method.
+So there are some methods in the FFM API
+that are not directly available all the time.
+They are part of the Java API.
+So if you go in the Java doc, you can see them.
+But they are restricted, and you need
+to use an extra command line flag
+if you want to use them without warnings.
+So for now, basically, if you try to use a restricted method,
+such as the method for creating a down call method endo,
+you will only get a warning.
+But in the future, we plan to turn this warning
+into an error.
+And in that case, you will have to use a new option that
+is called dash, dash enable native access that
+will grant a subset of the models of your application
+or the all unnamed model if you are using the class path,
+access to restricted methods.
+This is a part of a bigger plan to move Java
+on a more solid foundation, one that
+allows us to provide integrity by default.
+So Java in its default configuration
+should always preserve integrity,
+which means it shouldn't be possible for native code
+to mess up with invariants, such as, for example,
+mutating final fields and things like that.
+So this is the workflow using FFM API when
+we want to access a native library.
+So we still have something in the middle between us
+and the native library that we want to call.
+This time, though, the stuff we have in the middle
+is just Java objects.
+We have memory layout, varendals, method endals, function
+descriptors.
+But here's an idea.
+What if we could generate all this stuff mechanically
+using a tool?
+And that's exactly what the JXR tool does.
+So let's say that we want to call the QSAR function, which
+is actually a tricky function because it has a function pointer
+that allows us to sort the contents to compare
+elements of an array.
+So it uses a function pointer type def.
+So if you want to model this using plain FFM,
+it's going to take you a little bit of setup code
+in order to create the app call stub
+and the method endals that are required to call this.
+But if you give all this header to JXR,
+so we could just start with pointing it at the header
+or the standard library header where this is defined,
+then we basically just get a bunch of static declaration
+that we can use to call QSAR.
+So if I do all this, the only thing
+I have to do from my code is first
+to create the function pointer.
+And this is possible with a factor
+that has been generated by JSTRAP that allows me to pass
+a lambda expression.
+And the lambda expression will be
+turned into a function pointer that is stored
+inside a memory segment.
+And then I can pass to the QSAR function.
+And the QSAR function is not a method endal anymore.
+It's a nice static wrapper around the method endal.
+So it's much better to use from the developer perspective
+because using method endal can sometimes
+be tricky with the fact that we can pass the wrong type
+and then it gets lower and things like that.
+So in comparison, this is the code
+that you have to write if you wanted to do this using JNI.
+So there's Java code with native methods.
+There's another file that is generated by Java C.
+And then there's quite a bit of C implementation
+in order to do QSAR.
+And it actually took us a few attempts
+in order to get to the best optimal implementation
+because our first attempt wasn't very good.
+It can actually get quite tricky.
+And even better, if you look at the performances,
+the plain FFM-based approach is roughly 2x, 3x faster
+than the JNI approach, every optimized JNI approach.
+And that's because a colleague of mine,
+Neal Verne, has put a lot of effort
+in trying to optimize, especially the up-call path.
+So when you want to call a Java function from native code,
+there was a lot of performance left on the table from JNI.
+And we were able to greatly improve the performances there.
+For regular calls, you probably won't see much difference.
+So FFM is more or less on par with JNI.
+But as soon as your native call is starting to up-call back
+into Java, you're going to see massive differences.
+So wrapping up, FFM provides a safe and efficient way
+to access memory.
+We have deterministic location.
+We have layouts to describe structs.
+And so it gives us ability to describe the content
+of the memory that we want to work with and then get
+varendals to access that memory in a much more robust way.
+Then we have an API to access native function directly
+from Java.
+So no need to write JNI code.
+That means that your deployment gets simpler,
+because you don't have that shim DLL going around
+that you need to distribute along with your application.
+And together, the foreign linker and memory segment
+and layouts provide the foundation
+of a new interrupt story for Java that
+is based on a tool called JSTRACT, which allows us
+to target native library directly.
+One thing that emerged while we were working on FFM
+is that there was quite a lot of number of use cases
+that we didn't anticipate at first.
+Since FFM is a fairly low level library,
+it allows very easily for other languages
+that are built on top of the VM, such as Scala, Closure,
+or even Ruby to use the FFM layer to then target native
+function.
+That was very expensive to do with JNI,
+because it meant that the other language sitting on top of the VM
+needed to spin some JNI code in order
+to be able to do that or maybe uses a library like libffi.
+But with FFM, this is possible directly out of the box.
+And I think that's a good improvement.
+We have been incubating and previewing, of course,
+for a long time, since JDK14, essentially,
+so that allowed us to get a lot of feedback from Apache
+Lucene, Netty, Tomcat.
+And I think today they are in production
+with some of this stuff.
+So I think if you run Lucene with Java 21,
+you are getting a code path that uses FFM under the hood.
+And I think that helped them to get rid of some of the issues
+where they had to use unsafe in order to free the memory that
+was mapped because otherwise waiting for the garbage
+collector could lead to other issues.
+We also are being used by Tornado VM.
+So in that case, it's an interesting case
+where memory segments are used to model memory that
+is inside the GPU.
+So they are using memory segment in a very creative way there
+and a bunch of other projects as chime in as well.
+So for us, it was a very successful experience
+of using preview features because it allows
+us to gather a lot of feedback.
+Not necessarily, we have a lot of knowledge
+on these topics within the JDK team.
+So it was good for us to put something out.
+And then here, our people were using some of this stuff
+and make it better.
+That's the end of my talk.
+These are some of the links.
+I hope that you are going to try FFM in 22.
+You can subscribe to the mailing list and send us feedback.
+There is a link to the JSTRAC tool.
+So there are binary snapshots available.
+So you can grab the latest one and start extracting
+your library of choice and play with it a little bit.
+And then a link to the repos.
+But that's mostly it.
+Thank you very much.
+The first question.
+Questions?
+Who is FFM-focused from Canadian technologies?
+I think it's pick.
+Yeah, basically what is the difference between these and Kotlin native,
+since Kotlin native can provide access to off-if memory and native function as well.
+I think they are very similar.
+One of the things that I think Kotlin native cannot do because it's still sitting on top of the VM,
+and it has to play by the rules of the existing libraries,
+is that it cannot have a solution for releasing memory safely.
+So I believe that Kotlin native is going to use some,
+I mean it's going to say at some point,
+oh if you use pointer your code is going to be unsafe,
+and you try to free a pointer then all bets are off.
+So this is the main,
+without solution if you use memory segments,
+you can close an arena and your code will never crash.
+You may get an exception.
+This is the same thing as the same thing.
+Yeah, but you know the APIs I've seen so far,
+there is always a whole,
+like if you use them correctly it works,
+but there are ways to use them for multiple threads where it's not working,
+unless you go deeper at the VM level of course,
+which of course Kotlin native cannot do.
+Up here, Mereh, Siou.
+Go on, question.
+Mereh, Siou, here.
+Do you know how many platform specific hacks need to be done,
+like if I want to use one code on like ARM macOS and Linux risk v or something,
+or is it all fully one code for all platforms?
+So in terms of JStrack the model,
+sorry the question was,
+do our platform specific is all this?
+Do we need to worry about differences between platforms?
+The answer is yes,
+in the sense that the JStrack tool is going to give you a binding
+for the platform that you are running on.
+Now, this sounds scary.
+In practice, for example,
+if you work with a high level library such as Lib Clang for example,
+we have a single run of JStrack,
+and then we reuse it across all the platforms and it works fine,
+because that library is defined in a way that is portable.
+If you work with system libraries,
+of course you are going to have a lot less luck,
+and that system library is only going to work on one platform,
+and all the platforms will need to do something else.
+Yes, can you tell us about the memory footprint compared to JNI?
+Memory footprint compared to JNI.
+So of course if you use memory segment,
+there is a little bit of footprint because you have an object that embeds an address,
+so you don't have a long.
+But our plan is to make all these memory segments
+scalarizable because the implementation is completely hidden.
+You only have a sealed interface in the API,
+which means all these interfaces are going to be implemented by value classes
+when Valhalla comes,
+which means if you bring up a memory segment,
+you wrap a memory segment around an address,
+you are not going to pay anything allocation-wise.
+For now, there is a little bit of cost in the cases
+where the VM cannot figure out with escape analysis the allocation,
+but in the future we plan for this to completely disappear.
+Yeah, okay. Sorry.

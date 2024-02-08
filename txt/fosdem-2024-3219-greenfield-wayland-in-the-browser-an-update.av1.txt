@@ -1,0 +1,230 @@
+Hello everyone, welcome. My name is Eric Dereke. I am the author of Greenfield. Previous
+talk we saw how Chromium can run on Wayland. Now we're going to see how Wayland can run
+in Chromium. So this is an update about Greenfield. I gave a previous talk in 2019 about Greenfield.
+So basically recap what is Greenfield? Greenfield is a Wayland compositor. I'm sure most of
+you already know what a compositor is. That runs entirely in your browser. You can control
+remote applications with it from different servers if you want. X applications as well,
+X Wayland applications. For that, that's also a fun fact. I actually had to port XCB library
+to JavaScript, to TypeScript. So I have a Python parse X protocol files and have it output
+JavaScript and then you can run it in your browser. Works perfectly by the way. You can
+also run Wayland applications directly in your browser. So actual native desktop applications
+compiled to WebAssembly and have them talk Wayland protocol to Greenfield inside your browser.
+We're going to see some demos at the end of the talk as well. It doesn't have to be WebAssembly
+applications. By the way, you can just write JavaScript applications. They just have to talk
+Wayland to have their pixels displayed on the screen and to handle input. So that's basically
+Greenfield in a nutshell. Why? For God's sake, why would you write this? Well, because I can,
+that's basically the crutch of it. No. I had basically an idea. Wouldn't it be cool if we had
+a desktop that you could run anywhere? So not tied to a single physical piece of hardware you had
+with a single interface for all your applications. So no longer bound to say, yeah, a smartphone or
+a desktop or whatever. And yeah, so, and be free basically to run it where you want. So you're not
+bound to any SaaS provider or anything. Just have your own server or servers or whatever and have
+the application distributed and basically access them anywhere you want, anytime you want without
+restrictions purely for you. I thought that would be pretty cool. And it didn't exist. So a set
+hell, I'll write it myself. Well, how is Wayland written? Well, in the browser, you're limited to
+the JavaScript and WebAssembly. So in the case of Greenfield, most of it is TypeScript that's then
+processed to JavaScript. And there's also a bunch of C involved, mostly existing C libraries,
+things like lipxkb common is compiled to WebAssembly to handle all the keyboard layouts and keyboard
+encodings. There's also lippixman basically to region handling. I'm not going to reinvent the wheel,
+I'm not going to write those things in JavaScript. So I took the existing libraries, ported them to
+WebAssembly and made them accessible inside the browser. The display part of Greenfield is written
+in WebGL to have any kind of decent performance. It's very similar to how a normal or say a native
+Wayland compositor would would composite using OpenGL. So in the browser case, it's WebGL. To deal
+with the remote applications, that was you need basically a proxy. So the native applications
+have to find a socket to connect to a Wayland socket to connect to and have those messages
+handled, have the native buffers handled and have the protocol sent to the browser. So I wrote
+server in TypeScript. I'm sorry guys. I needed something that was I could prototype fast and
+without dealing with seq faults and everything. So I did it in TypeScript and it grew a bit and now
+it's a bit bigger. So I guess some point in the future, I promise I will rewrite it and rust
+somewhere in the future, I guess. Also the performance critical parts of the whole pipeline
+are written in C using Gstreamer as well. So there is a tight integration there. Gstreamer,
+really cool project. It does basically everything I needed. Very modular. I could do all kinds of
+cool stuff with it. I'll show that a bit later. If there are any Gstreamer faults in the room,
+the only thing I missed a bit was color conversion on the GPU. So a hint that would be cool to have.
+At some point, I also wrote a Kubernetes implementation basically. So that basically means
+that you could use an entire Kubernetes cluster as your desktop. So every application would be its
+own part. So you could run 20 performance intensive applications, have them all run on separate
+machines, all running smoothly, basically giving you virtually unlimited resources on your desktop.
+So that's going in the direction I had in mind. Sadly not open source for the moment. Maybe
+someday in the future, if it's gone out of prototype phase, perhaps I can give a talk about it too.
+And last but not least, blood, sweat and tears. This is like a side project, a hobby project. So I
+was not working on it full time. So at some point, I had to sacrifice a bit of sleep to make some
+progress. I do not recommend, by the way. So here we have an overview, a pipeline overview, how frames
+are sent from your native site to the browser. So on the top part, we basically have everything
+that happens on the GPU. On the bottom part, we have everything that happens on the CPU. So we're
+going to start from left to right. On the left, we have an application that renders either on the
+GPU or on the CPU using GPU memory buffers or shared memory buffers on the CPU. When an application
+submits those pixels to the native compositor, so that's our proxy compositor that I talked about
+before, then those buffers are basically handled and they are color split. So we need to get these
+buffers to the browser and we need to compress them. Ideally, we do that using video encodings.
+But to do that, there are a few issues. Most color buffers that we get from the applications,
+they have an alpha channel. This day, we have cool virtual reality headsets that just launched. We
+have awesome artificial intelligence. We do not have video codecs that can handle alpha encode.
+So I had to split the color into an RGB and an alpha and those are actually two separate video
+streams. So the alpha color conversion is handled as a black and white video stream. This is done
+on the GPU if possible and there is a fallback to CPU encoding if it's not available.
+There's also the color conversion that also always happens on the GPU. And then those two frames,
+those two video frames are then sent using a WebSocket server to the browser. A small remark
+there, WebSocket server, it's TCP. We're dealing with a real-time application here. Ideally,
+ideally, people would use something like WebTransport which uses UDP but it's a bit still
+experimental. Not a lot of implementations there for the moment so we're stuck with WebSocket.
+The frames arrive on the browser and there we have to decode the video streams, the video frames.
+This is done for Firefox only, sadly, using WebWorkers where I ported
+FFMPEG to WebAssembly for H.264 as well. To do that, for the other browsers, I used the WebCodec
+standard so I can have the browser do all the artwork and have the video frame decoded. And
+then last but not least, there is a WebGL shader that puts the colors back together. So we have the
+RGB frame, we have the alpha frame, we stitch them back together and we push them to WebGL texture
+and paint them nicely on the screen. That was a long trip. This is all how we go from the
+application to the compositor. So far so good. But Wayland also has a few mechanisms to tell
+the application, hey, I'm done painting your pixels, you can send me the next batch if you were to
+please. But there is a bit of an issue here. Wayland is an asynchronous protocol but the
+dealing with sending a frame and the compositor telling the application, send me the next frame,
+that's a whole slow synchronous process. So what that means is that if this pipeline were
+to take no milliseconds, you still have your network latency. Say we have 50 millisecond
+network latency, we immediately send the frame to the compositor and then the compositor tells the
+application, okay, I'm done, you can send me the next one. You have about 50 milliseconds
+between each frame. So that gives you around 20 frames per second. That's not really acceptable.
+So we're going to have to be a bit smart and we're going to have to tell the application in advance,
+like hey, you can already send the next frame because I think the compositor is probably already
+done handling your previous frame. So that is basically the round trip latency problem that we
+have. And there are generally two mechanisms in the Wayland protocol. The first one is the one I
+just talked about which is the frame callbacks, which is the compositor telling the application,
+I'm done painting your pixels. The other one is the sync request. The sync request in the
+Wayland protocol is a way for an application to know when all previous requests that have been
+sent are done. So when an application sends a request to a compositor, those requests are queued
+up. And when an application sends a sync request, then the compositor will simply, once it encounters
+that sync request, will simply reply with done. And then the application know, oh, I got a done
+response. So that means all previous requests were handled. So to deal with that, as I just
+explained, there is the predictive frame callback. This is how we deal with the sync request issue.
+So this is a complex picture, a bit out of scope to go too much in detail. But what generally happens
+is that the proxy compositor on the native site analyzes all requests that come in. And as soon
+as it receives a sync request, it will look at all the previous requests and see, hey, those previous
+requests that I just saw, none of them is going to send a reply. So you know what, I'm just going
+to send the done event immediately, and I'm not going to wait for the compositor to send a done
+event back. And that basically circumvents the whole network around the problem. The only
+potential issue you can have there is that you're basically got rid of your throttling.
+But there is some intermediate protocol to deal with that between the compositor and the proxy
+on the native site. So this is explained in the picture here. On the top, we have the requests
+that are coming in in the compositor in a classic Willing scenario. On the top right, we see, hey,
+there is a sync request, and it takes a whole network round trip time before the done event is
+sent. And the fastest placing, we have the same scenario. We have all the requests coming in.
+And at the end, we have our fast sync handled by the proxy. He sees, okay, no, events are going
+to be sent. So I don't need to wait for the compositor to send any other events. I'm going to send
+the done event immediately. And that makes the whole pipeline asynchronous. It makes the whole
+pipeline fast enough. If you have fast encoding, fast decoding, fast enough for gaming as well,
+you can do 60 frames per second or more if your hardware is fast enough and your network can deal
+with it. So far, the remoting part. Greenfield can do more than just remote applications. As I said
+before, you can also run applications directly in your browser. To do that, there is a prototype
+Greenfield SDK. It's based on EM scripting because it's the most complete, somewhat post-excompatible
+SDK out there that is aimed for the browser. This works fairly well, but it has some disadvantages
+as well. Wayland applications are Linux applications, well, almost exclusively. And the EM scripting
+SDK aims to be post-excompliant. And that's not Linux compliant. So things like E-Poll are not
+implemented in EM scripting. So I had to add those, well, at least E-Poll in the Greenfield SDK
+because Wayland requires it as well. There's also the core Wayland protocol is implemented in
+Greenfield together with the XG protocol. That works well for desktop applications,
+gives you a good standard to work with most office applications. They work out of the box.
+In the WebAssembly implementation, there is currently only support for shared memory buffers.
+We can theoretically do WebGL if we were to port Mesa to WebAssembly and utilize a
+custom WebGL Wayland protocol. The protocol exists. It works. It's simply currently not
+implemented inside Mesa itself. That's some future work, I guess, to support that. But we can
+perfectly support WebGL. No issue. The work just here needs to be done. So how would this all
+look while we have a nice green diagram here to show you how this looks? We have our main page
+on the left that loads your composite, that loads Greenfields. Next to it, you will have an
+iFrame. The iFrame loads your WebAssembly application, loads it in, and then basically uses
+internal iFrame messages to your main thread. Talking 100% pure native Wayland protocol
+works fine, works great. Next to it, we have transparently also the remote applications
+that are running. For the Greenfield compositor, both applications are just your ordinary Greenfield
+applications. He sees no difference. With a small remark that the Way file descriptors are handled
+on the protocol is a bit different. In case of not remote applications, the file descriptor is
+basically a URL that's passed around and that's opened and transferred and closed whenever needed.
+In case of native or rather browser native applications, it's a transferable browser
+object that is used. Those two file descriptor discrepancies have not yet been bridged,
+so you cannot do copy-paste operations, for example, between a browser application
+and a remote application. What you can do, copy-paste between a remote application that works just fine.
+That's how it currently works. What would the future look like? There are lots of cool stuff
+that can be done, that still needs to be done. There is the issue of sound. There's currently no sound.
+I initially left it out because it's a bit out of scope for compositor or Wayland related stuff,
+but somebody also already did their master thesis about its implemented sound in Greenfield,
+using pipe wire and G-streamer worked really well. Prototype exists and can be implemented,
+I guess, pretty easily. There's also the need for a bit more Wayland protocol, so there is just only
+the very basic currently implemented. There is no unified file system, again a bit out of scope for
+Greenfield, but it doesn't really exist, so it would be nice if we had it. Imagine you run
+applications on different servers, they all see their own local file system and you cannot
+transfer files between them, so that would be nice to have. There is the port of Mesa, the WebGL,
+using Wayland protocol, that would be nice to have. Then last, the hardest part, also the coolest part,
+is the whole EM scripting posix issue. It would be nice if you would simply got rid of EM scripting
+and just could compile applications directly to WebAssembly and actually have a Linux micro
+kernel running in your browser. Somebody else who is also crazy ported Linux kernel to ASMGS.
+ASMGS is the predecessor of WebAssembly and that crazy person got the Linux kernel to boot,
+up until pit one at least. I tried it to do that myself using WebAssembly, turns out it's actually
+really hard to port the Linux kernel to other architecture, no shit, especially if WebAssembly
+is not an elf binary. The Linux kernel expects the elf binary to be used, the format to be used
+when it's compiled in all kinds of different places and that assumption goes through the window when
+you try to compile to WebAssembly. There's also a bit of documentation importing the Linux kernel
+to other architectures. There's a ton of documentation about the Linux kernel, but most of it is about
+developing drivers. But yeah, I'm not a kernel developer as well, so that might also have to do
+something with it. But I'd say think about possibilities you could compile an application
+or Linux application to WebAssembly, boot it up in your browser by simply accessing a URL and have
+it completely sandboxed, super secure, running inside a desktop that's running in your browser.
+That would be really cool I think. So how would say a Linux port look like in WebAssembly?
+We have a nice yellow diagram this time. It would simply load access a URL,
+it would load the WebAssembly application, the WebAssembly application would then link against your
+kernel, which is also a WebAssembly module, bit out of scope for the graphics room, but there are
+certain WebAssembly standards that allow you to isolate certain region memories to the application
+and to the kernel module and have some regions shared with them. And then we could probably
+leverage the Vue.tio stack and have it interact with basically the browser APIs and have your
+browser basically be your virtual machine. So that's probably how it would look like.
+For the file system some attempts have been made and for now Jusifes seems to be the most
+valid candidate. Interesting note here is that Jusifes uses two kinds of databases, one to
+store your data itself, one to store the metadata of your file system and the experiment. It was
+shown that the metadata database needs to be really fast, so we probably need a locally cached
+metadata database which then uses CRTT basically to synchronize between the instances
+to make it fast enough. So let's see if we can show some demos. That would be cool I guess.
+So in here we have a state-of-the-art green field running, super fancy as you can see.
+And I'm going to try a remote application, I hope the wifi holds.
+So this one is actually streaming remotely, Doom 3. I noticed it sometimes tends to freeze,
+I don't know if it's because it's an old application running on the Nvidia
+Wayland drivers. As you can see there is no pointer locking here, so that's still one of
+the protocols that needs to be implemented, but we can simply start a new application here.
+We have a nice 60 frames per second streaming to your browser. All works fast and fine,
+so I wasn't lying when I said it's fast enough for gaming.
+You can see it, you can simply walk around here and everything.
+There's also, here we have a Western demo applications compiled to a web assembly,
+there we go. So this is, I believe it's written using Cairo, I think my pointer is being captured
+by the game. So it's using Cairo to draw all everything and G-Lip as well. So this runs inside
+an iframe, if you were to inspect the source code here, we have the iframe here that runs the web
+assembly application and yeah, talks Wayland protocol, it runs entirely in your browser,
+nicely isolated as well. It's all transparently done. Then we have, let's see if we can get this
+No, it doesn't want to go.
+So this is your web assembly application and of course we can also run desktop applications,
+so I have one running locally here. I think this is a cute app, there we go. So this one is running
+on my desktop locally and see I can open, so this popup chooser is running in my browser,
+it's all Wayland, see I can't move it and you arrive some packet. See it's the fast system of my
+my laptop as I said before and you can run it here. So that's that.
+So far the demo, let's see if I can move it, yes, can go. So that was it, I hope you enjoyed. If you
+have any questions, I guess I have maybe some answers. I'll go from left to right.
+How does it work for input events? Yeah, so the question was how does it work for input events?
+It uses the browser's input framework. In case of pointer events, it uses the raw pointer event
+API if it's available. It's still quite experimental but it removes some lag. So when it does it captures
+the browser pointer events and then basically translates this to input events like they were
+coming say from from lip inputs and it's then sent using Wayland protocol to the application.
+So it's fast but you still have inevitably the network latency that's unavoidable, sadly.
+Yes, I have two questions. The first one is does it support KDE's background blur protocol?
+The question was does it support KDE background blur? No, it does not. Currently the only
+protocols implemented are the core Wayland protocol and basically the XDG desktop protocol.
+The second question is vertical synchronization v-sync. Yes, so the vertical v-sync is supported.
+So it uses the browser request frame callback API which is basically the v-sync callback that
+the browser offers to draw. Next question.
+Yeah, so the question was does it use h.265 and is it secure I guess in a legal standpoint?
+It uses h.264 in this case. The reason being that the web codec API is from the browsers.
+Most of the browsers do not support h.265, at least not at the point I implemented it.
+So currently it uses h.264. I currently do not use it for commercial purposes.
+So yeah, I hope I'm safe. I'm going to have one more question and then I'm going to stop.
+Yes. So obviously the way the application expects Unix socket at the wet level,
+do you fix this if they're compiling for WebAssembly? Did you just implement the Wayland?
+Yeah, so the question was if you're compiling for WebAssembly and the application is expecting a
+Unix socket, how do you implement it? I extended the EM script in SDK so that it basically has
+support for Unix sockets on the user level and then also added e-polling to that as well.
+So for the application it's purely Unix sockets. It's not entirely so there's only client side
+support for connecting to a Unix socket, not for creating a Unix socket because that is done
+by the SDK itself. If you have more questions, I'm available. So after the talk, come and find me.
+Happy to answer them. Thank you.

@@ -1,0 +1,680 @@
+Good morning everyone. Thank you for coming to the Postgres Dev Room. This is our first
+opener. We're good? Yeah, we're good. The microphones working, yeah. My name is Bruce
+Momjin. I am one of the Postgres core team members and it's a pleasure to be here. I
+was told this is the death slot for a speaker but hey this is looking really good. So,
+thank you for coming. I promise you an interesting 50 minutes. I hope not to disappoint because
+I'm going to talk about some pretty complicated things and I hope they will be very interesting.
+They're certainly very interesting to me and hopefully they'll be interesting to you as
+well. As you know we have a whole span of Postgres talks today. I was looking through
+the list of talks and they look really interesting so I know you won't be disappointed.
+This talk is actually a follow up to another presentation that I've already done and I'm going to go over that in a
+minute. Probably the most interesting point here is this right here and this QR code which is a link to
+62 Postgres presentations, 2700 slides, 121 videos of me speaking about Postgres. So, if you are curious
+about Postgres and you'd like to know more about this presentation or others please feel free to go to that URL
+and hopefully that will help you. So, as I said before this is a follow on to a talk that I did,
+originally wrote in 2011. So, by the way these slides are online right now so if you want the slides and you want to
+look at them closer to your laptop for example just go to that URL you'll find those presentations right there.
+So, this is a follow on to a presentation I did in 2011 about the optimizer. I'm going to ask for a show of hands,
+how many people have either seen the slides, a video or me present that talk. Okay, not a whole lot.
+Alright, so that's good to know. That talk is basically giving you an introduction to the optimizer. As you may
+know, optimizer is a critical part of a database. It allows you the system to choose when to use indexes and which
+type of join methods to use, how the importance of statistics and things like limit clauses and so forth.
+So, if you're curious about looking at the precursor of this presentation, again this URL here at the bottom
+will work and if you download the slides you can just click on that little URL down there at the bottom
+and that will take you to that presentation. But that is not about what this talk is about. That talk is about
+the basics of the optimizer and this talk is about everything else which is why we call it beyond joins and indexes
+because it's beyond the concept of joins and indexes is what we talked about in the previous talk.
+We are going to talk about 43 other things that Postgres does beyond again using indexes and join types.
+There's a lot of them that are actually really, really interesting. I learned a lot in preparing this talk
+and I hope you'll learn a lot as I prepare it. I color coded some of all the sections although I kind of ran out of colors
+as you can see but you can see they're kind of grouped together. For example, the ones over here on the right,
+the mustard color, yellow I guess. The green ones are related to comment table expressions. I have a talk on my website
+about comment table expressions. These other ones are about parallelism. The red ones, the pink ones are related to
+aggregates and so forth. So again hopefully this is helpful to you.
+Another aspect of Postgres is the ability to control the optimizer. I will not specifically talk about all of the configuration
+parameters but this is a list of pretty much all the config parameters that Postgres allows you to use to control the
+optimizer. Again we have two URLs here that I think are very helpful for you to study that.
+The ones right up here are the ones that I covered in my previous talk so I'm not going to be discussing the ones
+from the previous talk here but I will cover all of these right here related to things like gather merge,
+parallel, hash ag, memo wise which is kind of a funny term, incremental sort and so forth. I will not be covering these
+although I do cover these in another talk about partitioning which again is on my website so if you're
+curious about partitioning that is where you would go for that.
+Now I would love to say that I have a grand story about all of the join types that weaves into a
+very poetic narrative but unfortunately I can't do that. As you can imagine the join types are kind of distinct.
+There is not a real great way of presenting them in a sort of a way that connects them together.
+So we're basically going to spend the next 45 minutes basically going through the individual types and explaining why
+they're used and why they're important. And again we're going to start with some really silly ones that are really
+kind of not very useful but as we get forward we'll start to see some really interesting ones and of course at the end
+we have some really bizarre ones in some ways. The first one we're going to talk about is called a result node.
+If any of you have ever round explained before and you see these node types in the explain plan that's what we're
+going to be talking about. So you probably see the things like index scan, sequential scan, merge join, hash join,
+nested loop. You see those node types before. Those node types are talking about my previous talk.
+What I'm going to talk about now are the node types that I did not cover in my previous talk which are actually
+really interesting. Another thing that you should be aware of is that this presentation was originally written as SQL.
+So I basically created an SQL script that had a whole bunch of queries with explain running and then I ran it and then
+I captured it and I put it up into the slide deck and colorized it and labeled it and so forth. So if you want to run
+this presentation download this SQL file right here at that URL and just run it through PSQL and it'll just like fly off
+your screen. The only problem is you don't get the colors. It's just all one color. But you can test it. You can see
+and reproduce what you're seeing basically by running that SQL. Probably no questions about the result type.
+The result type is basically result is just a constant. Whether it's a string or whatever it's just a constant.
+There's nothing fancy going on here. You're basically just saying select one. Another thing is I'm using colon explain
+and you're going to see that over and over again in the presentation. Colon explain basically just turns off the costs.
+It's just so it makes it simpler for you to see. You don't see numbers in here that really aren't adding anything to the presentation.
+That's a PSQL feature right there, the backslash set and the ability to run explain without costs. That will reproduce the presentation
+on your screen. This one you might not have seen before and you might be a little surprised. This is not part of the SQL that I
+used back in the 90s. I guess SQL 89 didn't have this. I don't, Vic isn't here. He would know when we added this.
+This part of the SQL standard, it's basically the values clause is basically like a select with a bunch of values.
+Except that it's kind of like select with a union and select with a union. Instead of doing that, you can just type values
+and it makes a row of one and the second row has the number two. It's basically a very kind of throw off the cuff kind of a clause.
+It has a special scan node which is called values and that's exactly what it looks like. Another thing you're going to see over and over
+again in this talk is things that are in blue are causes of things that are in red. If we look at this slide, for example,
+the cause is values in blue and the result is the value scan. That's the output. If you're ever looking at a slide,
+you say blue is the cause, red is the output that caused the result of the blue. You'll see that over and over again.
+Any questions so far? Great. Generate series. This is just an example. There are many other cases where functions generate multiple rows.
+But any function that generates multiple rows, it's going to create a node type called a function scan. Normally functions return
+one value. That's kind of the mathematical definition of a function. But of course in SQL, we've gone beyond that.
+We have the ability for functions to return multiple rows. Not only multiple values in a row, which you would use in an out clause,
+but actually multiple rows. That would be something like a function scan. This is our first legitimate output. This is a case where
+we're doing something called an incremental sort. I had trouble understanding what that actually was, but I think this should
+illustrate it to you. How many have seen incremental sort before in their plans? Anybody? A couple? Incremental sort is a case where
+you're sorting by multiple keys and the earlier part of the key is already sorted, but the latter part of the key is not sorted.
+It kind of makes sense. You're incrementally sorting. You've got the front part, the early fields are sorted, and the later parts are not.
+So here we have, I've created a table with a million rows, and I've created an index on the first column, x. I've analyzed it, so I've got
+statistics on it, and I add a column y on the end of it, and then I select from it, and I do it by x, y. What happens is you can see
+the system is smart enough to say, well, I can get part of it sorted by pulling off of the index I've already created, but I can't really do
+the y, so I'm going to do an index scan on the x table, and then I'm going to do an incremental sort on top of that, and I already have x sorted,
+I'm just going to add the y part. So if you didn't have this, effectively you couldn't use the index, and you'd have to basically resort the whole result set,
+obviously it would be much slower, that's why we got incremental sort.
+And what you're also going to see in this presentation is a lot of diagrams, because I love diagrams, they help me to see what's going on,
+visually. What you can see here is you can see that the table, originally all of the 3's are together, all of the 4's are together,
+but you can see all of the y fields, the second column, are all in random order, and effectively what incremental sort does, it knows that the first
+blue section is in order, doesn't need to touch that, and it merely sorts the second column.
+So we're going to see this kind of pattern over and over, I'll show you the SQL, I'll show you a diagram that kind of explains what it does.
+Any questions?
+Okay, great.
+Unique, you've probably seen this before, this is not necessarily the unique clause when you do DDL, you can actually create a column as unique,
+that is actually not what we're doing here, it's basically, typically would use if you're using a distinct clause on top of some kind of result.
+So here I'm generating numbers from 1 to 10, I'm ordering them and I'm saying make sure they are distinct, so what we're doing is we're basically doing a function scan,
+remember function scan we just saw that earlier, right, and then we're doing a sword on top of that, so all the values are sword together and I'm running unique on it,
+basically another way of doing this, this is the way of distinct, another way of needing unique is a union, I'm not sure how many of you remember,
+but union always does distinct removal, you know, a duplicate removal, right, unless you use the all clause, unique is always going to remove duplicate,
+so even though I'm just saying union, I'm not saying union distinct or anything, it automatically does it that way.
+So therefore, when I do 1, 2, I basically am going to take my new result sets, remember, we did remember,
+that was the first node type we learned was result, remember, way back, hey, four minutes ago,
+then we sort them so all the results are next, the duplicates are next to each other, and then all we have to do is get rid of the duplicates as we go forward,
+and again, similar case here, we have a bunch of random numbers, we sort them so all of the duplicates are now next to each other,
+you can see the sixes and the threes are next to each other, and then we run the unique on it, and all it does is compare and removes any duplicate next to each other entries,
+and we get our unique output, okay, great.
+Okay, append, this one exactly what I talked about before, remember I said that union will remove duplicates by default, that's true,
+but if you use the union all clause, right, it doesn't remove the duplicates, so we have a special node type just for that,
+it's called append, so when you say select one, union all, select two, we have our two result nodes, and we just append the values right on the end of each other.
+It's exactly what it looks like, this is my first result set, this is my second result set for the union, and I'm just sticking them, I'm just appending them next to each other.
+Very, very, very basic, very basic case.
+Okay, merge append, this one's good, okay.
+This is kind of weird because it combines two terms that we think we know, right, we just talked about append, we know what that does,
+okay, but then we have the merge, which sounds like a merge joined in me, right, it's kind of, you're going to see this pattern where we've got a node type we know,
+another node type we know, and if we put the two names together and it does something different, it's not ideal, it's trying to kind of match it,
+but this is, what will we have, okay, so what I'm doing here is I'm taking a values clause, which we talked about before, remember values clause,
+I'm taking another values clause, I'm union alling them, so I'm appending them together, right,
+okay, now I'm appending them together, but each of the unions is already ordered, this is the key aspect here, okay, remember we had append,
+append just sticks one on the end of another, I will tell you that putting this presentation together is like a jigsaw puzzle,
+because you've got all these node types and you can only talk about the first node, the second node type, if you talked about the first one,
+and getting it all to kind of fit in your brain is quite a challenge, I hope I've succeeded, but effectively what we have here is two values clauses,
+but these values clauses are automatically ordered, and therefore when we do a union all and we want the result to be ordered,
+okay, the stupid way to do it would be to just take the results of a pandemic and then sort the whole result,
+right, that would be the silly way to do it, because we already have our results ordered in two pieces,
+so what merge a pen does is it takes two result sets that are already ordered and maintains the ordering as it merges them together
+and it repends them together, okay, so here you can actually see that right here, we've got our sort,
+for the first one we've got our sort for the second one and now we do our merge a pen,
+and I apologize for the diagram, but this is the best I can do,
+what we have here on the left is the first result set, on the bottom we have the second result set,
+as you can see from the query we sorted the first result set here, we sorted the second result set here,
+and as we append them together we want to maintain the ordering that those result sets already had,
+and to do that we're going to take the lowest value from each result set and just repeat it,
+so the lowest value between these two is two, the lowest value between these two is three,
+the lowest value between these two is three, the lowest value between this and this is four,
+five, six, eight, eleven and twelve, okay, so by using merge a pen we've avoided having to resort the results,
+we basically kind of merge them together, and if you're familiar with the way a merge join works,
+that's kind of how it works, right, it takes two results and kind of compares them and kind of walks down,
+finding the minimum matching values as it merges them together, it's the same concept,
+this is what I'm kind of getting at, that the terms that we use here are not random,
+like the fact we call this a merge a pen actually has some logic to it,
+because we're taking what effectively is a merge join and we're sort of repurposing that concept
+to do a pen and retain the sorting, any questions?
+Yes sir?
+Do you know the same thing by using merge a pen instead of just, I don't think the answer.
+So the question is do I know how much time we're gaining by doing merge a pen versus just sorting,
+so we have, we're a cost based optimizer, so we know the cost of how, what it would take to sort the whole thing
+and what it would take to do merge a pen, so we are always reevaluating that,
+all we know as back end developers is we're going to run the cost of both of them
+and we're going to figure out which one is faster, I don't know how much benefit it is,
+of course it depends on the size of your result set, but we're only going to do merge a pen if it's a win,
+if it would be cheaper to do it the other way we do it the other way, right?
+Other questions?
+Yes sir?
+Does the query guarantee the order of the two set periods to leave out the order by?
+So the question is if I leave out these order bys,
+No, the other, the lower order by.
+I'm sorry?
+Is that the query?
+Yeah, this one here?
+No.
+This one here.
+This one?
+Yeah.
+Well, if I don't have this here, I'm not going to do a merge a pen,
+because I don't need to, I don't just, I'll just append them together,
+I don't need to merge them and maintain, the only reason we're doing that,
+you see how order by one is in blue, that has to be there,
+if that order by isn't there we aren't going to use merge a pen,
+because we don't need to preserve it, right?
+Yeah?
+In that case would the other two order bys also be removed?
+So the question is in that other case where the two other order bys also be removed,
+the answer is no, because the user would still get the order by of the first result,
+and then the second result would be right underneath it.
+So they've specified in the query that they want the order by, we're going to maintain that.
+But because they've added an order by after it, we're kind of overriding it
+and kind of using their order by.
+Now I'll admit this is a contrived example, we could have done an index scan to get this order by.
+So this is the fact that I've got two order bys up there, you see they're not in blue,
+they have to be there, but it could be some other query,
+we could be doing an index scan and pull the orders that way,
+and that way we don't have to do sorting again, could be anything, right?
+Yes.
+I told you earlier that we do this order by inside, you kind of like hit the optimizer,
+which I'm not supposed to, but I know that you need to restore them.
+So it will do this, right?
+But I mean in more complex cases it's not necessarily that you had to restore the other two.
+So the question is do we need to order by there?
+The fact is if there's no ordering of the two results, we aren't going to do order by,
+we're just going to do a big one huge sort and just run with it, right?
+The only reason we're doing that is that.
+Okay, so eight and nine, two new options here.
+One is called subquery scan and one is called hash set up.
+I know I'm not super proud of hash set up, it sounds like a, I don't know, some kind of science fiction thing,
+or I don't know what, but let's just look at this.
+So this is a query where we've got a thousand rows and we're saying select from the small table
+and then remove or subtract or whatever, how do you explain it?
+These other rows.
+Now we know by looking at this there are no rows.
+Okay, so just go work with me here, all right?
+The system doesn't know that, that I've actually removed the rows from the same table twice.
+We don't have an optimization for that.
+So what we're going to do here is we're going to run something called a subquery scan
+and we're going to run it twice because we've got two queries here
+and then, I'm sorry, subquery scan and then we're going to do hash set ups.
+And again, crazy, crazy diagram, I'm going to walk you through this.
+What we basically have, this is the outer part, the first part of the query
+and this is the except part of the query.
+The query, we're removing all the matches, okay?
+And what we're going to do, and this is kind of weird,
+is we're going to create, we're going to kind of append the two together
+and we're going to put one, a label one for the first query
+and a label two for the second query.
+Okay, so here's the first query, all with ones in the second column.
+Here's, same thing with all, two is in the second column.
+And then what we're going to do is we're going to hash them
+and we're going to hash them basically in a random order
+because again, hashing doesn't have any ordering to it.
+And we're going to look for the ones that basically all of the ones
+that don't have a two.
+So for example, the seven does not have a two match for the hash
+and therefore it's part of the output, the three and the six
+have a one but without a two and those aren't going to go out.
+A 12 is going to come out and the five and the eight and the eleven
+have a two without a one.
+Okay, so anything basically that has a one without a two,
+that's what we're going to output and that's how we're going to implement
+this except right here.
+Again, we have some, if you want to read this at some point,
+this is related to how we do intersect and accept and so forth.
+It's kind of interesting if you're curious for later,
+you really want to study the slides, feel free to read that.
+Setup is what we would use for intersect.
+Intersect again, another opportunity here.
+So we want to find the ones that are in both of them.
+So we have large intersect from large, again same issue.
+We do a subquery scan, we append them together, we sort them
+and we do set up.
+Again, similar diagram, here's the first part, here's the second part.
+We label with one, we label with two, we create a joined result,
+we create the hash but in this case,
+we're now looking for cases that have a one and a two.
+Remember before it was cases that have a one without a two?
+Now we're looking for cases with a one and a two.
+And you can imagine we're kind of using the same code, right?
+It's sort of the same idea, it's just the filter you put on at the end.
+Because remember this one was all the ones without twos.
+This is cases where there's a one and a two together.
+Three has a one and two together, five does not,
+six has a one and two together, seven, eight, eleven and twelve do not.
+So that's intersect.
+Any questions?
+Materialize, this was an interesting one.
+I had trouble kind of understanding what this was,
+because materialize to me, there's like a materialize command,
+SQL command, like for materialize views.
+That's what I thought, is it that?
+Again, we're reusing terms quite a bit here.
+So what we have is a query that's selection small,
+and it also selects from a copy of itself,
+but again, the optimizer doesn't know this.
+And we're doing a very weird comparison here,
+we're doing a not equals.
+As you imagine, equals is really easy to do,
+not equals is kind of awkward.
+So what we end up doing, and I know this is kind of weird,
+we basically take the inner side,
+and we actually create a memory copy of it.
+So we load the matching rows, remember this is a small table,
+in fact it says literally small, we know it's a small table.
+And it just loads that into memory,
+so we can do the not equal comparison much quicker,
+than it could if it had to read them out of shared buffers.
+That's all it's really doing.
+It knows because we're going to be hitting this thing
+over and over and over again for not equals,
+we don't want to keep hitting the shared buffers,
+so we just bring it in, bring a copy in,
+and we effectively just do a bazillion comparisons
+on our local copy of this very small table.
+Memo-wise is a weird one,
+that was at I believe in 14, I think, somebody?
+Yes sir.
+Sorry, what was the phone number?
+Yeah.
+The local memory, is it a working memory set?
+Yeah, this would be your working workman.
+Could be, yeah.
+So if I cranked up my workman, would a...
+Would you work...
+So the question is if you cranked up workman,
+would you be more likely to do materialize?
+Maybe, yeah, I could maybe.
+I think so.
+Give it a try, yeah.
+Okay, Memo-wise was introduced...
+Memo-wise is a weird term to me,
+like it's a memo, it's like a letter,
+like what is it, right?
+It turns out that Memo-wise is the sort of academic term
+for this thing, and I'll explain what this thing is.
+But that's how we got the word Memo-wise.
+We had a long discussion about what to call this,
+and somebody said, oh, that's Memo-wise.
+And we're like, what do you mean that's Memo-wise?
+And they sent us some academic paper,
+and they're like, oh, okay, that's what it is.
+All right, so let's take a look at what Memo-wise is.
+So it's kind of hard to set up,
+I need to create a table with duplicates
+that also is too small to make sense for a hash joint.
+I know that's like a big word, a lot of words.
+But effectively, what I have here
+is I'm going to do a join,
+and I have a small table,
+but it's not big enough to hash it,
+because hashing is expensive.
+And I need something that's too big
+for a hash joint on the other side.
+So it sounds like the requirements
+for this thing almost never happened,
+but it turns out that Memo-wise has a lot of things.
+But Memo-wise happens all the time.
+I don't know why,
+but when I read the description
+and when it's important, I was like,
+pfft, nobody's ever going to use this thing.
+But it turns out that it actually gets used quite a bit
+in real-world applications.
+But again, it's a case where we have a lot of duplicates,
+something's really big,
+something's really small, so you can memo-wise it,
+and something's really big,
+meaning you're going to do a lot of comparisons.
+So we have an index on the Memo-wise field.
+So here's the query we select
+from small with dupes,
+and we join it to a medium table.
+And here you see the Memo-wise clause right here.
+If you're curious, this blog post right here
+does a great job of explaining Memo-wise,
+and you can see right here,
+Postgres 14 is the release
+that that was added in,
+because that says Postgres 14 right there.
+14 later, right there.
+All right, so what does Memo-wise do?
+It basically creates a local memory cache
+of the table you're joining to.
+So basically it's a case where
+I know I have a lot of duplicates here.
+So here's, like, this is duplicate of that,
+this is duplicate of that, so forth.
+So I know I have a lot of duplicates,
+so I know I'm going to be hitting
+the cache over and over again.
+Right?
+So I'm going to be hitting
+the cache over and over again.
+Right?
+So instead of doing what potentially could be
+an index lookup
+over and over again
+into the index,
+I create a cache.
+And I basically say, okay, is this a match?
+If it is, then I can say that's a join.
+If it isn't, then I've got to go over here
+and check and refresh and make sure it's okay.
+It also has a negative cache.
+I'm not showing that, but there's a cache of stuff
+that isn't there as well, which I'm not going to show you.
+So the point of Memo-wise here,
+it's right here, inner-side lookups that return no-os
+are also recorded in the cache.
+So my point is that when you're going to do
+an index lookup over and over again,
+because you have a lot of duplicates,
+and you're going to be checking it over and over again,
+why don't we create a cache
+so we can remember the index lookups,
+and we don't have to keep doing them.
+But again, only in limited cases,
+table has to be small, has to be duplicates,
+has to be the inner-side,
+the Memo-wise side has to have an index,
+so we can refresh the cache when we need to.
+That makes sense, it sounds like crazy.
+I thought it sounded crazy, but it actually is really useful,
+and it's kind of cool.
+So if you see Memo-wise in the future,
+you'll be like, oh, that's kind of neat.
+Okay, any questions?
+Okay, let's launch into more of a section.
+Okay, I know we've kind of hit a bunch of sort of discrete topics.
+I'm going to move into an area where we have some coherence.
+We kind of move through.
+We're going to talk about grouping and aggregates now.
+So here's a query where we do a join,
+and we're saying x is less than 0, group by x.
+So I didn't know that you can do a group by
+i when there's no aggregates in the query.
+I learned that in doing this presentation.
+I thought a group by always had to have some aggregates out here,
+but turns out it doesn't.
+Basically removing, wearing, adding, what if I does the same thing?
+So here's a group clause.
+It's going to give me everything x less than 0.
+And all it does is it basically just removes the duplicates.
+That's all the group does.
+It says okay, 1, 1.
+Okay, that comes across 1, 2.
+I got two of those.
+I'm only going to get one of those.
+For these I would go across.
+I have three of these.
+I get one of those.
+So again, group by with aggregates is similar to distinct,
+except duplicate detection can consider more columns
+than those selected in the output.
+Again, I give you, that's an option for studying later,
+exactly what that means.
+You can try it out and see how it works.
+You can do a group of a single column,
+and that is actually a use for group alone.
+You notice I'm getting, notice I have,
+these are not unique.
+Like this and this and this, these are different,
+but they all generate one output.
+So it kind of trims off the one column.
+I know it sounds really silly,
+but there are actual use cases to this.
+So all the ones get output,
+choose in the first column,
+get output, all the freeze get output.
+Aggregate, everyone's familiar with this,
+the count command, we have a node type for that,
+just called aggregate, very easy to predict.
+Here's a group aggregate,
+which would be a group by with account on top of it.
+So this is an aggregate, again, makes sense, right?
+We learned aggregate, we learned group.
+What do we call the node type when we have aggregate
+and group together?
+Group aggregate, right, makes a lot of sense,
+so that's what we call it.
+And group aggregate effectively outputs
+the non-aggregate column once,
+and just like the group by, which we talked about,
+and then instead, for the second column,
+it runs an aggregate across that second column, right,
+which is what we're all familiar with.
+Oh, why do I find networks are available?
+Isn't that exciting?
+Okay, hash aggregate.
+So this is a case where it's not actually an aggregate,
+we're basically doing a distinct using a hash.
+There's no mention of aggregate here at all, right?
+But what effectively we do is we take all of our values,
+and we put them in a hash,
+and we merely have one value for each hash.
+It's very similar to group, the group clause.
+Remember how the group clause got rid of duplicates?
+This is a way of doing it, except instead of doing it by group,
+we're doing it by hash.
+Okay, instead of sorting, we can basically just create a hash
+and remove the duplicates that way,
+and that's what the distinct is.
+So normally I wouldn't think of distinct as related to group,
+but in fact, I can see now, kind of, okay.
+And I have lost my mic, so I'm sorry about that.
+I will fix that.
+There we go.
+Great, okay.
+Mixed aggregate, I'm not sure how many of you are familiar with rollup.
+I do have a Windows function talk on my website
+that explains what rollup does, okay.
+And effectively it does, the rollup is basically taking, again,
+the unique values and then rolling them up into an aggregate.
+Okay, and it also sorts it, which is different than the other one,
+because you notice that it's all sorted, okay.
+Window functions, again, I have a window function talk on my website,
+but again, these are all kind of grouped together.
+So this is a sum over the entire result set.
+It generates something called a window ag,
+and a window ag effectively just takes each individual roll,
+but it manages to output an aggregate across all the rows
+within the group.
+If that makes no sense to you, I recommend you take a look at my window talk.
+It is kind of unusual how this works,
+but effectively all we're doing here is it allows us to maintain
+the distinctness of the rows.
+Window functions allow aggregates across rows
+while the individual rows remain distinct.
+And that's exactly what's happening with the window ag.
+Okay, moving on to parallelism,
+we do have a nice reference here to the Postgres stocks about parallelism.
+I'm going to go over a bunch of parallelism nodes that are quite interesting.
+So here is parallel sequential scan,
+partial aggregate, gather and finalize aggregate, okay.
+So here we're doing a sum on the large table.
+So we have a big table, we're doing a sum,
+and we generate a whole bunch of parallelism here.
+Parallel sequential scan, a partial aggregate,
+something called a gather, and then a finalizer aggregate.
+So kind of like prepare for the diagram of craziness here.
+What we basically have, again, going from left to right,
+we have the first part of the sequential scan.
+Remember, we're only scanning one table,
+but we've broken it up into two parts,
+because we want to scan them in parallel, right.
+So here we're scanning, we're using one background worker
+to scan the first part of the table in parallel.
+This is called a parallel sequential scan.
+We're taking the second part of the table.
+We're also doing a parallel sequential scan on the second part of the table.
+We're also going to generate what's called a partial aggregate.
+That partial aggregate is going to be the aggregate result
+across all of the rows that our parallel sequential scan has processed.
+And now we have a partial sum right here.
+The same thing down here, this is a partial sum here.
+We then send both results to the parent,
+which generates something called a gather node.
+That kind of makes sense.
+Now the gather node is gathering results from parallel workers.
+And of course, because we're generating a sum,
+all we need to do is add together the two rows that we've gathered,
+27, 33, and we issue something called a finalized aggregate,
+and that generates my 60.
+Okay.
+Now again, this is just a two, but we could use a hundred ten.
+However many parallelism you decide to use.
+And again, it's scanning different parts of the table in parallel.
+Yes, sir.
+Why there is partial aggregate, finalized aggregate, and aggregate nodes,
+because they are just the same, but they are different parts.
+And using parallel here, you just aggregate on a smaller size table.
+But I don't know why you decided to call three different nodes,
+but basically they're the same.
+Okay, so the question is why are we doing, why do we have different,
+why is this not the same as that basically?
+And the reason is that for some, for the sum command, they're the same.
+But if I'm doing something like a max or standard deviation or something,
+we're going to have different operations to join these together.
+So sum is the simplest one, that's the one I use,
+but for other aggregates, these would be more complex.
+And we may do different things at different stages.
+But I see what you're saying, it's sort of, the point is that,
+it's just the way it's processed.
+They probably, some cases could be the same,
+other cases they can't, so we just call them different things.
+Okay.
+Gather, now we saw merge append.
+Now we have gather merge, which sounds kind of like, well, what happened?
+Okay. And what gather merge does is it effectively is going to take parallel workers
+and then just merge them together.
+Again, I have the same parallel scan here, I have a parallel scan here,
+I'm going to do a sort.
+So again, I'm not using aggregate here, I'm doing a sort.
+Okay. And now I've scanned part of it.
+You know, I keep doing that, that's not good.
+The reason is because of the way the clip, the clip doesn't go into my shirt properly,
+so I keep having to shove it in there.
+Alright.
+So basically we've sorted, within the background worker, our results,
+we sorted and now we're going to gather, merge, remember merge append
+or merge joint merge, merge append.
+We're going to take the lowest of this, the lowest of this,
+and then we're just going to keep doing it and then take those and merge the two ordered results together.
+Okay.
+Makes a lot of sense.
+Parallel append, all we're going to do here is we're going to append stuff together.
+This is one of the craziest diagrams I have, I think.
+So here we're doing, we're doing our background worker parallel scan
+and we're going to take the, we're going to append the two of the workers together
+because this is a join again and then we're going to take the other part,
+we're going to join that and then we're going to sort those
+and then we're going to merge them.
+So I know it sounds like kind of crazy, but what we're doing is we're doing four sorts
+and we're appending them in stages and then we're sorting those in batches.
+And then, so it's a combination of basically a parallel scan with a sort involved,
+which also happens in background workers.
+So again, it's just, it's just, this is the craziest diagram I think we have.
+Parallel hash, parallel hash join.
+Here we're doing a join, a join in parallel.
+Again, crazy diagram.
+Here's our parallel sequential scan.
+We're going to hash those together in a shared memory hash,
+which is kind of like mind blowing,
+but effectively we have dynamic shared memory
+and we're going to create for the background workers a shared hash table
+and they're going to join, push those into the parallel hash table
+and then once we get this shared hash,
+which has been built by multiple background workers,
+we're going to take our outer side and we're going to join against these,
+that shared hash into potential background workers.
+And then we're going to gather them together and get the result.
+So not only are we doing the sorting in parallel,
+we're actually creating the hash in parallel
+and we're doing the hash join in parallel
+and then we're returning the result.
+Okay, so I realize it's a lot, but that's exactly what it's doing.
+Okay, let's move on.
+Comment table expressions, again, have a nice talk about that on my website.
+Honestly, I don't get any money for advertising my talks,
+but you'd think so from this talk.
+So if we do a comment table expression with a materialized node,
+we just do something called a CT scan
+and effectively all we're doing we're scanning across the comment table expression we created.
+Okay, I got it.
+Work table scan, this is also with a recursive comment table expression.
+We would do that here. We're going to loop around through this
+and again we create something called a work table and a recursive union.
+This is a diagram from my other presentation.
+It talks about how comment table expressions work.
+And again, this is a diagram.
+It's basically looping in and creating this comment table expression.
+And then as you loop through the results,
+you're continuing to append to what we call a CT source,
+which would be used later in a query.
+I know if you're not familiar with comment table expressions,
+it's not going to make any sense.
+I apologize for that.
+I apologize for my microphone.
+Project set, this is a case where we have
+a function returning multiple rows in the target list.
+Not the from clause in the target list.
+Very interesting.
+Lock rows, if you do for update, we generate a lock rows node.
+If you do a table sample, we generate a sample scan.
+Not surprising.
+If you're using XML table, we actually have a table function scan.
+I think that is the only function call that uses that node type.
+Just a very special, very obscure case there.
+Foreign tables, if you're familiar with those,
+we have special foreign scans for those.
+If you've ever used CTids, we have a special Tids scan.
+CTids are the physical location of the values.
+We're basically using a Tids scan for that.
+This is what a Tids scan would do,
+effectively open a certain page and return a certain value in the page.
+Insert generates an insert node.
+Update generates an update node.
+Delete generates a delete node.
+Truncate does not, by the way.
+Truncate is different.
+Merge, the merge command generates a merge node.
+Exists generates something called a semi-join.
+A semi-join is very similar to a normal join,
+except it stops after the first intermatch.
+So it's similar to any other join, but it stops after the first.
+It doesn't keep going to find out how many matches there are.
+As soon as it finds one, it can stop.
+The in clause will use also a semi-join,
+and again, some details on how null handling works
+for in exists for those people who are curious.
+Not exists uses something called an anti-join.
+Not surprising.
+Anti-join for not exists.
+And not in is kind of weird.
+So technically exists and in are almost the same for nulls,
+but not exists and not in is actually different.
+And again, we kind of explain it in the query here.
+We also have something called an outer...
+We have a feature that I realized during writing this talk
+called an outer join removal.
+Notice I'm doing a left join on something where
+it actually removes the join itself,
+because it has a unique index and it knows
+there's only one possible match, so it actually got rid of the join,
+which I felt was like crazy.
+That optimized pretty smart.
+And finally, two things I didn't cover,
+tuple scan and custom scan.
+There are... There's documentation and postgres about it,
+but you don't see this very often.
+So that does complete what I wanted to do.
+I believe the time is exactly 9.50.
+Thank you.

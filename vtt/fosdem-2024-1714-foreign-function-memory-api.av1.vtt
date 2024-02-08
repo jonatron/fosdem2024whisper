@@ -1,0 +1,2060 @@
+WEBVTT
+
+00:00.000 --> 00:06.640
+Can you hear me?
+
+00:06.640 --> 00:08.360
+I think so.
+
+00:09.000 --> 00:13.480
+It's working but not in a loud kind of way.
+
+00:13.480 --> 00:16.840
+Anyway, I have a loud voice, so that's not a problem.
+
+00:16.840 --> 00:19.560
+So I'm happy to be here.
+
+00:19.560 --> 00:23.800
+I was here four years ago with everything that happened,
+
+00:23.800 --> 00:28.360
+and I gave a talk on foreign memory API,
+
+00:28.360 --> 00:32.960
+and it was an incubating API in Java 14, I think.
+
+00:32.960 --> 00:35.880
+So I'm happy to be here now to talk about the foreign function
+
+00:35.880 --> 00:40.000
+of memory API, which is a finalized API in the upcoming
+
+00:40.000 --> 00:42.040
+Java 22 release.
+
+00:42.040 --> 00:44.640
+So why did we do this API?
+
+00:44.640 --> 00:47.440
+The main reason is that the landscape around
+
+00:47.440 --> 00:49.440
+Java application is changing rapidly.
+
+00:49.440 --> 00:51.200
+With the rise of machine learning,
+
+00:51.200 --> 00:56.720
+it's Java developers often need to do tasks
+
+00:56.720 --> 00:58.560
+that they necessarily didn't have to do before,
+
+00:58.560 --> 01:01.440
+such as talking to highly optimized linear algebra
+
+01:01.440 --> 01:03.160
+library that are not written in Java,
+
+01:03.160 --> 01:06.520
+they are written in C, C++, or for trans sometimes even.
+
+01:06.520 --> 01:09.800
+And the only way to reach to those libraries sometime is
+
+01:09.800 --> 01:13.720
+just to reach into native code directly.
+
+01:13.720 --> 01:17.200
+So these libraries will not be ported in Java,
+
+01:17.200 --> 01:19.240
+most of the time because they keep changing.
+
+01:19.240 --> 01:24.080
+So a new library pops up nearly every month with
+
+01:24.080 --> 01:28.560
+a new kind of idea in order to do offloading of computation
+
+01:28.560 --> 01:30.040
+to the GPU.
+
+01:30.040 --> 01:33.240
+So how do we talk to native libraries in Java?
+
+01:33.240 --> 01:35.920
+We do that with JNI.
+
+01:35.920 --> 01:38.600
+How many of you have used JNI in this room?
+
+01:38.600 --> 01:39.720
+OK, fair number.
+
+01:39.720 --> 01:42.400
+So good audience.
+
+01:42.400 --> 01:44.760
+With JNI, you can declare native methods.
+
+01:44.760 --> 01:47.000
+Native methods are like absurd methods in the sense
+
+01:47.000 --> 01:48.960
+that they don't have a Java method body,
+
+01:48.960 --> 01:52.160
+but they have a body that is defined somewhere else
+
+01:52.200 --> 01:55.560
+in a C file or a C++ file.
+
+01:55.560 --> 01:57.680
+And it can be C, C++, even assembly
+
+01:57.680 --> 02:01.520
+if you like to play with it a little bit.
+
+02:01.520 --> 02:04.280
+JNI is flexible, but it has a little bit of issues
+
+02:04.280 --> 02:07.160
+in the sense that it's what we call a native first programming
+
+02:07.160 --> 02:07.920
+model.
+
+02:07.920 --> 02:12.680
+So it pretty much focuses on giving you access
+
+02:12.680 --> 02:17.240
+to Java functionalities from the native side of the fence.
+
+02:17.240 --> 02:20.560
+So when you write in JNI, you realize that quickly you
+
+02:20.560 --> 02:22.520
+are basically shifting all your computation logic
+
+02:22.520 --> 02:24.160
+from the Java world to the native world
+
+02:24.160 --> 02:28.000
+in order to minimize the number of transitions back and forth.
+
+02:28.000 --> 02:30.000
+And that can be a problem.
+
+02:30.000 --> 02:33.400
+There's also no, I guess, idiomatic way to pass data
+
+02:33.400 --> 02:33.960
+to JNI.
+
+02:33.960 --> 02:36.800
+Yes, you can pass objects, but that has an overhead.
+
+02:36.800 --> 02:38.760
+Sometimes a lot of developers end up
+
+02:38.760 --> 02:41.680
+passing logs as pointer, as opaque pointer
+
+02:41.680 --> 02:43.040
+that are stored in some Java objects.
+
+02:43.040 --> 02:46.040
+And that kind of works.
+
+02:46.040 --> 02:48.640
+So the problem with native function, as I said,
+
+02:48.640 --> 02:50.680
+they never exist in isolation.
+
+02:50.680 --> 02:52.720
+They always have to manipulate some data.
+
+02:52.720 --> 02:56.720
+And this data is often off heap, of course.
+
+02:56.720 --> 03:00.440
+And there are not very many libraries in the JDK
+
+03:00.440 --> 03:04.600
+that allows us to do off-heap memory access.
+
+03:04.600 --> 03:06.760
+One of them is the DirectBuffer API.
+
+03:06.760 --> 03:09.720
+So probably you are familiar with DirectBuffers.
+
+03:09.720 --> 03:11.440
+They can be passed to native methods.
+
+03:11.440 --> 03:13.200
+And there are some JNI functions that
+
+03:13.200 --> 03:16.840
+allows us to, for example, get the pointer that
+
+03:16.840 --> 03:18.480
+is backing a DirectBuffer.
+
+03:18.480 --> 03:22.240
+So that the JNI code can manipulate the buffer directly.
+
+03:22.240 --> 03:24.920
+One of the issues with DirectBuffer, perhaps the main one,
+
+03:24.920 --> 03:28.600
+is that there is no deterministic way to free or unmap
+
+03:28.600 --> 03:29.560
+a byte buffer.
+
+03:29.560 --> 03:32.320
+So if you are done using your off-heap memory,
+
+03:32.320 --> 03:34.400
+you basically have to wait for the garbage collector
+
+03:34.400 --> 03:37.120
+to determine that the byte buffer is no longer
+
+03:37.120 --> 03:38.440
+reachable from your application.
+
+03:38.440 --> 03:42.000
+And that can have a latency cost.
+
+03:42.000 --> 03:44.840
+There is also a problem in the addressing space.
+
+03:44.840 --> 03:48.320
+The byte buffer API was born in 1.4 time.
+
+03:48.360 --> 03:51.320
+So quite a few years ago.
+
+03:51.320 --> 03:55.760
+And we only use ints as offsets there,
+
+03:55.760 --> 04:00.400
+which means the maximum addressable space is 2 gigabytes.
+
+04:00.400 --> 04:04.000
+With minus 1, yes.
+
+04:04.000 --> 04:07.040
+With the advent of persistent memory,
+
+04:07.040 --> 04:11.560
+these limits are starting to be a little bit tighter.
+
+04:11.560 --> 04:14.280
+Also, there are not many addressing options provided
+
+04:14.280 --> 04:15.240
+by Buffer.
+
+04:15.240 --> 04:18.040
+Either we go on the relative addressing scheme
+
+04:18.040 --> 04:20.280
+where basically we say, put in, put in, put in,
+
+04:20.280 --> 04:22.960
+then we rely on a mutable index on the byte buffer
+
+04:22.960 --> 04:25.640
+to keep track of where we want to store the bytes.
+
+04:25.640 --> 04:28.400
+But that's low because we have to mutate some state
+
+04:28.400 --> 04:32.000
+and then situ optimization have a little bit more trouble
+
+04:32.000 --> 04:33.080
+coping with that.
+
+04:33.080 --> 04:34.840
+Or we go fully explicit.
+
+04:34.840 --> 04:37.360
+And so we put offsets everywhere in our code.
+
+04:37.360 --> 04:41.680
+And that makes our code a little bit more brittle.
+
+04:41.680 --> 04:43.760
+So this is what happens when you want
+
+04:43.760 --> 04:45.920
+to access an IT library.
+
+04:45.920 --> 04:46.760
+You have a client.
+
+04:46.760 --> 04:47.800
+You have an IT library.
+
+04:47.800 --> 04:49.520
+You have some JNI Goop in the middle.
+
+04:49.520 --> 04:51.080
+What's inside the JNI Goop?
+
+04:51.080 --> 04:53.280
+Well, a little bit of everything.
+
+04:53.280 --> 04:56.080
+There are some native method declarations in the Java code.
+
+04:56.080 --> 04:59.680
+Then if you compile this code using Java C dash H,
+
+04:59.680 --> 05:01.480
+you have to use a special option, which
+
+05:01.480 --> 05:03.760
+will generate the site headers file
+
+05:03.760 --> 05:08.080
+that you need in order to implement your C JNI function.
+
+05:08.080 --> 05:10.840
+So you go over to C, you implement your JNI function.
+
+05:10.840 --> 05:13.440
+You compile that function, the C file,
+
+05:13.440 --> 05:15.800
+which is your client compiler of choice.
+
+05:15.800 --> 05:18.080
+You get back a shim DLL.
+
+05:18.080 --> 05:19.560
+This DLL is not the library that you
+
+05:19.560 --> 05:21.440
+wanted to talk to in the first place.
+
+05:21.440 --> 05:23.000
+This is just some extra glue code
+
+05:23.000 --> 05:25.640
+that you need in order to get to the library that you want.
+
+05:25.640 --> 05:28.160
+So now you have two native libraries,
+
+05:28.160 --> 05:32.920
+the one you want to talk to and the JNI DLL.
+
+05:32.920 --> 05:35.400
+And that's a little bit suboptimal.
+
+05:35.400 --> 05:38.520
+So what we need instead is a Java first programming model.
+
+05:38.520 --> 05:40.440
+So something that allows us to reach
+
+05:40.440 --> 05:45.200
+into native functions directly only used in Java code.
+
+05:47.960 --> 05:52.320
+We also need, since we want to model off-it memory
+
+05:52.320 --> 05:55.160
+in a more sane way, we need a replacement for the by-buffer
+
+05:55.160 --> 05:59.280
+API, something that is more targeted at the use cases
+
+05:59.280 --> 06:02.200
+that FFI has.
+
+06:02.200 --> 06:03.960
+So we want deterministic allocation.
+
+06:03.960 --> 06:06.040
+We want bigger addressing space.
+
+06:06.040 --> 06:09.520
+We want better ways to describe struct layouts
+
+06:09.520 --> 06:12.920
+so that we can access memory more easily.
+
+06:12.920 --> 06:15.120
+And also we want to tie everything together.
+
+06:15.120 --> 06:16.920
+So we want to define tools that allows
+
+06:16.920 --> 06:21.160
+us to automatically generate bindings for native library
+
+06:21.160 --> 06:22.160
+in one shot.
+
+06:22.160 --> 06:25.400
+And we'll see a little bit about that later.
+
+06:25.400 --> 06:28.440
+Ultimately, our goal is not to replace existing frameworks,
+
+06:28.440 --> 06:31.280
+such as JNA, JNR, for example.
+
+06:31.280 --> 06:35.280
+I think Charlie is going to talk about that maybe later.
+
+06:35.280 --> 06:37.520
+But to help some of those frameworks
+
+06:37.520 --> 06:39.760
+to overcome the workarounds that they
+
+06:39.760 --> 06:42.800
+have to keep doing all over again,
+
+06:42.800 --> 06:45.480
+because they don't have a proper API to deal with pointers.
+
+06:45.480 --> 06:47.760
+They don't have a proper API to free pointers
+
+06:47.760 --> 06:49.240
+when they are no longer used.
+
+06:49.240 --> 06:50.760
+And so hopefully some of this stuff
+
+06:50.760 --> 06:53.000
+is going to come handy in those cases, too.
+
+06:55.840 --> 06:58.760
+So Panama is not just about the foreign function memory API.
+
+06:58.760 --> 07:01.440
+Of course, that's a huge part of Panama.
+
+07:01.440 --> 07:03.840
+But Panama also contains the vector API,
+
+07:03.840 --> 07:07.000
+which is an end API to access SIMD computation
+
+07:07.000 --> 07:09.280
+from Java code directly.
+
+07:09.280 --> 07:14.080
+But there's also Babylon, a project that recently sprung up,
+
+07:14.080 --> 07:17.800
+which allows us to see what's inside the body of a Java
+
+07:17.800 --> 07:23.240
+method with a nice IR that can be introspective using Java.
+
+07:23.240 --> 07:24.720
+So what can you do with Babylon?
+
+07:24.720 --> 07:26.520
+For example, you can take a Java method that
+
+07:26.520 --> 07:30.200
+contains a loop, for example.
+
+07:30.200 --> 07:32.320
+And you can inspect that loop.
+
+07:32.320 --> 07:34.400
+You can turn it into a GPU kernel.
+
+07:34.400 --> 07:36.800
+And then you can use FFM to dispatch that kernel
+
+07:36.800 --> 07:38.760
+using CUDA to the GPU.
+
+07:38.760 --> 07:41.760
+So Babylon and FFM kind of comes together
+
+07:41.760 --> 07:44.080
+and provides us a better and more robust solution
+
+07:44.080 --> 07:47.400
+in order to do on GPU computing.
+
+07:50.720 --> 07:53.240
+The main instruction when it comes to accessing memory
+
+07:53.240 --> 07:54.520
+is called memory segment.
+
+07:54.520 --> 07:57.360
+That gives us access to a contiguous region of memory.
+
+07:57.360 --> 07:59.520
+There are, of course, two kind of memory segments.
+
+07:59.520 --> 08:00.680
+This is similar to white buffer.
+
+08:00.680 --> 08:04.600
+There are heap segments that are backed by on-heap memory.
+
+08:04.640 --> 08:07.640
+And native segments that are backed by off-heap memory.
+
+08:07.640 --> 08:09.280
+All segments have a size.
+
+08:09.280 --> 08:11.680
+So if you try to access a segment out of bounds,
+
+08:11.680 --> 08:12.960
+you get an error.
+
+08:12.960 --> 08:15.600
+They have a lifetime, which means they are alive.
+
+08:15.600 --> 08:18.240
+But then after you free them, they are no longer alive.
+
+08:18.240 --> 08:21.800
+So if you try to access them when they are no longer alive,
+
+08:21.800 --> 08:23.080
+you get an exception.
+
+08:23.080 --> 08:25.920
+And some segments may also have confinement.
+
+08:25.920 --> 08:31.640
+So they may start in a thread, and they can only
+
+08:31.640 --> 08:36.240
+be accessed in the same thread where they started from.
+
+08:36.240 --> 08:37.400
+How do we use segments?
+
+08:37.400 --> 08:38.640
+Well, it's not too difficult.
+
+08:38.640 --> 08:40.400
+It's very similar to white buffer.
+
+08:40.400 --> 08:42.560
+You can almost see the translation,
+
+08:42.560 --> 08:45.040
+the mechanical translation from the white buffer API
+
+08:45.040 --> 08:46.440
+to memory segments.
+
+08:46.440 --> 08:48.360
+Let's say that we want to model a point that
+
+08:48.360 --> 08:50.600
+has fields x and y.
+
+08:50.600 --> 08:52.560
+So what we have to do, we have to allocate a segment.
+
+08:52.560 --> 08:53.760
+We do that using an arena.
+
+08:53.760 --> 08:56.200
+We will see a little bit later what an arena is.
+
+08:56.200 --> 08:59.280
+Let's just go with me for a minute.
+
+08:59.280 --> 09:01.640
+We have to allocate a segment in 16 bytes,
+
+09:01.640 --> 09:04.560
+because the coordinates are 8 byte each.
+
+09:04.560 --> 09:09.480
+And then we put double values into each coordinates, one
+
+09:09.480 --> 09:11.840
+at offset s0 and another at offset 8.
+
+09:11.840 --> 09:14.240
+And that's how we populate the memory
+
+09:14.240 --> 09:16.480
+of that particular segment.
+
+09:16.480 --> 09:18.960
+So one of the issues that we have in this code, of course,
+
+09:18.960 --> 09:20.880
+is that we are using an automatic arena.
+
+09:20.880 --> 09:22.640
+An automatic arena is essentially
+
+09:22.640 --> 09:24.840
+providing an automatic, the allocation scheme,
+
+09:24.840 --> 09:27.840
+which is similar to the one that is used by the white buffer
+
+09:27.840 --> 09:28.240
+API.
+
+09:28.240 --> 09:30.600
+So we are not going to get any advantage here.
+
+09:30.600 --> 09:33.760
+But we can do one better.
+
+09:33.760 --> 09:36.680
+In fact, this is actually where we spend the most time
+
+09:36.680 --> 09:39.600
+designing the memory API.
+
+09:39.600 --> 09:42.440
+Java, as you all know, is based on the very idea
+
+09:42.440 --> 09:44.520
+of having automatic memory management, which
+
+09:44.520 --> 09:46.840
+means you only care about allocating objects.
+
+09:46.840 --> 09:48.960
+The garbage collector will sit behind your back
+
+09:48.960 --> 09:53.160
+and automatically recycle memory when no longer used.
+
+09:53.160 --> 09:55.480
+This is based on this concept of computing
+
+09:55.480 --> 09:58.720
+which objects are reachable at any given point in time.
+
+09:58.720 --> 10:02.280
+Problems with this approach is that computing the reachability
+
+10:02.280 --> 10:05.240
+graph, so which objects are reachable at any given point
+
+10:05.240 --> 10:07.520
+in time, is a very expensive operation.
+
+10:07.520 --> 10:11.640
+And you can find that garbage collectors, especially
+
+10:11.640 --> 10:13.680
+the one of the latest generation, the low latency
+
+10:13.680 --> 10:16.040
+garbage collectors, they don't want to materialize
+
+10:16.040 --> 10:17.800
+the reachability graph as often.
+
+10:17.800 --> 10:19.360
+So if you try, for example, to allocate
+
+10:19.360 --> 10:22.480
+a lot of the red buffer using ZGC,
+
+10:22.480 --> 10:25.360
+you will see that there's a lot more time
+
+10:25.360 --> 10:27.560
+before the, by buffer, is collected
+
+10:27.560 --> 10:30.680
+compared to having something else where you can actually
+
+10:30.680 --> 10:32.480
+thermistically release the memory.
+
+10:32.480 --> 10:34.240
+So that's a problem.
+
+10:34.240 --> 10:36.080
+Another problem is that the garbage collector
+
+10:36.080 --> 10:38.840
+doesn't have knowledge about the off-heap memory region that
+
+10:38.840 --> 10:40.400
+can be attached to the red buffer.
+
+10:40.400 --> 10:41.960
+The only thing the garbage collector sees
+
+10:41.960 --> 10:44.800
+is a very small instance, a very small by buffer instance
+
+10:44.800 --> 10:48.200
+that is like, I don't know, 16 bytes or something more.
+
+10:48.200 --> 10:50.000
+But it doesn't seem that maybe there
+
+10:50.000 --> 10:52.240
+are four gigabytes of off-heap memory attached to that.
+
+10:52.240 --> 10:55.800
+So there's no way to prioritize that collection.
+
+10:55.800 --> 10:59.800
+And also, garbage collector only can keep track of an object
+
+10:59.800 --> 11:02.120
+as long as if it's used from a Java application.
+
+11:02.120 --> 11:05.320
+So if that by buffer escapes to native code,
+
+11:05.320 --> 11:09.000
+then it's up to the developer to keep that object alive
+
+11:09.000 --> 11:10.600
+across the native code boundary.
+
+11:10.600 --> 11:13.880
+So you have to start playing with reachability fences,
+
+11:13.880 --> 11:17.800
+and your code suddenly doesn't look as good anymore.
+
+11:17.800 --> 11:21.280
+So what we need is a new way to think
+
+11:21.280 --> 11:26.560
+about managing memory resources explicitly.
+
+11:26.560 --> 11:28.520
+And that's challenging because we
+
+11:28.520 --> 11:30.360
+are sitting on top of a language that
+
+11:30.360 --> 11:33.960
+made its success on the very idea of basically never
+
+11:33.960 --> 11:35.960
+worry about releasing memory ever,
+
+11:35.960 --> 11:39.280
+because the garbage collector will do it for you.
+
+11:39.280 --> 11:42.440
+So what we introduced was an abstraction called arena.
+
+11:42.440 --> 11:46.800
+And arena models the life cycle of one or more memory segment.
+
+11:46.800 --> 11:49.440
+All the memory segments are allocated with the same arena
+
+11:49.440 --> 11:51.040
+at the same lifetime.
+
+11:51.080 --> 11:53.360
+So we call this a lifetime-centric approach,
+
+11:53.360 --> 11:55.680
+because first you have to think about what
+
+11:55.680 --> 11:58.400
+is the lifetime of the memory that you want to work with.
+
+11:58.400 --> 12:01.720
+Then you create an arena that embodies that lifetime,
+
+12:01.720 --> 12:04.120
+and then you start allocating memory.
+
+12:04.120 --> 12:05.480
+There are many kinds of arena.
+
+12:05.480 --> 12:08.760
+Of course, there is the silly global arena that you can use.
+
+12:08.760 --> 12:11.840
+And basically, whatever you allocate, it stays alive.
+
+12:11.840 --> 12:13.360
+It's never collected.
+
+12:13.360 --> 12:15.360
+There's the automatic arena, which we saw before,
+
+12:15.360 --> 12:19.320
+which basically gives us an automatic memory management
+
+12:19.320 --> 12:21.840
+scheme, which is similar to the buffer.
+
+12:21.840 --> 12:24.080
+But then there are the more interesting confined and shared
+
+12:24.080 --> 12:24.800
+arenas.
+
+12:24.800 --> 12:27.840
+These are arenas that support the autoclosable interface.
+
+12:27.840 --> 12:29.640
+So if you call close on that arena,
+
+12:29.640 --> 12:32.120
+all the memory that has been allocated with that arena
+
+12:32.120 --> 12:34.360
+will basically just go away deterministically.
+
+12:34.360 --> 12:38.600
+We don't need to wait for the garbage collector to do that.
+
+12:38.600 --> 12:40.760
+There are strong safety guarantees.
+
+12:40.760 --> 12:43.120
+Regardless of whether you are in the confined case
+
+12:43.120 --> 12:46.840
+or in the shared case, it's not possible for you
+
+12:46.840 --> 12:49.080
+to access a segment after it has been freed.
+
+12:49.080 --> 12:52.840
+And in the shared case, we had to do a lot of JVM black magic
+
+12:52.840 --> 12:55.280
+in order to make this work.
+
+12:55.280 --> 12:59.520
+Because of course, you can think, well, we just put a lock.
+
+12:59.520 --> 13:01.080
+Whenever you access a memory segment,
+
+13:01.080 --> 13:03.760
+we'll check whether the segment is still alive using
+
+13:03.760 --> 13:04.880
+an expressive operation.
+
+13:04.880 --> 13:08.120
+And then you realize that memory access is 10x slower
+
+13:08.120 --> 13:08.680
+than before.
+
+13:08.680 --> 13:12.360
+So what we did instead is, with the help of the GC team,
+
+13:12.360 --> 13:15.520
+we relied on some safe pointing mechanism
+
+13:15.560 --> 13:20.040
+to make sure that it is never possible to close a segment
+
+13:20.040 --> 13:21.920
+while there is any other thread that is trying
+
+13:21.920 --> 13:24.040
+to access the same segment.
+
+13:24.040 --> 13:25.040
+That works very well.
+
+13:25.040 --> 13:26.720
+Of course, it's a little bit more expensive
+
+13:26.720 --> 13:30.440
+if you need to close shared arena very frequently.
+
+13:30.440 --> 13:34.760
+But hopefully, you won't need to do that.
+
+13:34.760 --> 13:37.000
+So what we are trying to do here is to find an epibalance
+
+13:37.000 --> 13:41.280
+between the flexibility of C automatic memory management,
+
+13:41.280 --> 13:43.720
+sorry, the thermistic memory management,
+
+13:43.720 --> 13:47.720
+where you have to do free and maloc explicitly.
+
+13:47.720 --> 13:50.000
+That's very flexible, but it's also very unsafe,
+
+13:50.000 --> 13:51.960
+because you can have use after free,
+
+13:51.960 --> 13:55.680
+you can have memory leak, or the extreme safety of Rust,
+
+13:55.680 --> 13:58.320
+which comes at the expense of some flexibility
+
+13:58.320 --> 13:59.400
+when you try to code.
+
+13:59.400 --> 14:01.840
+Because if you want to do, for example,
+
+14:01.840 --> 14:04.840
+secret data structures in Rust, like a link list,
+
+14:04.840 --> 14:08.400
+it becomes very, very, very difficult.
+
+14:08.400 --> 14:10.520
+So Java is trying to sit in the middle.
+
+14:10.520 --> 14:15.920
+And I think we've done a good job doing this.
+
+14:15.920 --> 14:18.200
+So how do you work with explicit arenas?
+
+14:18.200 --> 14:20.480
+It's basically the same as with automatic arenas.
+
+14:20.480 --> 14:22.000
+The only difference here is that now we
+
+14:22.000 --> 14:24.080
+are using a try with resource statement.
+
+14:24.080 --> 14:27.280
+So we create the arena inside the try with resource block.
+
+14:27.280 --> 14:28.360
+We do the allocation.
+
+14:28.360 --> 14:30.440
+We populate the point struct.
+
+14:30.440 --> 14:33.600
+And then when we close the brace, all the memory goes away.
+
+14:33.600 --> 14:36.640
+So this is much better than the direct buffer counterpart,
+
+14:36.640 --> 14:40.240
+especially if you need to frequently allocate off-heap
+
+14:40.240 --> 14:42.520
+data structures, because we no longer
+
+14:42.520 --> 14:44.080
+put load on the garbage collector
+
+14:44.080 --> 14:46.160
+just to clean up the off-heap memory.
+
+14:49.000 --> 14:53.600
+So one thing that we need to still improve on this API
+
+14:53.600 --> 14:57.120
+is how do we access the fields of the struct
+
+14:57.120 --> 14:59.120
+that we want to operate with?
+
+14:59.120 --> 15:01.280
+In the example that I showed previously,
+
+15:01.280 --> 15:03.600
+we had to say, well, I want to access off-heap zero.
+
+15:03.600 --> 15:05.360
+I want to access off-heap eight, because we
+
+15:05.360 --> 15:08.440
+knew these were the offset where my fields are.
+
+15:08.440 --> 15:12.480
+But what if we could just declare
+
+15:12.480 --> 15:14.640
+what is the layout of the struct that I want to work with?
+
+15:14.640 --> 15:17.760
+What if we can translate the struct point 2D definition
+
+15:17.760 --> 15:21.920
+that we have in C into a Java object that models
+
+15:21.920 --> 15:23.080
+the same layout?
+
+15:23.080 --> 15:25.080
+Then we can start asking interesting questions,
+
+15:25.080 --> 15:28.160
+such as what is the layout of the field x or y.
+
+15:28.160 --> 15:31.440
+Give me avarendo for accessing the x field.
+
+15:31.440 --> 15:33.600
+And that is exactly what we are doing here.
+
+15:33.600 --> 15:36.680
+So instead of just relegating the definition of point
+
+15:36.680 --> 15:42.000
+2D in a comment, we actually define
+
+15:42.000 --> 15:46.040
+the layout of the point struct as an object, as a Java object.
+
+15:46.040 --> 15:49.000
+And then we use this object to derive the two varendals, one
+
+15:49.000 --> 15:53.400
+for accessing the x field and one for accessing the y field.
+
+15:53.400 --> 15:55.040
+Then inside the try with our sources,
+
+15:55.040 --> 15:57.000
+we can just use the varendal to access the fields.
+
+15:57.000 --> 16:01.160
+We don't have to specify the offset eight for the field y,
+
+16:01.160 --> 16:03.800
+for example, because the varendal will encode all the offset
+
+16:03.800 --> 16:06.400
+computation automatically.
+
+16:06.400 --> 16:09.280
+At the same time, look in the allocation expression,
+
+16:09.280 --> 16:11.800
+the very first inside the try with our source block,
+
+16:11.800 --> 16:13.080
+we can see that we are just using
+
+16:13.080 --> 16:15.880
+passing the layout to the location routine.
+
+16:15.880 --> 16:17.640
+And the layout, of course, knows what
+
+16:17.640 --> 16:22.440
+is the size of the block that we want to allocate.
+
+16:22.440 --> 16:24.280
+So switching gears a little bit, let's
+
+16:24.280 --> 16:26.280
+start talking about FFI.
+
+16:26.280 --> 16:29.600
+The main abstraction in FFI is called native linker.
+
+16:29.600 --> 16:32.600
+This is an object that essentially embeds
+
+16:32.600 --> 16:36.320
+the calling convention of the platform in which the JVM runs.
+
+16:36.320 --> 16:37.800
+It provides two capabilities.
+
+16:37.800 --> 16:40.800
+The first is it allows us to derive a method
+
+16:40.800 --> 16:43.680
+end all that targets a native function.
+
+16:43.680 --> 16:47.680
+So we can basically describe the native function
+
+16:47.680 --> 16:49.160
+we want to call, get a method end all,
+
+16:49.160 --> 16:50.520
+and just call it from Java.
+
+16:50.520 --> 16:52.760
+The second capability is kind of the reverse of that.
+
+16:52.760 --> 16:54.640
+So we have a method end all that describes
+
+16:54.640 --> 16:56.040
+on Java computation.
+
+16:56.040 --> 16:58.240
+We want to turn it into a function pointer,
+
+16:58.240 --> 17:01.360
+so a memory segment, that then we can pass back to native code.
+
+17:01.360 --> 17:07.920
+In this approach is inspired to, for example,
+
+17:07.920 --> 17:10.680
+Python C types or lib FFI.
+
+17:10.680 --> 17:12.360
+These are kind of the main inspiration.
+
+17:12.360 --> 17:18.280
+So we want to be able to describe a function from Java,
+
+17:18.280 --> 17:21.240
+so then we can call it directly.
+
+17:21.240 --> 17:24.160
+It all builds on the abstraction that we've seen so far.
+
+17:24.160 --> 17:27.960
+So we use layouts to describe the signature of C functions.
+
+17:27.960 --> 17:31.200
+We use memory segment to pass addresses or structs.
+
+17:31.200 --> 17:35.720
+And we use our in-apps to model life cycles of upcalls
+
+17:35.720 --> 17:38.320
+and to model the life cycles also of loaded libraries.
+
+17:41.040 --> 17:44.320
+So when we want to call a native function,
+
+17:44.320 --> 17:47.160
+so here I define a function distance that take a point,
+
+17:47.160 --> 17:50.320
+returns the distance of the point from the origin.
+
+17:50.320 --> 17:53.840
+Actually, doing that in C is a little bit more convoluted
+
+17:53.840 --> 17:56.840
+than it looks like, because it essentially depends
+
+17:56.840 --> 17:58.320
+on the platform we are on.
+
+17:58.320 --> 18:02.520
+So if we are on Linux, we will have to look at some rules
+
+18:02.520 --> 18:05.280
+that are called the CSV calling convention.
+
+18:05.280 --> 18:06.840
+And that tells us that, for example,
+
+18:06.840 --> 18:10.400
+structs that are as big as the point to destruct
+
+18:10.400 --> 18:13.520
+that we have here can have their fields pass in registers.
+
+18:13.520 --> 18:15.080
+So the only thing that we need to do when
+
+18:15.080 --> 18:18.920
+calling the distance function is to load the first floating
+
+18:18.920 --> 18:22.280
+point register with the value 3, the second floating point
+
+18:22.280 --> 18:24.920
+register with the value 4, then we just jump on the function.
+
+18:24.920 --> 18:27.880
+But if you are on Windows, even if you are on X64,
+
+18:27.880 --> 18:30.720
+but on Windows, there is a completely different set
+
+18:30.720 --> 18:33.160
+of calling convention, which actually tells us
+
+18:33.160 --> 18:36.840
+that any struct that is bigger than 64 bit,
+
+18:36.840 --> 18:39.880
+such as our struct here, will be passed in memory instead,
+
+18:39.880 --> 18:42.800
+which means the struct has to be spilled on the stack,
+
+18:42.800 --> 18:46.000
+a pointer to the stack has to be stored in the RCX register,
+
+18:46.000 --> 18:47.640
+and then we jump to the function.
+
+18:47.640 --> 18:52.560
+So same function, same architecture, because X64,
+
+18:52.560 --> 18:56.080
+completely very different set of assembly instruction
+
+18:56.080 --> 18:57.520
+that needs to be generated in order
+
+18:57.520 --> 19:02.080
+to act as a trampoline from Java code, for example, to C code.
+
+19:02.080 --> 19:06.560
+So that's why it's important that we
+
+19:06.560 --> 19:10.240
+are able to describe the signature of a C function
+
+19:10.240 --> 19:11.880
+to the linker, because the linker then
+
+19:11.880 --> 19:14.320
+will inspect the signature of the C function
+
+19:14.320 --> 19:17.240
+and will determine what is the exact set of instruction
+
+19:17.240 --> 19:19.600
+that we need in order to go from the Java
+
+19:19.600 --> 19:23.800
+code to the native code underneath.
+
+19:23.800 --> 19:25.080
+And so how do we do this?
+
+19:25.080 --> 19:29.080
+Well, when we call the down call end on the native linker,
+
+19:29.080 --> 19:31.360
+we will pass, of course, the address of the function
+
+19:31.360 --> 19:32.880
+that we want to call.
+
+19:32.880 --> 19:34.640
+This is obtained using a symbol lookup,
+
+19:34.640 --> 19:38.440
+which we won't have time to investigate in further detail.
+
+19:38.440 --> 19:40.240
+But it will basically give us the address
+
+19:40.240 --> 19:42.440
+of where the distance address function lives.
+
+19:42.440 --> 19:44.360
+And then we provide a function descriptor.
+
+19:44.360 --> 19:46.840
+This function descriptor is nothing but a set of layouts,
+
+19:46.840 --> 19:49.560
+one for the return type and one for the argument.
+
+19:49.560 --> 19:52.040
+In this case, we know that the return type is double.
+
+19:52.040 --> 19:53.640
+So we use a double layout.
+
+19:53.680 --> 19:55.760
+And the argument is actually the point
+
+19:55.760 --> 19:57.320
+to this track that we defined before.
+
+19:57.320 --> 19:59.800
+So that same layout can now be reused in order
+
+19:59.800 --> 20:02.440
+to describe the signature of the function.
+
+20:02.440 --> 20:03.800
+Then inside our try with the source,
+
+20:03.800 --> 20:05.960
+we populate the point as before.
+
+20:05.960 --> 20:08.280
+And then we can call the method end.
+
+20:08.280 --> 20:10.960
+So we just pass the point memory segment
+
+20:10.960 --> 20:13.280
+to the method end that we obtain.
+
+20:13.280 --> 20:16.760
+And that means that we will be able to pass the point by value
+
+20:16.760 --> 20:18.120
+to the C function.
+
+20:18.120 --> 20:19.600
+And nothing else needs to be done,
+
+20:19.600 --> 20:22.560
+because the linker will figure out exactly what set
+
+20:22.600 --> 20:25.200
+of machine instruction to generate in order to go there.
+
+20:28.840 --> 20:31.280
+So of course, when we talk about native function,
+
+20:31.280 --> 20:35.000
+we always have to keep safety in the back of our mind, right?
+
+20:35.000 --> 20:37.720
+Because whenever we go into native,
+
+20:37.720 --> 20:39.320
+the operation is fundamentally unsafe.
+
+20:39.320 --> 20:41.840
+We could, for example, make a mistake
+
+20:41.840 --> 20:45.080
+in describing the signature of our target C function,
+
+20:45.080 --> 20:47.200
+which means the assembly step that we have
+
+20:47.200 --> 20:50.680
+is not correct for calling that particular function.
+
+20:50.680 --> 20:53.840
+We may cause all sorts of issues.
+
+20:53.840 --> 20:55.800
+The foreign code may attempt to free memory
+
+20:55.800 --> 20:58.160
+that has already been freed from Java code.
+
+21:00.840 --> 21:03.360
+Or we may get a pointer from native code.
+
+21:03.360 --> 21:05.160
+We may try to resize the pointer,
+
+21:05.160 --> 21:06.920
+but we got the size wrong.
+
+21:06.920 --> 21:09.400
+And so we are suddenly trying to access memory
+
+21:09.400 --> 21:12.280
+that is not there.
+
+21:12.280 --> 21:15.720
+So in the FFM API, there is a concept
+
+21:15.720 --> 21:16.960
+that is called restricted method.
+
+21:16.960 --> 21:19.760
+So there are some methods in the FFM API
+
+21:19.760 --> 21:24.840
+that are not directly available all the time.
+
+21:24.840 --> 21:26.400
+They are part of the Java API.
+
+21:26.400 --> 21:28.840
+So if you go in the Java doc, you can see them.
+
+21:28.840 --> 21:32.520
+But they are restricted, and you need
+
+21:32.520 --> 21:35.080
+to use an extra command line flag
+
+21:35.080 --> 21:37.200
+if you want to use them without warnings.
+
+21:37.200 --> 21:39.600
+So for now, basically, if you try to use a restricted method,
+
+21:39.600 --> 21:42.880
+such as the method for creating a down call method endo,
+
+21:42.880 --> 21:45.320
+you will only get a warning.
+
+21:45.320 --> 21:48.400
+But in the future, we plan to turn this warning
+
+21:48.400 --> 21:49.560
+into an error.
+
+21:49.560 --> 21:52.360
+And in that case, you will have to use a new option that
+
+21:52.360 --> 21:55.640
+is called dash, dash enable native access that
+
+21:55.640 --> 21:59.560
+will grant a subset of the models of your application
+
+21:59.560 --> 22:03.640
+or the all unnamed model if you are using the class path,
+
+22:03.640 --> 22:05.920
+access to restricted methods.
+
+22:05.920 --> 22:09.240
+This is a part of a bigger plan to move Java
+
+22:09.240 --> 22:12.080
+on a more solid foundation, one that
+
+22:12.080 --> 22:15.240
+allows us to provide integrity by default.
+
+22:15.240 --> 22:17.760
+So Java in its default configuration
+
+22:17.760 --> 22:19.680
+should always preserve integrity,
+
+22:19.680 --> 22:23.760
+which means it shouldn't be possible for native code
+
+22:23.760 --> 22:27.440
+to mess up with invariants, such as, for example,
+
+22:27.440 --> 22:29.520
+mutating final fields and things like that.
+
+22:33.400 --> 22:36.960
+So this is the workflow using FFM API when
+
+22:36.960 --> 22:39.080
+we want to access a native library.
+
+22:39.080 --> 22:41.840
+So we still have something in the middle between us
+
+22:41.840 --> 22:43.960
+and the native library that we want to call.
+
+22:43.960 --> 22:46.960
+This time, though, the stuff we have in the middle
+
+22:46.960 --> 22:48.000
+is just Java objects.
+
+22:48.000 --> 22:51.040
+We have memory layout, varendals, method endals, function
+
+22:51.040 --> 22:52.280
+descriptors.
+
+22:52.280 --> 22:53.720
+But here's an idea.
+
+22:53.720 --> 22:57.080
+What if we could generate all this stuff mechanically
+
+22:57.080 --> 22:58.080
+using a tool?
+
+22:58.080 --> 23:01.720
+And that's exactly what the JXR tool does.
+
+23:01.720 --> 23:04.160
+So let's say that we want to call the QSAR function, which
+
+23:04.160 --> 23:06.680
+is actually a tricky function because it has a function pointer
+
+23:06.680 --> 23:10.360
+that allows us to sort the contents to compare
+
+23:10.360 --> 23:12.080
+elements of an array.
+
+23:12.080 --> 23:17.040
+So it uses a function pointer type def.
+
+23:17.040 --> 23:20.280
+So if you want to model this using plain FFM,
+
+23:20.280 --> 23:22.520
+it's going to take you a little bit of setup code
+
+23:22.520 --> 23:24.160
+in order to create the app call stub
+
+23:24.160 --> 23:26.280
+and the method endals that are required to call this.
+
+23:26.280 --> 23:28.800
+But if you give all this header to JXR,
+
+23:28.800 --> 23:30.600
+so we could just start with pointing it at the header
+
+23:30.600 --> 23:33.920
+or the standard library header where this is defined,
+
+23:33.920 --> 23:38.040
+then we basically just get a bunch of static declaration
+
+23:38.040 --> 23:41.000
+that we can use to call QSAR.
+
+23:41.040 --> 23:43.240
+So if I do all this, the only thing
+
+23:43.240 --> 23:45.120
+I have to do from my code is first
+
+23:45.120 --> 23:46.320
+to create the function pointer.
+
+23:46.320 --> 23:48.600
+And this is possible with a factor
+
+23:48.600 --> 23:51.240
+that has been generated by JSTRAP that allows me to pass
+
+23:51.240 --> 23:52.520
+a lambda expression.
+
+23:52.520 --> 23:53.840
+And the lambda expression will be
+
+23:53.840 --> 23:56.240
+turned into a function pointer that is stored
+
+23:56.240 --> 23:57.360
+inside a memory segment.
+
+23:57.360 --> 23:59.560
+And then I can pass to the QSAR function.
+
+23:59.560 --> 24:02.040
+And the QSAR function is not a method endal anymore.
+
+24:02.040 --> 24:04.680
+It's a nice static wrapper around the method endal.
+
+24:04.680 --> 24:09.360
+So it's much better to use from the developer perspective
+
+24:09.360 --> 24:11.800
+because using method endal can sometimes
+
+24:11.800 --> 24:16.680
+be tricky with the fact that we can pass the wrong type
+
+24:16.680 --> 24:20.240
+and then it gets lower and things like that.
+
+24:20.240 --> 24:23.240
+So in comparison, this is the code
+
+24:23.240 --> 24:27.120
+that you have to write if you wanted to do this using JNI.
+
+24:27.120 --> 24:30.160
+So there's Java code with native methods.
+
+24:30.160 --> 24:32.440
+There's another file that is generated by Java C.
+
+24:32.440 --> 24:35.760
+And then there's quite a bit of C implementation
+
+24:35.760 --> 24:37.080
+in order to do QSAR.
+
+24:37.080 --> 24:38.920
+And it actually took us a few attempts
+
+24:38.960 --> 24:41.880
+in order to get to the best optimal implementation
+
+24:41.880 --> 24:44.640
+because our first attempt wasn't very good.
+
+24:44.640 --> 24:46.920
+It can actually get quite tricky.
+
+24:46.920 --> 24:50.320
+And even better, if you look at the performances,
+
+24:50.320 --> 24:55.280
+the plain FFM-based approach is roughly 2x, 3x faster
+
+24:55.280 --> 24:59.480
+than the JNI approach, every optimized JNI approach.
+
+24:59.480 --> 25:02.400
+And that's because a colleague of mine,
+
+25:02.400 --> 25:05.080
+Neal Verne, has put a lot of effort
+
+25:05.080 --> 25:08.440
+in trying to optimize, especially the up-call path.
+
+25:08.440 --> 25:11.840
+So when you want to call a Java function from native code,
+
+25:11.840 --> 25:15.600
+there was a lot of performance left on the table from JNI.
+
+25:15.600 --> 25:20.080
+And we were able to greatly improve the performances there.
+
+25:22.840 --> 25:26.520
+For regular calls, you probably won't see much difference.
+
+25:26.520 --> 25:29.360
+So FFM is more or less on par with JNI.
+
+25:29.360 --> 25:33.320
+But as soon as your native call is starting to up-call back
+
+25:33.320 --> 25:37.360
+into Java, you're going to see massive differences.
+
+25:37.400 --> 25:42.520
+So wrapping up, FFM provides a safe and efficient way
+
+25:42.520 --> 25:43.640
+to access memory.
+
+25:43.640 --> 25:45.080
+We have deterministic location.
+
+25:45.080 --> 25:48.440
+We have layouts to describe structs.
+
+25:48.440 --> 25:53.840
+And so it gives us ability to describe the content
+
+25:53.840 --> 25:56.440
+of the memory that we want to work with and then get
+
+25:56.440 --> 25:59.960
+varendals to access that memory in a much more robust way.
+
+25:59.960 --> 26:03.160
+Then we have an API to access native function directly
+
+26:03.160 --> 26:03.920
+from Java.
+
+26:03.960 --> 26:07.360
+So no need to write JNI code.
+
+26:07.360 --> 26:10.000
+That means that your deployment gets simpler,
+
+26:10.000 --> 26:12.440
+because you don't have that shim DLL going around
+
+26:12.440 --> 26:15.560
+that you need to distribute along with your application.
+
+26:15.560 --> 26:19.640
+And together, the foreign linker and memory segment
+
+26:19.640 --> 26:21.320
+and layouts provide the foundation
+
+26:21.320 --> 26:23.720
+of a new interrupt story for Java that
+
+26:23.720 --> 26:26.360
+is based on a tool called JSTRACT, which allows us
+
+26:26.360 --> 26:28.800
+to target native library directly.
+
+26:28.800 --> 26:33.120
+One thing that emerged while we were working on FFM
+
+26:33.120 --> 26:35.840
+is that there was quite a lot of number of use cases
+
+26:35.840 --> 26:37.800
+that we didn't anticipate at first.
+
+26:37.800 --> 26:41.160
+Since FFM is a fairly low level library,
+
+26:41.160 --> 26:44.200
+it allows very easily for other languages
+
+26:44.200 --> 26:47.600
+that are built on top of the VM, such as Scala, Closure,
+
+26:47.600 --> 26:54.320
+or even Ruby to use the FFM layer to then target native
+
+26:54.320 --> 26:56.240
+function.
+
+26:56.240 --> 26:58.320
+That was very expensive to do with JNI,
+
+26:58.320 --> 27:01.680
+because it meant that the other language sitting on top of the VM
+
+27:01.680 --> 27:03.840
+needed to spin some JNI code in order
+
+27:03.840 --> 27:07.440
+to be able to do that or maybe uses a library like libffi.
+
+27:07.440 --> 27:12.320
+But with FFM, this is possible directly out of the box.
+
+27:12.320 --> 27:14.680
+And I think that's a good improvement.
+
+27:14.680 --> 27:17.120
+We have been incubating and previewing, of course,
+
+27:17.120 --> 27:21.040
+for a long time, since JDK14, essentially,
+
+27:21.040 --> 27:24.120
+so that allowed us to get a lot of feedback from Apache
+
+27:24.120 --> 27:26.840
+Lucene, Netty, Tomcat.
+
+27:26.840 --> 27:30.000
+And I think today they are in production
+
+27:30.000 --> 27:31.160
+with some of this stuff.
+
+27:31.200 --> 27:35.120
+So I think if you run Lucene with Java 21,
+
+27:35.120 --> 27:39.040
+you are getting a code path that uses FFM under the hood.
+
+27:39.040 --> 27:44.680
+And I think that helped them to get rid of some of the issues
+
+27:44.680 --> 27:48.080
+where they had to use unsafe in order to free the memory that
+
+27:48.080 --> 27:50.520
+was mapped because otherwise waiting for the garbage
+
+27:50.520 --> 27:52.600
+collector could lead to other issues.
+
+27:52.600 --> 27:54.920
+We also are being used by Tornado VM.
+
+27:54.920 --> 27:57.800
+So in that case, it's an interesting case
+
+27:57.800 --> 28:00.320
+where memory segments are used to model memory that
+
+28:00.360 --> 28:02.000
+is inside the GPU.
+
+28:02.000 --> 28:07.800
+So they are using memory segment in a very creative way there
+
+28:07.800 --> 28:10.840
+and a bunch of other projects as chime in as well.
+
+28:10.840 --> 28:14.240
+So for us, it was a very successful experience
+
+28:14.240 --> 28:16.240
+of using preview features because it allows
+
+28:16.240 --> 28:18.320
+us to gather a lot of feedback.
+
+28:18.320 --> 28:20.080
+Not necessarily, we have a lot of knowledge
+
+28:20.080 --> 28:22.680
+on these topics within the JDK team.
+
+28:22.680 --> 28:24.560
+So it was good for us to put something out.
+
+28:24.560 --> 28:27.320
+And then here, our people were using some of this stuff
+
+28:27.320 --> 28:29.600
+and make it better.
+
+28:29.600 --> 28:30.640
+That's the end of my talk.
+
+28:30.640 --> 28:31.760
+These are some of the links.
+
+28:31.760 --> 28:35.680
+I hope that you are going to try FFM in 22.
+
+28:35.680 --> 28:38.640
+You can subscribe to the mailing list and send us feedback.
+
+28:38.640 --> 28:40.400
+There is a link to the JSTRAC tool.
+
+28:40.400 --> 28:43.440
+So there are binary snapshots available.
+
+28:43.440 --> 28:46.800
+So you can grab the latest one and start extracting
+
+28:46.800 --> 28:50.280
+your library of choice and play with it a little bit.
+
+28:50.280 --> 28:52.400
+And then a link to the repos.
+
+28:52.400 --> 28:53.760
+But that's mostly it.
+
+28:53.760 --> 28:54.520
+Thank you very much.
+
+28:54.520 --> 29:04.560
+The first question.
+
+29:04.560 --> 29:10.520
+Questions?
+
+29:10.520 --> 29:22.400
+Who is FFM-focused from Canadian technologies?
+
+29:22.400 --> 29:24.420
+I think it's pick.
+
+29:24.420 --> 29:28.900
+Yeah, basically what is the difference between these and Kotlin native,
+
+29:28.900 --> 29:37.060
+since Kotlin native can provide access to off-if memory and native function as well.
+
+29:37.060 --> 29:39.740
+I think they are very similar.
+
+29:39.740 --> 29:48.820
+One of the things that I think Kotlin native cannot do because it's still sitting on top of the VM,
+
+29:48.820 --> 29:51.660
+and it has to play by the rules of the existing libraries,
+
+29:51.660 --> 29:57.140
+is that it cannot have a solution for releasing memory safely.
+
+29:57.140 --> 30:00.620
+So I believe that Kotlin native is going to use some,
+
+30:00.620 --> 30:02.220
+I mean it's going to say at some point,
+
+30:02.220 --> 30:04.780
+oh if you use pointer your code is going to be unsafe,
+
+30:04.780 --> 30:07.540
+and you try to free a pointer then all bets are off.
+
+30:07.540 --> 30:09.020
+So this is the main,
+
+30:09.020 --> 30:12.220
+without solution if you use memory segments,
+
+30:12.220 --> 30:16.220
+you can close an arena and your code will never crash.
+
+30:16.220 --> 30:17.860
+You may get an exception.
+
+30:17.860 --> 30:23.140
+This is the same thing as the same thing.
+
+30:23.140 --> 30:26.460
+Yeah, but you know the APIs I've seen so far,
+
+30:26.460 --> 30:28.140
+there is always a whole,
+
+30:28.140 --> 30:31.620
+like if you use them correctly it works,
+
+30:31.620 --> 30:35.180
+but there are ways to use them for multiple threads where it's not working,
+
+30:35.180 --> 30:38.060
+unless you go deeper at the VM level of course,
+
+30:38.060 --> 30:40.420
+which of course Kotlin native cannot do.
+
+30:40.420 --> 30:42.100
+Up here, Mereh, Siou.
+
+30:42.100 --> 30:43.900
+Go on, question.
+
+30:43.900 --> 30:45.580
+Mereh, Siou, here.
+
+30:45.700 --> 30:49.460
+Do you know how many platform specific hacks need to be done,
+
+30:49.460 --> 30:54.460
+like if I want to use one code on like ARM macOS and Linux risk v or something,
+
+30:54.460 --> 30:58.940
+or is it all fully one code for all platforms?
+
+30:58.940 --> 31:02.980
+So in terms of JStrack the model,
+
+31:02.980 --> 31:04.700
+sorry the question was,
+
+31:04.700 --> 31:07.540
+do our platform specific is all this?
+
+31:07.540 --> 31:10.780
+Do we need to worry about differences between platforms?
+
+31:10.780 --> 31:12.380
+The answer is yes,
+
+31:12.500 --> 31:16.180
+in the sense that the JStrack tool is going to give you a binding
+
+31:16.180 --> 31:18.220
+for the platform that you are running on.
+
+31:18.220 --> 31:20.660
+Now, this sounds scary.
+
+31:20.660 --> 31:22.100
+In practice, for example,
+
+31:22.100 --> 31:26.780
+if you work with a high level library such as Lib Clang for example,
+
+31:26.780 --> 31:29.940
+we have a single run of JStrack,
+
+31:29.940 --> 31:32.820
+and then we reuse it across all the platforms and it works fine,
+
+31:32.820 --> 31:35.980
+because that library is defined in a way that is portable.
+
+31:35.980 --> 31:37.540
+If you work with system libraries,
+
+31:37.540 --> 31:39.740
+of course you are going to have a lot less luck,
+
+31:39.740 --> 31:43.500
+and that system library is only going to work on one platform,
+
+31:43.500 --> 31:47.380
+and all the platforms will need to do something else.
+
+31:50.380 --> 31:54.780
+Yes, can you tell us about the memory footprint compared to JNI?
+
+31:54.780 --> 31:58.620
+Memory footprint compared to JNI.
+
+31:58.620 --> 32:00.820
+So of course if you use memory segment,
+
+32:00.820 --> 32:05.180
+there is a little bit of footprint because you have an object that embeds an address,
+
+32:05.180 --> 32:07.140
+so you don't have a long.
+
+32:08.020 --> 32:12.620
+But our plan is to make all these memory segments
+
+32:12.620 --> 32:16.300
+scalarizable because the implementation is completely hidden.
+
+32:16.300 --> 32:19.020
+You only have a sealed interface in the API,
+
+32:19.020 --> 32:22.980
+which means all these interfaces are going to be implemented by value classes
+
+32:22.980 --> 32:24.380
+when Valhalla comes,
+
+32:24.380 --> 32:28.260
+which means if you bring up a memory segment,
+
+32:28.260 --> 32:29.980
+you wrap a memory segment around an address,
+
+32:29.980 --> 32:33.460
+you are not going to pay anything allocation-wise.
+
+32:33.460 --> 32:36.180
+For now, there is a little bit of cost in the cases
+
+32:36.220 --> 32:40.580
+where the VM cannot figure out with escape analysis the allocation,
+
+32:40.580 --> 32:44.540
+but in the future we plan for this to completely disappear.
+
+32:53.860 --> 32:58.700
+Yeah, okay. Sorry.
+

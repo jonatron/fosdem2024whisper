@@ -1,0 +1,530 @@
+WEBVTT
+
+00:00.000 --> 00:13.000
+Next, we have Jan Mench with the wonderful life of a SQL query in a streaming database.
+
+00:13.000 --> 00:16.440
+All right.
+
+00:16.440 --> 00:18.500
+Thank you very much for showing up.
+
+00:18.500 --> 00:21.680
+This is my first conference talk ever.
+
+00:21.680 --> 00:26.120
+So I really appreciate that you took the time to show up even though it's almost the end
+
+00:26.120 --> 00:28.120
+of the conference.
+
+00:28.120 --> 00:29.240
+All right.
+
+00:29.240 --> 00:32.560
+My name is Jan Mench, and I'm working at Rising Wave Labs.
+
+00:32.560 --> 00:35.720
+We are the creator of the Rising Wave database.
+
+00:35.720 --> 00:43.080
+And the Rising Wave database is an analytical database that's focusing on processing unbound
+
+00:43.080 --> 00:44.080
+data.
+
+00:44.080 --> 00:51.200
+So any data that comes in endlessly that you consume from something like Kafka or PubSub,
+
+00:51.200 --> 00:52.600
+for example.
+
+00:52.600 --> 01:01.280
+If you want to summarize what such a database does, not just us, but any other streaming
+
+01:01.280 --> 01:07.320
+database system, you could also say incremental updates to materialized views.
+
+01:07.320 --> 01:10.160
+So what do I mean by that?
+
+01:10.160 --> 01:15.600
+Well, first of all, let's very briefly define what's a view, what's a materialized view.
+
+01:15.600 --> 01:19.520
+A view is basically just an alias for your query.
+
+01:19.520 --> 01:20.520
+Kind of boring.
+
+01:20.520 --> 01:23.880
+If you query it, it just gets replaced.
+
+01:23.880 --> 01:28.240
+A materialized view, on the other hand, it's sort of like a cache.
+
+01:28.240 --> 01:34.280
+So you query it, and the materialized view itself keeps some state.
+
+01:34.280 --> 01:39.140
+And now the question is, you have a analytical question.
+
+01:39.140 --> 01:43.960
+You define your materialized view, but the underlying data on which this materialized
+
+01:43.960 --> 01:47.040
+view depends on, this changes.
+
+01:47.040 --> 01:50.500
+So how do you update your materialized view?
+
+01:50.500 --> 01:57.220
+How do you update the answer to your analytical question?
+
+01:57.220 --> 02:02.460
+Well, traditionally what you could do, you could just recalculate the entire materialized
+
+02:02.460 --> 02:03.460
+view.
+
+02:03.460 --> 02:04.460
+This is expensive.
+
+02:04.460 --> 02:06.060
+This is slow.
+
+02:06.060 --> 02:08.820
+As an alternative, you could collect some delta.
+
+02:08.820 --> 02:13.980
+You collect some delta, some tuples, put your aggregations over it, and then apply this
+
+02:13.980 --> 02:16.100
+to your materialized view.
+
+02:16.100 --> 02:23.060
+Our goal is to have this delta as small as possible so that we have a materialized view
+
+02:23.060 --> 02:25.020
+that is as fresh as possible.
+
+02:25.020 --> 02:31.180
+Ideally, we wanted that it updates whenever you insert anything, a single tuple, it should
+
+02:31.180 --> 02:34.500
+be reflected in the materialized view itself.
+
+02:34.500 --> 02:36.180
+All right.
+
+02:36.180 --> 02:39.900
+So very, running example, very simple.
+
+02:39.900 --> 02:48.420
+Let's say you have some sort of social media app, and in the social media app, people post
+
+02:48.420 --> 02:51.300
+their stories, right?
+
+02:51.300 --> 02:53.820
+And people vote on these stories.
+
+02:53.820 --> 03:01.780
+And now you have your materialized view that is this, and you want to know how many people,
+
+03:01.780 --> 03:04.180
+how many votes did each story get?
+
+03:04.180 --> 03:09.740
+That's your analytical question, and that is what will be updated whenever somebody clicks
+
+03:09.740 --> 03:11.580
+on vote.
+
+03:11.580 --> 03:14.860
+So let's say you would insert some votes somehow.
+
+03:14.860 --> 03:21.580
+In reality, this would come from a source like Kafka, right?
+
+03:21.580 --> 03:27.340
+And so immediately, this change should be reflected in your materialized view here.
+
+03:27.340 --> 03:32.820
+So this is, again, just a dummy example, but this is what we're trying to do.
+
+03:32.820 --> 03:34.660
+You have an analytical question.
+
+03:34.660 --> 03:37.180
+The data underneath changes.
+
+03:37.180 --> 03:41.300
+You see this change reflected immediately.
+
+03:41.300 --> 03:45.780
+So this is the same materialized view as before.
+
+03:45.780 --> 03:50.740
+You want to know how many votes did each story in your social media app get.
+
+03:50.740 --> 03:55.740
+So what happens, actually, in your database, if you send it this sequel?
+
+03:55.740 --> 03:58.060
+Well, first it's going to parse it.
+
+03:58.060 --> 04:02.140
+It's going to create a logical query plan, optimize it, and then create a physical query
+
+04:02.140 --> 04:03.460
+plan, all right?
+
+04:03.460 --> 04:08.300
+So the query plan, you could get this if you, not just with Verizon Wave, but any kind of
+
+04:08.300 --> 04:14.300
+database, if you use the explain keyword, and then you get this kind of query plan.
+
+04:14.300 --> 04:18.460
+And I want to point out if you operate this here, right?
+
+04:18.460 --> 04:22.780
+And these are the table scans, aggregate and join.
+
+04:22.780 --> 04:30.620
+So basically, you look at your votes and your stories tables.
+
+04:30.620 --> 04:32.220
+You pull in the new data.
+
+04:32.220 --> 04:33.220
+You aggregate it.
+
+04:33.220 --> 04:34.220
+You join it.
+
+04:34.220 --> 04:35.220
+Done.
+
+04:35.220 --> 04:40.900
+So you could also, this is what's happening underneath in your database, not just Verizon
+
+04:40.900 --> 04:44.060
+Wave, all sort of databases, right?
+
+04:44.060 --> 04:51.140
+So you could also display it like this, with, we call a streaming graph, but it's honestly
+
+04:51.140 --> 04:53.500
+more like a tree structure.
+
+04:53.500 --> 04:58.740
+And there you have your scans, you aggregate, you join, you materialize for you.
+
+04:58.740 --> 05:01.860
+Data flowing from left to right through your system.
+
+05:02.060 --> 05:06.100
+Because we like headaches, we distribute this, fragment this, and deploy it on different
+
+05:06.100 --> 05:07.500
+nodes.
+
+05:07.500 --> 05:11.260
+So how do we actually propagate this change?
+
+05:11.260 --> 05:18.300
+Well, every operator has some state, and now aggregate, for example, has this state, right?
+
+05:18.300 --> 05:23.220
+So two people voted for 1,003, it's reflected here, 1,003.
+
+05:23.220 --> 05:25.700
+The other operators also have state.
+
+05:25.700 --> 05:30.060
+Now what happens if you insert more votes?
+
+05:30.100 --> 05:38.300
+Well, the votes table scan will push down an event, and this event here in this case
+
+05:38.300 --> 05:41.780
+is 789 voted for 1,004.
+
+05:41.780 --> 05:47.580
+So this is your start of how you propagate the change from the beginning, from the table,
+
+05:47.580 --> 05:50.540
+or your Kafka, all the way to your materialized view.
+
+05:50.540 --> 05:57.100
+This then is consumed by your aggregate operator, and it changes states here from one to two.
+
+05:57.140 --> 06:04.300
+We push down the events further, and this will update the other states of the other stateful
+
+06:04.300 --> 06:05.860
+operators.
+
+06:05.860 --> 06:11.900
+So now we kind of established how the state flows from the original state in Kafka, or
+
+06:11.900 --> 06:17.980
+PubSub, or Pulsar, or RedPanda, all the way over to materialized view.
+
+06:17.980 --> 06:24.860
+So because we like headaches, and we make it hard for ourselves, we do this in distributed
+
+06:24.860 --> 06:25.940
+systems.
+
+06:25.940 --> 06:30.820
+And distributed systems have opportunities and advantages, opportunities and challenges,
+
+06:30.820 --> 06:31.820
+right?
+
+06:31.820 --> 06:35.300
+So, for example, you can execute stuff in parallel.
+
+06:35.300 --> 06:39.460
+This is great because this potentially speeds stuff up.
+
+06:39.460 --> 06:45.860
+But you also need to be able to recover because eventually in your distributed system, a node
+
+06:45.860 --> 06:47.060
+will crash.
+
+06:47.060 --> 06:52.220
+So you should be able to recover, and you should be able to scale up and down when you
+
+06:52.220 --> 06:54.980
+need more or less compute power.
+
+06:55.020 --> 06:58.140
+So let's talk about parallelism first.
+
+06:58.140 --> 07:01.020
+I showed you this streaming graph.
+
+07:01.020 --> 07:02.380
+This is a simplification.
+
+07:02.380 --> 07:04.940
+This is parallelism one.
+
+07:04.940 --> 07:07.900
+What happens if you want to have parallelism of three?
+
+07:07.900 --> 07:12.620
+Well, it would look a little bit more messy, something like this.
+
+07:12.620 --> 07:17.060
+You have the same operator three times, always.
+
+07:17.060 --> 07:21.260
+There's three operators that are scanning your votes table, and there's three operators
+
+07:21.260 --> 07:23.140
+that are aggregating.
+
+07:23.140 --> 07:24.500
+Why do we do this?
+
+07:24.500 --> 07:27.860
+Well, we can speed up stuff now.
+
+07:27.860 --> 07:30.540
+And how do we still get the correct result?
+
+07:30.540 --> 07:33.700
+Not just us, but other streaming processors.
+
+07:33.700 --> 07:38.220
+Well, you could just do some consistent hashing.
+
+07:38.220 --> 07:43.620
+Like here, you take the story ID by which you aggregate, hash it, and then each operator
+
+07:43.620 --> 07:46.900
+downstream is responsible for a key range.
+
+07:46.900 --> 07:53.660
+So this way, you horizontally partition your data, and nobody conflicts with anybody else
+
+07:53.700 --> 07:59.820
+because everybody is responsible for their own sliver of data.
+
+07:59.820 --> 08:09.260
+All right, so now we established this exchange here and how we speed up stuff by parallelizing
+
+08:09.260 --> 08:10.340
+this.
+
+08:10.340 --> 08:16.540
+But maybe we have an issue that some ports through the system are faster than others.
+
+08:16.540 --> 08:21.260
+Maybe because of a network hiccup, or maybe because you notice faster.
+
+08:21.260 --> 08:23.060
+So red is slow, green is fast.
+
+08:23.100 --> 08:27.300
+This is bad because in the join, we may have unaligned data.
+
+08:27.300 --> 08:31.060
+You don't have your join partner, incorrect result.
+
+08:31.060 --> 08:36.340
+So instead of sending the data just down like this, these events down like this, what you
+
+08:36.340 --> 08:44.980
+do, not just us, but for example, also flink, you would buffer stuff upstream in your operators,
+
+08:44.980 --> 08:49.620
+and then you would insert into your stream of events so-called barriers.
+
+08:49.660 --> 08:53.420
+These are these little black boxes in my example.
+
+08:53.420 --> 09:00.300
+And whenever an operator receives all barriers from upstream, it will send it downstream.
+
+09:00.300 --> 09:06.700
+And now here the same, if this operator receives this barrier and this one, then it knows upstream
+
+09:06.700 --> 09:09.380
+is done, it can send downstream.
+
+09:09.380 --> 09:16.820
+So now that means we aligned data processing across these different nodes on each level
+
+09:16.820 --> 09:18.700
+on a per-barrier basis.
+
+09:18.700 --> 09:21.580
+So we insert this every second.
+
+09:21.580 --> 09:30.860
+And yeah, a barrier, if you want to go through this system, is just a GRPC protobuf message.
+
+09:30.860 --> 09:33.620
+Right, now recovery.
+
+09:33.620 --> 09:36.260
+How to recover if a node crashes?
+
+09:36.260 --> 09:40.540
+Well, first we need a consistent state from which we can recover.
+
+09:40.540 --> 09:48.500
+So for example, if we tell each operator to persist their state every so-and-so many seconds,
+
+09:48.500 --> 09:54.220
+that would not work because aggregate and join are in different state here.
+
+09:54.220 --> 09:57.300
+Aggregate has seen the update, join has not.
+
+09:57.300 --> 10:00.980
+So if we would persist, this would be inconsistent.
+
+10:00.980 --> 10:02.300
+We don't want this.
+
+10:02.300 --> 10:05.540
+So instead what you do, you use barriers again.
+
+10:05.540 --> 10:09.620
+You send events through the system.
+
+10:09.620 --> 10:16.860
+Whenever a checkpoint barrier hits an operator, it persists, and it persists again, the second
+
+10:16.860 --> 10:17.860
+operator.
+
+10:17.900 --> 10:27.020
+So both have seen the first event, but not the second event.
+
+10:27.020 --> 10:31.180
+And this way you have a consistent snapshot.
+
+10:31.180 --> 10:35.380
+Right, everybody has seen the same events.
+
+10:35.380 --> 10:41.780
+So you have a state from which you can recover, replay your Kafka events, and that's good.
+
+10:41.780 --> 10:44.220
+Okay, scaling.
+
+10:44.220 --> 10:45.420
+Last thing.
+
+10:45.460 --> 10:50.620
+I say you have your nodes, and one node is under pressure.
+
+10:50.620 --> 10:52.700
+The red node is under pressure.
+
+10:52.700 --> 10:57.900
+So now you want to make sure that you alleviate this pressure by adding a new node.
+
+10:57.900 --> 10:59.900
+You use barriers again.
+
+10:59.900 --> 11:04.540
+You insert a pause barrier into your stream of data.
+
+11:04.540 --> 11:13.100
+You persist the data of all the state, of all the operators to disk, and then you would
+
+11:13.180 --> 11:20.700
+add a new node, put a new aggregate operator on this, tell everybody who upstream and downstream
+
+11:20.700 --> 11:28.900
+if and what partition they're responsible for, reload the state from disk, and then
+
+11:28.900 --> 11:30.500
+resume.
+
+11:30.500 --> 11:37.460
+So now this was a very quick overview on how you can do streaming data processing, how
+
+11:37.460 --> 11:39.140
+this works under the hood.
+
+11:39.140 --> 11:45.460
+If you ever want to write your own database system, think about this talk.
+
+11:45.460 --> 11:46.460
+Maybe it helped you.
+
+11:46.460 --> 11:47.500
+Thank you very much.
+
+11:47.500 --> 11:50.620
+If you have any questions, you can ask me.
+
+11:50.620 --> 11:52.260
+Just shoot me a text on LinkedIn.
+
+11:52.260 --> 11:56.740
+If you want to try Rising Wave, we're free and open source.
+
+11:56.740 --> 12:00.220
+Compile some source or just use GitHub.
+
+12:00.220 --> 12:01.220
+Right.
+
+12:01.220 --> 12:03.820
+Use a Docker container.
+
+12:03.820 --> 12:04.820
+Thank you.
+

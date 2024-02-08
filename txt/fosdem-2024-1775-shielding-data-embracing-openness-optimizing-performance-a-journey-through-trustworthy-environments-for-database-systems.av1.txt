@@ -1,0 +1,242 @@
+Thank you, thank you everybody for coming.
+Before we start, I need to say two things.
+First of all, I'm sorry for this dev room.
+I'll try to speak as loud as I can, but if you don't see the slides, they are available
+online.
+Second, this is a talk about databases.
+We are database researchers.
+So first of all, we don't know everything.
+Second of all, we might also not understand everything, but regardless, we hope to give
+you a different perspective about this important problem, which is how to store data securely
+using trusted execution environments as a technology.
+Sorry.
+So we are PSD students.
+We work at CWI Amsterdam, and specifically our research focuses on secure databases.
+In particular, we do stuff like encrypted query processing, secure multi-party computation,
+data privacy, and so on.
+Here our research question is how to protect data in use.
+In fact, it's very easy to protect data at rest, but we also want to hide it while it's
+being processed.
+Our example here is related to cloud.
+So nowadays it is very common practice to outsource data management to cloud providers,
+but the thing is we also need to protect information from people who have access to the servers
+and internal attacks.
+There are some techniques to analyze data while keeping it encrypted, but like homomorphic
+encryption for instance, but unfortunately this field doesn't yet have encouraging performance
+results.
+So we here need to look for something simpler and more efficient to protect our data while
+it's being processed.
+In this talk, of course, we're here.
+So we talk about trusted execution environments, and we want to employ them as a technology
+to ensure confidentiality and isolation of the data.
+But before we start with this, we need to first understand the different technologies
+and different techniques to split the components of a database system in a trusted execution
+environment.
+In this talk, we focus about Intel SGX, and for who didn't know, it's basically a series
+of hardware instructions to split memory in a secure and insecure part, where the secure
+part we're going to call Enclave.
+And in the database field, Intel SGX specifically the first one is a very popular choice for
+development because it's the most mature one, and there is the most research on it.
+But at the same time, there are some performance limitations to run workloads that are very
+typical for database systems.
+In particular, the biggest problem here is the limited-page cache size, which is 120
+megabytes in Intel SGX1.
+That being said, we're going to explain here many different models to split our DBMS.
+We have the... does this work?
+We have the full DBMS split, which means that basically we're going to put all the database
+inside the Enclave with just a very tiny layer of IO library to handle system calls.
+Then we have the middle DBMS split, which is something in between.
+It allows more fine-grained optimization and code splits.
+Usually approaches just put the query execution engine inside the Enclave, and everything
+else is going to stay out.
+And then we have the minimal DBMS split, where only the operators and the comparators are
+inside the Enclave, where with operators and comparators, I mean plus, minus, equal,
+and so on.
+Now we have a general understanding of the different models.
+We can start with some practical examples.
+So here's a personal favorite, it's called StelDB, and it's a Postgre's extension.
+We have some Postgre's people here.
+I'm very biased on this, but basically, StelDB is employing the third model that I mentioned,
+which is the minimal DBMS split.
+So basically it's only implementing operators and comparators.
+This choice was probably made because of the very limited memory that we can use.
+And so of course there are some trade-offs.
+If we do not have the full DBMS, of course there is more information leakage.
+For instance, people might be able to infer the size of the database and the operations
+that we are making inside the Enclave.
+And at the same time, even though the secure part is so limited, the performance is kind
+of bad.
+So here we are going to have here 5% to 30% overhead in transactional queries, where
+transactional queries are workloads that are very heavy in inserts and updates on current
+data.
+So, yeah, so this is a very good project, but still not quite what we would like to have
+if we are running actual real-world workloads.
+There are more examples here of other databases.
+We have a lot of implementations of SQLites.
+And they are, I think all of them are full DBMS split, but regardless, they add at least
+one or two orders of magnitude of overhead to the queries.
+We have a MariaDB kind of encrypted database, which is called Ageless.
+I think I saw some people from Ageless here, or there was a, it was at FOSDEM a few years
+back.
+And yeah, Ageless is basically this database that is designed to run inside an Enclave and
+uses MariaDB and ROXDB storage.
+It also has encrypted authenticated data in disk and in memory as well, and encrypted
+network connection.
+So it's a very nice project.
+Then we have an implementation of Microsoft SQL Server.
+I'm sorry about this.
+It's not open source, I know, but unfortunately it's one of the most relevant works in the
+field because it actually implements the query engine in the Enclave and splits the data
+between sensitive and insensitive tables.
+So it's a very novel idea, but unfortunately it doesn't work because this kind of models
+also assumes a very big Enclave size and due to the limitations of AgX1, this is not
+pretty feasible in practice.
+And then we have one analytical engine where with analytic, I mean doing analytics, so
+business intelligence workloads on a lot of data and historical data.
+And yeah, this is called OblityB and it implements Oblivious Physical Operator for analytical
+processing in the cloud.
+But yeah, once again, this is really, really slow because of the Enclave size.
+So our contribution here is taking all of this that we have and we notice two things
+in here.
+First of all, the big majority of these implementations on AgX1 are transactional and because
+analytical workloads really don't scale because of the volume of the data and they overhead
+called by last level cache misses and EPC swapping.
+The second problem is that there is no research on SGX2.
+So SGX2 was released a couple years ago, but still all the prototypes that I mentioned
+were made for SGX1.
+I'm not saying they don't work, but I'm saying there are no benchmarks, there are no implementations,
+so there are specifically tailored for SGX2.
+So here our contribution is to try and bridge the gap between efficient and secure analytical
+processing.
+To do so, we use our database, DacDB.
+Disclaimer here, we are not affiliated with DacDB, we are not paid by them.
+It's just an open source database that we happen to use because it's developed in our
+research center.
+So DacDB is open source, it's embedded, columnar analytical system, I'm sorry, there are a
+lot of buzzwords here, I'm going to explain that later.
+It's in C++11 without additional dependencies and it's actually been ported to SGX1 in 2022
+by some, our master student.
+And before explaining what we did with DacDB and SGX1 and 2, I need to give you some fundamental
+concepts about database internals.
+We start here with column storage.
+So the difference between row and column storage is that basically data in column storage is
+stored in columns because if you do analytical workloads, we don't need usually all the columns
+that we have, we just need a few of them.
+So it is more efficient to store the columns all together such that we can only fetch what
+we need.
+And also this kind of column format is also very much, can very much benefit from compression
+because usually there is a lot of correlation between the data and our data is also huge.
+So we can definitely implement some sort of compression and DacDB specifically implements
+column lever compression where data is stored in column and then compressed.
+Now we also need to talk a little bit about vectorized execution.
+This is similar to the CMD instructions that you probably know of but applied to databases.
+So instead of performing operations to one row at a time, we perform it in batches.
+So instead of having a row fetching it, elaborating it and returning it, we do the same process
+with batches.
+So you can see this example, very, very simple query.
+And here our function next is going to return many tuples rather than one.
+And we push only the relevant blocks of data up and down the query plan.
+And this is more efficient because we have less system calls and we can also take advantage
+of the CPU more efficiently.
+Now thank you for the attention.
+Now Lotte is going to explain you how we ported DacDB to SGAX.
+Thank you, Illa.
+Okay, so before we go directly to SGAX2 and how we did it, we first are going to pay some
+attention to how it actually has been done to SGAX1 because the master student, he ported
+DacDB in two different ways.
+The first one is the full database management split.
+The main issue was here of course because of the low memory capacity that not the whole
+database or not all the data would fit in the enclave.
+And the second issue here is that system calls are not directly callable inside the
+enclave.
+So you either need to reimplement all system calls or the necessary system calls or you
+need to use some kind of library which maintains this kind of IOS심 layer.
+So the master student, he used Graphene.
+Nowadays, Graphene is actually called Grameen.
+And I think last year and the year before there were also talks at FOSDEM about Grameen,
+how this exactly works.
+So with Grameen and with fully porting DacDB into the enclave, there was a 20 time slowdown
+actually and this is mainly cause because of the expensive EPC swapping.
+So to mitigate this, the student tried to instead of keeping all memory buffers inside
+the enclave, pull some memory buffers outside the enclave and crib them outside the enclave
+and this way try to run DacDB.
+And this already gave a significant speed up but still there was a 30 time slowdown.
+The second approach that he did was the minimal DbMS split.
+He put basically all the operators inside the enclave and left the rest out of the
+enclave because this enabled to have factorized processing still and that really increases
+performance.
+And a second optimization that he did was replacing Ecos and Ocos by a synchronous request
+in a shared buffer also called the switches mode I think.
+And this also helped but still there was a 10 time slowdown.
+So a couple years later, now there is of course SGX2 and it doesn't suffer from the main
+memory limitation.
+So now it's basically easier to port DacDB as a whole to the enclave to SGX2 and we
+did it also with the use of Grameen which also improved the last years a lot so that
+made it actually surprisingly easy.
+And we did some benchmarks to actually see okay so what performance difference is there
+if you run a database fully inside the enclave.
+So before going into the results we did the benchmarks with TPCH which is a standard industry
+benchmark for analytical workloads so basically for data science workloads so there are no
+inputs inserts or updates but just analytics basically.
+And we compared it first with Grameen itself because since Grameen replace a system calls
+it also incurs some overhead but as you can see most overhead is caused by SGX self.
+On average we would say there is a 10 to 20 percent overhead but here we normalize baseline
+DacDB so that you actually can see the actual overhead per query and there are some specific
+queries such as query 12 and query 15 where the overhead is actually more than twice.
+So this might be a bit problematic.
+So we did some research we tried to identify okay so what is it in these queries that
+causes the overhead and we found that mainly strangely enough the overhead is introduced
+by O-calls so by E-enters and E-exits and we tried to investigate a bit further which
+system called it then was but there was some kind of timing function that seems to be executed
+outside of the enclave.
+And also within these queries there are two times as much page faults and well one optimization
+that we tried we're still working on it but was increasing the factor size in DacDB because
+usually in DacDB the factor size consists of 2048 tuples and usually this gives low
+L1 cache misses but it can incur many EPC calls so with increasing the factor size you
+basically maximize IO and IO is very expensive in the enclave and we actually found that
+if you increase the factor size to 16384 that the performance overhead is actually minimized
+for this workload and a small note is that not for all queries actually the performance
+improved but just for the queries with a lot of overhead it seems to be really beneficial
+to increase the factor size in DacDB.
+So this is very much work in process it's more a prototype than something you can actually
+use in production so please don't do it yet but we can conclude that analytics can actually
+perform people from the relatively efficient in SGX2 and the overhead seems to be acceptable
+but the question now is we can protect data in use so data in secure memory but what about
+the data in unsecure memory right now because if you go outside the enclave the data is
+not protected by default and so we will actually need some kind of encryption mechanism and
+DacDB right now has actually parquet encryption so we are already capable of encrypting parquet
+files and decrypting them inside the enclave and then perform secure analytics but in the
+end our goal is to design to build something that is fully functional and that is fully
+secure actually for users that want to do secure analytics with DacDB.
+So yeah this is our plan for the future we will of course open source everything but
+yeah thank you for your attention.
+Hi thank you for a very nice talk so I was wondering you talked about like this overhead
+that you were attributing to the old calls going out of the enclave and some of the commercial
+SGX frameworks use these techniques where you actually batch these together and they
+are commonly called asynchronous old calls so did you look into that at all and or do
+you have like some insights how that could affect the performance.
+Okay so your question basically is if we looked into the asynchronous old calls right or the
+asynchronous buffer basically well the master student from he looked into that and indeed
+improved performance we were planning on actually doing some benchmarks with this specific mode
+but we just didn't do it yet but we are still investigating but as far as I understand it
+is a little bit less secure to use this mode so yeah it will always be trade off but I
+suspect that it will improve performance quite a bit so reduced the overhead in the end.
+Yeah probably a stupid and provocative question have you tried shoving the whole database in a
+secure instance like 7S and P or TDX and comparing the performance between like SGX and TDX or 7S
+and P solution. Okay so the question is did we use other secure environments basically the answer
+is no so we have no performance comparisons yet but the plan is actually to do that indeed because
+if you want like not everybody is able to run SGX to write so the hardware field is pretty
+fragmented and we also want to kind of find solutions or at least have comparisons of which
+one is the best to use and or maybe even made some kind of framework that people can adopt to
+easily run also on different kind of hardware instructions. Yeah. Thank you I want to ask
+about the fully secure on the slide. Have you talked about side channels and what's your vision on
+that? Do you want to answer? Yeah in short yes this is a problem because all the research that we
+found there is always a trade off between performance and security and literally all the papers
+build this sort of model like cost model in not in terms of cost but in terms of information leakage.
+So a lot of people papers just say that yes we acknowledge that there are going to be some
+trade off some attacks in fact yes yes this is absolutely the case that it can happen but
+right now the goal was first to have something that is somewhat functional on some sort of
+database workloads because as I said the big limitations of SGX-1 made the whole thing completely
+invisible but now that this is actually possible we can also focus on how to fix these issues but
+unfortunately research tended not to acknowledge this issue so much in the past but for future
+yes we will.

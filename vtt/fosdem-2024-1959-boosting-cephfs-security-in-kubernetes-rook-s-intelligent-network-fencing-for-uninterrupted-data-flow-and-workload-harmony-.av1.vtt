@@ -1,0 +1,584 @@
+WEBVTT
+
+00:00.000 --> 00:17.120
+Good morning everyone. Thank you for joining this talk. My name is Niels de Vos. I am
+
+00:17.120 --> 00:27.120
+presenting instead of Ria. Ria was supposed to travel here but got cancelled. So she gave
+
+00:27.120 --> 00:32.640
+me her slides. I am one of the organizers of the deaf room together with Jan instead of having an
+
+00:32.640 --> 00:38.240
+empty shot. I am presenting her talk. Hopefully I know enough about the topic to present it
+
+00:39.200 --> 00:45.440
+well enough. If you have questions don't hesitate to interrupt. I don't mind answering questions
+
+00:45.440 --> 00:56.560
+immediately. So Ria and I are actually colleagues. We both work on mostly CFCSI
+
+00:56.640 --> 01:03.360
+but anything that touches it as well. So that includes RUG. It includes other deaf components
+
+01:03.360 --> 01:10.160
+where we need it. And we make sure that Kubernetes or OpenShift works well with
+
+01:10.160 --> 01:18.000
+deaf. It is performant enough and in this case also your data integrity is guaranteed as best as we can.
+
+01:18.000 --> 01:28.000
+Today we focus on CFFS. CFFS is a scale out storage system based on top of CEPF.
+
+01:28.720 --> 01:35.280
+And I hope most of you are familiar with CEPF. It is quite a nice network file system.
+
+01:37.760 --> 01:42.880
+We use it for lots of different deployments and our customers use it for whatever applications
+
+01:42.880 --> 01:47.440
+they have. For example the Kubernetes image registry if you want to put it locally on your
+
+01:47.440 --> 01:54.560
+Kubernetes cluster is a very common use case for CFFS but it is not limited to
+
+01:55.600 --> 02:00.000
+container images. You can use basically any workload on top of it.
+
+02:05.280 --> 02:11.040
+Software engineers we always face a lot of challenges. For challenges we hopefully find
+
+02:11.040 --> 02:20.080
+nice approaches to solve these challenges. And one of these challenges is that in a Kubernetes
+
+02:20.080 --> 02:26.880
+cluster a node can go down. Either a virtual machine where you host your Kubernetes worker node
+
+02:26.880 --> 02:32.880
+or a Bimetal machine that runs all the Kubernetes services. It can go down. That just happens.
+
+02:32.960 --> 02:41.040
+That just affects. You can't prevent it. What you can do is you can accommodate your environment or
+
+02:41.040 --> 02:46.160
+your infrastructure as best as possible to work around these kind of hiccups.
+
+02:48.000 --> 02:55.440
+When a node goes down it isn't guaranteed that your whole node goes down. There are
+
+02:55.440 --> 03:03.360
+like partial failures. One of the easiest failures to imagine is if you have a worker
+
+03:03.360 --> 03:10.240
+node that runs Qplit as part of Kubernetes the Qplit daemon is responsible for mounting
+
+03:11.520 --> 03:17.680
+volumes, mounting file systems, starting containers and whatnot. If this Qplit daemon has a bug of
+
+03:17.680 --> 03:25.440
+some kind and it fails to respond to any requests from your Qplit management plane.
+
+03:26.480 --> 03:33.680
+This node is perceived down in the sense of Kubernetes infrastructure. However it doesn't
+
+03:33.680 --> 03:41.600
+mean that the node actually is down. It's only the Qplit service that is down. If this is the case
+
+03:41.600 --> 03:46.800
+then all your containers might still be running. If you have like a database running in your container
+
+03:46.800 --> 03:51.440
+this database might be happily running, reading and writing and accepting connections and whatnot.
+
+03:51.440 --> 03:55.520
+It might still function. It might write your data to a file system,
+
+03:56.320 --> 04:04.000
+CFFS in this case. But if Kubernetes thinks the node is down, Kubernetes will schedule
+
+04:05.040 --> 04:12.000
+this workload, your database on a different worker node. When it does so with CFFS it is
+
+04:12.000 --> 04:17.600
+possible to mount your file system on multiple nodes at the same time. It's a network file system
+
+04:17.600 --> 04:28.400
+so it's prepared to do that. For your database that runs on a second node this is very nice because
+
+04:28.400 --> 04:33.040
+Kubernetes thinks the service is up and running, everything is fine. But now you certainly have
+
+04:33.040 --> 04:37.360
+two databases running on the same file system with the same directories, with the same files that
+
+04:37.440 --> 04:45.040
+it uses. One on the old node that is perceived as down or broken because Qplit isn't running there
+
+04:45.040 --> 04:49.600
+and the other one where Qplit is running happily your container has been started new
+
+04:50.320 --> 04:56.240
+and it's running there as well. Now this can cause a lot of issues if your application in case of
+
+04:56.240 --> 05:02.800
+a database you can almost assume that the database uses a file looking correctly and really doesn't
+
+05:02.800 --> 05:07.360
+want to corrupt your data if another database instance is running on the same file system.
+
+05:07.360 --> 05:12.800
+In this case you are relatively safe however the database starting on the second node that just
+
+05:12.800 --> 05:22.560
+got started that will not get your file system logs. So the database will not start to write
+
+05:23.440 --> 05:28.880
+but Kubernetes might announce that this database is the master database and actually should be able
+
+05:28.880 --> 05:33.200
+to write but it doesn't because the old one is still running. So in that case you have like a
+
+05:33.200 --> 05:39.200
+partial outage that's the good case. The bad case is that your application doesn't use logs
+
+05:39.840 --> 05:46.560
+and the bad case is that the old instance is still writing data. The second newly started
+
+05:46.560 --> 05:54.160
+instance is writing data as well and they start to overwrite each other's data and that would be
+
+05:54.160 --> 06:00.640
+horrible because the application doesn't immediately notice and your data is now destroyed. It's
+
+06:00.640 --> 06:06.400
+corrupted because it's not in sync anymore. You don't know the state of your data and this is a
+
+06:06.400 --> 06:13.600
+really bad situation. This is not an inherent problem to Cephaphase. It's just network file
+
+06:13.600 --> 06:19.120
+systems in general and applications that don't use logs that can corrupt data in this way.
+
+06:19.360 --> 06:25.760
+It's not even restricted to file systems. If you use block storage like an Iskazi
+
+06:26.320 --> 06:30.560
+disk attached to multiple servers at the same time and you run a virtual machine on top of it,
+
+06:30.560 --> 06:33.040
+you actually have the same kind of issues.
+
+06:37.840 --> 06:44.480
+So that's the challenge. The resolution or one of the resolutions that we have with
+
+06:45.360 --> 06:52.880
+Cephaphase as a network file system, we can fence off broken nodes, network fencing.
+
+06:54.480 --> 06:59.920
+On storage layers, you have storage fencing. So if you have your SAN, you can actually
+
+07:01.520 --> 07:08.480
+fence servers on the HPA level and your storage fabric. With network file systems,
+
+07:09.360 --> 07:16.560
+you can do network fencing. You can see it as setting up a firewall between the broken server
+
+07:16.560 --> 07:24.160
+and the actual Ceph cluster. For Kubernetes, we wrote a network fence.
+
+07:27.280 --> 07:34.560
+It's part of an operator. Network fencing is a CRD. So it's an object, a Kubernetes object,
+
+07:35.120 --> 07:39.520
+that describes what you want to fence. The IP addresses, in this case, the
+
+07:40.240 --> 07:44.560
+ciders, so the network that you want to fence. You can have a list of networks in case you have
+
+07:44.560 --> 07:53.840
+multiple nodes or multiple networks on the node and whatnot. These can be fenced by creating this
+
+07:54.560 --> 08:00.640
+custom resource. Once you create the custom resource, our operator will
+
+08:01.120 --> 08:08.160
+see that it exists. It will see the states that you requested and will start do the fencing.
+
+08:08.160 --> 08:21.040
+That's the eventual thing that we want to do. This is one of the CRs, just an example.
+
+08:22.000 --> 08:33.680
+CSI Adons is a project that we use for enhancing the CSI specification. CSI is the container
+
+08:33.680 --> 08:39.280
+storage interface specification. That's the specification that is used by storage drivers
+
+08:40.080 --> 08:45.280
+and let Kubernetes mount a particular volume or create new volumes and so on.
+
+08:45.840 --> 08:54.720
+With this storage interface, it's rather limited, unfortunately, and it's not trivial to extend it.
+
+08:56.240 --> 09:03.040
+We have an Adon project, basically, that adds more storage operations that are not necessarily
+
+09:03.680 --> 09:08.160
+basic storage operations, but more advanced or more management operations, like fencing
+
+09:08.800 --> 09:19.200
+nodes from the network. What you do is you create the network fence CR. It needs to have a name.
+
+09:19.200 --> 09:28.240
+That's just the standard thing. You specify which driver you want to fence or which driver is used
+
+09:28.240 --> 09:35.280
+for the volumes. In this case, it's CephFS. We use RookCef in many deployments because it's just
+
+09:35.280 --> 09:40.880
+extremely easy to deploy your Ceph cluster with Rook. You can list which IP addresses you want.
+
+09:41.760 --> 09:46.640
+This is just a single IP address and this is the whole network that you want to fence. Possibly,
+
+09:46.640 --> 09:53.120
+you can even use it with multi-cluster environments. If you have a single Ceph cluster
+
+09:53.680 --> 09:58.800
+and you have one data center and another data center and you want to fence off one whole data
+
+09:58.800 --> 10:05.360
+center, you can also use it this way. You could fence your whole Kubernetes cluster in data center
+
+10:05.360 --> 10:10.320
+one and then make sure that data center number two is the only one accessing your storage.
+
+10:12.240 --> 10:17.600
+Yes, so that's it. You pass it to CephFS because if you want to talk to Ceph, you need your credentials.
+
+10:21.040 --> 10:22.240
+That's it, mostly.
+
+10:23.040 --> 10:32.240
+Now, the previous one is the manual example. It works nicely, but you still have to do it as an
+
+10:32.240 --> 10:39.440
+administrator. As an administrator, you need to know that a pod or that a system started to fail.
+
+10:41.040 --> 10:44.000
+Then you have to figure out all these kinds of details, which is rather annoying.
+
+10:44.000 --> 10:46.480
+It's already broken. Sorry?
+
+10:46.480 --> 10:48.480
+It's already broken before you can actually fence it.
+
+10:49.280 --> 10:51.680
+If you can just reschedule it in a couple of seconds.
+
+10:51.680 --> 10:58.000
+Yes, exactly. The remark is that it's already broken if you have to fence it.
+
+10:58.960 --> 11:05.680
+Yes, so often, you might have a little bit of time, depending on your application and so on,
+
+11:05.680 --> 11:12.560
+but yes, you are in a stressful situation because something broke in your environment and you don't
+
+11:12.560 --> 11:18.080
+want to hastily put some yaml together and make sure that you have the right IP addresses.
+
+11:18.080 --> 11:21.840
+If you do wrong IP addresses, you might break your cluster even more.
+
+11:21.840 --> 11:29.040
+This is something you can do manually, but it's tricky. Definitely, if you're in a stressful
+
+11:29.040 --> 11:33.440
+situation with an outage or partial outage, then you really don't want to bother with this.
+
+11:34.400 --> 11:43.040
+So the enhancement for the network fencing that we have is we include support in RUG.
+
+11:43.040 --> 11:48.640
+RUG already supports a form of network fencing for CepRBD, which uses the same kind of yaml.
+
+11:49.760 --> 11:56.240
+For CepFS, it's new and it requires a little bit of a twist, a little bit different
+
+11:56.960 --> 12:05.520
+commands, for example, with RBD. RBD is the image storage, so the block device is similar to Iscasi.
+
+12:06.480 --> 12:15.760
+And RBD only mainly talks to the OSDs. There's no metadata server, so the OSDs are
+
+12:17.520 --> 12:21.040
+what you want to communicate with, so you have only a single service type
+
+12:21.600 --> 12:26.640
+that you need to book access to. With CepFS, you have also the MDS metadata server,
+
+12:27.280 --> 12:34.960
+and this is the server that keeps, for example, file system logs. So in the first example,
+
+12:38.000 --> 12:42.240
+where you have two databases running and the database is smart enough to use a file system
+
+12:42.240 --> 12:49.440
+log, even if you would network fence the broken node, the broken node had the file system log.
+
+12:50.400 --> 12:58.560
+The second node doesn't immediately get the file system log if the first node
+
+12:58.560 --> 13:03.520
+completely gets down. There will be a timeout and it might take, depending on the kind of issue
+
+13:03.520 --> 13:10.640
+that you had, it might take a while. So for CepFS, we actually evict CepFS clients, which is a little
+
+13:10.640 --> 13:19.920
+bit different than block listing a client from the OSDs. That's for the background information,
+
+13:19.920 --> 13:28.720
+but for RUK, it is relatively simple to detect if a node is out. RUK doesn't have its own logic
+
+13:28.720 --> 13:32.480
+to verify if a node is working correctly. There are dedicated projects for that.
+
+13:34.480 --> 13:39.920
+I think a project like MediCADES is specialized in detecting the health of a node, and if something
+
+13:39.920 --> 13:48.800
+goes wrong, MediCADES can set a taint on a node. You can also set as an administrator a taint manually,
+
+13:48.800 --> 13:56.000
+and in this case, you put the out of service taint, and when RUK notices that a node is tainted
+
+13:56.000 --> 14:04.240
+with out of service, it will start the network fencing for the drivers of the volumes that
+
+14:04.240 --> 14:10.480
+are used on that particular node. So if your node is not using a CepFS volume, it's not going to
+
+14:10.480 --> 14:20.240
+network fence this particular node, because that node might still be used, or ideally, that will have
+
+14:20.240 --> 14:31.280
+the second database instance that should work correctly. This is then what you would see. So
+
+14:31.280 --> 14:40.320
+if you edit the taint, or if you manually created this YAML, this is what is shown. If you check
+
+14:40.320 --> 14:50.160
+the state of the network fence objects, and this is the host name, and whatnot, this is the IP
+
+14:50.160 --> 14:56.960
+resisted defense, in this case, it's just a single one, and it was fenced 20 seconds ago. In this case,
+
+14:57.440 --> 15:06.320
+and blocklisted from the OSDs, and the client was evicted from the MDSs. So another client can
+
+15:06.320 --> 15:15.200
+resume operation with the MDS, it can obtain file logs, and it can talk to the OSDs as usual.
+
+15:16.080 --> 15:26.400
+If you recover this node, you can edit the network fence CR and mark it as unfenced.
+
+15:27.280 --> 15:36.320
+Yes, sure. The network fence is always a blacklist. The question is if the network fence is always a
+
+15:36.320 --> 15:44.400
+blacklist, and that is right. So usually everything is allowed, so the whole cluster is basically
+
+15:44.400 --> 15:48.000
+allowed to communicate with the CEP cluster, the whole Kubernetes cluster in this case.
+
+15:48.880 --> 15:58.720
+And we call it blocklist now, but yes, it's a blocklist. You can have an allow list, but that's
+
+15:58.720 --> 16:03.920
+less practical. If you want to secure an environment, then that's probably something you want to do,
+
+16:03.920 --> 16:08.480
+but for network fencing, we only do the blocklisting. Yes.
+
+16:09.200 --> 16:15.840
+Basically two operations at the same time is evicting the client and also doing the network fence.
+
+16:15.840 --> 16:26.160
+So yes, so the question is if this happens with CEPFS, if network fencing is done,
+
+16:26.160 --> 16:31.520
+there are two operations and that's true. So there are two operations. The first operation is to evict
+
+16:32.480 --> 16:39.120
+the client. If you evict on the CEP level, it actually already does the blocklisting,
+
+16:40.960 --> 16:46.800
+but we only evict the client if the client is actually connected. If you want to network fence
+
+16:46.800 --> 16:53.280
+a client that does not have a CEPFS fast and connected at that time, we still blocklisted
+
+16:53.280 --> 16:59.760
+additionally just to make sure that nothing happens in the future. Yes, yes. So we try to be
+
+16:59.760 --> 17:04.720
+as safe as possible and make sure that it's consistent. What the output here is, if it's
+
+17:04.720 --> 17:10.640
+fenced, then it really should not be not fenced. So even if you did not have CEPFS mounted,
+
+17:10.640 --> 17:16.640
+it will still fence your node or your whole subnet or whatnot.
+
+17:21.760 --> 17:28.960
+Yes, oh yes. So the fencing is done on the CEPF cluster and that means that any client
+
+17:29.040 --> 17:33.520
+on the particular node won't be able to access the cluster anymore. So that's the whole goal.
+
+17:33.520 --> 17:38.160
+It doesn't matter what kind of client it is. It can be a kernel mount file system. It can be
+
+17:38.160 --> 17:45.680
+the fuse mount or it can be LibcFFS, which is also used in fuse. So none of these clients
+
+17:45.680 --> 17:51.920
+will be able to use the file system anymore and that's just the security measure to prevent any
+
+17:51.920 --> 18:05.120
+data inconsistencies. This is in fact what we do. So we evict the client. We figure out the client
+
+18:06.080 --> 18:12.240
+on the worker node or from the worker node that is connected has a particular client ID.
+
+18:13.600 --> 18:17.200
+We figure out this client ID for this particular IP address. It might be more than one
+
+18:17.920 --> 18:21.440
+and the network fencing will evict all of these clients
+
+18:24.000 --> 18:27.600
+and then eventually it will also block list the clients and you can check with this
+
+18:28.240 --> 18:32.320
+OSD block list command if everything was fenced correctly or not.
+
+18:32.960 --> 18:50.160
+And yes, so this is the summary how RUG protects you or can protect you more from data inconsistencies
+
+18:50.160 --> 18:55.680
+if you have multiple or potentially multiple workloads running on the same CEPFS file system.
+
+18:56.560 --> 19:02.160
+It's a very important feature not only for CEPFS but also for other storage environments
+
+19:02.160 --> 19:09.840
+because silently corrupting your data is not what you really want. This can further be automated
+
+19:09.840 --> 19:15.680
+with additional operators like medecates and that do the health checking of nodes and if they
+
+19:15.680 --> 19:21.760
+figure out that the node is not working they can taint the node. RUG then figures out the taint
+
+19:21.760 --> 19:28.480
+and RUG then starts the network fence CR. The network fence CR is then executed by the CSI add-ons
+
+19:29.040 --> 19:33.040
+operator talking to the CEPF cluster and the CEPF cluster will not be able
+
+19:34.880 --> 19:37.280
+to communicate with the worker out anymore. There's a question.
+
+19:38.560 --> 19:46.000
+So it sounds like it has to be the case that CEPF is in the final position to control whether the
+
+19:46.000 --> 19:50.880
+next pod is going to be able to use the same CEPFS file system otherwise there's no way to guarantee
+
+19:50.880 --> 19:57.440
+that the proper ordering occurs. Is that correct? So the question is that is CEPF is the
+
+19:59.280 --> 20:08.480
+final source or the decision maker in fencing? It is but you also want to fence,
+
+20:09.120 --> 20:15.440
+you ideally want to fence on different levels but in order to have your data consistent not
+
+20:15.440 --> 20:21.760
+necessarily only your workloads but if you want to have your data consistent then that needs to be
+
+20:21.760 --> 20:28.960
+done on the storage level as low as possible. So CEPF is the one that decides who is allowed to
+
+20:28.960 --> 20:35.680
+use your data and if there is a broken worker node a broken worker node should not be allowed to use
+
+20:35.680 --> 20:43.120
+it the best way to prevent the broken worker node from using or modifying the data is by blocking
+
+20:43.120 --> 20:48.240
+it on the storage level on CEPF. Right but my question was neither should be the next pod
+
+20:48.240 --> 20:52.800
+was able to schedule because even step one that you missed it could cause a new pod to come.
+
+20:54.560 --> 21:01.840
+So that would be allowed to happen because what? So the first step is that
+
+21:04.400 --> 21:14.080
+I'll rephrase it. The first step is that step zero is the broken out breaks. Step one is
+
+21:14.160 --> 21:21.520
+Kubernetes detects some breakage and starts the pod on another node. Right and that's where you are
+
+21:21.520 --> 21:32.720
+going to. Right in that case you're already late because the next pod might start to disrupt your
+
+21:32.720 --> 21:38.560
+data and write in the same things and that is correct. Yes, yes so there's still in this case
+
+21:38.640 --> 21:47.040
+there's still a window where things might not go right and that is in this case a Kubernetes
+
+21:47.840 --> 21:57.360
+issue and hopefully by automating more things like enabling like medicaid to detect a broken
+
+21:57.360 --> 22:04.160
+pod or broken worker node immediately tainted and then make sure that it fails over. Kubernetes also
+
+22:04.160 --> 22:11.920
+has a timeout in detecting if for example, Kuplet doesn't respond or so it doesn't immediately
+
+22:11.920 --> 22:20.640
+reschedule so you still have time to actually do some operations but you should not reschedule. Yes,
+
+22:20.640 --> 22:25.360
+it depends on the failure behavior that you see but you still need to be very fast on
+
+22:26.720 --> 22:30.800
+automating it so if you have automation around it then that's the best but you
+
+22:31.200 --> 22:36.560
+should try to have a large enough timeout for the rescheduling after a failure.
+
+22:40.560 --> 22:45.920
+Exactly so the comment is that you should check your timeouts and the ordering should be sufficient
+
+22:45.920 --> 22:52.640
+so if you have long enough timeouts then you can be very safe and if you have very short timeouts
+
+22:52.640 --> 22:58.560
+then the challenge on problems is just bigger. It's not always good to have your application up
+
+22:59.280 --> 23:07.040
+like five nines and sometimes a little bit lower but more safety is encouraged. This was it for my
+
+23:07.040 --> 23:11.760
+talk. I'm not sure if we still have we have two minutes for questions if there's anything
+
+23:12.720 --> 23:22.560
+and otherwise I thank you all for listening.
+

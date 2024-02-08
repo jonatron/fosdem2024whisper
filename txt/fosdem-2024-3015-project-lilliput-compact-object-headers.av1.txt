@@ -1,0 +1,594 @@
+Hello?
+Yes.
+Ah, okay, let's do it again.
+Hello, hello friends.
+I'm Roman.
+So let's start with an overview.
+I'm scratchy too, right?
+Okay.
+A little overview and motivation why we are doing all this.
+So what is Project Lili put?
+Let's start at the beginning.
+It's an open JDK project.
+It's a community project.
+We get contributions by Red Hat, Oracle, SAP, Huawei, Alibaba,
+Amazon, that's me.
+The goal of that project is to reduce memory footprint of Java
+object headers.
+We have a lot of applications in the Java heap.
+It's a side effect of that goal.
+We will also see potential CPU and latency improvements.
+Specifically, we want to achieve these heap memory reductions by
+reducing the size of Java object headers.
+To illustrate this, let's consider a hypothetical very
+long button, I guess.
+So let's look at this hypothetical Java heap.
+Each of these squares represents a Java object with different
+sizes.
+And in such a heap, you would have like everything that is
+yellow here is object headers.
+This is really just metadata for the VM, like class information
+stuff, I will get into this.
+And this means we waste quite a lot of memory on just this
+metadata in the heap.
+With Project Lili put, the goal is, so if we consider each of
+these half of those squares, one word, we want to reduce these
+cut in half, might end up looking like this, with much less
+metadata for each object, and we free up a lot of space there
+at the bottom.
+So this is the savings.
+Another way to look at this is to see the breakdown of
+metadata versus actual payload.
+And I did some statistics when I started this project, so around
+20% of live data on the heap is actually only metadata in the
+object headers.
+This depends a lot on the workloads.
+Some workloads, they have much more of this.
+Some workloads, they have much less ratio here, but this is
+kind of an average.
+So this is the current situation where we have headers that are
+12 bytes large.
+With Project Lili put, in the first step, we want to go to
+8 byte headers, which means that the ratio of metadata here is
+only like 13% on average.
+My very again, average savings of around 7%, 10% up to maybe
+30% or even a little bit more percent here.
+The long term goal with Lili put is to have headers that are
+only 4 bytes large, and if you achieve this, then only 6% of
+live data is object headers and savings up to like 50% compared
+to the current situation.
+Yeah.
+We did that already.
+We did most of the work already and we run some services at
+Amazon already with Lili put, and this is the heap usage of the
+service after GC.
+When Lili put was deployed, it dropped by about 30%.
+I must admit that this is a bit of a sweet spot case.
+Not all workloads look like this, but it shows quite well how
+this works.
+As a side effect of this, the CPU utilization also dropped by
+about 25% here when Lili put got deployed.
+Is this still on?
+Okay.
+This was quite significant.
+This has the effect on latency too, latency drops by
+about 30%.
+Some percent.
+So, motivation part.
+Helpfully, Alexi did the GLL thing.
+So, if you have a workload and want to know how would it look
+like when running Lili put, you can generate a heap dump with
+your workload and then run it through GLL tool, which is here,
+and you can get some nice estimates of your heap utilization
+with different configurations, including Lili put.
+To tell you, you would say, I don't know, such and such
+percent with Lili put, and you can even do the crystal ball and
+look into the future and tell you about Lili put too.
+That's because the heap dumps don't actually include the
+metadata.
+The GLL tool needs to do a lot of calculations and estimations
+and get up and come up with something, but it's pretty useful.
+So, yeah.
+At the end of the day, what does it do?
+It reduces your hardware or cloud cost.
+You can save on instance cost here.
+Or you can do the same hardware and drive more load on it.
+You can help reduce your energy bills and save your tool for
+the climate, but this is all good.
+So, yeah.
+Let's look into what's going on there.
+The object headers.
+This is a breakdown of the current situation.
+So, we have a one word at the beginning of each object, which we
+call the mark words for historical reasons.
+It's really just a header that contains stuff.
+And we have 64 bits and two bits here.
+They are tag bits or lock bits.
+They indicate what the rest of those bits mean.
+Usually, they mean we have GCH bits here, four bits of GCH 0215.
+And then we have hash code bits.
+When you call the identity hash code of an object, this will
+generate some number and stick it here.
+And then you have some unused bits up here.
+Okay.
+And the next word, the second word of each object contains the
+class pointer.
+The class, so-called class pointer, points to the internal
+structures in hotspot that tells you all about the class of
+this object.
+Usually, what you get with modern JVMs is the compressed
+class pointer, which is 32 bits.
+I don't want to talk about the other one.
+Thomas is going to talk about a lot of details, how to deal
+with that.
+But this means that the first two words of each object are
+taken by metadata.
+For many objects, we can start sticking actual payload in these
+other 32 bits here.
+For arrays, we can put the area length there.
+But what we want to do is you can probably see this already.
+We have the class pointer here.
+We have free space here.
+We can probably stick it in there and then see how to deal
+with the other bits there.
+Problem is, what we also have is the so-called displaced
+headers or overloaded headers.
+This happens when locking happens or the GC does some
+things.
+And then the tag material indicates what the rest of those
+bits mean.
+And usually, it's a native pointer to some structure.
+And this means that those bits up here, they are not
+actually always unused.
+They are only sometimes unused.
+And this is a major problem.
+I get into how we want to deal with this.
+We still have to compress class pointers there.
+As an example, when this happens is when we have a
+stack-locked object, then the tag width is 0, 0.
+The rest of it is appointed onto the stack.
+Then we have objects that are locked by an object monitor.
+Then we have those tag widths.
+And this is appointed to some object monitor structure that
+lives somewhere.
+Or the GC can use this for storing forwarding
+information.
+And it points to then we have this tag with here, 0, 0, 1,
+1.
+And it points to the forwarded object in somewhere else in
+the heap.
+This may look like this.
+In the example of an object monitor, we have exactly the
+situation that I just talked about.
+If that happens, where's the original mark?
+We'll say we have some hash code here.
+And so we need to preserve it somewhere.
+Its answer is usually it's in the, for example, in the
+object monitor case.
+It's displaced in the beginning of the object monitor
+structure.
+This is fiddly stuff.
+So the plan is to get here for the first step that we are
+currently working on.
+So we would still have to tag width here.
+Or maybe not.
+Then we have another bit here that says about self-focusing.
+Then we have H widths here, some unused stuff.
+And the identity hash code and a few bits for the class
+pointer.
+If you count this correctly, those are not 32 bits like we
+had before.
+Those are fewer bits.
+Thomas is going to talk about how we do this.
+The long-term plan for lilyput, we call this lilyput 2
+already, is squeeze everything into 32 bits.
+We still have those tag widths here.
+It says forwarding point that you see H.
+It's unchanged.
+The hash code will fit into two bits.
+This is going to be a very bad hash code.
+No, no, no.
+We will leave it.
+And you still have the class pointer up there.
+What's the problem with all this?
+So in the current situation, we have two words.
+In the first word, it rarely carries any interesting
+information.
+So it might carry hash code information, but it's only,
+usually happens for few objects.
+It may carry locking information, but only very few
+objects ever get locked on the heap.
+So we basically waste this word on stuff that is rarely used.
+And in the second word, we have this class pointer, which is
+very crucial information for any object, because we need this
+for all sorts of things.
+If we don't have this, then this object doesn't have
+a type identity, which is, yeah, we may not do this.
+So this is part of the problem.
+In the new world, this class pointer is part of the header,
+which means that suddenly this header has crucial information
+that we must not lose.
+And we always need for things like figuring out the object size
+or something like this.
+So we must never lose that class pointer there.
+And also, this header displacement that I talked about
+earlier means that how do we access this information when we
+need to follow through the actual mark word?
+Those are the three problems.
+How to fit everything into fewer bits, how to safely access
+this mark word, and how to avoid losing the class pointer
+to begin with.
+I don't have all that much time, so I can only scratch the
+surface of these problems.
+I will give a very high level overview of this.
+The first is locking.
+When locking happens, then, well, let's look at, for example,
+stack locking is the most lightweightest locking in hotspot.
+It's really just a compare and swap thing on the object header.
+Oops, this was too fast.
+Let's go back a little bit.
+So it coordinates threads by comparing and swapping on the
+object header.
+I said this.
+It doesn't, as soon as contention happens, we inflate this
+stack lock to an object monitor.
+It doesn't support weight notify.
+It doesn't support JNI.
+And any of this happens, we inflate this to what we call
+a full object monitor.
+This is why we have those two different locking modes.
+The way that works now is when that happens, the JVM does a
+compare and swap on the object header, and it basically
+exchanges the current header with a pointer to the stack, and
+it sticks the original mark word somewhere on the stack.
+And this is how we can basically find the original mark
+word and restore it when we unlock.
+Then we do the opposite thing and swap it around.
+It does answer the question, is this thread locked by object
+E, by this object?
+It cannot answer the question, which thread is currently
+locking this object because it's not really necessary.
+In little bit, the way we solved that is, and I have only one
+slide of this, which is quite amazing because I basically
+rewrote the locking implementation there for this.
+But what we do there is instead of putting the original
+mark word on the stack and putting a pointer on this
+location in the mark word, we basically turn this around
+and say, OK, let's have a small lock stack, what would we
+call it, lock stack, and we basically only push the object
+on that lock stack, and then we still do a compare and swap
+to flip a single bit here, but nothing else.
+The rest of the mark word stays intact.
+It still answers the same question, is this thread T
+locking this object and nothing else?
+So this is the very scratch-to-service overview
+of this stack locking.
+I cannot go deeper because time is running out.
+I need to hand over to you at this point.
+Yeah, let's look at the monitor locking.
+It's a very similar situation.
+All engineers are currently working on a solution for that.
+The basic idea is to, instead of doing the mapping from
+an object to the object monitor through the header,
+we have a side table and do the mapping there, and then
+this means that we don't have this header displacement
+anymore.
+Also, only scratching the surface on GC forwarding.
+Some GCs need to store forwarding information
+in the object header.
+This is used by those full GCs here, and zero GC,
+G1 GC, and Shenandoah, they use the header
+to store forwarding information, and this means that
+when that happens, we would lose this class pointer
+and this crucial information because this is why
+this is a big problem here.
+For normal operation, it is not such a big deal
+because there we have copying GCs where we first create
+a copy of the object and then stick the forwarding pointer
+only in the old copy, which means that in the new copy
+we still have all this information, and we can follow
+through to this new copy to get to the class pointer.
+The full GC, because it has no space to copy the object,
+it slides the objects down to the bottom, and in the process
+of this, would lose this class information.
+The parallel GC has a different solution here
+based on the idea, let's not store this forwarding
+information in the header, let's always re-computers
+in some clever ways, and this is basically the plan
+for what we want to do for the other GCs too.
+So that GC doesn't have this problem because
+they don't do full GCs.
+And with that, well, we have a JAP-450,
+we have this new lightweight locking, it's already
+in Jadikate 21, the flag to enable this,
+when you grab a build from Alexi or some other place,
+is this flag, and I think with this, I'm handing over
+to Thomas, he wants to talk about the class pointers.
+Oh, you mentioned it.
+Oh, okay.
+Does this work?
+Oh, it works, wonderful.
+Yeah, okay, let me switch it.
+Class pointers, and...
+Wait.
+I'm gonna start.
+Okay, I'm Thomas, I work at Red Hat,
+and I'm going to talk about what we do for class pointers
+in Lilliput, and this will be a very quick dive
+because I only have 10 minutes,
+and this is a bit of a challenge.
+This is just one, but one of...
+Oh, this is cool.
+This is just one of many moving parts in the Lilliput project.
+Lilliput is really a real community project
+in the sense that many companies contribute,
+and this is the part we decided to tackle at Red Hat.
+And with that, let's start, time's ticking.
+So class pointer, the class pointer currently
+in the Lilliput project is 32 bits,
+and that's way too much, we need it to be smaller.
+It takes up like half of the whole space
+of the 64-bit Lilliput object header.
+And so, okay, that's pretty self-explanatory.
+So some background first.
+When we load up a class, a Java class,
+we build up a whole range of companion data structures
+in native memory, and the centerpiece of this group,
+and kind of the big boy among them,
+is the class structure written with K.
+It's a variable-sized structure ranging from 400 bytes
+to, I don't know, we saw five megabyte monsters at Amazon,
+but that's rare.
+And every object's header refers to the class structure of its class.
+That's why the shape of this reference really matters,
+because for one, obviously, footprint,
+and because also we need to be able to dereference it very quickly.
+Going from object to class is a hot path.
+So we could just store the native class pointer
+in the object header, but we usually don't do this,
+because it's 64-bit way too big.
+So since a long time ago,
+we already employ this optimization
+where we split the native pointer into two parts,
+a 32-bit offset that refers to a 64-bit runtime constant base,
+and we only store the offset,
+and that's what we call the narrow class pointer.
+And that trick only works if we are able to confine
+all class structures within a four-gigabyte range, obviously.
+And that's exactly what the class base is for.
+That's the only reason it exists.
+And we also have CDS.
+So CDS contains class data sharing.
+CDS archives contain pre-baked class structures.
+And so what we do usually is we map the CDS archive
+very close to the class base,
+such that both are engulfed by the class encoding range,
+and every class structure in either region
+can be reached by a narrow class pointer.
+Okay, and so decoding is basically just an addition.
+I'm a bit simplifying because of time reasons.
+And the nice thing is from the point of the JIT,
+the encoding base is a runtime constant.
+It's obviously not a constant
+because we determine it when the VM start-up.
+It's subject to ASLR and some such,
+but we can encode it,
+the JIT can encode it as a 64-bit immediate.
+That is nice, so we already save a load.
+And then we have a ton of optimizations
+that basically all depend on the base looking good.
+Whatever looking good means for the specific CPU,
+such that we can load it with just one move.
+I won't get into details.
+One simple example is if we manage to place
+the class base below four gigabytes,
+then we can set the base to zero.
+This is what we call unskilled encoding.
+And now basically every narrow class pointer
+is the class pointer, so we don't have to do anything.
+And we are now also very good at it.
+The one effect of the Lilliput work is that
+unless the address base is really populated
+or unless the operating system just flatly refuses to do this,
+this is likely to happen.
+Okay, for Lilliput, 32-bit is still too much,
+so we shrink it.
+There are some side goals.
+We still want to be able to address enough classes,
+whatever enough means, that is a complicated question.
+And we also want to basically keep using
+metaspaces and CDS, because both give us a ton of features
+we would need to reinvent otherwise.
+And we also decided to, for now,
+keep the class base layout as it is.
+Now, as a kind of a bar,
+we can load about five million classes, give or take.
+The class base is artificially kept at three gig.
+And I personally believe if you manage to load
+five million classes, you are either very patient
+or probably not really aware of doing it,
+because it's a leak.
+And I think this number is really high.
+Question still means is how many classes
+do we actually need to address.
+And this is a very complicated question,
+and I don't have much time.
+Therefore, we kind of decided to sidestep this question.
+We said, okay, we don't reduce the class encoding range,
+it's still four gigabyte.
+We leave it at that.
+And we say anything in multi-million range is probably fine.
+We can also, there's still room to reduce it,
+but we don't for now.
+What we do instead is we increase,
+if we manage to store all class structures
+at certain aligned addresses,
+then we can use this alignment shadow
+to save other stuff.
+And that's what we do.
+We decided on a 10-bit alignment
+because one kilobyte statistics.
+Even though class is very precise,
+it's the vast majority of class structures
+is below one kilobyte,
+usually larger than 512 byte.
+It's a bell distribution,
+so it's really much larger,
+outliers exist, but are really rare.
+And 10-bit give us 22-bit class pointers for now,
+and let us address three million classes.
+And that's still way enough, I think.
+So now something interesting happens,
+where before we used to store class structures
+in the class space back to back,
+we now store them at aligned boundaries.
+And this means that the narrow class pointer
+now is more like a class ID,
+because the class label morphs into a table
+of one kilobyte-sized slots,
+where every class structure occupies one
+or very rarely multiple slots.
+And we use the value range of narrow class
+much more efficiently, because every value now
+means basically another class.
+So it's a hypothetical 16-bit class pointer
+can address 65,000 classes.
+And that's good.
+Obviously, that hurts.
+We have alignment raised now.
+And for time reasons, I can't go into this.
+The gist of this slide is that we made metaspace
+very good at allocating at aligned boundaries
+without footprint loss, so we don't pay for that.
+And we still retain allocation performance
+as what we pour.
+This actually did cost quite a bit of work.
+Some supporting statistic, I skipped that.
+This is Mark Berthley out now.
+But before we had a 30-bit class pointer,
+we now reduced it to 22-bit
+that allowed us to inflate the hash
+back to its former 31-bit size.
+The story behind this is when we started with Lilliput,
+we had to reduce iHash to 25-bits,
+which of course has negative consequences
+for applications with large datasets,
+hash collisions, and so on.
+And the nice thing is we now have four free-bits.
+I'm sure we find a use for them.
+And there are some kinks still to be ironed out.
+Very quickly, hyperaligning class structures,
+any structure to sizes larger than cache line size
+may have detrimental effects to cache efficiency.
+I will need to look into this.
+We have mitigations planned if this should happen.
+There's also 30-bit.
+We are now in the weird situation that 30-bit class pointers
+on 30-bit platforms are larger than a 64-bit.
+And this is, we can deal with this.
+I kind of hope that 30-bit is going away.
+Before I have to do this.
+Future, 16-bit is possible if we just naively reduce
+narrow class pointer to 16-bit.
+This would be a severe reduction in the number
+of loadable classes and probably not acceptable.
+What we can do, however, is we can switch to a model
+where we have maybe a variable size tether
+where objects of the first 65,000 classes
+would benefit from lilyput and have lilyput header
+objects beyond that would get the narrow class pointer
+appended to the mark word.
+This, of course, is a lot more complex
+than what we do nowadays.
+But this is possible, maybe we have to do this.
+Should we ever do 30-bit lilyput headers
+as we have planned?
+This is basically not my idea.
+This is John Rose's idea.
+Okay, as a summary, where we are now,
+10-bits we freed, restored IH to 31-bit,
+which is nice, that had been a blemish
+in the current lilyput implementation.
+And at the cost of a reduction of the number
+of addressable classes from five to three million,
+still a completely fantastic number.
+And the decoding is now more complex
+because now in addition to the addition,
+we also need to shift.
+There are some side effects trickling down.
+How are we time-wise?
+Oh, okay.
+Some side effects trickling down.
+We improved class pointer setup for the stock JVM.
+These are improvements that are already
+rolling out with JK22.
+And yeah, that basically was it.
+Thank you very much.
+And...
+Thank you.
+We take questions.
+Hello, Ren.
+Thank you.
+Thank you.
+Very nice job.
+Just a question.
+Is it worth to use some compression
+maybe to store these maps?
+Oh, sorry.
+Is there any gain possible to use some compression
+about these external maps or things like that?
+Maybe objects are not moving too much,
+or maybe you can compress these address or hash maps?
+I don't know if it's worth because it...
+analyze the pointers that may be big, then you have large,
+let's say, remember set of pointers somewhere or flags
+and maybe you have some compression here,
+may save and, but of course it's a trade off
+of performance between memories, so,
+depend on the use case.
+Thank you.
+So the question was, do we have any plans to like,
+optimize or address hash map implementations?
+You have to get more compact structure
+that we can delete from such hash maps.
+Ah, okay.
+Oh, this is not part of the scope of the report,
+but there may be other efforts.
+Yeah, but I don't know.
+Thank you.
+Well, you can go.
+Okay, thanks.
+I answer this quickly.
+The question was, when can we expect to see this
+in available release?
+Questions, I don't know yet.
+We have most of the stuff lined up already.
+I'm saying 24, but don't sue me on that.
+Can you just upstream this a bit tricky?
+Yeah.
+It's a whole separate effort.
+Yeah.
+I had a question whether it was possible,
+well, or was there any plan to actually make
+those tisings configurable?
+My thinking is that I would imagine maybe it's naive,
+but in some applications I worked on,
+classes are really, really simple
+and you don't use many of them.
+So you would benefit from having extremely small,
+you know, address to, like a small address space,
+basically, and smaller points or as even.
+I didn't quite, what's the question?
+The question is, is it possible to have configuration
+ergonomics for different sizes of class pointers
+or is it fixed by the JVM?
+Oh, possibly we debated that at some point in time.
+There are some advantages of keeping them constant
+because you get more efficient.
+But yeah, I'm not even sure we planned this
+as a development switch.
+Maybe it's undecided yet.
+Okay.
+No more questions?
+Okay then, thank you.
+Thank you.

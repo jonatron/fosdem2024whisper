@@ -1,0 +1,728 @@
+WEBVTT
+
+00:00.000 --> 00:08.080
+Thank you, thank you everybody for coming.
+
+00:08.080 --> 00:10.360
+Before we start, I need to say two things.
+
+00:10.360 --> 00:12.200
+First of all, I'm sorry for this dev room.
+
+00:12.200 --> 00:16.680
+I'll try to speak as loud as I can, but if you don't see the slides, they are available
+
+00:16.680 --> 00:17.680
+online.
+
+00:17.680 --> 00:19.640
+Second, this is a talk about databases.
+
+00:19.640 --> 00:21.280
+We are database researchers.
+
+00:21.280 --> 00:23.320
+So first of all, we don't know everything.
+
+00:23.320 --> 00:28.000
+Second of all, we might also not understand everything, but regardless, we hope to give
+
+00:28.000 --> 00:32.640
+you a different perspective about this important problem, which is how to store data securely
+
+00:32.640 --> 00:37.160
+using trusted execution environments as a technology.
+
+00:37.160 --> 00:39.880
+Sorry.
+
+00:39.880 --> 00:45.680
+So we are PSD students.
+
+00:45.680 --> 00:51.120
+We work at CWI Amsterdam, and specifically our research focuses on secure databases.
+
+00:51.120 --> 00:55.760
+In particular, we do stuff like encrypted query processing, secure multi-party computation,
+
+00:55.760 --> 00:58.320
+data privacy, and so on.
+
+00:58.320 --> 01:01.520
+Here our research question is how to protect data in use.
+
+01:01.520 --> 01:05.800
+In fact, it's very easy to protect data at rest, but we also want to hide it while it's
+
+01:05.800 --> 01:07.560
+being processed.
+
+01:07.560 --> 01:10.040
+Our example here is related to cloud.
+
+01:10.040 --> 01:16.360
+So nowadays it is very common practice to outsource data management to cloud providers,
+
+01:16.360 --> 01:21.400
+but the thing is we also need to protect information from people who have access to the servers
+
+01:21.400 --> 01:23.680
+and internal attacks.
+
+01:23.680 --> 01:29.800
+There are some techniques to analyze data while keeping it encrypted, but like homomorphic
+
+01:29.800 --> 01:36.280
+encryption for instance, but unfortunately this field doesn't yet have encouraging performance
+
+01:36.280 --> 01:37.280
+results.
+
+01:37.280 --> 01:42.800
+So we here need to look for something simpler and more efficient to protect our data while
+
+01:42.800 --> 01:43.800
+it's being processed.
+
+01:43.800 --> 01:46.320
+In this talk, of course, we're here.
+
+01:46.320 --> 01:52.320
+So we talk about trusted execution environments, and we want to employ them as a technology
+
+01:52.320 --> 01:58.440
+to ensure confidentiality and isolation of the data.
+
+01:58.440 --> 02:02.840
+But before we start with this, we need to first understand the different technologies
+
+02:02.840 --> 02:07.920
+and different techniques to split the components of a database system in a trusted execution
+
+02:07.920 --> 02:09.080
+environment.
+
+02:09.080 --> 02:16.400
+In this talk, we focus about Intel SGX, and for who didn't know, it's basically a series
+
+02:16.400 --> 02:21.320
+of hardware instructions to split memory in a secure and insecure part, where the secure
+
+02:21.320 --> 02:24.200
+part we're going to call Enclave.
+
+02:24.200 --> 02:29.560
+And in the database field, Intel SGX specifically the first one is a very popular choice for
+
+02:29.560 --> 02:34.200
+development because it's the most mature one, and there is the most research on it.
+
+02:34.200 --> 02:38.640
+But at the same time, there are some performance limitations to run workloads that are very
+
+02:38.640 --> 02:40.640
+typical for database systems.
+
+02:40.640 --> 02:45.720
+In particular, the biggest problem here is the limited-page cache size, which is 120
+
+02:45.720 --> 02:49.720
+megabytes in Intel SGX1.
+
+02:49.720 --> 02:55.520
+That being said, we're going to explain here many different models to split our DBMS.
+
+02:55.520 --> 03:00.420
+We have the... does this work?
+
+03:00.420 --> 03:04.600
+We have the full DBMS split, which means that basically we're going to put all the database
+
+03:04.600 --> 03:11.240
+inside the Enclave with just a very tiny layer of IO library to handle system calls.
+
+03:11.240 --> 03:14.640
+Then we have the middle DBMS split, which is something in between.
+
+03:14.640 --> 03:19.000
+It allows more fine-grained optimization and code splits.
+
+03:19.000 --> 03:23.600
+Usually approaches just put the query execution engine inside the Enclave, and everything
+
+03:23.600 --> 03:25.720
+else is going to stay out.
+
+03:25.720 --> 03:32.200
+And then we have the minimal DBMS split, where only the operators and the comparators are
+
+03:32.200 --> 03:37.200
+inside the Enclave, where with operators and comparators, I mean plus, minus, equal,
+
+03:37.200 --> 03:39.120
+and so on.
+
+03:40.080 --> 03:43.680
+Now we have a general understanding of the different models.
+
+03:43.680 --> 03:46.840
+We can start with some practical examples.
+
+03:46.840 --> 03:51.760
+So here's a personal favorite, it's called StelDB, and it's a Postgre's extension.
+
+03:51.760 --> 03:53.280
+We have some Postgre's people here.
+
+03:53.280 --> 04:01.760
+I'm very biased on this, but basically, StelDB is employing the third model that I mentioned,
+
+04:01.760 --> 04:04.520
+which is the minimal DBMS split.
+
+04:04.520 --> 04:08.640
+So basically it's only implementing operators and comparators.
+
+04:08.680 --> 04:14.000
+This choice was probably made because of the very limited memory that we can use.
+
+04:14.000 --> 04:16.760
+And so of course there are some trade-offs.
+
+04:16.760 --> 04:20.640
+If we do not have the full DBMS, of course there is more information leakage.
+
+04:20.640 --> 04:26.120
+For instance, people might be able to infer the size of the database and the operations
+
+04:26.120 --> 04:28.600
+that we are making inside the Enclave.
+
+04:28.600 --> 04:34.200
+And at the same time, even though the secure part is so limited, the performance is kind
+
+04:34.200 --> 04:35.200
+of bad.
+
+04:35.240 --> 04:40.360
+So here we are going to have here 5% to 30% overhead in transactional queries, where
+
+04:40.360 --> 04:45.280
+transactional queries are workloads that are very heavy in inserts and updates on current
+
+04:45.280 --> 04:46.280
+data.
+
+04:46.280 --> 04:52.280
+So, yeah, so this is a very good project, but still not quite what we would like to have
+
+04:52.280 --> 04:55.800
+if we are running actual real-world workloads.
+
+04:55.800 --> 04:58.560
+There are more examples here of other databases.
+
+04:58.560 --> 05:01.880
+We have a lot of implementations of SQLites.
+
+05:01.880 --> 05:07.960
+And they are, I think all of them are full DBMS split, but regardless, they add at least
+
+05:07.960 --> 05:11.800
+one or two orders of magnitude of overhead to the queries.
+
+05:11.800 --> 05:16.760
+We have a MariaDB kind of encrypted database, which is called Ageless.
+
+05:16.760 --> 05:24.360
+I think I saw some people from Ageless here, or there was a, it was at FOSDEM a few years
+
+05:24.360 --> 05:25.360
+back.
+
+05:25.360 --> 05:30.520
+And yeah, Ageless is basically this database that is designed to run inside an Enclave and
+
+05:30.560 --> 05:33.760
+uses MariaDB and ROXDB storage.
+
+05:33.760 --> 05:38.720
+It also has encrypted authenticated data in disk and in memory as well, and encrypted
+
+05:38.720 --> 05:39.720
+network connection.
+
+05:39.720 --> 05:41.800
+So it's a very nice project.
+
+05:41.800 --> 05:44.840
+Then we have an implementation of Microsoft SQL Server.
+
+05:44.840 --> 05:45.840
+I'm sorry about this.
+
+05:45.840 --> 05:50.480
+It's not open source, I know, but unfortunately it's one of the most relevant works in the
+
+05:50.480 --> 05:56.800
+field because it actually implements the query engine in the Enclave and splits the data
+
+05:56.800 --> 05:59.320
+between sensitive and insensitive tables.
+
+05:59.320 --> 06:04.040
+So it's a very novel idea, but unfortunately it doesn't work because this kind of models
+
+06:04.040 --> 06:09.760
+also assumes a very big Enclave size and due to the limitations of AgX1, this is not
+
+06:09.760 --> 06:11.640
+pretty feasible in practice.
+
+06:11.640 --> 06:17.400
+And then we have one analytical engine where with analytic, I mean doing analytics, so
+
+06:17.400 --> 06:23.080
+business intelligence workloads on a lot of data and historical data.
+
+06:23.080 --> 06:29.200
+And yeah, this is called OblityB and it implements Oblivious Physical Operator for analytical
+
+06:29.200 --> 06:30.640
+processing in the cloud.
+
+06:30.640 --> 06:35.640
+But yeah, once again, this is really, really slow because of the Enclave size.
+
+06:35.640 --> 06:42.120
+So our contribution here is taking all of this that we have and we notice two things
+
+06:42.120 --> 06:43.120
+in here.
+
+06:43.120 --> 06:48.900
+First of all, the big majority of these implementations on AgX1 are transactional and because
+
+06:48.900 --> 06:53.720
+analytical workloads really don't scale because of the volume of the data and they overhead
+
+06:53.720 --> 06:57.720
+called by last level cache misses and EPC swapping.
+
+06:58.160 --> 07:01.840
+The second problem is that there is no research on SGX2.
+
+07:01.840 --> 07:08.040
+So SGX2 was released a couple years ago, but still all the prototypes that I mentioned
+
+07:08.040 --> 07:09.880
+were made for SGX1.
+
+07:09.880 --> 07:14.480
+I'm not saying they don't work, but I'm saying there are no benchmarks, there are no implementations,
+
+07:14.480 --> 07:18.120
+so there are specifically tailored for SGX2.
+
+07:18.120 --> 07:23.320
+So here our contribution is to try and bridge the gap between efficient and secure analytical
+
+07:23.320 --> 07:24.600
+processing.
+
+07:24.600 --> 07:27.720
+To do so, we use our database, DacDB.
+
+07:27.720 --> 07:32.000
+Disclaimer here, we are not affiliated with DacDB, we are not paid by them.
+
+07:32.000 --> 07:36.360
+It's just an open source database that we happen to use because it's developed in our
+
+07:36.360 --> 07:37.880
+research center.
+
+07:37.880 --> 07:43.080
+So DacDB is open source, it's embedded, columnar analytical system, I'm sorry, there are a
+
+07:43.080 --> 07:46.080
+lot of buzzwords here, I'm going to explain that later.
+
+07:46.080 --> 07:52.560
+It's in C++11 without additional dependencies and it's actually been ported to SGX1 in 2022
+
+07:52.560 --> 07:54.960
+by some, our master student.
+
+07:54.960 --> 08:01.440
+And before explaining what we did with DacDB and SGX1 and 2, I need to give you some fundamental
+
+08:01.440 --> 08:04.040
+concepts about database internals.
+
+08:04.040 --> 08:06.200
+We start here with column storage.
+
+08:06.200 --> 08:11.240
+So the difference between row and column storage is that basically data in column storage is
+
+08:11.240 --> 08:16.400
+stored in columns because if you do analytical workloads, we don't need usually all the columns
+
+08:16.400 --> 08:19.000
+that we have, we just need a few of them.
+
+08:19.000 --> 08:23.360
+So it is more efficient to store the columns all together such that we can only fetch what
+
+08:23.360 --> 08:24.760
+we need.
+
+08:24.760 --> 08:31.720
+And also this kind of column format is also very much, can very much benefit from compression
+
+08:31.720 --> 08:36.560
+because usually there is a lot of correlation between the data and our data is also huge.
+
+08:36.560 --> 08:41.120
+So we can definitely implement some sort of compression and DacDB specifically implements
+
+08:41.120 --> 08:45.880
+column lever compression where data is stored in column and then compressed.
+
+08:45.880 --> 08:50.000
+Now we also need to talk a little bit about vectorized execution.
+
+08:50.000 --> 08:55.920
+This is similar to the CMD instructions that you probably know of but applied to databases.
+
+08:55.920 --> 09:02.000
+So instead of performing operations to one row at a time, we perform it in batches.
+
+09:02.000 --> 09:07.800
+So instead of having a row fetching it, elaborating it and returning it, we do the same process
+
+09:07.800 --> 09:09.240
+with batches.
+
+09:09.240 --> 09:12.920
+So you can see this example, very, very simple query.
+
+09:12.920 --> 09:17.520
+And here our function next is going to return many tuples rather than one.
+
+09:17.520 --> 09:21.720
+And we push only the relevant blocks of data up and down the query plan.
+
+09:21.720 --> 09:26.720
+And this is more efficient because we have less system calls and we can also take advantage
+
+09:26.720 --> 09:28.320
+of the CPU more efficiently.
+
+09:28.320 --> 09:30.360
+Now thank you for the attention.
+
+09:30.360 --> 09:34.800
+Now Lotte is going to explain you how we ported DacDB to SGAX.
+
+09:34.800 --> 09:38.920
+Thank you, Illa.
+
+09:38.920 --> 09:45.280
+Okay, so before we go directly to SGAX2 and how we did it, we first are going to pay some
+
+09:45.280 --> 09:50.920
+attention to how it actually has been done to SGAX1 because the master student, he ported
+
+09:50.920 --> 09:53.400
+DacDB in two different ways.
+
+09:53.400 --> 09:56.320
+The first one is the full database management split.
+
+09:56.320 --> 10:00.520
+The main issue was here of course because of the low memory capacity that not the whole
+
+10:00.520 --> 10:04.520
+database or not all the data would fit in the enclave.
+
+10:04.520 --> 10:08.680
+And the second issue here is that system calls are not directly callable inside the
+
+10:08.680 --> 10:09.680
+enclave.
+
+10:09.680 --> 10:13.800
+So you either need to reimplement all system calls or the necessary system calls or you
+
+10:13.800 --> 10:23.000
+need to use some kind of library which maintains this kind of IOS심 layer.
+
+10:23.000 --> 10:25.360
+So the master student, he used Graphene.
+
+10:25.360 --> 10:28.040
+Nowadays, Graphene is actually called Grameen.
+
+10:28.040 --> 10:32.240
+And I think last year and the year before there were also talks at FOSDEM about Grameen,
+
+10:32.240 --> 10:34.120
+how this exactly works.
+
+10:34.120 --> 10:40.560
+So with Grameen and with fully porting DacDB into the enclave, there was a 20 time slowdown
+
+10:40.560 --> 10:46.040
+actually and this is mainly cause because of the expensive EPC swapping.
+
+10:46.040 --> 10:52.040
+So to mitigate this, the student tried to instead of keeping all memory buffers inside
+
+10:52.040 --> 10:57.160
+the enclave, pull some memory buffers outside the enclave and crib them outside the enclave
+
+10:57.160 --> 10:59.120
+and this way try to run DacDB.
+
+10:59.120 --> 11:06.200
+And this already gave a significant speed up but still there was a 30 time slowdown.
+
+11:06.200 --> 11:10.040
+The second approach that he did was the minimal DbMS split.
+
+11:10.040 --> 11:14.640
+He put basically all the operators inside the enclave and left the rest out of the
+
+11:14.640 --> 11:21.880
+enclave because this enabled to have factorized processing still and that really increases
+
+11:21.880 --> 11:23.680
+performance.
+
+11:23.680 --> 11:30.360
+And a second optimization that he did was replacing Ecos and Ocos by a synchronous request
+
+11:30.360 --> 11:35.000
+in a shared buffer also called the switches mode I think.
+
+11:35.000 --> 11:40.000
+And this also helped but still there was a 10 time slowdown.
+
+11:40.000 --> 11:45.240
+So a couple years later, now there is of course SGX2 and it doesn't suffer from the main
+
+11:45.240 --> 11:46.760
+memory limitation.
+
+11:46.760 --> 11:53.080
+So now it's basically easier to port DacDB as a whole to the enclave to SGX2 and we
+
+11:53.080 --> 11:57.840
+did it also with the use of Grameen which also improved the last years a lot so that
+
+11:57.840 --> 12:01.800
+made it actually surprisingly easy.
+
+12:01.800 --> 12:08.200
+And we did some benchmarks to actually see okay so what performance difference is there
+
+12:08.200 --> 12:11.000
+if you run a database fully inside the enclave.
+
+12:11.000 --> 12:18.360
+So before going into the results we did the benchmarks with TPCH which is a standard industry
+
+12:18.360 --> 12:24.600
+benchmark for analytical workloads so basically for data science workloads so there are no
+
+12:24.600 --> 12:29.960
+inputs inserts or updates but just analytics basically.
+
+12:29.960 --> 12:35.040
+And we compared it first with Grameen itself because since Grameen replace a system calls
+
+12:35.040 --> 12:43.920
+it also incurs some overhead but as you can see most overhead is caused by SGX self.
+
+12:43.920 --> 12:51.920
+On average we would say there is a 10 to 20 percent overhead but here we normalize baseline
+
+12:51.920 --> 12:57.880
+DacDB so that you actually can see the actual overhead per query and there are some specific
+
+12:57.880 --> 13:05.640
+queries such as query 12 and query 15 where the overhead is actually more than twice.
+
+13:05.640 --> 13:09.560
+So this might be a bit problematic.
+
+13:09.560 --> 13:13.640
+So we did some research we tried to identify okay so what is it in these queries that
+
+13:13.640 --> 13:20.880
+causes the overhead and we found that mainly strangely enough the overhead is introduced
+
+13:20.880 --> 13:27.680
+by O-calls so by E-enters and E-exits and we tried to investigate a bit further which
+
+13:27.680 --> 13:32.440
+system called it then was but there was some kind of timing function that seems to be executed
+
+13:32.440 --> 13:34.640
+outside of the enclave.
+
+13:34.640 --> 13:42.560
+And also within these queries there are two times as much page faults and well one optimization
+
+13:42.560 --> 13:50.920
+that we tried we're still working on it but was increasing the factor size in DacDB because
+
+13:50.920 --> 13:57.760
+usually in DacDB the factor size consists of 2048 tuples and usually this gives low
+
+13:57.760 --> 14:03.920
+L1 cache misses but it can incur many EPC calls so with increasing the factor size you
+
+14:03.920 --> 14:09.800
+basically maximize IO and IO is very expensive in the enclave and we actually found that
+
+14:09.800 --> 14:20.200
+if you increase the factor size to 16384 that the performance overhead is actually minimized
+
+14:20.200 --> 14:27.920
+for this workload and a small note is that not for all queries actually the performance
+
+14:27.920 --> 14:34.160
+improved but just for the queries with a lot of overhead it seems to be really beneficial
+
+14:34.160 --> 14:41.880
+to increase the factor size in DacDB.
+
+14:41.880 --> 14:46.440
+So this is very much work in process it's more a prototype than something you can actually
+
+14:46.440 --> 14:53.320
+use in production so please don't do it yet but we can conclude that analytics can actually
+
+14:53.320 --> 15:01.120
+perform people from the relatively efficient in SGX2 and the overhead seems to be acceptable
+
+15:01.400 --> 15:06.960
+but the question now is we can protect data in use so data in secure memory but what about
+
+15:06.960 --> 15:11.520
+the data in unsecure memory right now because if you go outside the enclave the data is
+
+15:11.520 --> 15:19.040
+not protected by default and so we will actually need some kind of encryption mechanism and
+
+15:19.040 --> 15:25.120
+DacDB right now has actually parquet encryption so we are already capable of encrypting parquet
+
+15:25.120 --> 15:31.040
+files and decrypting them inside the enclave and then perform secure analytics but in the
+
+15:31.040 --> 15:36.960
+end our goal is to design to build something that is fully functional and that is fully
+
+15:36.960 --> 15:42.840
+secure actually for users that want to do secure analytics with DacDB.
+
+15:42.840 --> 15:48.880
+So yeah this is our plan for the future we will of course open source everything but
+
+15:48.880 --> 15:51.640
+yeah thank you for your attention.
+
+15:55.120 --> 16:12.080
+Hi thank you for a very nice talk so I was wondering you talked about like this overhead
+
+16:12.080 --> 16:17.640
+that you were attributing to the old calls going out of the enclave and some of the commercial
+
+16:17.640 --> 16:25.280
+SGX frameworks use these techniques where you actually batch these together and they
+
+16:25.280 --> 16:31.160
+are commonly called asynchronous old calls so did you look into that at all and or do
+
+16:31.160 --> 16:36.680
+you have like some insights how that could affect the performance.
+
+16:36.680 --> 16:41.840
+Okay so your question basically is if we looked into the asynchronous old calls right or the
+
+16:41.840 --> 16:49.600
+asynchronous buffer basically well the master student from he looked into that and indeed
+
+16:49.600 --> 16:55.680
+improved performance we were planning on actually doing some benchmarks with this specific mode
+
+16:55.680 --> 17:00.680
+but we just didn't do it yet but we are still investigating but as far as I understand it
+
+17:00.680 --> 17:08.480
+is a little bit less secure to use this mode so yeah it will always be trade off but I
+
+17:08.520 --> 17:13.000
+suspect that it will improve performance quite a bit so reduced the overhead in the end.
+
+17:13.000 --> 17:27.120
+Yeah probably a stupid and provocative question have you tried shoving the whole database in a
+
+17:27.120 --> 17:34.560
+secure instance like 7S and P or TDX and comparing the performance between like SGX and TDX or 7S
+
+17:34.600 --> 17:44.040
+and P solution. Okay so the question is did we use other secure environments basically the answer
+
+17:44.040 --> 17:51.040
+is no so we have no performance comparisons yet but the plan is actually to do that indeed because
+
+17:51.040 --> 17:57.240
+if you want like not everybody is able to run SGX to write so the hardware field is pretty
+
+17:57.240 --> 18:01.920
+fragmented and we also want to kind of find solutions or at least have comparisons of which
+
+18:01.920 --> 18:08.040
+one is the best to use and or maybe even made some kind of framework that people can adopt to
+
+18:08.040 --> 18:23.760
+easily run also on different kind of hardware instructions. Yeah. Thank you I want to ask
+
+18:23.760 --> 18:30.040
+about the fully secure on the slide. Have you talked about side channels and what's your vision on
+
+18:30.080 --> 18:38.840
+that? Do you want to answer? Yeah in short yes this is a problem because all the research that we
+
+18:38.840 --> 18:44.080
+found there is always a trade off between performance and security and literally all the papers
+
+18:44.080 --> 18:49.840
+build this sort of model like cost model in not in terms of cost but in terms of information leakage.
+
+18:49.840 --> 18:56.360
+So a lot of people papers just say that yes we acknowledge that there are going to be some
+
+18:56.400 --> 19:02.640
+trade off some attacks in fact yes yes this is absolutely the case that it can happen but
+
+19:02.640 --> 19:10.600
+right now the goal was first to have something that is somewhat functional on some sort of
+
+19:10.600 --> 19:15.920
+database workloads because as I said the big limitations of SGX-1 made the whole thing completely
+
+19:15.920 --> 19:22.360
+invisible but now that this is actually possible we can also focus on how to fix these issues but
+
+19:22.360 --> 19:30.600
+unfortunately research tended not to acknowledge this issue so much in the past but for future
+
+19:30.600 --> 19:33.440
+yes we will.
+

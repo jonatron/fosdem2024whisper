@@ -1,0 +1,866 @@
+WEBVTT
+
+00:00.000 --> 00:12.600
+Our next talk is a new boot for modern Qualcomm phones as Konfi tells me on my Linux phone.
+
+00:12.600 --> 00:16.200
+Give a big round of applause for Caleb.
+
+00:16.200 --> 00:28.200
+Well, hopefully that stays.
+
+00:28.200 --> 00:34.200
+Okay, there's no way to write.
+
+00:41.200 --> 00:44.200
+Okay, that'll do.
+
+00:44.200 --> 00:46.200
+Hey, everyone.
+
+00:46.200 --> 00:48.200
+Lots of people here.
+
+00:48.200 --> 00:52.200
+Yeah, so this is Uboot for modern Qualcomm phones.
+
+00:52.200 --> 01:00.200
+This is kind of about the issues that we face in running Linux on modern Android devices
+
+01:00.200 --> 01:06.200
+and how we can solve them to make it easier for distros and users.
+
+01:06.200 --> 01:08.200
+So a bit about me.
+
+01:08.200 --> 01:15.200
+Hey, Caleb. I've been working on and using Free Software since about 2018.
+
+01:15.200 --> 01:26.200
+I'm a kernel engineer at Linaire on the Qualcomm ecosystem team where I hack on pretty much anything, just not user space.
+
+01:26.200 --> 01:32.200
+And I'm especially interested in things that improve the user experience.
+
+01:32.200 --> 01:36.200
+Outside of work, I'm a member of the post-micro sql team.
+
+01:36.200 --> 01:43.200
+Yeah, you might recognize me from my work on the 1.6 and Snapdragon 845 devices.
+
+01:43.200 --> 01:50.200
+And otherwise, I'm just plotting new ways to keep your devices out of landfill.
+
+01:50.200 --> 01:56.200
+And I'm a maintainer of Qualcomm platform support in Uboot.
+
+01:56.200 --> 02:00.200
+If anybody else is interested, you can follow me on masterband here.
+
+02:00.200 --> 02:08.200
+So in this talk, we'll talk about why Linux on Android phones kind of sucks.
+
+02:08.200 --> 02:17.200
+We'll talk about the magic of UFI, how Uboot works as a UFI boot loader,
+
+02:17.200 --> 02:21.200
+and specifically how it works on Qualcomm devices.
+
+02:21.200 --> 02:28.200
+I'll talk about the state of Qualcomm support in Uboot now and have a quick demo.
+
+02:28.200 --> 02:38.200
+We'll go over the absolute status and like 10,000 foot overview of how to support a new Qualcomm SOC.
+
+02:38.200 --> 02:42.200
+So let's play a little game.
+
+02:42.200 --> 02:51.200
+I'm going to show you some boot loaders and you guys have to tell me which one is the odd one out.
+
+02:51.200 --> 02:54.200
+So who recognizes this?
+
+02:54.200 --> 02:56.200
+Not that many hands.
+
+02:56.200 --> 02:59.200
+This is the grub-lugger, apparently.
+
+02:59.200 --> 03:05.200
+It has another alleged boot loader.
+
+03:05.200 --> 03:11.200
+This is actually the official system debut lugger and not one that I made up.
+
+03:11.200 --> 03:16.200
+Maybe you recognize this, Tiana Core or this lugger.
+
+03:16.200 --> 03:23.200
+If you've ever used QMU with UFI, of course, it has another classic boot loader.
+
+03:23.200 --> 03:27.200
+How about this for a boot loader?
+
+03:27.200 --> 03:29.200
+Is it?
+
+03:29.200 --> 03:34.200
+Not a boot loader?
+
+03:34.200 --> 03:39.200
+Some people would definitely make the differ.
+
+03:39.200 --> 03:46.200
+Yeah, so I guess the point is really that boot loader is a bit of an overloaded term.
+
+03:46.200 --> 03:49.200
+It can mean a lot of different things.
+
+03:49.200 --> 03:54.200
+So for the sake of this SOC, it means...
+
+03:54.200 --> 03:56.200
+We're going to go with this definition.
+
+03:56.200 --> 04:01.200
+It's a software responsible for loading the kernel in our MFS and device tree and then jumping to it.
+
+04:01.200 --> 04:08.200
+Sometimes different bits of software do different parts of this process, but that's okay.
+
+04:08.200 --> 04:15.200
+So, booting an Android.
+
+04:15.200 --> 04:18.200
+The devices have this thing called ABL.
+
+04:18.200 --> 04:21.200
+It's the Android boot loader.
+
+04:21.200 --> 04:24.200
+It works like this.
+
+04:24.200 --> 04:29.200
+You have this boot image, which is flashed to a boot partition.
+
+04:29.200 --> 04:36.200
+It contains the kernel, device tree, and the inner MFS all packaged up together.
+
+04:36.200 --> 04:39.200
+Then you have this DTBO thing.
+
+04:39.200 --> 04:44.200
+The idea is that your device tree that's in the boot image is generic.
+
+04:44.200 --> 04:46.200
+It's for the platform, for the SOC.
+
+04:46.200 --> 04:57.200
+Then in your DTBO, you can have all your board-specific quirks and features like the display panel and things like that.
+
+04:57.200 --> 05:01.200
+So the process is you load the boot image, find a matching DTB,
+
+05:01.200 --> 05:04.200
+because there can be multiple in the boot image.
+
+05:04.200 --> 05:09.200
+Apply the right overlay from the DTBO, and then you boot.
+
+05:09.200 --> 05:10.200
+Easy, right?
+
+05:10.200 --> 05:15.200
+Well, there's no multi-boot support.
+
+05:15.200 --> 05:18.200
+You just get the one kernel.
+
+05:18.200 --> 05:25.200
+There is an AB update rollback feature, which can't be disabled.
+
+05:25.200 --> 05:28.200
+It's a lot of work to integrate.
+
+05:28.200 --> 05:35.200
+In fact, there are five different versions of this boot image format that we need to support.
+
+05:35.200 --> 05:40.200
+The DTBO partition obviously does not work with mainline device trees,
+
+05:40.200 --> 05:42.200
+because they're just not designed this way.
+
+05:42.200 --> 05:54.200
+So we need to either erase it, or in some cases build a special empty one to trick the boot loader into not crashing.
+
+05:54.200 --> 05:58.200
+There is no feedback if any parts of this process go wrong.
+
+05:58.200 --> 06:02.200
+You get dumped to fast boot, or, well, if you're lucky.
+
+06:02.200 --> 06:07.200
+And, yeah, overall, it's not a whole lot of fun.
+
+06:07.200 --> 06:13.200
+In fact, there's a few very horrific things hiding in the shadows.
+
+06:13.200 --> 06:22.200
+You may be familiar with this error message if you've ever booted Linux on Qualcomm platform.
+
+06:22.200 --> 06:26.200
+Qualcomm's boot loader loads the kernel in a mislead address.
+
+06:27.200 --> 06:34.200
+Here is, in fact, the command that's run as part of the kernel update process on PostMarketOS
+
+06:34.200 --> 06:38.200
+and other distros that need to support this platform.
+
+06:38.200 --> 06:41.200
+This is the most generic form.
+
+06:41.200 --> 06:48.200
+We need all of these device-specific properties, and it's not super great.
+
+06:48.200 --> 06:52.200
+Sometimes we need to append strings to the end of the boot image.
+
+06:53.200 --> 07:00.200
+And here is an example of what happens if you erase the DTBO partition on one device.
+
+07:00.200 --> 07:03.200
+That's an abstract trace from the boot loader.
+
+07:03.200 --> 07:06.200
+So we can do better, right?
+
+07:06.200 --> 07:10.200
+Well, here's how booting with UFI works.
+
+07:10.200 --> 07:14.200
+You have a normal Fat32 or AXE2 partition.
+
+07:14.200 --> 07:19.200
+The AFI specification actually says nothing about Fat32.
+
+07:19.200 --> 07:24.200
+So for those of you who really are not a fan of the Microsoft ways,
+
+07:24.200 --> 07:29.200
+you can get away with the AXE2, I think.
+
+07:29.200 --> 07:40.200
+You install this file bootAA64.EFI, or if you're on an AXE86 platform, it's like boot AXE86.
+
+07:40.200 --> 07:47.200
+And then you have your kernel and RAM disk and boot loader configuration wherever you want.
+
+07:47.200 --> 07:52.200
+The big difference here is that rather than having to just pack everything up in this special format,
+
+07:52.200 --> 07:55.200
+you get to run your own code.
+
+07:55.200 --> 07:58.200
+So you can do whatever you need to do.
+
+07:58.200 --> 08:04.200
+And in fact, this gives the distro full control over the boot loader
+
+08:04.200 --> 08:10.200
+so you can have your fullbacks or you can have multiple different kernels installed.
+
+08:10.200 --> 08:12.200
+You're used to this, right?
+
+08:12.200 --> 08:19.200
+So if you're using this EFI on your laptops and desktops,
+
+08:19.200 --> 08:23.200
+it's pretty great, as I'm sure you all know.
+
+08:23.200 --> 08:30.200
+However, many vendors still get things wrong in the AXE86 space and on ARM.
+
+08:30.200 --> 08:38.200
+And in UBoot, at least, we have some limitations that you can't really adjust the boot loader at runtime.
+
+08:39.200 --> 08:43.200
+For the purposes of this talk, we kind of gloss over that.
+
+08:43.200 --> 08:47.200
+But it's definitely an obvious winner if done right.
+
+08:47.200 --> 08:51.200
+And you're never going to get it right, but there's a great workaround to that,
+
+08:51.200 --> 08:58.200
+which is to just release the source code and let people fix the things that you get wrong.
+
+08:58.200 --> 09:04.200
+So we've compared the Android boot process to UFI.
+
+09:04.200 --> 09:09.200
+Of course, we're also noting that UFI is capable of all of the same secure boot features.
+
+09:09.200 --> 09:13.200
+So I have a question for you guys.
+
+09:13.200 --> 09:18.200
+Which boot loader do you think Qualcomm shipped on the automotive and IoT platforms?
+
+09:18.200 --> 09:22.200
+Is it the Android one or the UFI one?
+
+09:22.200 --> 09:24.200
+I heard AVL.
+
+09:24.200 --> 09:27.200
+Yeah, indeed.
+
+09:27.200 --> 09:32.200
+If you're running embedded Linux on IoT or on automotive even,
+
+09:32.200 --> 09:38.200
+you're not booting Android, but you still have to deal with this whole Android boot loader.
+
+09:38.200 --> 09:43.200
+So the answer to all our problems, UBoot.
+
+09:43.200 --> 09:49.200
+UBoot is a very cool open source boot loader, GPL2 licensed.
+
+09:49.200 --> 09:52.200
+I'm sure many of you are already familiar with it.
+
+09:52.200 --> 09:56.200
+It supports a whole lot of different devices and architectures.
+
+09:56.200 --> 10:01.200
+It has compatibility with the Linux driver model.
+
+10:01.200 --> 10:06.200
+So, reporting drivers from Linux is pretty straightforward.
+
+10:06.200 --> 10:11.200
+It uses device tree, which is pretty fantastic.
+
+10:11.200 --> 10:13.200
+And it can be adjusted to do anything.
+
+10:13.200 --> 10:22.200
+It's not just the UFI boot loader, but it does pass the system-ready base boot requirements.
+
+10:22.200 --> 10:27.200
+And it hasn't always had great Qualcomm support, but thankfully that's changing.
+
+10:27.200 --> 10:32.200
+So, to boot UBoot on a Qualcomm platform, on a phone specifically,
+
+10:32.200 --> 10:36.200
+we actually can't replace the Android boot loader, which sucks.
+
+10:36.200 --> 10:41.200
+It's hashed and the hash is signed by a private key.
+
+10:41.200 --> 10:43.200
+The public key is bund into the SOS.
+
+10:43.200 --> 10:48.200
+So, like Luca mentioned in his talk regarding firmware,
+
+10:48.200 --> 10:56.200
+the same is also true for the boot loader.
+
+10:56.200 --> 10:57.200
+Could we exploit this?
+
+10:57.200 --> 11:01.200
+Unfortunately, this isn't going to be one of those talks.
+
+11:01.200 --> 11:07.200
+I'm sure, well, I hope that one day we get there, but for now we can chain load,
+
+11:07.200 --> 11:09.200
+which is almost as good, right?
+
+11:09.200 --> 11:13.200
+And we can rely on ABL to give us a bunch of pretty useful information.
+
+11:13.200 --> 11:19.200
+So, you can build UBoot with this configuration, which is exactly what you might think.
+
+11:19.200 --> 11:24.200
+It prepends the Linux kernel image header to the UBoot image,
+
+11:25.200 --> 11:28.200
+which just lets us smuggle UBoot past ABL.
+
+11:28.200 --> 11:32.200
+ABL thinks it's just booting Linux, but it's actually not.
+
+11:32.200 --> 11:36.200
+And that's pretty much all this required.
+
+11:36.200 --> 11:44.200
+Well, then you wrap it up in the boot image, and now we're booting UBoot, basically.
+
+11:44.200 --> 11:52.200
+So, the state of Qualcomm support is provided in MacSnapDragon,
+
+11:52.200 --> 11:55.200
+which has been around for a really long time.
+
+11:55.200 --> 11:59.200
+To the original authors, I don't really know why they decided to name it
+
+11:59.200 --> 12:03.200
+Snapdragon and not Qualcomm, but whatever.
+
+12:03.200 --> 12:08.200
+As of today, not all of this is upstream, but work in progress.
+
+12:08.200 --> 12:14.200
+We have support for all of these platforms, the latest being my colleague, Neil,
+
+12:14.200 --> 12:21.200
+who recently got UBooting on SM8350, which is one-generation old.
+
+12:21.200 --> 12:25.200
+So that's all of the 2023 flagship phones, essentially.
+
+12:25.200 --> 12:29.200
+We're pretty much compatible with Linux advisory.
+
+12:29.200 --> 12:38.200
+So, if you have a phone that's supported by upstream Linux and basic SoC drivers are in UBoot,
+
+12:38.200 --> 12:45.200
+you can just take the advisory blog from Linux, combine it with UBoot, and you can probably boot.
+
+12:46.200 --> 12:51.200
+Some devices need a few additional things, which we keep track of in a separate
+
+12:51.200 --> 12:55.200
+advisory file, which UBoot automatically includes for us.
+
+12:55.200 --> 13:03.200
+And for things like USB, where we currently only support high-speed, we can fix this up at runtime.
+
+13:03.200 --> 13:09.200
+So, there's no hard advisory modifications required.
+
+13:10.200 --> 13:15.200
+There's also no board-specific code, which if you're familiar with UBoot development,
+
+13:15.200 --> 13:18.200
+you're probably very familiar with the board-specific code.
+
+13:18.200 --> 13:20.200
+We don't want any of that.
+
+13:20.200 --> 13:26.200
+We want to dynamically arch everything, read the memory maps from the advisory,
+
+13:26.200 --> 13:30.200
+and have one build target for everything.
+
+13:30.200 --> 13:35.200
+Support for USB, UFS storage, and MNC is headed upstream,
+
+13:35.200 --> 13:41.200
+and a whole lot more buttons, capsule updates, it's all getting there.
+
+13:41.200 --> 13:44.200
+So, where can you run this?
+
+13:44.200 --> 13:53.200
+Today, if you fancy shelling out, you can get yourself one of these fantastic IoT development platforms
+
+13:53.200 --> 13:56.200
+on the low-end for just $199.
+
+13:56.200 --> 14:04.200
+You can buy yourself an RB1 with a quad-core 2 GHz A53 SoC,
+
+14:04.200 --> 14:08.200
+one or two gigabytes of RAM, and eight or 16 gigs of MNC.
+
+14:08.200 --> 14:12.200
+Now, that is a steal, I gotta tell you.
+
+14:12.200 --> 14:15.200
+You can go a bit higher, you can go for the RB2.
+
+14:15.200 --> 14:22.200
+You get a whole eight cores, still a 2 GHz though, and still just two gigs of RAM.
+
+14:22.200 --> 14:29.200
+On the mid-end, there's the SCMA45 RB3.
+
+14:29.200 --> 14:33.200
+You'll learn more about these boards in Neil's talk in just a sec.
+
+14:33.200 --> 14:35.200
+You cannot actually buy this one anymore.
+
+14:35.200 --> 14:41.200
+So, yeah, sorry, I guess you'll have to go all the way up to the RB5.
+
+14:41.200 --> 14:45.200
+Only $550, right?
+
+14:45.200 --> 14:47.200
+Well, I'll let you in on a secret.
+
+14:47.200 --> 14:53.200
+You can buy yourself a OnePlus 8 for a lot less than that, and it has the same SoC in it.
+
+14:53.200 --> 15:01.200
+Now, if you already own a Snapdragon 845 device, like the OnePlus 6,
+
+15:02.200 --> 15:09.200
+you can head here and you can download a UBoot release right now.
+
+15:09.200 --> 15:16.200
+There is some work in progress post-marketOS support, which is not much yet, but it's on its way.
+
+15:16.200 --> 15:20.200
+We're booting with UFI and SystemDoot.
+
+15:20.200 --> 15:29.200
+Down the line, we will also have support for providing UBoot updates with LVFS and FirmwareUpd.
+
+15:29.200 --> 15:33.200
+So, you'll just be able to receive updates no matter what disk review you're running.
+
+15:33.200 --> 15:37.200
+And I can demonstrate this for you right now.
+
+15:37.200 --> 15:39.200
+Hopefully.
+
+15:39.200 --> 15:41.200
+Hopefully.
+
+15:41.200 --> 15:44.200
+Let's see.
+
+15:50.200 --> 15:51.200
+Yeah, okay.
+
+15:51.200 --> 15:54.200
+So, this is a OnePlus 6.
+
+15:54.200 --> 15:59.200
+This is my sort of daily driver device at the minute.
+
+15:59.200 --> 16:05.200
+And here we can see UBoot.
+
+16:05.200 --> 16:08.200
+So, we have this boot menu at the minute.
+
+16:08.200 --> 16:16.200
+And there's a few options here which you may or may not be able to read.
+
+16:16.200 --> 16:20.200
+The important ones, especially if you're interested in playing around with this.
+
+16:20.200 --> 16:27.200
+If you boot up with the USB cable attached, then you can choose this USB Serial Console Gadget option.
+
+16:27.200 --> 16:33.200
+And then you'll get a Serial Console on your PC from the USB port and the device.
+
+16:33.200 --> 16:37.200
+So, you can think around with UBoot.
+
+16:37.200 --> 16:42.200
+And yeah, I guess we'll boot into Linux.
+
+16:42.200 --> 16:45.200
+This is booting with SystemDoot.
+
+16:45.200 --> 16:47.200
+I want to buy a bit faster.
+
+16:47.200 --> 16:53.200
+And I got the AFI sub and then into Linux.
+
+16:53.200 --> 16:55.200
+Yeah, so there we go.
+
+16:55.200 --> 17:03.200
+This is kind of hopefully the future of Linux on Qualcomm devices.
+
+17:03.200 --> 17:10.200
+We can now provide updates as you would expect on your laptop or desktop.
+
+17:10.200 --> 17:16.200
+We don't need to mess around with a bunch of disk integration for the Android boot image.
+
+17:16.200 --> 17:20.200
+And everything just kind of works.
+
+17:20.200 --> 17:30.200
+So, yeah, in terms of upstreaming, there's quite a few patches on the mainliners right now.
+
+17:30.200 --> 17:38.200
+With those, we'll have USB support for the Snapdragon 845 and UFS I'm hoping to send off soon.
+
+17:38.200 --> 17:41.200
+There's a separate effort by a colleague of mine, Summit.
+
+17:41.200 --> 17:48.200
+He's working on pulling in all of the device trees from Linux, which are actually kept,
+
+17:48.200 --> 17:52.200
+married in a separate repository called Device Rebasing.
+
+17:52.200 --> 17:58.200
+So, the idea is to add this as a subtree in UBoot to allow us to keep it in sync.
+
+17:58.200 --> 18:04.200
+And this way, you'll be able to just clone UBoot, build it, and if your device is already in Linux
+
+18:04.200 --> 18:15.200
+and is already, like I said, basic support for the SoC, then provided you have a frame buffer support from ABL,
+
+18:15.200 --> 18:22.200
+then you can just boot UBoot and probably have UFS working.
+
+18:22.200 --> 18:30.200
+Yeah, if you're interested in understanding more about the UBoot flow,
+
+18:30.200 --> 18:36.200
+this is great talk by Simon Glass, who's a UBoot maintainer called Recent Advancements in UBoot.
+
+18:36.200 --> 18:41.200
+He gave it late last year.
+
+18:41.200 --> 18:50.200
+But, yeah, I really like the goal is if you have a fairly standard device, it should just work with the Linux advisory.
+
+18:50.200 --> 18:55.200
+In the future, I really want to get support for handling display panel variants.
+
+18:55.200 --> 19:00.200
+So, for example, the Pocophone F1, we need two different devices at the minute.
+
+19:00.200 --> 19:09.200
+And, yeah, we can do cool stuff, I think.
+
+19:09.200 --> 19:15.200
+Adding a new SoC in case you wanted to is very simple.
+
+19:15.200 --> 19:22.200
+You need clock and ping control. These can be essentially stub drivers, copy one that exists.
+
+19:22.200 --> 19:28.200
+You're kind of good to go. You may need to copy the UFS file data from the Linux driver.
+
+19:28.200 --> 19:31.200
+You can literally copy paste it into UBoot.
+
+19:31.200 --> 19:39.200
+You may need a compatible string for the PMIC and the SMME driver, and that's it.
+
+19:39.200 --> 19:49.200
+In fact, it took me about two hours following this process to reach that point.
+
+19:49.200 --> 19:55.200
+On this device I have here, which I guess I can show off for you.
+
+19:55.200 --> 19:59.200
+This is actually the Fairphone 5.
+
+19:59.200 --> 20:05.200
+And, well, it's...
+
+20:05.200 --> 20:09.200
+Here we are. It can also be from internal storage.
+
+20:09.200 --> 20:12.200
+So, yeah, this is fairly sure for it.
+
+20:12.200 --> 20:18.200
+Still a lot of out-of-tree patches, but definitely feel free to give it a go.
+
+20:18.200 --> 20:24.200
+And let me know how you get on.
+
+20:24.200 --> 20:30.200
+Yeah, that's all. Thanks.
+
+20:30.200 --> 20:38.200
+Amazing. Does anyone have any questions for Caleb?
+
+20:38.200 --> 20:42.200
+Yeah, here.
+
+20:42.200 --> 20:46.200
+On what partition, on what Android partition does UBoot live on?
+
+20:46.200 --> 20:48.200
+UBoot is flashed to the boot partition.
+
+20:48.200 --> 20:49.200
+Boot partition.
+
+20:49.200 --> 20:56.200
+Yeah, so on devices that don't have secure boot, where there's no signature verification going on,
+
+20:56.200 --> 21:01.200
+you can replace the stock boot loaded with UBoot.
+
+21:01.200 --> 21:05.200
+Second quick question. How often do you get on your phone?
+
+21:05.200 --> 21:08.200
+Call it from crash-dump.
+
+21:08.200 --> 21:14.200
+Unlike the OnePlus 6, it seems to depend on device and region and other things.
+
+21:14.200 --> 21:20.200
+It happens to me one in maybe 10 boots or less.
+
+21:20.200 --> 21:25.200
+Some people have issues more often.
+
+21:25.200 --> 21:32.200
+Yeah, it's going to be a fun one to debug.
+
+21:32.200 --> 21:34.200
+Hi. Thanks. Great talk.
+
+21:34.200 --> 21:40.200
+So, when you had on the slide earlier on that the, you know, board-specific BTBs have been added to UBoot.
+
+21:40.200 --> 21:43.200
+Does that mean that they are taken from ABL?
+
+21:43.200 --> 21:52.200
+No. So the Qualcomm's bootloader ABL is, they actually have their own very non-standard UFI implementation.
+
+21:52.200 --> 21:56.200
+And ABL is just an EFI app, but unfortunately none of that.
+
+21:56.200 --> 22:02.200
+They shut down all the UFI services before jumping to Linux and we can't modify it.
+
+22:02.200 --> 22:05.200
+But no, it doesn't use the device tree. It's based on ADK2.
+
+22:05.200 --> 22:10.200
+So we're pulling device trees from Linux.
+
+22:10.200 --> 22:12.200
+Okay. Thanks.
+
+22:12.200 --> 22:14.200
+Any more questions?
+
+22:14.200 --> 22:20.200
+Oh, yeah. One sec.
+
+22:20.200 --> 22:29.200
+Yeah, maybe it passed the mic.
+
+22:29.200 --> 22:35.200
+So since you have more standard bootloader now, are you able to do dual-boots, stuff like that?
+
+22:35.200 --> 22:40.200
+Yeah. Provided that you can share the AFI system partition.
+
+22:40.200 --> 22:42.200
+Or in fact, you can have multiple.
+
+22:42.200 --> 22:51.200
+I haven't validated this and other people are quite worried about it, but I'm fairly certain that the block device that has the user data partition on it,
+
+22:51.200 --> 22:55.200
+on the OnePlus 6, it's usually DevSCA.
+
+22:55.200 --> 23:01.200
+I'm fairly sure that we could completely format that and it would still boot, but I haven't tested this.
+
+23:01.200 --> 23:06.200
+And yeah, I wouldn't necessarily recommend it.
+
+23:06.200 --> 23:14.200
+But yeah, you can certainly remove the user data partition and create multiple for different root file systems.
+
+23:14.200 --> 23:20.200
+You can then format the OP2 partition as an ESP.
+
+23:20.200 --> 23:29.200
+You can set the right GUID type code, make it, and it'll work.
+
+23:29.200 --> 23:32.200
+Hopefully one day we can do a boot on Raiden.
+
+23:32.200 --> 23:37.200
+Yeah, well, the only thing on Android is a whole different beast.
+
+23:37.200 --> 23:44.200
+So I figured that the user data partition does not have overlapping directories with the Linux root file system.
+
+23:44.200 --> 23:50.200
+So I managed to dump a whole Linux root file system on the user data partition and tell Linux to use that at rootiface.
+
+23:50.200 --> 23:51.200
+Yeah.
+
+23:51.200 --> 23:58.200
+And it boots and it works. So you can have it without impacting any Android functionality.
+
+23:58.200 --> 24:01.200
+Yes, you can. This is how selfish OS boots.
+
+24:01.200 --> 24:13.200
+And there is also support for this in post-wacadoss, I believe, where if you put it in a special path, it will detect it.
+
+24:13.200 --> 24:23.200
+Do we have another question? We have one more minute. Yeah.
+
+24:23.200 --> 24:28.200
+So do you guys end up replacing LK2 or however you're supposed to pronounce that for the devices that use that?
+
+24:28.200 --> 24:33.200
+Yeah, for sure. I mean, so there's already support for some of the older platforms.
+
+24:33.200 --> 24:42.200
+It would be doable to add them. However, LK2 does a lot to support the downstream device trees and lots of fix up stuff.
+
+24:42.200 --> 24:52.200
+So currently the kind of status for the LK2 maintainers is it's not what the effort for them to move all the devices.
+
+24:52.200 --> 24:58.200
+But if you own one of those devices and work on it, you can definitely get it supported.
+
+24:58.200 --> 25:04.200
+Okay. So if I had support to this, I could replace LK2 for my class.
+
+25:04.200 --> 25:05.200
+Yes.
+
+25:06.200 --> 25:12.200
+For sure. There might be some other weird quacks for some of the 32 bit devices.
+
+25:12.200 --> 25:16.200
+Please give another round of applause for Kaleb.
+
+25:22.200 --> 25:25.200
+And again, five minute break and then we have the next talk.
+
+25:25.200 --> 25:30.200
+Check out the stand and bidding AW.
+
+25:30.200 --> 25:33.200
+Nice.
+

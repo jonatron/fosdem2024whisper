@@ -1,0 +1,1334 @@
+WEBVTT
+
+00:00.000 --> 00:12.640
+Thanks for coming. Today I'm going to talk about Sequoia PGP, in particular rethinking
+
+00:12.640 --> 00:20.320
+open PGP tooling. First I want to introduce Sequoia PGP for those of you who don't know
+
+00:20.320 --> 00:26.680
+about it. I'll talk about its design and implementations and what makes that interesting. And then
+
+00:26.680 --> 00:32.400
+some day-to-day usage in order to illustrate what I mean by rethinking open PGP tooling.
+
+00:32.400 --> 00:44.480
+So what is Sequoia PGP? Say an open PGP implementation. And you can see here this is our GitLab site
+
+00:44.480 --> 00:51.520
+and we have a number of projects. And what is this open PGP thing? Well it's an IETF standard.
+
+00:51.520 --> 00:59.040
+Go on the internet, you can download it for free. It's derived from PGP which was published in 1991.
+
+00:59.040 --> 01:08.160
+The first version of the standard was published in 1996 and work is still ongoing. The next version
+
+01:08.160 --> 01:14.640
+of the standard is expected this year. It's currently in working group last call. And the
+
+01:14.640 --> 01:20.400
+standard defines the wire format. So how messages look, how certificates look. It talks about
+
+01:20.440 --> 01:26.240
+algorithms like encryption and decryption and how signing and verification work. And it also
+
+01:26.240 --> 01:36.040
+defines importantly a PKI, a public key infrastructure. But it's not an implementation. Sequoia is an
+
+01:36.040 --> 01:44.000
+implementation. And it's not just an implementation of the spec. It's a whole number of services and
+
+01:44.040 --> 01:54.720
+tooling and applications on top. And for those of you who've used open PGP, it's also a paradigm shift.
+
+01:54.720 --> 02:01.720
+We've looked at the way things have worked in the past and we have some new ideas about how maybe
+
+02:01.720 --> 02:09.000
+they can work better at least for some people. Sequoia's technical goals are to be a library-first
+
+02:09.160 --> 02:16.080
+architecture. So not a command line tool where a library calls the command line tool, but really the
+
+02:16.080 --> 02:23.160
+library is the source of truth. It's the most powerful thing. We have unopinionated low-level
+
+02:23.160 --> 02:33.560
+interfaces that are safe by default. That means that you can do a lot of things. You can do a lot
+
+02:33.560 --> 02:39.320
+of stupid things. But what we really tried to do on our API is to make sure that the easy way to do
+
+02:39.320 --> 02:47.160
+something is the safe way. Of course, low-level interfaces are hard to use. And so we provide high-
+
+02:47.160 --> 02:53.280
+level interfaces. And these high-level interfaces are necessarily opinionated. And what do you do when
+
+02:53.280 --> 02:59.160
+the opinion doesn't match what you need? Well, you can either completely switch to the low-level
+
+02:59.200 --> 03:06.160
+interface, which is inconvenient. What we've tried to do is to make our interfaces gradual so it's
+
+03:06.160 --> 03:13.240
+possible to mix low-level data structures with high-level data structures. And we've also designed
+
+03:13.240 --> 03:20.640
+Sequoia that the services are optional. And I'll get to what that means later. But what was the
+
+03:20.640 --> 03:27.800
+motivation for building Sequoia PGP? Sure, most of you have heard about it. It's existed for, I think,
+
+03:27.840 --> 03:35.640
+23 years. And we've talked to people. And we heard some complaints from some users. I don't want to
+
+03:35.640 --> 03:42.320
+say all users, but certainly some users. And as we all know, the people who have something negative
+
+03:42.320 --> 03:46.760
+to say tend to be the loudest. So I don't want to say that as a representative sample. But what we
+
+03:46.760 --> 03:53.680
+heard was that the CLI was hard to use. And that the CLI-first approach that GNU PG takes, where you
+
+03:53.720 --> 04:02.200
+have GPGME, which is a library that calls out to the CLI binary, it's brittle. We heard that the APIs
+
+04:02.200 --> 04:07.720
+are too opinionated. And sometimes you want to do something and it almost matches what GNU PG
+
+04:07.720 --> 04:13.840
+expects, but not quite. And then you have to write a lot of code in order to work around it. People
+
+04:13.840 --> 04:19.480
+didn't like that the services are mandatory and the scalability wasn't so good. And I'm not talking
+
+04:19.520 --> 04:24.760
+about internet scalability. I'm just talking about individual user who has a few thousand certificates
+
+04:24.760 --> 04:30.760
+locally. Operations just take too long. So that's sort of the negative motivation, but there was also
+
+04:30.760 --> 04:39.960
+positive motivation. If you go out onto YouTube and you look at the GNU PG channel, there are a
+
+04:39.960 --> 04:47.600
+number of interviews called the GNU PG stories. And there are a lot of people from different projects,
+
+04:47.640 --> 04:56.280
+the EFF, the ACLU from OCCRP, from newspapers and reporters and reporters without borders and
+
+04:56.280 --> 05:03.440
+activists. And there's a common theme that they all were repeating. We use a lot of different
+
+05:03.440 --> 05:09.360
+encryption technologies, but probably none more important than GPG. And the question that we had
+
+05:09.360 --> 05:16.160
+was, you know, can we do better? We were inspired by this. So I want to take another step back and
+
+05:16.200 --> 05:23.720
+talk about Sequoia's sort of prehistory. So Sequoia was started in 2017, but before that, the people
+
+05:23.720 --> 05:31.040
+who started it that was used as Kai and I, we worked on GNU PG. And while we worked on GNU PG,
+
+05:31.040 --> 05:38.640
+of course, we worked with code. We talked to people who were using GNU PG as in developers. And we
+
+05:38.640 --> 05:44.240
+also talked to end users. And we had ideas about how to change things because we had these conversations
+
+05:44.240 --> 05:51.960
+where people were telling us things that they were unhappy with. And we had many technical
+
+05:51.960 --> 05:59.960
+conversations with Werner. Werner is the main author of GNU PG. And we couldn't converge on a
+
+05:59.960 --> 06:08.360
+vision. And so we had this conflict in the room. Werner wanted to go in one direction. The three of
+
+06:08.360 --> 06:14.000
+us wanted to go in a different direction. Should we continue with the established approach? Should
+
+06:14.040 --> 06:24.960
+we pursue the Sequoia vision? What does a compromise look like? And sometimes a compromise just isn't
+
+06:24.960 --> 06:36.480
+possible. And what do you do in that case? Is one person win and dominate? And sometimes that's a
+
+06:36.480 --> 06:44.480
+solution. In this case, we chose to part ways. And I think that's a perfectly okay thing to do.
+
+06:44.480 --> 06:52.920
+Werner had a vision. We had a vision. We didn't demand that Werner changed his vision. We left and
+
+06:52.920 --> 07:00.440
+we started a new project where we wanted to experiment and see if we could solve these problems
+
+07:00.520 --> 07:10.160
+that we had recognized. And what happens when you have two projects? Do you split the users? Do we
+
+07:10.160 --> 07:16.000
+have a small number or a big number of GNU PG users and all of a sudden half of them go to GNU PG
+
+07:16.000 --> 07:25.080
+and half of them go to Sequoia or 10% go to Sequoia and 90% to GNU PG? It could happen. But I think
+
+07:25.160 --> 07:32.040
+that's a pessimistic view of the possibilities. I don't think that has to be that way. Because it's
+
+07:32.040 --> 07:36.840
+not just about the GNU PG users. They're all of these non-users out there who are not using
+
+07:36.840 --> 07:48.440
+encryption technology. We wanted to offer more choice for users. We wanted to explore different
+
+07:48.520 --> 07:58.920
+options and see if the users out there or non-users could be served by this new paradigm. There's a
+
+07:58.920 --> 08:08.200
+diversity of needs. We wanted to in particular win over non-users. And the great thing is that there
+
+08:08.200 --> 08:14.960
+are a lot of non-users or maybe that's a sad thing but there are a lot of non-users. And we have a
+
+08:15.000 --> 08:25.040
+protocol. OpenPGP. It's interoperable. Can the network effects help? More implementations, more
+
+08:25.040 --> 08:33.080
+users, more network effects? In this view of the world, the ecosystem wins. There is more privacy
+
+08:33.080 --> 08:40.960
+and there's more security. And at this point I want to have an ode to Werner. So Sequoia really
+
+08:40.960 --> 08:49.040
+owes its existence to Werner. He was an inspiration to make GNU PG better. He was our inspiration to
+
+08:49.040 --> 08:58.800
+work on cryptography and defend privacy. And if Yusis Kai and I are Sequoia's parents, then it's
+
+08:58.800 --> 09:08.880
+not far to say that Werner is absolutely Sequoia's grandfather. And it turns out that it's not just
+
+09:08.960 --> 09:17.600
+two implementations. There are many implementations. There's OpenPGP for go, OpenPGP.js, PG painless,
+
+09:17.600 --> 09:28.360
+PG pi, R&P, RPGP and Sequoia. And these are just the free software implementations that are relatively
+
+09:28.360 --> 09:37.320
+big. And if you have all of these implementations out there, how do they work together? Well,
+
+09:37.360 --> 09:44.040
+yeah, we have this standard, but we have to ensure interoperability. And ensuring interoperability
+
+09:44.040 --> 09:49.240
+prevents vendor lock-in and improves the network effects for everyone. And for this, a standard is
+
+09:49.240 --> 09:55.920
+not enough. We need more. We need an OpenPGP interoperability test suite. And this was one of
+
+09:55.920 --> 10:02.640
+the first things that we actually worked on. And it currently has 131 tests and over 1,500 test
+
+10:02.680 --> 10:10.360
+vectors. And here you can see a snapshot. You can see that most implementations are tested.
+
+10:10.360 --> 10:16.200
+Currently, there's one implementation that I mentioned that's not there, which is RPGP. But
+
+10:16.200 --> 10:21.960
+thank you to Heiko, a former Sequoia developer. He's currently adding support for RPGP.
+
+10:21.960 --> 10:28.200
+All right, now I want to switch gears a bit and talk about the design and implementation of the
+
+10:28.600 --> 10:36.720
+library or the low-level components. So this Sequoia's architecture, what does it look like? I
+
+10:36.720 --> 10:42.520
+mentioned before, library-first approach. So applications are built on the library. And on
+
+10:42.520 --> 10:48.360
+top of the library, we have the CLI. The CLI is using the library, and that makes the CLI
+
+10:48.360 --> 10:53.880
+necessarily less powerful than the library. And we think that's okay. If you want to do, if you
+
+10:53.920 --> 10:59.240
+want to program using our CLI, it's possible. If you want to go further, then you're probably in a
+
+10:59.240 --> 11:05.720
+space where you should be using a library in a high-level language. We have a bunch of high-level
+
+11:05.720 --> 11:13.360
+components. They're optional. We have services that run as demons, for instance, the key store.
+
+11:13.360 --> 11:21.160
+But it doesn't have to run as a daemon. It can be co-located. Now, the daemon has the advantage
+
+11:22.040 --> 11:27.320
+that you have process separation, and this avoids things like heartbleed. It can multiplex resources,
+
+11:27.320 --> 11:32.840
+it can share state. But it's not always the right solution. And so it's possible to co-locate the
+
+11:32.840 --> 11:38.760
+service into the application binary in the same address space. And that's good when you need a
+
+11:38.760 --> 11:46.120
+restricted environment or you want to fall back in order to increase robustness. Now, I mentioned
+
+11:46.120 --> 11:50.840
+that we have a whole bunch of components. So up top, we have here OpenPGP, which is our library.
+
+11:51.960 --> 12:01.000
+And next to it, we have PGP-CertD, which is a certificate store or a standard, or not yet a
+
+12:01.000 --> 12:06.840
+standard, but there is a text that describes how it works. It looks like a mailder. And we have a
+
+12:06.840 --> 12:11.480
+library implementation. And that doesn't directly depend on our library. And then we have a whole
+
+12:11.480 --> 12:16.920
+bunch of libraries on top and services. We have the key store for private key operations. We have
+
+12:16.920 --> 12:23.880
+the cert store, which is the in-memory certificate store. We have the web of trust engine. We have
+
+12:23.880 --> 12:30.920
+our network library for accessing key servers in WKD and Dane. We have our auto-crypt library for
+
+12:30.920 --> 12:36.840
+doing auto-crypt operations. And we have another library for configuring the cryptographic policy.
+
+12:38.200 --> 12:43.800
+And SQ, you know, it exposes all of this functionality. And so it's using all of these
+
+12:43.800 --> 12:53.800
+things. And RPM is one of the users of Sequoia. Since Fedora 38, the version of RPM that ship uses
+
+12:53.800 --> 13:01.240
+Sequoia to verify the packages. And it doesn't use secret key material. It has its own certificate
+
+13:01.240 --> 13:07.800
+store and it uses its own trust model. So all of these components aren't needed. And RPM just
+
+13:07.800 --> 13:11.880
+links against OpenPGP, the library, and the configuration policy.
+
+13:14.520 --> 13:18.200
+Now I mentioned before our API design, unopinionated low-level interfaces,
+
+13:18.840 --> 13:22.680
+opinionated high-level interfaces that are built on these low-level
+
+13:22.680 --> 13:29.080
+APIs. But what does that look like? So let's imagine that we have a certificate and we want to write
+
+13:29.080 --> 13:37.160
+it out to disk. So we have a method called serialize. You provide it with a buffer or a file or whatever.
+
+13:37.800 --> 13:43.400
+And it just writes it out in OpenPGP format. What if there's secret key material in there?
+
+13:43.400 --> 13:50.840
+That would be a shame if you accidentally leaked that. Well, in Sequoia, we automatically strip
+
+13:50.840 --> 13:57.880
+that out by default. That's safe. You really, really need to write out the secret key material.
+
+13:57.880 --> 14:04.920
+Sometimes you do. Sometimes you want to. You have to opt in. And for this, we have asTSK,
+
+14:04.920 --> 14:11.320
+which converts the data type. And the new data type provides an interface, the same interface,
+
+14:12.040 --> 14:15.400
+and you serialize it. And then you also get the secret key material.
+
+14:17.080 --> 14:20.600
+And I mentioned that we have these progressive high-level APIs. What do they look like?
+
+14:21.880 --> 14:27.160
+Here, we see how to create a certificate. We have a certificate builder. You want to create a
+
+14:27.160 --> 14:31.400
+general-purpose certificate. You add a user ID, and you generate it, and you're good.
+
+14:32.360 --> 14:39.080
+But what if you also want to add a decentralized social proof? So, probably heard of Keybase,
+
+14:39.640 --> 14:45.640
+where you can do these social proofs or link services. There's also a mechanism in OpenPGP,
+
+14:45.640 --> 14:49.640
+or an extension that allows you to embed them directly into the certificates.
+
+14:50.520 --> 14:55.480
+And that's not really supported by the library. At least there are no APIs to do that.
+
+14:56.200 --> 15:01.160
+But you can use the signature builder, and you can add on the appropriate notation.
+
+15:02.120 --> 15:08.360
+And then the cert builder, you override the how it creates the signature by using this template,
+
+15:09.240 --> 15:14.040
+and then the certificate that's created automatically has this decentralized proof embedded in it.
+
+15:17.880 --> 15:21.400
+So that's the library. What does the command line interface look like?
+
+15:22.280 --> 15:28.200
+So, SQ is our primary command line interface. There are other tools out there, of course,
+
+15:28.200 --> 15:38.120
+but SQ is sort of the GPG equivalent, if you will. And we opted for a sub-command style interface.
+
+15:39.800 --> 15:45.800
+So, if you want to encrypt a message, use the encrypt sub-command. And here, I'm encrypting
+
+15:45.800 --> 15:50.360
+a message to me. So, the recipient email is neil at sequoia-pqp.org.
+
+15:52.360 --> 16:00.440
+The next thing that's very important is that we have a very clear separation of options.
+
+16:01.160 --> 16:04.600
+So, there's another sub-command, SQ sign. You can sign a message.
+
+16:05.720 --> 16:11.480
+And this command does not take the recipient email argument, because it doesn't make sense in this
+
+16:11.480 --> 16:17.960
+context. And so, if you try to provide it, you get an error. And another thing that we've really
+
+16:17.960 --> 16:23.560
+tried to do is ensure that there's consistency between the sub-commands. So, if you have, for
+
+16:23.560 --> 16:29.080
+instance, an email option, it doesn't matter what sub-command we're talking about, it has more or
+
+16:29.080 --> 16:40.040
+less the same semantics. And we've talked to people who've used sequoia or SQ, and the reactions have
+
+16:40.040 --> 16:46.360
+been very positive so far. So, we're quite confident that the design maybe is not optimal,
+
+16:46.360 --> 16:55.400
+but certainly is good. But the really big paradigm shift in SQ and in sequoia in general
+
+16:56.200 --> 17:03.880
+is the way that we think about certificates. And a certificate is sort of this OpenPGP
+
+17:03.880 --> 17:08.680
+artifact that you use and that you throw out onto the internet someplace on a key server and a
+
+17:08.680 --> 17:14.680
+Web key directory. You publish it on your web page. And if I want to send you an encrypted message,
+
+17:14.680 --> 17:22.200
+then I download your certificate and I encrypt a message using your certificate. And then I send
+
+17:22.200 --> 17:26.760
+you that encrypted message and you're able to decrypt it with your keys. So, certificates are
+
+17:26.760 --> 17:34.280
+really important and how we use them is also important. And in SQ, we're moving away from
+
+17:34.280 --> 17:40.680
+curated key rings. So, a curated key ring means that the data that you have available locally
+
+17:41.560 --> 17:48.040
+has been checked. It's authentic. It's the right stuff. If you have a certificate for me
+
+17:48.680 --> 17:53.160
+or that claims to be for me in your key ring, you're assuming that it's good.
+
+17:55.000 --> 18:01.160
+And it's sort of this say yes to get worked on mentality. So, if you're using GPG and you have
+
+18:01.160 --> 18:08.040
+a curated key ring mentality, and that's not required in GPG, but it's how many people use
+
+18:08.120 --> 18:17.160
+it we've observed, and you want to send a message to DKG and you address him by his email address,
+
+18:17.160 --> 18:21.000
+then GPG is going to warn you and say, do you want to use this key anyway? And it doesn't
+
+18:21.000 --> 18:26.600
+really provide you any options. The options are get worked on or not get worked on. And certifying
+
+18:26.600 --> 18:35.160
+user IDs is not easy. So, the amount of energy required in order to certify a user ID means
+
+18:35.160 --> 18:41.720
+that hitting yes is sort of much easier. And we want to move towards strong authentication.
+
+18:43.240 --> 18:50.440
+And so, in SQ, we treat the local certificate store as a cache. It's no better than the
+
+18:50.440 --> 18:56.760
+certificates that are stored on, for instance, the SKS key servers where no authentication is done.
+
+18:57.320 --> 19:00.200
+By default, we'll just store anything there.
+
+19:00.840 --> 19:09.880
+What about these self signed user IDs? Right, if you have a certificate, you create a user ID,
+
+19:09.880 --> 19:15.480
+you add it to that certificate. On my certificate, I have a self signed user ID that says Neil,
+
+19:16.040 --> 19:21.320
+but anybody can create a certificate where there's a user ID that says Neil on it.
+
+19:21.720 --> 19:31.640
+We treat it at most as a hint. And SQ certificates can only be addressed by authenticated identifiers.
+
+19:34.360 --> 19:37.480
+And the way that we do this is we really, really embrace the web of trust.
+
+19:38.600 --> 19:42.280
+And now the question that you're probably asking is, is this going to be a usability
+
+19:42.280 --> 19:46.840
+nightmare? And it's a question that we also asked ourselves because we didn't know we had to try it
+
+19:46.840 --> 19:54.280
+out. And I propose let's take a look and see. But we need to take a step back again and ask,
+
+19:54.280 --> 20:00.280
+what is authentication exactly? And so there are sort of two aspects to authentication.
+
+20:02.920 --> 20:08.520
+What we want to know is what certificate should I use when I want to encrypt a message for Alice?
+
+20:09.560 --> 20:14.360
+Or alternatively, if I have a certificate, who does this certificate really belong to?
+
+20:14.360 --> 20:21.400
+Is it Alice's certificate? And really self signatures, they don't mean anything in this
+
+20:21.400 --> 20:31.160
+context, right? This certificate here that we see on the right, there are user IDs that say Alice,
+
+20:31.880 --> 20:36.040
+but did Alice create those user IDs? Or is it Mallory who's trying to trick you?
+
+20:37.800 --> 20:43.640
+Or maybe somebody who's just trolling? So what does authentication look like today?
+
+20:44.360 --> 20:48.040
+Well, we have a centralized authentication, which is easy to use, but
+
+20:48.760 --> 20:53.080
+it's unsafe in the sense that you're relying on these central authorities. You're relying on
+
+20:53.640 --> 20:59.240
+hundreds of centralized CAs in X509. These are controlled by governments,
+
+21:00.840 --> 21:05.800
+not only your government, they're controlled by companies whose interest is to make money.
+
+21:06.680 --> 21:15.080
+And any one of them can trick you. Certificate transparency helps, but you're still
+
+21:16.040 --> 21:25.240
+reliant on the centralized CAs. And they haven't done a good job historically.
+
+21:25.240 --> 21:32.920
+So up here at the top, we see here a Google security blog post and Chrome planned to distrust
+
+21:33.000 --> 21:41.400
+semantic certificates because they had made too many mistakes. This is not great. But signal,
+
+21:41.400 --> 21:47.480
+signal is great, right? In a certain sense, technically, signal is even worse. And signal,
+
+21:47.480 --> 21:54.920
+you have one key server. And it's on the same infrastructure as the message transport.
+
+21:55.240 --> 22:03.880
+The good news is, and I use signal, you can trust the signal foundation, right? I believe in Moxie,
+
+22:03.880 --> 22:13.480
+but I don't think belief is enough. I think we want technical solutions. So what about peer-to-peer?
+
+22:14.680 --> 22:18.440
+Here, we're talking about checking somebody's fingerprint or checking the safety numbers
+
+22:18.440 --> 22:23.240
+in the context of signal. You can do that, and that is really, really safe.
+
+22:24.200 --> 22:32.120
+And it's a really good thing to do if you're worried. But it has such high upfront costs
+
+22:32.120 --> 22:39.480
+that few people do it. We need something in between. And then there's a third model,
+
+22:39.480 --> 22:45.560
+which is the consistency model. Do you have the same certificate every single time?
+
+22:46.840 --> 22:51.480
+This is called trust on first use, more or less. And it's really easy for users until
+
+22:52.440 --> 22:55.320
+they have a problem. And then how do you resolve a conflict?
+
+22:57.960 --> 23:01.880
+All right. So we have these different models, and maybe they're good enough, I don't know.
+
+23:03.320 --> 23:12.200
+Maybe they're even good enough for most. So Pearlbuck, who's a Nobel prize winner, said 100
+
+23:12.200 --> 23:17.640
+years ago, the test of a civilization is the way that it cares for its helpless members.
+
+23:18.600 --> 23:26.520
+So the weakest members, the people who need protection, the activists and the people that
+
+23:26.520 --> 23:35.560
+are being pursued. And so our goal is not to be good enough for most, but to be good enough for
+
+23:35.560 --> 23:43.640
+even more. We want to provide a progressive system that serves a range of needs. And the way that
+
+23:43.640 --> 23:49.000
+we're doing it is we're providing different tools in order to increase confidence.
+
+23:51.080 --> 23:58.680
+And the tools work to support the user. And then based on the individual user's threat model,
+
+24:00.200 --> 24:03.160
+you can decide if the degree of confidence is high enough.
+
+24:06.040 --> 24:11.400
+And for this, we use the web of trust, which is a powerful and flexible PKI. In the web of trust,
+
+24:12.120 --> 24:17.560
+everyone can act like a certification authority. That doesn't mean that everybody
+
+24:17.560 --> 24:23.800
+is your own personal certification authority. You have to opt in. But maybe you as an individual
+
+24:23.800 --> 24:30.680
+don't opt in by yourself, but it's your system administrator at work, or it's a family member
+
+24:30.680 --> 24:39.240
+who you rely on. And the web of trust can use weak evidence. It's not a zero or one decision.
+
+24:40.120 --> 24:47.320
+It's possible to combine evidence in the web of trust. And the web of trust can work with all of
+
+24:47.320 --> 24:52.840
+the models that I presented before. It can be used in a centralized manner. It can be used in a
+
+24:52.840 --> 24:58.920
+federated manner. And it can be used in a peer to peer manner. And traditionally, people think of
+
+24:58.920 --> 25:05.480
+the web of trust as a peer to peer solution to authentication, where we go to key signing parties
+
+25:05.480 --> 25:12.520
+and we check fingerprints. But that doesn't have to be. And so if the web of trust is so good,
+
+25:12.520 --> 25:18.760
+why hasn't it succeeded? Why are we only using it in this very limited way? And I think the reason
+
+25:18.760 --> 25:25.480
+is because we've been missing the tools to make it easier to automatically integrate evidence into
+
+25:25.480 --> 25:33.320
+a web of trust and tools that make it easy to manage the web of trust. And I would say until
+
+25:33.320 --> 25:44.360
+now, because we've been working hard on improving the tooling. So in order to illustrate the power
+
+25:44.360 --> 25:50.600
+of the tools, I want to do an example. I want to send an encrypted mail to DKG or encrypt a message
+
+25:50.600 --> 25:59.880
+to DKG. So let's just try it out and see what happens. So we do SQL encrypt. We provide the email
+
+25:59.880 --> 26:05.800
+address, and we get an error. Well, that's not so great. Let's go to the key servers. Let's go on
+
+26:05.800 --> 26:13.160
+the network and see if we can find a certificate for DKG. So in SQ, this is the SQ network fetch
+
+26:13.160 --> 26:18.920
+sub command. And immediately we see something that doesn't give us confidence in the tools I would
+
+26:19.880 --> 26:28.360
+suspect. We imported four certificates. Ouch. Which one do we use? Which one is the right one?
+
+26:30.120 --> 26:33.560
+Is one of the four even the right one? Maybe it's a fifth one that we didn't find.
+
+26:34.520 --> 26:37.160
+What should we do? The best thing that we can do would be to ask Daniel,
+
+26:38.200 --> 26:42.680
+what is your fingerprint? And then use that one. But what if we can't or it's inconvenient?
+
+26:43.560 --> 26:50.440
+We could ask somebody else. That's pretty good that we rely on. Or a better solution is to ask
+
+26:50.440 --> 26:55.880
+multiple entities, combine the evidence, and then weigh the evidence according to the entities,
+
+26:55.880 --> 27:02.600
+and ideally do this in a completely automated way. And then you have a certain degree of
+
+27:02.600 --> 27:07.960
+confidence that a binding is correct. And maybe that's enough for you, maybe not. That depends on
+
+27:07.960 --> 27:15.000
+your threat model. And there's already a whole bunch of rudimentary evidence out there about what
+
+27:15.000 --> 27:20.520
+certificate we should use for DKG. There are a whole bunch of key servers. There's WKD, which is
+
+27:20.520 --> 27:27.320
+the Web Key Directory, and there's Dane for looking up certificates in DNS. And it turns out that
+
+27:27.320 --> 27:33.320
+keys.openpgp.org is a validating key server. That means that if you attempt to upload a certificate
+
+27:33.320 --> 27:39.960
+to keys.openpgp.org, you get an email where the user IDs on the certificate get an email prompting
+
+27:39.960 --> 27:47.000
+them to follow a link to validate the user ID for that certificate. keys.mailvalope.com
+
+27:47.000 --> 27:53.560
+does something similar. Proton mail does something similar where you don't get an email, but you
+
+27:53.560 --> 28:00.840
+log in, you say, this is my certificate. WKD is controlled by the user or their administrator,
+
+28:00.840 --> 28:09.480
+and the same thing for Dane. And SQ network fetch already fetches them all. You don't have to do it
+
+28:09.480 --> 28:17.480
+manually. And by the way, it records the evidence in the Web of Trust. They're stored completely as
+
+28:17.480 --> 28:24.920
+normal Web of Trust data structures as defined by the ITF standard. But how are they stored?
+
+28:26.600 --> 28:34.840
+So the way it works is we'll take keys.openpgp.org as an example. It's more or less a de facto
+
+28:34.920 --> 28:42.200
+CA. So what we do locally is we create a shadow CA. We create a new certificate and we say
+
+28:42.920 --> 28:50.040
+downloaded from keys.openpgp.org as the user ID. We have a local trust route. The local trust route
+
+28:50.040 --> 29:01.080
+says this shadow CA is an intermediate intermediary CA. We don't create one for SKS because SKS
+
+29:01.080 --> 29:09.880
+does not do any form of validation. And so in the case of keys.openpgp.org, we download a
+
+29:09.880 --> 29:17.080
+certificate from that key server. We go through the user IDs and then we create a certification for
+
+29:17.080 --> 29:24.680
+the returned user IDs using the keys.openpgp.org shadow CA certificate. And this evidence is
+
+29:24.680 --> 29:32.840
+automatically combined by the Web of Trust. So we have this trust route and shadow CA's.
+
+29:32.840 --> 29:37.320
+They're created automatically. And by default, the shadow CA's are trusted minimally.
+
+29:39.160 --> 29:43.960
+Some users don't want to rely on keys.openpgp.org and that's completely understandable.
+
+29:45.400 --> 29:53.240
+And as I mentioned, in the Web of Trust, you can have a varying degree of confidence in a binding
+
+29:53.240 --> 30:01.080
+or in a CA. And so we use the minimum, one out of 120. And what we also do is the trust
+
+30:01.080 --> 30:05.560
+route and the shadow CA's and the certificates, the certifications that are created, they're all
+
+30:05.560 --> 30:13.320
+marked as unexportable. And we do this in order to protect the user's privacy. So let's take a
+
+30:13.320 --> 30:21.640
+quick look here at how the evidence is recorded. So we do sqpki list and we put down the email address
+
+30:22.440 --> 30:29.000
+and then sq helpfully shows us the three paths that it found. And at the top, we see that there's
+
+30:29.000 --> 30:34.520
+the local trust route that's followed by an intermediary CA called the public directories
+
+30:34.520 --> 30:41.480
+that's followed by our shadow CA downloaded from keys.openpgp.org and then that is certifying
+
+30:42.120 --> 30:48.520
+the certificate from Daniel. And what that looks like graphically is here shown at the bottom.
+
+30:49.080 --> 30:57.240
+And some observations, the shadow CA's are partially trusted. keys.openpgp.org, we see on the
+
+30:57.240 --> 31:03.080
+edge leading to it has a one on it. It's one out of 120. The same thing for WKD, the same thing for
+
+31:03.080 --> 31:09.800
+Dane. And we don't want to completely ever rely on all of the public directories out there. And so
+
+31:09.800 --> 31:17.560
+we insert in between a public directories shadow CA. And this acts as a sort of electrical resistor
+
+31:17.560 --> 31:22.840
+where there's a maximum of a 40 that can flow through it. In this case, we see that the trust
+
+31:22.840 --> 31:30.520
+amount is three out of 120. And that's not enough to authenticate the certificate. But what's
+
+31:30.520 --> 31:37.000
+interesting is that we have no evidence for other certificates either. So what do we do now? Are we
+
+31:37.000 --> 31:44.840
+done? Well, if we're sufficiently convinced, then we're done. If not, we need to get more evidence.
+
+31:44.840 --> 31:51.400
+Where can we get more evidence? Now, we can think about the additional overhead of talking to Daniel
+
+31:51.400 --> 31:56.600
+or finding people who know Daniel and his certificate. Whatever the case, once we're convinced,
+
+31:56.600 --> 32:00.760
+we have two options. We can create a public certification. This is what most people do when
+
+32:00.760 --> 32:05.080
+they go to a key signing party. They create a certification and they publish it on the key
+
+32:05.080 --> 32:11.320
+servers. Or we can create a private link, which is not exportable, either permanent or temporary.
+
+32:12.280 --> 32:19.000
+In this case, we're going to create a private link that is permanent. And we do sqpki link add, no
+
+32:19.000 --> 32:28.920
+password. No password required. It is the local trust route. It just works. Bam. So let's do
+
+32:28.920 --> 32:39.240
+sqpki list now, fully authenticated. And does it work? It does work. sq encrypt recipient email
+
+32:40.040 --> 32:48.920
+DKG. What if we decide we want to fully trust keys.openpqp.org? Also pretty easy. This is the
+
+32:51.000 --> 32:59.640
+general form for trusting any certificate as a CA. sqpki link add. And we say that we want this to
+
+32:59.640 --> 33:08.520
+be a CA for anything. I'll get to what that means in a minute. In this case, we're saying keys.openpqp.org
+
+33:08.600 --> 33:15.640
+should be fully trusted. So let's try another email address sqpki list. It's fully authenticated,
+
+33:16.200 --> 33:22.680
+going from the local trust route to download it from keys.openpqp.org to the email address that we
+
+33:22.680 --> 33:28.440
+entered. And there's more information that we can incorporate. And some of it we already do. We
+
+33:28.440 --> 33:35.560
+have usage information, for instance, tofu. If you download a certificate from a URL, like you're
+
+33:35.560 --> 33:42.760
+downloading, for instance, Fedora, or you're downloading tales, you can monitor the URL. We
+
+33:42.760 --> 33:51.960
+can use auto-crypt information. And we can even easily introduce CA's. So what are organizational
+
+33:52.520 --> 33:59.560
+CA's? You have an organization, say a company, or a group of activists, and they are willing to
+
+33:59.560 --> 34:05.480
+delegate sort of these authentication decisions to a trusted entity. Maybe it's the admin or the
+
+34:05.480 --> 34:11.800
+nerd. And if I want to talk to somebody inside of that organization, then I don't have to authenticate
+
+34:11.800 --> 34:18.600
+every individual. I just have to authenticate the CA. And now I've bootstrapped trust into the
+
+34:18.600 --> 34:26.440
+organization. And by the way, we have a CA, chriscoi.sh, pgp.org. So if you want to contact us,
+
+34:26.440 --> 34:31.560
+you can use it. How does it work? You first have to think about how much you want to trust it
+
+34:32.440 --> 34:37.960
+from 1 to 120. Do you want to scope the trust? Because it's our CA. We might trick you.
+
+34:40.040 --> 34:47.800
+But you can rely on us, probably, to say what are the correct certificates for people in our
+
+34:47.800 --> 34:59.320
+organization. So here we can partially trust the CA, sqpki.link.add. And we're limiting it
+
+34:59.320 --> 35:05.720
+to sequoia.pgp.org. So it won't be used for other certificates. And here you can see
+
+35:06.600 --> 35:13.000
+Justices' email address. I do sqpki.list. And it is fully authenticated using the CA.
+
+35:13.320 --> 35:20.920
+And by the way, if you want to run your own CA, there's tooling for that too. There's open pgpca.
+
+35:22.920 --> 35:31.480
+It's a great way to bring up a CA. It's easy to use. And it's written by hyco. And I encourage
+
+35:31.480 --> 35:37.560
+you to check it out. But there's more tooling out there where pki can help, where you need pki.
+
+35:38.360 --> 35:46.760
+Let's look at open SSH for a moment. In open SSH, the authentication keys are the identity keys.
+
+35:46.760 --> 35:51.240
+And if the authentication key is compromised, users have to update. Is that a problem?
+
+35:51.960 --> 35:57.800
+We have a great case study, just a few months ago, GitHub accidentally leaked their private key.
+
+35:58.840 --> 36:04.600
+The good news is it wasn't leaked for long. They immediately removed it, or seconds, minutes later,
+
+36:04.600 --> 36:11.800
+I don't know. They rotated the key. The bad news is every single GitHub user who used their RSA key
+
+36:12.520 --> 36:16.280
+had to update their known host file. Quite the pain in the butt.
+
+36:18.520 --> 36:25.080
+What if you could use OpenPGP's pki and OpenPGP's certificates, where you have a separate identity
+
+36:25.080 --> 36:31.320
+key, and you keep the identity key offline. And when something like that happens, you can, of course,
+
+36:31.320 --> 36:34.360
+make an announcement, then you rotate the subkey, and that's it.
+
+36:36.600 --> 36:40.760
+There are two former Sequoia developers who are currently working on that, Victor and David.
+
+36:41.800 --> 36:47.480
+The project is called SSH, OpenPGP off. And I encourage you to check that out as well.
+
+36:50.040 --> 36:56.760
+What about commits? I'm sure many of you have signed a commit. What does it mean? I don't know.
+
+36:57.000 --> 37:01.000
+It doesn't mean anything if you don't have a policy.
+
+37:03.000 --> 37:11.880
+So we have a tool called Sequoia Git. It defines, as a document that talks about how to define a signing policy for a project.
+
+37:12.760 --> 37:19.880
+You put it into a Tomo file. The Tomo file is directly embedded into your Git repository. It evolves with the project.
+
+37:19.960 --> 37:27.960
+And then you're able to check whether or not commits are authentic according to the project developers.
+
+37:32.600 --> 37:39.800
+So there's a whole bunch of tools that I think change the way that one could use OpenPGP and interact with the ecosystem.
+
+37:40.760 --> 37:45.320
+So what if you want to use Sequoia today? Of course, SQ, I presented. You can use it.
+
+37:46.280 --> 37:52.280
+It's packaged for Debian, it's packaged for Fedora, it's packaged for Arch, it's packaged for other distributions.
+
+37:56.280 --> 38:08.280
+But SQ is not integrated into a lot of existing tools. So do you want to live in sort of a split brain world where you have some of your tooling using some state and other tooling using other state?
+
+38:09.240 --> 38:15.240
+So we have the GPG Chameleon and it is an implementation of GPG's de facto interface.
+
+38:17.240 --> 38:23.240
+So you can just drop it in and use it and here you see GPG-version reports that it's the chameleon actually.
+
+38:25.240 --> 38:31.240
+And it uses both GPG state and SQs, which means that you immediately profit from SQ's PKI tooling.
+
+38:33.240 --> 38:37.240
+It automatically uses that when doing web of trust calculations.
+
+38:39.240 --> 38:41.240
+So you don't actually have to do any migration.
+
+38:43.240 --> 38:53.240
+And if you're using Thunderbird, we have the Octopus, which again is a drop-in equivalent API to the RMP interface that Thunderbird is currently using.
+
+38:53.240 --> 38:57.240
+And it includes web of trust support and GPG agent support.
+
+39:01.240 --> 39:07.240
+Now if you want to integrate OpenPGP, there's a standard. You can read the standard as long as it gets complicated.
+
+39:08.200 --> 39:20.200
+But recently, just two months ago, Hico, Paul, Ms. Uppedy, Victor and David published a book, OpenPGP for application developers.
+
+39:20.200 --> 39:24.200
+It's the book that should have existed 20 years ago.
+
+39:24.200 --> 39:26.200
+It didn't exist and now it exists.
+
+39:26.200 --> 39:36.200
+It's a few hundred pages talking about some of the details of OpenPGP as they relate to the needs of application developers.
+
+39:37.160 --> 39:41.160
+And I think that this is really the game changer.
+
+39:43.160 --> 39:45.160
+Who's been funding Sequoia?
+
+39:45.160 --> 39:47.160
+The project started in 2017.
+
+39:49.160 --> 39:51.160
+For six years, the PEP Foundation funded Sequoia.
+
+39:51.160 --> 40:01.160
+We received money from NLNet and currently we are being funded by the sovereign tech fund, at least until the end of the year.
+
+40:01.160 --> 40:03.160
+And post-2024.
+
+40:03.160 --> 40:05.160
+Well, that's an open question.
+
+40:07.160 --> 40:09.160
+Maybe somebody can help us with.
+
+40:11.160 --> 40:13.160
+Thanks for listening.
+
+40:13.160 --> 40:17.160
+I hope that I've convinced you that users have different needs.
+
+40:21.160 --> 40:25.160
+There are different users. They have different needs.
+
+40:27.160 --> 40:31.160
+And I don't think that there is one universal solution.
+
+40:32.120 --> 40:38.120
+There's not one implementation that is going to make everybody happy, necessarily.
+
+40:38.120 --> 40:48.120
+And if that implementation were to try to exist, the fact that it tries to be everything to everyone means that it's going to make some people unhappy.
+
+40:50.120 --> 40:52.120
+Sequoia has a different architecture.
+
+40:52.120 --> 40:54.120
+It has different paradigms.
+
+40:54.120 --> 40:56.120
+Maybe it's the right one for you.
+
+40:56.120 --> 41:00.120
+Maybe it's the right one for some non-users to convert.
+
+41:02.120 --> 41:06.120
+And I don't think that it's going to divert them to be open PHP users.
+
+41:06.120 --> 41:10.120
+I firmly believe that diversity in an ecosystem is a strength.
+
+41:10.120 --> 41:12.120
+I believe that we are better together.
+
+41:12.120 --> 41:24.120
+And I believe that winning is not dominance of a single implementation, but improving privacy and security for individuals.
+
+41:25.080 --> 41:31.080
+And as a small aside, by the way, implementing your own PKI, that's the new implement your own crypto library. Please don't do that.
+
+41:34.120 --> 41:36.120
+Thank you very much.
+
+41:44.120 --> 41:46.120
+Thank you very much. Are there any questions?
+
+41:50.120 --> 41:52.120
+A question there.
+
+41:54.120 --> 41:56.120
+Thank you.
+
+42:06.120 --> 42:08.120
+Um
+
+42:10.120 --> 42:12.120
+Okay.
+
+42:12.120 --> 42:14.120
+Thanks for your talk. I have a question.
+
+42:14.120 --> 42:18.120
+I currently use GPG agent as SSH agent.
+
+42:18.120 --> 42:22.120
+And is it possible with Sequoia too?
+
+42:22.120 --> 42:26.120
+Okay. I can't hear anything because the microphone or the speakers are pointed this direction.
+
+42:28.120 --> 42:30.120
+Can you say it again?
+
+42:30.120 --> 42:34.120
+I'm currently using GPG agent SSH agent.
+
+42:34.120 --> 42:38.120
+Can it be done with Sequoia too?
+
+42:38.120 --> 42:42.120
+Can you use Sequoia as a GPG agent?
+
+42:42.120 --> 42:44.120
+SSH agent.
+
+42:44.120 --> 42:46.120
+SSH agent.
+
+42:46.120 --> 42:48.120
+Yeah.
+
+42:52.120 --> 42:54.120
+Okay.
+
+42:54.120 --> 42:56.120
+Okay.
+
+42:56.120 --> 42:58.120
+It's okay.
+
+42:58.120 --> 43:00.120
+Hi Neil. Thanks for the talk.
+
+43:00.120 --> 43:02.120
+Lots of interesting points.
+
+43:02.120 --> 43:04.120
+Oh, sorry.
+
+43:04.120 --> 43:06.120
+I'll try to speak loud.
+
+43:06.120 --> 43:08.120
+Thanks for the talk. Thanks for the points raised.
+
+43:08.120 --> 43:10.120
+Thanks for the bows.
+
+43:10.120 --> 43:16.120
+I'm wondering a bit about compatibility and interop. Could you speak on that topic a bit?
+
+43:16.120 --> 43:20.120
+Because of, well, recent developments. Where do you see Sequoia in the future?
+
+43:20.120 --> 43:28.120
+Like, especially this year and going forward when it comes to interop with other implementations and newer versions of OpenPGP.
+
+43:28.120 --> 43:34.120
+I know this is a bit of a larger topic, but maybe you can share some of your thoughts with that.
+
+43:34.120 --> 43:38.120
+Okay. So I understood the question is what is the future compatibility with OpenPGP?
+
+43:38.120 --> 43:48.120
+And our intention is absolutely to implement whatever the ITF decides to standardize in the next revision of the OpenPGP protocol.
+
+43:48.120 --> 43:54.120
+And I believe what your question is sort of asking about is the LibrePGP thing?
+
+43:54.120 --> 43:56.120
+And I think that's a good question.
+
+43:56.120 --> 43:58.120
+I think that's a good question.
+
+43:58.120 --> 44:00.120
+I think that's a good question.
+
+44:00.120 --> 44:08.120
+And I believe what your question is sort of asking about is the LibrePGP thing?
+
+44:08.120 --> 44:12.120
+And I mean, that's a whole can of worms.
+
+44:12.120 --> 44:16.120
+And I think it's an extremely unfortunate situation.
+
+44:16.120 --> 44:29.120
+And my personal hope is that we're all going to implement the things that the standard bodies say is the standard because it improves interoperability.
+
+44:30.120 --> 44:47.120
+One of the arguments around LibrePGP, which is a different, which is the GNU PG format or the GNU PG and RMP format alternative to the ITF standard,
+
+44:47.120 --> 44:52.120
+is that they say we already shipped it.
+
+44:52.120 --> 44:54.120
+Well, they already shipped it.
+
+44:54.120 --> 44:57.120
+I think it absolutely makes sense to write down what it is that they shipped.
+
+44:57.120 --> 45:05.120
+But I hope that future developments are going to go in a direction where they also support the standard.
+
+45:05.120 --> 45:07.120
+Hi.
+
+45:07.120 --> 45:12.120
+Do you integrate with hardware backed private keys?
+
+45:12.120 --> 45:15.120
+So for example, Fido keys.
+
+45:15.120 --> 45:16.120
+Right.
+
+45:16.120 --> 45:19.120
+So there are two ways that we do integration.
+
+45:19.120 --> 45:25.120
+So the first one is if you're currently using GNU PG and you're using the GPG agent.
+
+45:25.120 --> 45:29.120
+And then you decide, okay, I want to try out Sequoia.
+
+45:32.120 --> 45:34.120
+And you're using the Chameleon GPG.
+
+45:34.120 --> 45:37.120
+Chameleon will automatically use GPG agent.
+
+45:37.120 --> 45:39.120
+That means that there is zero configuration required.
+
+45:39.120 --> 45:44.120
+You automatically get access to all of the things that you had access to before.
+
+45:44.120 --> 45:46.120
+So that's sort of the easy thing.
+
+45:46.120 --> 45:52.120
+The other half is what does it look like in terms of Sequoia sort of native support.
+
+45:52.120 --> 45:59.120
+And for this, we have a private key store, which has a device driver style architecture.
+
+45:59.120 --> 46:03.120
+And then there are different back ends implemented by that.
+
+46:03.120 --> 46:07.120
+Again, one of the back ends is the GPG agent back end.
+
+46:07.120 --> 46:14.120
+But Hico, for instance, did a lot of work on the smart card area.
+
+46:15.120 --> 46:26.120
+And so if you're using an open PGG smart card, then in the future you'll be able to use the private key store and it will be able to talk to your open PGG smart card.
+
+46:26.120 --> 46:33.120
+Likewise for PIV tokens and we expect to add additional things in the future.
+
+46:33.120 --> 46:46.120
+Are there any concerns or ongoing work with regards to post-quantum?
+
+46:46.120 --> 46:48.120
+Post-quantum is a good question.
+
+46:48.120 --> 46:49.120
+Right, of course.
+
+46:49.120 --> 46:56.120
+The whole ITF is very interested in addressing the question of how do we deal with the post-quantum threat.
+
+46:56.120 --> 47:08.120
+And there, as I mentioned, the ITF working group has submitted the document to the ITF for ratification.
+
+47:08.120 --> 47:13.120
+And it's currently in working group last call, or last call, I'm not entirely sure of the terminology.
+
+47:13.120 --> 47:17.120
+But we expect within the next couple of months that it will be ratified.
+
+47:17.120 --> 47:19.120
+And the working group has a nuke shatter.
+
+47:19.120 --> 47:24.120
+The nuke shatter has been accepted and the nuke shatter includes post-quantum work.
+
+47:24.120 --> 47:34.120
+The post-quantum work has more or less already been done and it was a collaboration between the BSI and Proton primarily.
+
+47:34.120 --> 47:47.120
+So the BSI a few years ago had a call and they asked, or the MTG, which is a company in Germany,
+
+47:47.120 --> 47:52.120
+applied to do the post-quantum work in the open PGG space.
+
+47:52.120 --> 47:58.120
+Proton joined in and there is an entire draft or there have been multiple versions of a draft.
+
+47:58.120 --> 48:01.120
+Everybody is more or less happy with the draft.
+
+48:01.120 --> 48:09.120
+It is much less controversial, one might say, not that the crypto refresh is terribly controversial.
+
+48:09.120 --> 48:15.120
+And this is the direction that we're moving in and I expect that it will also be ratified very quickly.
+
+48:15.120 --> 48:20.120
+The tricky part, of course, is the actual deployment in real life.
+
+48:20.120 --> 48:25.120
+It is not a very long time but it seems that we do still have a couple of years.
+
+48:25.120 --> 48:27.120
+Thank you very much.
+
+48:27.120 --> 48:32.120
+I think if there are further questions, your email was on the slide.
+
+48:32.120 --> 48:36.120
+Feel free to ask him, I'm assuming.
+
+48:36.120 --> 48:38.120
+It was a very enlightening talk.
+
+48:38.120 --> 48:41.120
+It was a challenging talk too.
+
+48:41.120 --> 48:47.120
+And as Belgians, we'd like to give you a token of our appreciation for your effort.
+
+48:47.120 --> 48:48.120
+Thank you very much.
+
+48:48.120 --> 48:50.120
+Have a nice day.
+

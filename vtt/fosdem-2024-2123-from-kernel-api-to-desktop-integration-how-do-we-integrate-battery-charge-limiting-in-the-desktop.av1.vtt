@@ -1,0 +1,575 @@
+WEBVTT
+
+00:00.000 --> 00:10.000
+This is the kernel dev room, in case you got lost, which is very unlikely given how hidden
+
+00:10.000 --> 00:11.000
+this room is.
+
+00:11.000 --> 00:18.000
+Our next talk is going to be from Jelle about GNOME battery charge limits.
+
+00:18.000 --> 00:27.000
+Welcome. Thanks for hosting.
+
+00:27.000 --> 00:30.000
+And yeah, I am...
+
+00:30.000 --> 00:31.000
+Wait.
+
+00:31.000 --> 00:32.000
+Oh.
+
+00:32.000 --> 00:34.000
+Oops.
+
+00:34.000 --> 00:39.000
+I'm Jelle van der Waal.
+
+00:39.000 --> 00:50.000
+I work at Red Hat and I started my open source journey by joining the ArtSync team and now
+
+00:50.000 --> 00:56.000
+a developer and that's how I got into open source and also how I came into FOSTA.
+
+00:56.000 --> 01:05.000
+On my day job I work for Cockpit and this is a web UI for your server and that's where
+
+01:06.000 --> 01:10.000
+we use like 100 APIs and it's a bit related to this talk.
+
+01:10.000 --> 01:17.000
+So this talk will be talking about the kernel CISFS API and since we're in the kernel dev
+
+01:17.000 --> 01:24.000
+room I'm a bit experienced with kernel development so I wrote three small upstream, three small
+
+01:24.000 --> 01:32.000
+drivers in the kernel mostly when I was hacking a bit on some all-winner stuff so XR1M, input
+
+01:32.000 --> 01:35.000
+touch beam driver, some small stuff.
+
+01:35.000 --> 01:38.000
+So I'll start with like what's the problem?
+
+01:38.000 --> 01:47.000
+So most of you probably get a laptop for work and I assume you're like maybe you're a developer
+
+01:47.000 --> 01:55.000
+and you don't have too many meetings, you plug it into your dock and you start working
+
+01:55.000 --> 02:02.000
+and you basically leave it there for the whole day which means that the battery will get
+
+02:02.000 --> 02:08.000
+probably doesn't deplete that much and it will constantly get charged and then over time
+
+02:08.000 --> 02:15.000
+it might discharge like 5% and it charges again and this isn't very great for your battery
+
+02:15.000 --> 02:22.000
+lifetime because basically the only the last 20-ish percent gets used and the rest of the
+
+02:22.000 --> 02:25.000
+battery isn't really used.
+
+02:25.000 --> 02:32.000
+Luckily vendors and a lot of manufacturers have made a solution for this and these are
+
+02:32.000 --> 02:34.000
+battery charged thresholds.
+
+02:34.000 --> 02:41.000
+They're implemented in firmware so sometimes you can enable a single BIOS and there's a
+
+02:41.000 --> 02:48.000
+switch for this and how you interact with this depends a bit so sometimes it's like
+
+02:48.000 --> 02:58.000
+you talk to the embedded controller or you do some WMI or ACPI but that's just implementation
+
+02:58.000 --> 02:59.000
+detail.
+
+02:59.000 --> 03:08.000
+So there are like two things which generally happen so there's like either you set like
+
+03:08.000 --> 03:16.000
+a charge threshold at 80% so basically the last 80% won't get charged and the other alternative
+
+03:16.000 --> 03:23.000
+is that you set start and stop charge limits so basically between the 16-80% this is the
+
+03:23.000 --> 03:32.000
+charge free zone and if your battery is under 60% it will start a charge to 80% and once
+
+03:32.000 --> 03:38.000
+it's there it will stay basically if you keep it plugged in it will be basically staying
+
+03:38.000 --> 03:40.000
+at range and won't charge.
+
+03:40.000 --> 03:48.000
+So that's good if you don't use your battery a lot except maybe once a month or once a
+
+03:48.000 --> 03:54.000
+week for travel then this basically means you don't use your battery at all.
+
+03:54.000 --> 04:06.000
+So yeah I'm working on this because I own a ThinkPad and the ThinkPad supports sending
+
+04:06.000 --> 04:17.000
+charge limits for this there's a CISFS knob and so my solution was my first solution was
+
+04:17.000 --> 04:25.000
+I make a system deservice, it runs on boot, it sets the charge limits and well I'm done.
+
+04:25.000 --> 04:31.000
+These limits usually don't survive like a power cycle so you have to apply them every
+
+04:31.000 --> 04:41.000
+time you do but yeah that's not really a great solution for like your less tech savvy
+
+04:41.000 --> 04:44.000
+Linux user.
+
+04:44.000 --> 04:50.000
+So for this there's already some software to set this, there's TLP which you might know
+
+04:50.000 --> 04:59.000
+and PowerDev1KD can set these limits and other these as far as I know don't really have any
+
+04:59.000 --> 05:05.000
+support for this and looking at the other side so looking at Windows usually the manufacturer
+
+05:05.000 --> 05:14.000
+provides some software for your specific laptop and they allow you to set this.
+
+05:14.000 --> 05:23.000
+So but this talk is about how we intend to integrate it in GNOME so it will be only about this.
+
+05:23.000 --> 05:31.000
+So for GNOME there has been an issue in the for GNOME settings about this like a lot of people
+
+05:31.000 --> 05:40.000
+want to have this and an interesting other interesting thing is that some vendors have
+
+05:40.000 --> 05:48.000
+some certification and that this setting these limits is also part of it but don't pay me on that
+
+05:48.000 --> 05:51.000
+because I'm not really involved into that.
+
+05:51.000 --> 06:01.000
+So and for myself I mostly wanted for myself so the question is how would we provide this for the user?
+
+06:01.000 --> 06:10.000
+We can do like we can make it configurable you just input some numbers we can or we can also ask
+
+06:10.000 --> 06:17.000
+like how would the vendors want to have this because some vendors like Novo they ship Fedora
+
+06:17.000 --> 06:24.000
+in pre-installed on laptops maybe they want to set their own custom limits which they tested in their
+
+06:24.000 --> 06:31.000
+own test lab or do we want or maybe users want like profiles this is what some of the
+
+06:31.000 --> 06:37.000
+Windows solutions you give you for example you have like a travel profile which is basically
+
+06:37.000 --> 06:44.000
+no limits at all and then you have something in between which is like 70-80% it highly depends
+
+06:44.000 --> 06:52.000
+for manufacturer they all have their own numbers and some have like a very conservative like only 50-60%
+
+06:52.000 --> 06:59.000
+so there's a lot of variants but yeah as you might know whether you like it or not GNOME
+
+06:59.000 --> 07:08.000
+GNOME intends to be like we would try to give the user like if there's already a good solution for it
+
+07:08.000 --> 07:13.000
+we try to make it as simple as possible so the user doesn't have to like oh I have this think pad
+
+07:13.000 --> 07:20.000
+but for think pad I need like 60-80% and for oh but I have an ASUS I need like 50-60% or something
+
+07:20.000 --> 07:29.000
+so GNOME tries to hide that away from users so what we ended up with and what was already
+
+07:29.000 --> 07:37.000
+pre-designed and after some discussion we just ended up there should be like a knob which just enables
+
+07:37.000 --> 07:46.000
+these limits and because in multiple profiles if you would probably confuse users like do you want
+
+07:46.000 --> 07:54.000
+conservative do you want mobile battery so we try to aim like for the simplest solution so
+
+07:54.000 --> 08:01.000
+so that's like how the UI would look but then how does GNOME actually get all this information
+
+08:01.000 --> 08:08.000
+so there's a demon running on GNOME standard if you log in so that's U-Power and basically U-Power is
+
+08:08.000 --> 08:16.000
+the bridge between the between CISFS over D-Bus to a user space so like well it's running user space
+
+08:16.000 --> 08:23.000
+but it's like the UIs so like GNOME settings the shell and this shows you normally like your battery indicator
+
+08:23.000 --> 08:30.000
+if it's charging or not if it's discharging how much power it is so this is the logical way to where we
+
+08:30.000 --> 08:36.000
+want to integrate this feature it's already writes something to CISFS so it has like the keyboard
+
+08:36.000 --> 08:45.000
+backlight support is handled by it so this will be the place to do it so yeah the simplest thing will be to
+
+08:45.000 --> 08:56.000
+export the so how U-Power works is it has objects for your battery or for your display or for charging
+
+08:56.000 --> 09:03.000
+devices and for your battery we just add like a start and interest hold so we can visualize this to give this
+
+09:03.000 --> 09:14.000
+to user and as we don't really want to make this in U-Power we will really want to add like configuration
+
+09:14.000 --> 09:22.000
+parsing so we want to allow people to still like there's still power users who want to configure this
+
+09:22.000 --> 09:28.000
+these settings so U-Power would have like one default setting but there are of course power users or
+
+09:28.000 --> 09:36.000
+other kind of users who want something different so there should be a way to overwrite this and an easy way to do this
+
+09:36.000 --> 09:45.000
+because we get already rely on UDEV is by using by allowing this to be configured for your hardware to be
+
+09:45.000 --> 09:53.000
+this is so that we completely don't need to any new configuration file you just make a hardware to be file
+
+09:53.000 --> 10:01.000
+and that allows you to overwrite the settings for like your custom for depending on the my string or your battery name
+
+10:01.000 --> 10:12.000
+or it's pretty flexible so that's all cool this is so that's and now we look at the kernel site and most of these
+
+10:12.000 --> 10:24.000
+charge vessels they're implemented in the platform x86 drivers they're set to easily like call your ACPI method
+
+10:24.000 --> 10:33.000
+or there'll be my method and then to set these to set and read these limits so basically you need to implement these two functions
+
+10:33.000 --> 10:41.000
+and then basically in the year for your device and then you're basically ready so that's easy and that's also what I thought
+
+10:41.000 --> 10:50.000
+like okay cool with the start in the end that's what I have on my think that well how hard can it be to do this for all the other
+
+10:50.000 --> 10:59.000
+laptops and then I started after I was already working on this project for some while for some time I started looking at the other devices
+
+10:59.000 --> 11:14.000
+and it turns out that actually not every laptop supports the same thresholds or so for system 76 MSI who I and Lenovo they also support the start in the end thresholds
+
+11:14.000 --> 11:26.000
+so it's like okay that's great that's what I have that's why I intend to support and then I found out that some drivers like the start threshold
+
+11:26.000 --> 11:38.000
+and I started digging a bit deeper and yeah the love of a driver basically the sub method checks like okay I've we used to try to set 180
+
+11:38.000 --> 11:52.000
+that's the value of x-fet and that's it so it's okay that's interesting and then I looked at the time she bought driver and that was I found out more interesting
+
+11:52.000 --> 12:05.000
+so the setting of the end limit supported like giving you you could give a value from zero to 100 so for the ASUS driver the LG driver
+
+12:05.000 --> 12:15.000
+if you would give like set like right echo 70 to the end threshold it would give like any valid that's not what the touch bar driver does
+
+12:15.000 --> 12:28.000
+it just sees like oh say you set 80 then I also had an answer limits to or say is right 80 then I will enable the battery saving feature
+
+12:28.000 --> 12:40.000
+because the as you can see basically if the value is under 90 we will enable it so if you set like 91 we will disable it so this is fairly confusing
+
+12:40.000 --> 12:53.000
+and then we look at the function which shows the configured value and this just returns either 80 or 100 so basically you can only set an end limit of 80
+
+12:53.000 --> 13:07.000
+so yeah that's not great and the ASUS driver supports 100 to 0 to 100 to be set and it's interesting when I read the code there was like yeah
+
+13:07.000 --> 13:24.000
+we can't read from or we we don't know how to read the configured states from from firmware so basically whatever you you right there it just cashes in the driver and returns what you what you set
+
+13:24.000 --> 13:42.000
+so that's interesting and another interesting thing is that according to users that by say you set like an 80% end threshold the driver the firmware internally sets like a start threshold of minus one or minus two
+
+13:42.000 --> 14:05.000
+so that's probably good that they do that but it's not very obvious when you or like I wasn't able to verify I don't have any I only have like think paths and so I have to trust users that they measure this and this is the case so that's that's tricky
+
+14:05.000 --> 14:23.000
+and it is logical that is that everything is implemented different of course because it's all the all the laptops are created by different vendors and most of these I think the the no vote drivers was done by the no vote don't
+
+14:23.000 --> 14:44.000
+pay me on that but the other right like the ASUS one is probably reverse engineered so I cannot blame or it will you cannot expect this to be like perfect because there's no no documentation about this it's just all reverse engineered but this did raise for me the question
+
+14:45.000 --> 15:11.000
+should the the driver also show which values it accepts because if you're trying to like make an application and it's not that great that if you present like okay we will charge to 80% but when you try to write this it will just return in a valid so the driver
+
+15:11.000 --> 15:22.000
+the driver upfront needs to the I mean the the application of funds wants to know what is supported so this is something which might be interested to to add to the kernel
+
+15:23.000 --> 15:48.000
+so yeah but about the actual implementation so I I for now I just keep the interest holds situation as something maybe you can think about the future for now I only support the the start and the end stop just holds because that's predictable for me with the interest hold I'm not sure if there's like a hidden
+
+15:49.000 --> 16:03.000
+threshold set or what it's like an unknown state for me so for now I'll have kept these out of the kept these are not supported that's a bit sad I would like to at some point do that but I
+
+16:04.000 --> 16:31.000
+I'm not sure not sure yet what to do about that so yeah I the the merge request are currently under review this is how it looks like and and then because you know I don't have too many side projects I I was thinking about some future work so one of the one of the things is that I don't believe you can
+
+16:31.000 --> 16:51.000
+change like before sample the toss about driver to return the invalid if you write 10 because that's you can't break user space so maybe there should be a new new attributes but I'm not sure how this will be like there's this other attribute like the charge behavior and as nicely shows you like
+
+16:52.000 --> 17:17.000
+okay this is currently set to auto it can also be set to these other strings so maybe that can also be I don't think you can change the current like start threshold to also do this because I will break a use space so maybe there should be like a new new file which you just can cut and then it shows you what is supported that will be like fairly easy to implement.
+
+17:18.000 --> 17:38.000
+Also I would like to see this be supported in more devices so I found out like I own a steam deck because well my friends arch and so constantly I got one and I found out that they also have a chart and charge and threshold but they were using a custom
+
+17:38.000 --> 17:49.000
+sysvests attribute for them so I asked them about it and they're gonna they're gonna fix this use the common framework and they intend to main in the upstream this at some point they're still figuring out some things.
+
+17:50.000 --> 18:15.000
+Dell is also interesting so some latitude say exports the the bios settings inside of sysvests is interesting they also contain like they also have like a charge control there and I was wondering how evil it would be or how bad it would be if you just exported this also in as a charge control start and end threshold.
+
+18:16.000 --> 18:20.000
+It will be a bit funky because but maybe it can be done.
+
+18:21.000 --> 18:25.000
+And I also own a service and this only has a bias setting.
+
+18:26.000 --> 18:39.000
+I looked at the the service kit for boss or yeah and there was an issue about this and it seems that this value cannot really be read or set from from the colonel side so it's a bit sad.
+
+18:40.000 --> 18:45.000
+And then there's the framework they actually have a tool.
+
+18:46.000 --> 18:51.000
+Which allows you to set an interest hold so I intend to to hack around on this.
+
+18:52.000 --> 18:59.000
+Once I borrow a framework from colleague and write a driver to support this and.
+
+18:59.000 --> 19:00.000
+And.
+
+19:03.000 --> 19:06.000
+Oh yeah and interesting as the frameworks.
+
+19:07.000 --> 19:22.000
+Firmware is open source so the embedded it seems like after digging the code so they the code which has the threshold also supports the start threshold but if you look at the extra implementation he doesn't do anything with the start threshold so there's a case there to.
+
+19:22.000 --> 19:24.000
+For somebody who wants to like.
+
+19:25.000 --> 19:33.000
+Write embedded controller code to see if they start just what can also be supported I'm probably not going to do that that's.
+
+19:34.000 --> 19:38.000
+For me that's too too deep like Colonel hacking I can do.
+
+19:39.000 --> 19:44.000
+That it's too much for me but it would be cool if it could be supported.
+
+19:45.000 --> 19:56.000
+Another thing I would like to do in the future is to calibrate the batteries so basically because you're normally happens that if you fully charge or discharge.
+
+19:57.000 --> 20:04.000
+There are some internal logic in the batteries firmware and this recalibrates the battery counters like how many.
+
+20:05.000 --> 20:11.000
+How much is still left so it knows how much initially capacity it has but of course it is great over time.
+
+20:11.000 --> 20:18.000
+And it measures this when it's close from when it starts charging from zero to one hundred percent it basically resets those counters.
+
+20:19.000 --> 20:25.000
+And as you're setting chart limits the the counters don't really actively get reset because they.
+
+20:26.000 --> 20:37.000
+Well you're not really fully charging anymore and think that supports a way to do this and it's basically not very very difficult.
+
+20:37.000 --> 20:43.000
+It's basically you said you disabled the charge threshold and then you tell.
+
+20:44.000 --> 20:55.000
+You tell that you can configure the charge behavior and you say do a full chest arch and basically the laptop will run off your battery while plugged into AC power.
+
+20:56.000 --> 21:05.000
+It will go to like two one percent and then switch over to AC battery to AC power and then fully charge and then this this should be reset.
+
+21:06.000 --> 21:08.000
+I believe the energy full count.
+
+21:09.000 --> 21:17.000
+I'm not entirely sure on that but it should really reset the counters and then you have accurate battery information again for when you're traveling.
+
+21:18.000 --> 21:19.000
+So this will cool.
+
+21:19.000 --> 21:22.000
+It sadly is only supported for now.
+
+21:23.000 --> 21:34.000
+I think that I think the framework can do this but I haven't looked too much in the interesting firmware repo story but it will be cool if more.
+
+21:35.000 --> 21:42.000
+Manufacturers would allow this to be supported and then the thanks to all the people who have helped me like this is not.
+
+21:43.000 --> 21:46.000
+Something I do a full easy on my own I have asked some people.
+
+21:47.000 --> 21:59.000
+I had some help from others people from the design on getting into like how G-Dip program works and I like for a new power kernel so thanks to them.
+
+22:05.000 --> 22:06.000
+Thank you.
+
+22:15.000 --> 22:26.000
+Hey I don't know how batteries work but would it be better for the battery but frustrating for the user to have like randomized thresholds instead of just like 60 or 80.
+
+22:27.000 --> 22:29.000
+Like aren't you just pushing it down.
+
+22:30.000 --> 22:34.000
+You know the aren't you still not using most of the battery when you you know just have a.
+
+22:35.000 --> 22:38.000
+Yeah like yeah like a starter and threshold.
+
+23:05.000 --> 23:06.000
+Yeah.
+
+23:17.000 --> 23:18.000
+I've always.
+
+23:19.000 --> 23:20.000
+I don't know why the.
+
+23:21.000 --> 23:22.000
+This room.
+
+23:23.000 --> 23:24.000
+That's great.
+
+23:26.000 --> 23:27.000
+This is.
+
+23:30.000 --> 23:31.000
+Oh all the.
+
+23:35.000 --> 23:36.000
+Just give him the.
+
+23:41.000 --> 23:42.000
+It's it's.
+
+23:43.000 --> 23:48.000
+So I know some users who do this for the for the steam back and they have this.
+
+23:50.000 --> 24:04.000
+Interesting bash script which basically sets like a threshold to start the 80% and then gently they lowered but yeah so I guess that in the ASUS laptop there seems to be like already a hidden.
+
+24:05.000 --> 24:11.000
+Start threshold and I'm not sure if that's a thing in the the the touch about or the.
+
+24:12.000 --> 24:13.000
+The other laptops so.
+
+24:14.000 --> 24:16.000
+I don't know it's.
+
+24:17.000 --> 24:23.000
+And this is also why I'm not super confident to support this because I'm not entirely sure what's going on.
+
+24:30.000 --> 24:31.000
+Questions.
+
+24:36.000 --> 24:38.000
+What happens if you.
+
+24:41.000 --> 24:45.000
+What happens if you charge your laptop when it's not actually running.
+
+24:53.000 --> 24:55.000
+A thing bad more precisely a thing bad.
+
+25:06.000 --> 25:27.000
+I have seen you have using some surface interface and Colonel site is it some platform specific six eight six or you're using power source framework for this.
+
+25:28.000 --> 25:29.000
+The notice.
+
+25:30.000 --> 25:31.000
+I believe.
+
+25:38.000 --> 25:40.000
+So it is already power supply framework.
+
+25:40.000 --> 25:41.000
+Okay.
+
+25:44.000 --> 25:51.000
+Hey I'm the maintainer for the power supply sub system and I would be willing to accept a patch adding like the.
+
+25:52.000 --> 25:56.000
+Acceptable values for the stop of the charge.
+
+25:57.000 --> 26:07.000
+As long as it's sensible like exporting a hundred numbers for those accepting any percentage does not really make sense probably in that case it makes sense not to export any fire or something.
+
+26:12.000 --> 26:13.000
+Yeah thank you.
+
+26:27.000 --> 26:28.000
+Next is.
+
+26:33.000 --> 26:35.000
+Okay more questions.
+
+26:44.000 --> 26:49.000
+So just a quick feedback from a user who created the bash script to do exactly the same.
+
+26:49.000 --> 27:00.000
+So one thing that I really needed to add to my bash script was to not only save the battery because I normally have the laptop that is always connected to the time the world docking station.
+
+27:01.000 --> 27:04.000
+And then when I need to travel I need to charge it because it's never full right.
+
+27:05.000 --> 27:13.000
+So I mean just a single switch to save the battery is not enough I think you should have something like key combination or something that would enable you.
+
+27:13.000 --> 27:20.000
+Okay so now I want to charge the laptop because I'm going to travel without maybe changing the overall policy.
+
+27:21.000 --> 27:23.000
+So like an override option.
+
+27:23.000 --> 27:24.000
+Yeah something like that.
+
+27:25.000 --> 27:26.000
+Yeah what we interesting.
+
+27:26.000 --> 27:45.000
+Okay if there are no more questions then thank you for your talk and we'll have a seven minute break.
+

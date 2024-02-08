@@ -1,0 +1,1142 @@
+WEBVTT
+
+00:00.000 --> 00:12.640
+Now we have the last talk of the day with Paul.
+
+00:12.640 --> 00:18.200
+He's going to teach us how to hack a new sturdy data format.
+
+00:18.200 --> 00:20.120
+And I'm really looking forward to it.
+
+00:20.120 --> 00:21.120
+Thank you.
+
+00:21.120 --> 00:22.120
+Thank you.
+
+00:22.120 --> 00:23.120
+Yeah.
+
+00:23.120 --> 00:24.120
+Hello, everyone.
+
+00:24.120 --> 00:33.200
+Hello, everyone, for the last talk of this day and of the Rustaf room, the journey of
+
+00:33.200 --> 00:36.120
+hacking in a new sturdy data format.
+
+00:36.120 --> 00:39.960
+If you read through the abstract, there are a lot of more things in there, but the main
+
+00:39.960 --> 00:42.040
+talking points are near for us.
+
+00:42.040 --> 00:45.640
+You're 30 and I want to present the journey of building that.
+
+00:45.640 --> 00:50.360
+And before we go into, I want to also emphasize what this talk is not what I'm not going
+
+00:50.360 --> 00:51.360
+to talk about.
+
+00:51.360 --> 00:54.360
+This is not going to be an introduction to 30.
+
+00:54.360 --> 00:58.280
+It's also not going to be an introduction to Neo4S.
+
+00:58.280 --> 01:03.640
+You don't really need to know what these are to understand what I'm talking about, hopefully,
+
+01:03.640 --> 01:08.360
+but you're also not going to know what these are after the fact.
+
+01:08.360 --> 01:14.600
+And similar to the talk about tower, I'm also not going to do an actual deep dive, also
+
+01:14.600 --> 01:16.320
+a shallow deep dive.
+
+01:16.320 --> 01:21.000
+And I'm also not going to do a discussion about how to pronounce 30.
+
+01:21.000 --> 01:24.400
+So with that about me, hi, I'm Paul.
+
+01:24.400 --> 01:28.480
+You can find me on GitHub with Knut Waco or on Hackyderm.
+
+01:28.480 --> 01:37.200
+And I work for a company called Neo4J, which is a graph database written in not Rust.
+
+01:37.200 --> 01:42.760
+We do have a Rust driver though, which is Neo4RS, hence the name.
+
+01:42.760 --> 01:43.920
+That one is written in poor Rust.
+
+01:43.920 --> 01:50.120
+We're not wrapping any existing C, ABI or API from some other driver, but it's developed
+
+01:50.120 --> 01:56.560
+under this thing called Neo4J Labs, which is an incubation community focused process.
+
+01:56.560 --> 02:01.920
+So there's not really that much product engineering behind it as mostly me doing this in my 20%
+
+02:01.920 --> 02:09.480
+time with contributions from occasional other people from the company or from the community.
+
+02:09.480 --> 02:17.840
+And a Neo4J driver for a database, we communicate via Bolt.
+
+02:17.840 --> 02:24.520
+Bolt is a binary protocol that is built on top of a pack stream, which is something that
+
+02:24.520 --> 02:31.320
+we use for general data types like strings, ints, lists and so on.
+
+02:31.320 --> 02:37.600
+This basically a binary JSON-ish thing, I think is an extension of a message pack.
+
+02:37.600 --> 02:41.280
+And you can have domain specific structs defined in there.
+
+02:41.280 --> 02:51.960
+And Bolt has some 15 structs on top of that and then another 15 for communication purposes,
+
+02:51.960 --> 02:55.240
+but we don't really need to talk about those.
+
+02:55.240 --> 03:02.920
+All of those various data types that the Bolt protocol can have as natively represents are
+
+03:02.920 --> 03:05.440
+in this big enum.
+
+03:05.440 --> 03:11.160
+Like you have a null type, you have an integer, you have a float, a string list and a node
+
+03:11.160 --> 03:16.240
+for graph database and node is an important thing.
+
+03:16.240 --> 03:19.040
+So it's also on there and there's a bunch of other stuff.
+
+03:19.040 --> 03:27.760
+Now in Neo4S in the 0.6 release, what is now the previous version, if you wanted to get
+
+03:27.760 --> 03:33.160
+some data from a node you would write something like this and in 0.7 you would write something
+
+03:33.160 --> 03:34.800
+like this.
+
+03:34.800 --> 03:38.920
+And if you think that looks exactly the same, that is on purpose.
+
+03:38.920 --> 03:43.880
+It's not a fact of low oxygen in the room.
+
+03:43.880 --> 03:49.760
+But you can also do something like this where you have your struct, you put a 30D0-size thing
+
+03:49.760 --> 03:56.120
+on it and then you can convert that into your node into that struct.
+
+03:56.120 --> 04:02.240
+And so I want to talk about how to, or some things that we did to implement this, to provide
+
+04:02.240 --> 04:04.040
+this functionality.
+
+04:04.960 --> 04:08.920
+30, if you're absolutely not familiar with it, I mean it's been mentioned a couple of
+
+04:08.920 --> 04:14.320
+times today already, a framework for serializing and deserializing data.
+
+04:14.320 --> 04:21.560
+If you want to get into what it is, you will not find it here but you can go to 30.rs and
+
+04:21.560 --> 04:29.480
+there's a video linked from John Janseth who goes into great detail about one side of 30
+
+04:29.480 --> 04:33.080
+that I'm not going to talk about.
+
+04:33.120 --> 04:38.040
+And in particular there are these kind of three big concepts there.
+
+04:38.040 --> 04:43.360
+There's a data type which is your structs where you put your derived serialize and deserialize
+
+04:43.360 --> 04:44.640
+on it.
+
+04:44.640 --> 04:49.240
+And then there's the data format which is the other side which has the trade serializer
+
+04:49.240 --> 04:50.800
+and deserializer.
+
+04:50.800 --> 04:54.200
+Notice the R at the end of the names.
+
+04:54.200 --> 04:56.560
+That's the main difference.
+
+04:56.560 --> 05:02.920
+And they communicate via this 30Data model but not really wire but this data model is
+
+05:02.960 --> 05:08.800
+mostly represented in the API only.
+
+05:08.800 --> 05:13.920
+This is one of the examples of something where I would have to put a big asterisk on it and
+
+05:13.920 --> 05:22.200
+then talk five minutes about why it's not actually like this but shallow dive.
+
+05:22.200 --> 05:27.120
+So for example JSON is a 30Data format.
+
+05:27.120 --> 05:32.840
+It's like how your data is represented, formatted in your bytes, in your string, on your desk,
+
+05:32.840 --> 05:34.640
+wherever it is.
+
+05:34.640 --> 05:41.280
+And 30Data is the trade that implements this data format, implements the serializer and
+
+05:41.280 --> 05:43.880
+deserializer trades.
+
+05:43.880 --> 05:47.880
+Now we want to bring them together.
+
+05:47.880 --> 05:54.400
+We already have this bold type enum and so we want to implement the data type for this
+
+05:54.400 --> 05:57.040
+particular thing.
+
+05:57.040 --> 06:02.560
+And we're also going to focus on the deserializer side only.
+
+06:02.560 --> 06:09.920
+Doing this while parsing the data into bold type and serializer implementations are on
+
+06:09.920 --> 06:11.000
+the roadmap.
+
+06:11.000 --> 06:12.960
+Let's say down there.
+
+06:12.960 --> 06:17.280
+And we also want to maintain the API compatibility.
+
+06:17.280 --> 06:22.720
+So as you saw before, the API should look the same.
+
+06:22.720 --> 06:26.680
+It's not actually the same but it's still going to be breaking but we don't want to
+
+06:26.680 --> 06:32.160
+have to introduce a lot of things we need to change.
+
+06:32.160 --> 06:33.160
+All right.
+
+06:33.160 --> 06:39.160
+So let's talk about this node, this thing that graph databases use.
+
+06:39.160 --> 06:43.760
+This is the definition from the bold documentation.
+
+06:43.760 --> 06:46.600
+We can put this in Rust.
+
+06:46.600 --> 06:47.600
+Very much looks the same.
+
+06:47.600 --> 06:51.120
+We have ID, labels and properties.
+
+06:51.120 --> 06:55.520
+And just to show what those actually are.
+
+06:55.520 --> 06:59.960
+This is Cypher, the query language for users.
+
+06:59.960 --> 07:02.760
+This is going to be the last slide on Cypher that you see in this talk.
+
+07:02.760 --> 07:06.600
+I'm just breaking this down so I can show you this particular thing.
+
+07:06.600 --> 07:09.160
+It's the label of the node.
+
+07:09.160 --> 07:15.960
+These JSON-ish looking thing are the properties of the node and we have in our end, in our
+
+07:15.960 --> 07:21.040
+return column, we have the actual node as this node struct.
+
+07:21.040 --> 07:28.400
+And we have our session thing with our deserialize on and we want to do something like this.
+
+07:28.400 --> 07:35.400
+I would say give me the value, it's called n as a session, which we could also write
+
+07:35.400 --> 07:40.840
+like get me a node and then convert that node into a session.
+
+07:40.840 --> 07:43.320
+So let's try to do that.
+
+07:43.320 --> 07:47.320
+First attempt that we could try is make our lives easy.
+
+07:47.320 --> 07:53.480
+Make our bold node, make that deserialize and then use some other data format to do
+
+07:53.480 --> 07:54.480
+the job for us.
+
+07:54.480 --> 08:03.040
+So we have here this tool function that we had earlier and we have a t bound that needs
+
+08:03.040 --> 08:08.760
+to implement deserialize and then we just say, okay, let's lose JSON and then convert
+
+08:08.760 --> 08:13.240
+our value into JSON and then convert from JSON to the actual user type.
+
+08:13.240 --> 08:18.360
+And say, are we done?
+
+08:18.360 --> 08:23.040
+If this was the solution, then this would be a 20 minute talk, not a 40 minute talk.
+
+08:23.040 --> 08:24.680
+So no.
+
+08:24.680 --> 08:32.320
+You get a bunch of these error messages that like field event in the year on there and that
+
+08:32.320 --> 08:41.760
+is because this, what we really want to read from node are the properties, mainly the properties,
+
+08:41.760 --> 08:47.480
+but we are deserializing the internal structure of a node like the fields, IDs, labels and
+
+08:47.480 --> 08:49.480
+properties.
+
+08:49.480 --> 08:53.800
+So user would have to write something like this where they wrap the actual thing in something
+
+08:53.800 --> 08:56.640
+like a node thing with the properties.
+
+08:56.640 --> 09:00.320
+We don't want them, but maybe we can fix it easily by just using the properties to pass
+
+09:00.320 --> 09:02.000
+them into JSON.
+
+09:02.000 --> 09:12.400
+And that kind of works in the sense that this example could compile and could run, but there's
+
+09:12.400 --> 09:19.680
+a one there's a fact that we're using JSON, which does not have the same representability
+
+09:19.680 --> 09:24.920
+of things that Bolt does, like it doesn't know about all those special data structures.
+
+09:24.920 --> 09:30.520
+And there's also no way to get to the IDs and labels and sometimes we really do want
+
+09:30.560 --> 09:33.920
+to use them and not just use the properties.
+
+09:33.920 --> 09:35.920
+So let's try again.
+
+09:35.920 --> 09:37.480
+We're not going to do this with JSON anymore.
+
+09:37.480 --> 09:43.200
+We're going to now start writing our own deserializer finally.
+
+09:43.200 --> 09:49.600
+And we want to, I think it might be able to look like this where we have our session struct
+
+09:49.600 --> 09:58.120
+with the two fields and then we have some other fields in there which are IDs and labels.
+
+09:58.120 --> 10:05.920
+So before we can talk about what the deserializer would look like, we need to understand how
+
+10:05.920 --> 10:13.600
+SIRD brings those as a data format side and the data type side, how it brings those together.
+
+10:13.600 --> 10:19.680
+If you have this thing where you have this derive deserialize attribute, you can use
+
+10:19.680 --> 10:25.040
+something like cargo expand to have a look what the result of that macro expansion looks
+
+10:25.120 --> 10:27.120
+like.
+
+10:27.120 --> 10:35.000
+And I'm going to show you a very simplified version of that which is more similar to what
+
+10:35.000 --> 10:40.000
+you would probably write if you would implement this on your own, if not be a macro that
+
+10:40.000 --> 10:43.040
+would implement this.
+
+10:43.040 --> 10:46.400
+So you start by implementing the deserialized trade for session.
+
+10:46.400 --> 10:53.040
+There's only one method that you need to implement called deserialize which gets a deserializer
+
+10:53.040 --> 10:59.040
+and it returns itself or an error where the error is defined by the deserializer.
+
+10:59.040 --> 11:11.200
+Here's a deserializer bound and for this particular session struct we call the deserialized struct
+
+11:11.200 --> 11:12.640
+method.
+
+11:12.640 --> 11:20.320
+So the deserializer has a bunch of methods and the idea is that we call a method that
+
+11:20.320 --> 11:25.360
+describes in the most precise way what we actually want to have.
+
+11:25.360 --> 11:27.360
+That's as we want to have a struct.
+
+11:27.360 --> 11:28.360
+It's called session.
+
+11:28.360 --> 11:31.480
+It got those four fields.
+
+11:31.480 --> 11:38.400
+There's something else and we hope that the deserializer can provide us the data in order
+
+11:38.400 --> 11:40.880
+to build this thing.
+
+11:40.880 --> 11:44.840
+And that's something else is a so-called visitor.
+
+11:44.840 --> 11:50.640
+Whereas a visitor is also a trade from Suri and we implement this as well.
+
+11:50.640 --> 11:56.040
+We don't need anything on the visitor except like some struct to implement it.
+
+11:56.040 --> 11:58.360
+So we have our struct, we implement visitor.
+
+11:58.360 --> 12:01.280
+This one actually defines what the value is that we return.
+
+12:01.280 --> 12:05.760
+This is the session struct and there's only one method, one function we actually need
+
+12:05.760 --> 12:12.360
+to implement which is this expecting thing that helps with reporting errors.
+
+12:12.360 --> 12:15.920
+If you only have a visitor like that it's not useful because the only thing it can do
+
+12:15.920 --> 12:18.040
+is report an error.
+
+12:18.040 --> 12:22.920
+So you also want to implement one of the other methods that you get.
+
+12:22.920 --> 12:25.520
+And you know like Rust Analyzer or so.
+
+12:25.520 --> 12:32.120
+Or your IDE can help you in figuring out what the methods are or documentation.
+
+12:32.120 --> 12:38.920
+And we expect when we say to the deserializer, hey, I want to have a struct, we expect that
+
+12:38.920 --> 12:43.280
+we get a map in return.
+
+12:43.280 --> 12:48.080
+Structs are like basically like named maps if you will.
+
+12:48.080 --> 12:52.360
+The keys are your field names, the values are the actual fields.
+
+12:52.360 --> 12:59.440
+And so we implement the visit map method we get, we also say we return our own value,
+
+12:59.440 --> 13:02.800
+we return the error from whatever the deserializer gives us.
+
+13:02.800 --> 13:09.160
+And it gives us this map access thing which is fancy iterator over key value pairs.
+
+13:09.160 --> 13:13.800
+And if we actually implement this, this looks very mechanical.
+
+13:13.800 --> 13:17.280
+We have our fields, we don't have any values for them.
+
+13:17.280 --> 13:22.600
+So they are all options of the actual field types with none of these defaults.
+
+13:22.600 --> 13:26.600
+We use the map access to say what is the next key in the map.
+
+13:26.600 --> 13:31.720
+We would match over that key if it's an event, we'll take the next value and put it into
+
+13:31.720 --> 13:33.520
+the event value.
+
+13:33.520 --> 13:38.480
+And here we are saying in the TurboFish there we want to have a string.
+
+13:38.480 --> 13:45.680
+And this call looks quite similar to the node.to call.
+
+13:45.680 --> 13:53.520
+The bound for string is deserialize and the map access implementation that has the actual
+
+13:53.520 --> 13:59.360
+value will know what the deserializer is and then you've got another deserializer and deserializer
+
+13:59.360 --> 14:02.400
+that come together and they do the same thing over again.
+
+14:02.400 --> 14:07.240
+So it's all like this kind of back and forth from top down.
+
+14:07.240 --> 14:11.880
+We do that with the rest of the fields and then we can build the value at the end and
+
+14:11.880 --> 14:16.080
+then we can throw an error for any fields that are missing.
+
+14:16.080 --> 14:24.040
+Then we plot that in and that is the deserialize site.
+
+14:24.040 --> 14:29.640
+What is generating and what we need to provide.
+
+14:29.640 --> 14:36.720
+So let's start by adding a struct for our bold node and we can also implement the into
+
+14:36.720 --> 14:43.000
+deserializer trait which we can use to tell us what kind of deserializer we want to deserialize
+
+14:43.000 --> 14:45.240
+a bold node.
+
+14:45.240 --> 14:49.440
+That is like a very fancy into this, nothing really special to it.
+
+14:50.440 --> 14:54.560
+So it's up to implementing deserializer for that bold node deserializer.
+
+14:54.560 --> 14:56.360
+We define an error.
+
+14:56.360 --> 14:58.440
+The error needs to implement a certain trait.
+
+14:58.440 --> 15:00.280
+I'm not going to talk more about this.
+
+15:00.280 --> 15:06.640
+It's like an enum of some typical error cases.
+
+15:06.640 --> 15:08.640
+And then there's this fancy thing.
+
+15:08.640 --> 15:14.400
+So if you implement deserializer you have a lot, like a lot of methods that you need
+
+15:14.400 --> 15:16.480
+to implement.
+
+15:17.480 --> 15:20.560
+Usually you don't really want to do that.
+
+15:20.560 --> 15:26.880
+And then there's this concept of self-describing data formats which is that within your data
+
+15:26.880 --> 15:34.720
+format you know what the next type is, what the next value is, what the next key is.
+
+15:34.720 --> 15:38.000
+You don't need any kind of information from the outside.
+
+15:38.000 --> 15:42.840
+And so in JSON, like if you're parsing a key you know okay that's the key, it's called
+
+15:42.840 --> 15:44.200
+that and then you have a value.
+
+15:44.240 --> 15:48.960
+So you know at every time where you are and you don't need the information that the next
+
+15:48.960 --> 15:52.480
+thing that comes is a string or an integer or something.
+
+15:52.480 --> 15:57.240
+You figure it out by the, just by looking at the data.
+
+15:57.240 --> 16:02.840
+Bold is such a self-describing data format and for those SIRTY recommends to just implement
+
+16:02.840 --> 16:09.120
+deserialize any and then use this macro to say every other thing just goes to any and
+
+16:09.120 --> 16:10.480
+we're all doing that.
+
+16:10.880 --> 16:14.360
+So we only need to look at ourselves and we don't need anything else.
+
+16:14.360 --> 16:21.120
+So let's implement this deserialize any here where we say we want to call this visit map
+
+16:21.120 --> 16:23.640
+method because that's what expected.
+
+16:23.640 --> 16:28.840
+And there's a map deserializer which is also from SIRTY where you can give an iterator
+
+16:28.840 --> 16:32.440
+over key value pairs and that will do the correct thing.
+
+16:32.440 --> 16:37.160
+So we don't actually need to implement anything fancy here.
+
+16:37.160 --> 16:42.520
+And we can bring those together in this two methods by calling deserialize and using the
+
+16:42.520 --> 16:46.080
+into deserializer trade to bring those together.
+
+16:46.080 --> 16:51.640
+So now after we did all of that, we are basically at where we started.
+
+16:51.640 --> 16:55.760
+We can deserialize our properties or deserialize our properties.
+
+16:55.760 --> 17:00.880
+But we also want to have the IDs and labels so let's have those before and instead of
+
+17:00.920 --> 17:07.840
+just using our properties, we are having, we're training this with getting the ID and
+
+17:07.840 --> 17:13.440
+getting the labels and then we're just passing that on.
+
+17:13.440 --> 17:17.480
+And that kind of works for this particular example only.
+
+17:17.480 --> 17:23.720
+We do get our IDs and labels but we only get them if we call the field ID and label string.
+
+17:23.720 --> 17:28.760
+It's harder than here as this ID string and label string.
+
+17:28.760 --> 17:35.080
+So you could never call him something else and we could use like special fields like
+
+17:35.080 --> 17:39.120
+underscore underscore ID or something.
+
+17:39.120 --> 17:42.520
+But if you want to have an ID, you would have to use one of those field names and you could
+
+17:42.520 --> 17:47.800
+never use this name in your actual properties because then you would have multiple entries
+
+17:47.800 --> 17:53.920
+in this map thing and SIRTY will say no, there's multiple values for the key ID and that is
+
+17:53.920 --> 17:56.840
+an error.
+
+17:56.920 --> 18:03.240
+And using like underscore like magic field names or something like that would maybe be
+
+18:03.240 --> 18:10.000
+possible but it feels not really that great to me.
+
+18:10.000 --> 18:16.440
+So let's try something else and we want to do something like this where we have, we call
+
+18:16.440 --> 18:20.960
+those extractors internally but these are new type structs.
+
+18:20.960 --> 18:25.560
+You have an ID struct and the public field that is the ID type and if a label struct
+
+18:25.600 --> 18:32.440
+with the public field is the labels type and instead of using the field name to say these
+
+18:32.440 --> 18:38.360
+are IDs or these are labels we're using the field type to say for whatever field name
+
+18:38.360 --> 18:44.200
+you have we want to, this one gets the ID from the node and everything else in the struct
+
+18:44.200 --> 18:50.600
+is still being deserialized from the properties.
+
+18:50.600 --> 18:56.560
+So in order to do that we can no longer use deserializeAny but we already know that we're
+
+18:56.560 --> 19:00.960
+not actually calling deserializeAny, we're calling deserializeStruct which has been using
+
+19:00.960 --> 19:08.440
+the forwarder from struct to any but if we also, if we remove struct from this big macro
+
+19:08.440 --> 19:13.240
+with the forwarding and then implement these there struct on our own we can basically say
+
+19:13.240 --> 19:17.480
+this is a special version if we know that you want to have a struct.
+
+19:17.560 --> 19:21.240
+Once we do that because we get these two additional information that deserializeAny
+
+19:21.240 --> 19:26.360
+doesn't get which is the name of the struct which we actually don't care about but we
+
+19:26.360 --> 19:29.640
+also get all the fields of the struct.
+
+19:29.640 --> 19:38.280
+And what we're doing here is we take our properties, we have another enum type in there
+
+19:38.280 --> 19:44.160
+if I want to show you all the code that is related to the enum there's a lot of it but
+
+19:44.160 --> 19:47.840
+it's very mechanical code.
+
+19:47.840 --> 19:55.920
+It's struct data has an enum of two cases property or node and there's a deserializer
+
+19:55.920 --> 20:00.320
+that's also an enum of two cases and each of those cases have their own deserializer
+
+20:00.320 --> 20:02.840
+implementation.
+
+20:02.840 --> 20:08.000
+And so we have our property fields and then we also iterate through all the fields that
+
+20:08.000 --> 20:16.800
+we get from this struct and we check if any of them are not in our node properties and
+
+20:16.800 --> 20:22.760
+then we say okay those we are going to deserialize by giving you some additional data from the
+
+20:22.760 --> 20:25.880
+node and not from the property.
+
+20:25.880 --> 20:31.040
+And then through this like big enum chain eventually we have okay here we chain them
+
+20:31.040 --> 20:37.320
+together and through this big enum chain we actually get to to in so-called to another
+
+20:37.320 --> 20:48.040
+internal deserializer and the new type fields ID and labels they when they get deserialized
+
+20:48.040 --> 20:52.880
+they don't call deserialized struct they call deserialized new type struct because they're
+
+20:52.880 --> 20:58.200
+a new type thing and here you get also the name of this struct you don't get any fields
+
+20:58.200 --> 21:02.160
+and new types there aren't any fields or like there is one field that's just called zero
+
+21:02.280 --> 21:04.040
+technique.
+
+21:04.040 --> 21:09.000
+And so we have this additional deserializer where we can implement this one and then
+
+21:09.000 --> 21:13.600
+here we can match on the name of the struct and if it's called ID we can say oh yeah
+
+21:13.600 --> 21:22.160
+okay I get the ID from my node and if it's labels we can deserialize labels of the node.
+
+21:22.160 --> 21:27.880
+And I see deserializer here similar to the map deserializer where we can use 30 to say
+
+21:27.920 --> 21:33.760
+here a bunch of values and put them in like a list at the end.
+
+21:33.760 --> 21:40.440
+These are things that SOTI provides in order to avoid like having to allocate a VAC or
+
+21:40.440 --> 21:49.640
+a map a hash map and then using that one so you can use this you know with like less
+
+21:49.640 --> 21:57.760
+overhead without allocations and potentially maybe also use it in in in no std environments.
+
+21:58.760 --> 22:06.960
+Right so if we're doing that and put those together then that works and the example will
+
+22:06.960 --> 22:09.200
+give you the data.
+
+22:09.200 --> 22:14.440
+There's still some downsides and I'm not gonna we're not gonna go into a fifth attempt
+
+22:14.440 --> 22:19.640
+now because those downsides are still not fixed and we're figuring out how to work around
+
+22:19.640 --> 22:25.080
+them and the biggest downside is that the deserial default attribute doesn't work.
+
+22:25.080 --> 22:34.200
+So if you have a struct and you annotate one of the fields with this SOTI default what
+
+22:34.200 --> 22:43.840
+SOTI will do when it generates this deserialize code instead of saying at the end hey I have
+
+22:43.840 --> 22:49.800
+this value and I do unwrap or else an error with the missing field it's gonna call the
+
+22:49.800 --> 22:54.880
+default method and then get the value from there and that's the only thing that changes.
+
+22:54.880 --> 23:00.240
+Like there's nothing else in this whole method call where we get the information that the
+
+23:00.240 --> 23:06.000
+user actually has this annotated with this default attribute.
+
+23:06.000 --> 23:12.640
+That means if you go through this next key next value train and we say here is a value
+
+23:12.640 --> 23:18.320
+and Zuri expects that we give it an actual value like if we say we have something for
+
+23:18.320 --> 23:24.400
+that value for that key we should provide something.
+
+23:25.120 --> 23:33.280
+And on the other side what we are doing is saying all the fields in the struct we put
+
+23:33.280 --> 23:37.320
+them in this iterator where we are saying we have something for the struct.
+
+23:37.320 --> 23:45.480
+So we eventually see the year field and we think well it must be one of those additional
+
+23:45.480 --> 23:54.200
+types because the year is not in the properties because it's missing in our node but then we
+
+23:54.200 --> 23:58.200
+are saying we are not getting one of those new types but we get these U64 and then we
+
+23:58.200 --> 24:01.440
+don't know what to do about it.
+
+24:01.440 --> 24:05.720
+Because it's not in the properties we have to do something we cannot say this type isn't
+
+24:05.720 --> 24:13.520
+available it's too late for that at that point in time and so we have to fail.
+
+24:13.520 --> 24:19.640
+So using the default attribute doesn't work but there is a workaround that you can use
+
+24:19.640 --> 24:26.520
+the option wrapper around it so you can manually choose and report default at the end and that
+
+24:26.520 --> 24:32.000
+works so we have a workaround and so we can figure out how to solve this eventually.
+
+24:32.000 --> 24:35.400
+So now that we are done with the nodes we can do the same thing for all the other 20
+
+24:35.400 --> 24:36.400
+variants.
+
+24:36.400 --> 24:43.760
+We are not going to do that here of course but you can imagine.
+
+24:43.760 --> 24:48.160
+But then we are still not done at the end there are still some smaller things that I
+
+24:48.160 --> 24:55.040
+wanted to mention that are just like things that we ran into and that gave us some learning
+
+24:55.040 --> 24:57.520
+experience.
+
+24:57.520 --> 25:04.640
+In particular Bolt has a bytes type so there is a native thing for here is a vec of U8
+
+25:04.640 --> 25:11.120
+and this is like some glob of data that the user has defined.
+
+25:11.120 --> 25:18.120
+Not many data types and many data formats have a bytes type so 30 while the data mod
+
+25:18.240 --> 25:20.000
+model has something for bytes.
+
+25:20.000 --> 25:24.920
+We can start by doing this like we get for example a string and we get a bytes and there
+
+25:24.920 --> 25:30.560
+is a visit string and visit bytes so hey cool we can just pass on our bytes array.
+
+25:30.560 --> 25:37.800
+But like I said many data formats have them so 30 doesn't actually generate visitors
+
+25:37.800 --> 25:42.400
+that expect that you call this visit bytes method because then you could never use it
+
+25:42.400 --> 25:46.160
+with for example JSON.
+
+25:46.520 --> 25:54.680
+What's really sad is if you have a vec of U8 in your data type you should call this as
+
+25:54.680 --> 26:01.360
+a sequence of individual bytes instead of like one blob of bytes.
+
+26:01.360 --> 26:05.480
+So you would have this visit seek and then there is a seek user and that doesn't really
+
+26:05.480 --> 26:09.680
+matter what is at the end there but we need to call this.
+
+26:09.680 --> 26:14.880
+But then we can use the same thing where there is a deserialized bytes and there are
+
+26:14.880 --> 26:23.560
+some third party crates there is 30 bytes there is 30 width that can be used to say
+
+26:23.560 --> 26:30.800
+to tell 30 hey this is a vec of U8 but actually I can provide bytes for that and please expect
+
+26:30.800 --> 26:39.640
+call to visit bytes and on the other side like I said earlier deserializer should call
+
+26:40.600 --> 26:47.080
+the most special like the method with the most information and so it should call not
+
+26:47.080 --> 26:50.760
+deserialize any at the end but deserialize bytes because it's saying well I actually
+
+26:50.760 --> 26:59.480
+can accept a call to visit bytes and so in here we can check if we are actually if we
+
+26:59.480 --> 27:05.360
+have bytes and then we can just pass them on and then we're done.
+
+27:05.360 --> 27:10.720
+So not really but we're running out of time here so I want to do a quick run through a
+
+27:10.720 --> 27:15.720
+couple of other things and if you ever ran into one of those issues I don't know you
+
+27:15.720 --> 27:19.360
+can find me afterwards and we can talk about this.
+
+27:19.360 --> 27:25.080
+So one thing is I said earlier we want to maintain the existing API and the existing
+
+27:25.080 --> 27:32.760
+API was based on conversions via the try from and from traits.
+
+27:32.760 --> 27:40.040
+So there was a bunch of traits implemented for try from bold type for a bunch of other
+
+27:40.040 --> 27:44.080
+types so we also needed to make sure that if you're using these bunch of other types
+
+27:44.080 --> 27:49.960
+at the other end our deserializer will do the right thing and part of those bunch of
+
+27:49.960 --> 27:56.880
+other types are various state related things from the chrono and time crates because bold
+
+27:56.880 --> 28:06.280
+has native structs for dates and times and date times and without time zones and all
+
+28:06.280 --> 28:10.240
+the fun with dealing with those.
+
+28:10.240 --> 28:15.060
+So this taught us about there's a thing called a human readable where you can say whether
+
+28:15.060 --> 28:22.520
+or not you're a deserializer or your serializer works with a human readable data format and
+
+28:22.520 --> 28:28.120
+I think the time crates, the time crates uses that in order to say if it's a human readable
+
+28:28.120 --> 28:34.460
+one it's being serialized and deserialized from string and it parsed from the RFC something
+
+28:34.460 --> 28:42.360
+3.9 format and the non-human readable format will pass in a bunch of integers and so we
+
+28:42.360 --> 28:49.840
+have to set that flag in order to provide the correct data and you can use annotations
+
+28:49.840 --> 28:54.920
+for one of those where you can say this is a time stamp but the resolution is in milliseconds
+
+28:54.920 --> 29:00.000
+or in seconds or in microseconds and then we have to figure out okay what is the actual
+
+29:00.000 --> 29:06.200
+value that we have to give you so that the calculation at the end turns out to be correct.
+
+29:06.200 --> 29:09.080
+So that was fun.
+
+29:09.080 --> 29:15.560
+The other thing is if you have conversion via from and try from trades because of the
+
+29:15.560 --> 29:21.200
+planket implementation you could also convert the bold type into a bold type and so we also
+
+29:21.200 --> 29:28.320
+need to be able to say we can visualize into from a bold type into another bold type and
+
+29:28.320 --> 29:35.760
+so we have a custom deserialized implementation for bold type that calls the appropriate method
+
+29:35.760 --> 29:41.920
+in a way that we know that we get the correct data which is not really that straightforward
+
+29:41.920 --> 29:47.240
+at the end result is a deserializer that isn't really usable for any other data format and
+
+29:47.240 --> 29:51.640
+so if you use that one and then deserialize a bold type into a trace on you get some
+
+29:51.640 --> 30:01.440
+trace on but that doesn't really make sense which is unfortunate and then there's there
+
+30:01.440 --> 30:08.960
+are things like what if you have more data in your node properties than you actually
+
+30:09.000 --> 30:15.680
+have in your struct and then usually a data format is expected to be implemented or to be
+
+30:15.680 --> 30:24.040
+doing the deserialization while parsing and if you're a imagine you're parsing through some
+
+30:24.040 --> 30:28.120
+JSON and you have this key and you give it to the visitor and the visitor says yeah I don't I
+
+30:28.120 --> 30:35.520
+don't I don't need this key it can't just continue and say give me the next key you have to go back
+
+30:35.640 --> 30:42.760
+and say well I don't care about this key but you need to still give me a value so that your
+
+30:42.760 --> 30:47.200
+parsing state is gonna be correct so that when I call you next you're gonna give me the next key
+
+30:47.200 --> 30:57.000
+and this is done by this ignored anything where so you will say give me a next value but I'm gonna
+
+30:57.000 --> 31:02.080
+ignore it so you can give me whatever you want just do the right thing on your end so that your
+
+31:02.120 --> 31:09.040
+internal state is correct for us we didn't really need to do anything because we already had everything
+
+31:09.040 --> 31:15.800
+fast and it's enum but since we're moving to doing this while parsing as well we need to take
+
+31:15.800 --> 31:26.640
+care of that properly then there's the zero copy deserialization we had earlier like oh I want
+
+31:26.680 --> 31:33.440
+zero copies being a red flag so consider the red flag if you will and all this code that I showed
+
+31:33.440 --> 31:40.600
+you actually doesn't compile because every trade from 30 has a lifetime around typically called
+
+31:40.600 --> 31:50.200
+take DE for deserialize and also our deserializer for the boat node doesn't actually have doesn't
+
+31:50.200 --> 31:55.560
+own the boat node it has a reference to the boat node and we put lifetimes on everything and then
+
+31:56.160 --> 32:01.720
+implement a bunch of methods that say well if you can make the Rust compiler happy with all the
+
+32:01.720 --> 32:08.160
+lifetimes that you're using then we don't need to copy data and so you could do things like
+
+32:08.160 --> 32:16.760
+extracting the labels not as a bag of string but bag of stir slices where you would still get an
+
+32:16.760 --> 32:23.360
+allocation for the back but the strings would point into the actual data from the boat node thing
+
+32:23.960 --> 32:33.280
+and we do that for how long we can do that but it's it's it was too much to show it in all
+
+32:33.280 --> 32:41.240
+the slides and yeah with that I am done and I think we still have time for questions if there are
+
+32:41.240 --> 33:03.160
+any otherwise yeah thanks for listening questions questions no questions no questions I do have
+
+33:03.160 --> 33:10.680
+one maybe just a short one you were mentioning like deserializing the bytes before when you say
+
+33:10.680 --> 33:20.680
+bytes do you mean like a vector of u8 or like the bytes crates or both actually that primarily a
+
+33:20.680 --> 33:27.680
+back of u8 because that's what we have in a standard library but I think we also have a test
+
+33:27.680 --> 33:32.440
+that makes sure that it works with the bytes type from the bytes grid so I think you can use that
+
+33:32.440 --> 33:43.040
+one as well okay then I think that's it for the day thank you the speaker thank you to the whole
+
+33:43.040 --> 33:46.360
+audience for staying with us next year
+

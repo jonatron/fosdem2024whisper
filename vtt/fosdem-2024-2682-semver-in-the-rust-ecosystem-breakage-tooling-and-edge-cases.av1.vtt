@@ -1,0 +1,1052 @@
+WEBVTT
+
+00:00.000 --> 00:10.480
+So, thank you all for coming to the Rust Dev Room 2024.
+
+00:10.480 --> 00:16.360
+We have a really, really good lineup of talks and we're going to start off with one of the
+
+00:16.360 --> 00:22.960
+strongest ones I think is, Bredrak Gurevsky is going to talk about Semvern Rust and how
+
+00:22.960 --> 00:26.880
+to make sure that your stuff is not breaking other people's stuff.
+
+00:26.880 --> 00:39.360
+Thanks everyone. Yeah, let's talk about the breakage, tooling and edge cases of semantic
+
+00:39.360 --> 00:45.480
+versioning in Rust. My name is Bredrak Gurevsky, some of you might recognize me as the maintainer
+
+00:45.480 --> 00:50.960
+of cargo semper checks. This is a linter for semantic versioning that this talk is about.
+
+00:50.960 --> 00:55.000
+But before we get to talking about the linter, let's get familiarized with what semantic
+
+00:55.000 --> 01:01.960
+versioning actually is and does. Ultimately semantic versioning is about communication.
+
+01:01.960 --> 01:06.840
+It's a way for library maintainers to let their users know what kind of changes to expect
+
+01:06.840 --> 01:12.200
+in new releases of libraries. If the changes are major and potentially requiring action
+
+01:12.200 --> 01:16.320
+on the part of the user of the library, we say that's a major change, we bump the major
+
+01:16.320 --> 01:20.640
+version number and that lets users know to expect that they might need to do a little
+
+01:20.640 --> 01:25.240
+bit of work to adopt it. Otherwise, if the library remains compatible with the previous
+
+01:25.240 --> 01:30.280
+version, that's not a major change and users expect to be able to just update to that new
+
+01:30.280 --> 01:36.360
+version automatically. So in this way, semper is communication not just between individual
+
+01:36.360 --> 01:41.320
+maintainers and the users of the libraries, but also between maintainers and the tooling
+
+01:41.320 --> 01:46.480
+that those users use. Let me give you a concrete example. This is a bit of automation that I
+
+01:46.480 --> 01:52.680
+have set up in many of my projects. Once a week, a job just runs cargo update on my
+
+01:52.680 --> 01:59.160
+project, opens a pull request and automatically merges it if tests pass. Now this only works
+
+01:59.160 --> 02:03.760
+so long as every one of these packages correctly adheres to semantic version, right? Cargo
+
+02:03.760 --> 02:09.320
+update will bump everything to the latest non-major version that it can find and hopefully
+
+02:09.320 --> 02:14.520
+tests pass and everything gets merged. But if there is an accidental breaking change and
+
+02:14.520 --> 02:20.880
+one of these pull requests, then everything sucks and we're back to square one, right?
+
+02:20.880 --> 02:25.120
+In this talk, I'm going to try to convince you of two major things. The first one is
+
+02:25.120 --> 02:31.080
+that semantic versioning in practice is so dang hard that no mere mortals can uphold it.
+
+02:31.080 --> 02:36.040
+None of us in this room are good enough to do this on a consistent day-in-day-out basis.
+
+02:36.040 --> 02:39.800
+I'm going to show you that the rules of semantic versioning are much more complex than what
+
+02:39.800 --> 02:44.720
+it seems like at first. I'm going to show you that even the rules that seem simple have
+
+02:44.720 --> 02:49.840
+a ton of non-obvious edge cases that we have to deal with. And I will show you empirical
+
+02:49.840 --> 02:54.960
+evidence based on real-world data that this is not just a skill issue. It's not something
+
+02:54.960 --> 02:59.720
+that can be solved with more experience or with harder work or just caring more about
+
+02:59.720 --> 03:05.360
+your project senior users. And then I'd like to show you that computers are actually really
+
+03:05.400 --> 03:11.000
+good at semantic versioning. We can use linter's like cargo semper checks to address almost
+
+03:11.000 --> 03:16.120
+all of the problems we're going to run into as part of this talk. And if you're so inclined,
+
+03:16.120 --> 03:20.760
+I'll even show you how cargo semper checks works under the hood so that you can contribute
+
+03:20.760 --> 03:24.380
+to it if you see fit for the benefit of all of us here in this room and in the broader
+
+03:24.380 --> 03:30.800
+Rust community. Let's dig right in. Let's talk about why semantic versioning is so hard
+
+03:30.800 --> 03:31.400
+in Rust.
+
+13:05.360 --> 13:19.720
+It's used within cargo's own publishing process itself and it's used by large teams like
+
+13:19.720 --> 13:25.440
+Amazon's AWS and Google open source projects to make sure that their own semper, that their
+
+13:25.440 --> 13:31.520
+own releases adhere to semper correctly. The way it's designed to be used is by running
+
+13:31.520 --> 13:37.200
+cargo semper checks right before you publish a new version of your crate. When you do this,
+
+13:37.200 --> 13:41.200
+cargo semper checks will detect the kind of version bump that you're making, whether it's
+
+13:41.200 --> 13:45.640
+major or minor, and then it will scan for API changes that might be inappropriate for
+
+13:45.640 --> 13:50.880
+that bump and let you know what it finds. The way to get cargo semper checks is by running
+
+13:50.880 --> 13:55.000
+a regular cargo install and if you're in a CI environment, we have a pre-built GitHub
+
+13:55.000 --> 14:00.560
+action that will do everything for you. And since some of us prefer to use release managers
+
+14:00.600 --> 14:05.400
+instead of just running cargo publish by ourselves, it's also integrated in some of the release
+
+14:05.400 --> 14:10.440
+managers. I particularly like release please, which will automatically run cargo semper
+
+14:10.440 --> 14:14.640
+checks as part of the release process. So if you're on the market for a good release
+
+14:14.640 --> 14:21.840
+manager, you should check this one out. It's awesome. I want to show you a couple of particular
+
+14:21.840 --> 14:26.760
+examples of how cargo semper checks finds these issues that might not be particularly
+
+14:26.800 --> 14:33.560
+obvious to the naked eye. The first example is a public function being deleted. Here we
+
+14:33.560 --> 14:38.040
+have a crate that had this public function called add and this pull request is just coming
+
+14:38.040 --> 14:43.040
+in and deleting that public function. This is pretty obviously a breaking change, right?
+
+14:43.040 --> 14:47.280
+And if we run cargo semper checks, it will tell us as much as well. It will say this
+
+14:47.280 --> 14:51.800
+function is missing, it cannot be imported by its prior path, and it will point out that
+
+14:51.840 --> 14:57.080
+the problematic function is the add function in this crate at that specific line in that
+
+14:57.080 --> 15:02.840
+file. This is great, but you might say, okay, we would have caught this by eye, right? This
+
+15:02.840 --> 15:08.880
+is pretty obvious. I don't need a tool here. Well, as it turns out, deletions of public
+
+15:08.880 --> 15:17.880
+items are not always a major breaking change, right? One way in which that can be the case
+
+15:17.960 --> 15:22.960
+is if we have that public function inside a private module. Yes, the function is public,
+
+15:22.960 --> 15:26.880
+but it's just not reachable. There's no way to import it, and so since nothing outside
+
+15:26.880 --> 15:31.000
+its own crate can use it, deleting that function is not a breaking change, right? There's no
+
+15:31.000 --> 15:36.720
+possible way that anyone could be affected by that. Another more interesting example is
+
+15:36.720 --> 15:40.960
+when we have a public module, but that module is marked doc hidden, or if the function itself
+
+15:40.960 --> 15:44.960
+is marked doc hidden. If you're not familiar with the doc hidden attribute, it's a way
+
+15:45.040 --> 15:52.040
+to mark a piece of your public surface area as not being part of your public API. It's
+
+15:53.080 --> 15:57.720
+explicitly saying these are internal implementation details that are made visible for a reason
+
+15:57.720 --> 16:04.220
+other than being public API. These most often happen when crates have macros where they
+
+16:04.220 --> 16:08.760
+need to expose some functionality that is only intended for use by those macros. Remember
+
+16:08.760 --> 16:12.760
+that macros get expanded in the downstream crates, and so they have to be able to access
+
+16:12.800 --> 16:17.880
+everything that is public in your own crate. We don't want to maintain the internal implementation
+
+16:17.880 --> 16:24.880
+details of macros as public API, so we usually mark that functionality as doc hidden. But
+
+16:24.880 --> 16:28.720
+it's not actually enough to say, oh, this module is doc hidden, therefore that function
+
+16:28.720 --> 16:34.360
+is not public API. Here's the opposite example. We have a public module that's doc hidden
+
+16:34.360 --> 16:39.080
+and a public function inside it, and that public function is now public API. Why? Because
+
+16:39.120 --> 16:45.120
+it's re-exported and the re-export is not doc hidden. So users of this crate could have
+
+16:45.120 --> 16:50.520
+imported this function without ever relying on any doc hidden functionality. So even though
+
+16:50.520 --> 16:54.880
+the module where the function is defined is doc hidden, this function is still public
+
+16:54.880 --> 17:00.880
+API. These roles are pretty complicated, right? It's not at all unreasonable that someone
+
+17:00.880 --> 17:04.880
+might mess this up, and in fact we found hundreds of issues like this when we scanned the top
+
+17:04.960 --> 17:11.960
+1000 rust crates on crates I.O. Cargo-Sanver checks will catch all of these cases correctly,
+
+17:12.600 --> 17:16.920
+so it's just a lot easier to use the tooling instead of having to rack our brains when
+
+17:16.920 --> 17:23.520
+facing a PR that we have to review. So clearly deletions of public items are not always a
+
+17:23.520 --> 17:30.520
+major breaking change. Let's dig into a second example. Here we have a public struct foo
+
+17:31.520 --> 17:37.520
+that has some fields, and in this pull request we're adding a new field. And the author of
+
+17:38.360 --> 17:43.280
+this pull request was quite careful. They noticed that the foo struct has a constructor
+
+17:43.280 --> 17:48.280
+called new, and they made sure to not change the function signature of that constructor.
+
+17:48.280 --> 17:54.280
+Instead, they initialized the new fields to default value, and this seems entirely reasonable,
+
+17:54.280 --> 17:59.280
+right? This is a pull request that many of us would probably merge when facing it.
+
+18:00.280 --> 18:04.880
+The falsehood here is that adding fields to a struct can only be breaking, it can only
+
+18:04.880 --> 18:10.880
+be a breaking change via changes to methods. This is not true, right? The problem here
+
+18:10.880 --> 18:15.240
+is very, very non-obvious, especially to someone who came to rust from a different programming
+
+18:15.240 --> 18:22.240
+language first, like me. The issue is that this struct is not marked non-exhaustive,
+
+18:23.160 --> 18:29.240
+and all of its prior fields were public. If both of these things are true, this struct
+
+18:29.240 --> 18:34.520
+could be constructed with a struct literal. So users don't actually have to use this
+
+18:34.520 --> 18:39.080
+new method, they can just construct it directly by specifying all of the fields individually.
+
+18:39.080 --> 18:45.360
+So if a user in a downstream crate wrote something like, let value equals foo curly brace and
+
+18:45.360 --> 18:50.880
+then listed out all of the fields, they are now broken if we add this new field. They never
+
+18:50.880 --> 18:56.200
+specified a value for third, and so therefore this code no longer compiles. This is something
+
+18:56.200 --> 19:01.120
+that could very, very easily sneak up on us in a pull request whether we opened it or
+
+19:01.120 --> 19:08.120
+reviewing it, especially early in the morning when we're undercaffeinated. Right? And again,
+
+19:09.120 --> 19:13.000
+it's easier to just let cargo semper checks do the heavy lifting here. Running cargo semper
+
+19:13.000 --> 19:18.840
+checks again points out the problem. It says that a struct that could be made with a literal
+
+19:18.840 --> 19:23.440
+has a new public field, so existing struct literals must be updated, that's a breaking
+
+19:23.480 --> 19:30.480
+change, and it even points out that foo third is the field that is problematic in this case.
+
+19:31.960 --> 19:36.040
+So adding fields to a struct can sometimes be a breaking change even if we took great
+
+19:36.040 --> 19:40.160
+care to make sure that all of the methods and everything else around the struct has
+
+19:40.160 --> 19:47.160
+not changed. That's another falsehood we can cross off of our list. Let's jump into a third
+
+19:47.160 --> 19:52.600
+example, and this one's probably my favorite. Here we have a private struct foo, so not
+
+19:52.600 --> 19:57.360
+public, but private, and we're just changing some internal implementation details of that
+
+19:57.360 --> 20:03.440
+struct. Right? It used to take this static string reference, and we now want to support
+
+20:03.440 --> 20:09.040
+non-static strings. The struct is cloned, so we want to preserve cheap cloning, and
+
+20:09.040 --> 20:14.240
+we're going to use a ref-counted string to make that happen. Right? This is fine. I would
+
+20:14.240 --> 20:20.520
+probably accept this, you know, especially in the morning undercaffeinated. The falsehood
+
+20:20.520 --> 20:24.200
+here is that, you know, if I didn't touch it, I didn't break it. Right? I never touched
+
+20:24.200 --> 20:28.920
+public API. All of this code that I just showed you was private, and so I couldn't have broken
+
+20:28.920 --> 20:35.920
+the public API here. Right? Unfortunately, this is not true, and if we run Cargo-Semford-Checks,
+
+20:36.400 --> 20:40.840
+it will point out the problem. It says a public type has stopped implementing one or more
+
+20:40.840 --> 20:47.840
+auto traits. Type bar is no longer send and is no longer sync. And you might be thinking,
+
+20:48.080 --> 20:55.080
+second, what type bar? We were touching struct foo. There is no type bar here. Right? I was
+
+20:55.360 --> 21:00.360
+code reviewing, I read all of the changes, and there's no problem. So why is Cargo-Semford-Checks
+
+21:00.360 --> 21:05.320
+complaining about something that I didn't touch? Right? This must be a false positive.
+
+21:05.320 --> 21:09.280
+Here, our tools are doing us a disservice. The problem here is not the user's change.
+
+21:09.280 --> 21:15.480
+The problem is that the change affects something that is not shown in the pull request. Right?
+
+21:15.520 --> 21:21.160
+So I didn't touch it, I didn't break it, happens to be false, because type bar isn't here.
+
+21:21.160 --> 21:26.040
+Right? You have to click this button if it happens to be in the same file in order to
+
+21:26.040 --> 21:31.920
+be able to see the problem. The problem is that struct bar is public, and its implemented
+
+21:31.920 --> 21:38.920
+traits are there for public. And bar internally contains a foo. Now, an auto trait in Rust
+
+21:39.960 --> 21:44.880
+is a trait that the compiler automatically implements for us whenever possible. The rule
+
+21:44.920 --> 21:50.240
+is that a type implements an auto trait if all of its constituents also implement that
+
+21:50.240 --> 21:55.880
+same trait. Constituents being all of the fields, all of the variants, all of the data
+
+21:55.880 --> 22:02.160
+that that type might contain. Right? So send and sync are these auto traits in Rust that
+
+22:02.160 --> 22:07.960
+are used to express whether types are safe to be shared across threads. And the problem
+
+22:07.960 --> 22:14.800
+that we run into here is that the static string that we used to have inside foo was both send
+
+22:14.800 --> 22:21.800
+and sync at the same time. This reference counted string is neither send nor sync. Now,
+
+22:22.360 --> 22:29.040
+since the fields value over here is no longer send nor sync, that means that struct foo
+
+22:29.040 --> 22:34.840
+is no longer send nor sync, that means that struct bar is no longer send nor sync. And
+
+22:34.840 --> 22:40.080
+that breaks our public API. Because users that might have been using struct bar in some
+
+22:40.080 --> 22:44.040
+sort of context that relies on parallelism where that bar is shared across threads or
+
+22:44.080 --> 22:49.520
+passed between threads, their code is now broken. So they will see an error that looks
+
+22:49.520 --> 22:56.560
+like this. Rust C will say, RC of string cannot be shared between threads safely. Use parallelism
+
+22:56.560 --> 23:03.560
+requires that that value is sync and RC string is not because within bar, within foo, that
+
+23:05.360 --> 23:11.000
+field does not implement send and sync. This is something that has been, it's really a
+
+23:11.040 --> 23:15.480
+question of time until it bites any given project. This is just kind of impossible to
+
+23:15.480 --> 23:20.880
+catch because the problem is just not on the pull request page. And so cargo Stanford
+
+23:20.880 --> 23:25.720
+checks is just much better at finding these things than we humans are because it's looking
+
+23:25.720 --> 23:30.640
+at the data that the compiler emits. It's not just looking at the limited pull request
+
+23:30.640 --> 23:36.220
+review screen that we see on GitHub. So if I didn't touch it, I didn't break it is another
+
+23:36.240 --> 23:42.240
+falsehood that we get to cross off of our list. Hopefully by this point I've convinced
+
+23:42.980 --> 23:46.460
+you that cargo Stanford checks has some value and that it's likely to catch some stuff that
+
+23:46.460 --> 23:51.740
+we would otherwise miss and that we would find out when someone opens an issue on our
+
+23:51.740 --> 23:58.740
+project. Now that you've seen some of the issues that it can flag, let's talk about
+
+23:58.780 --> 24:04.060
+how this works and why you should trust what it can find. And in order to do this I want
+
+24:04.100 --> 24:08.940
+to come back to this example of deleting a public function. And I want to show you specifically
+
+24:08.940 --> 24:15.060
+how this works under the hood. We said that deleting a public function is a breaking change,
+
+24:15.060 --> 24:22.060
+a major breaking change if all of the following is true. In the original version the function
+
+24:22.140 --> 24:29.140
+was public. Another crate could have imported that function and used it. That import did
+
+24:29.260 --> 24:36.260
+not rely on any doc hidden items either on containing modules or on the item itself. And
+
+24:36.860 --> 24:42.860
+if we tried to use that same import in the newly released version that will no longer
+
+24:42.860 --> 24:46.620
+work for any of these reasons. Either the function is no longer public or it's no longer
+
+24:46.620 --> 24:52.100
+importable or it's no longer public API. In any case that's a major breaking change.
+
+24:52.100 --> 24:56.540
+And if we're looking for all of these breaking changes of this kind it's as easy as saying
+
+24:56.540 --> 25:02.820
+find all functions such that all of these things are true. Now if you're thinking what
+
+25:02.820 --> 25:09.060
+I'm thinking this might sound an awful lot like a database query, right? Select all functions
+
+25:09.060 --> 25:16.060
+where you know. And to help us see this I want to show you a diagram. We're looking at a
+
+25:16.100 --> 25:21.060
+version pair, right? We have the old version on the left and the new version on the right.
+
+25:21.060 --> 25:26.500
+And we're going to be looking for public functions that are importable and public API. And we're
+
+25:26.500 --> 25:31.900
+going to try to match them to versions in the new crates that have the same public function
+
+25:31.900 --> 25:36.500
+and the same importable path as the function that we were just looking at. And we found
+
+25:36.500 --> 25:42.180
+a breaking change if the count of such matching functions and importable paths is zero. If
+
+25:42.180 --> 25:47.420
+we don't find any of them, right? So the function could be imported and used in the past and
+
+25:47.420 --> 25:53.300
+can no longer be imported and used in the current version. This is a breaking change.
+
+25:53.300 --> 25:57.940
+And lo and behold, that's exactly how this works under the hood. Here's a database query
+
+25:57.940 --> 26:02.140
+that does the same thing. Now the point of this talk is not the query language, so I'm
+
+26:02.140 --> 26:06.740
+not going to dig too deep into the syntax or the semantics here, but I just want to show
+
+26:06.740 --> 26:10.500
+you that this is the exact same thing that we were just talking about. So we're looking
+
+26:10.500 --> 26:17.500
+at the baseline at the original version of the crate. We're going to be finding all functions
+
+26:17.500 --> 26:25.860
+that were public that could be imported by another crate and that were public API. And
+
+26:25.860 --> 26:31.580
+of course we're outputting stuff for later in case we find a breaking change. And we're
+
+26:31.580 --> 26:37.620
+going to say the same import does not exist. We will count how many matching functions
+
+26:37.620 --> 26:43.980
+at the same import path we find in the new version and we will say that count is zero.
+
+26:43.980 --> 26:48.380
+This is pretty nice, right? We get to write a piece of business logic that is completely
+
+26:48.380 --> 26:53.140
+ignorant of anything else about how we get this information. We just wrote down what
+
+26:53.140 --> 26:57.340
+the rule is in English and then we wrote down an equivalent database query that implements
+
+26:57.340 --> 27:04.620
+that rule and we just called it a day. This is pretty nice. I really like this personally.
+
+27:04.620 --> 27:09.180
+And if you're interested in architecture diagram, this is roughly what it looks like. Carbis
+
+27:09.260 --> 27:14.100
+and Verchex sits on top. On the bottom are our data sources. We get information from
+
+27:14.100 --> 27:19.860
+a tool called Rust doc which comes built in part of the Rust tool chain. We can ask Rust
+
+27:19.860 --> 27:27.740
+doc to generate a machine readable JSON representation of the crates API and we will read that JSON
+
+27:27.740 --> 27:34.100
+with Carbis and Verchex. Now Rust doc JSON's format is not stable. It changes relatively
+
+27:34.140 --> 27:40.300
+frequently more or less on every, if not every, than every other Rust release. This obviously
+
+27:40.300 --> 27:46.180
+can cause some issues and it has been the source of much frustration and consternation
+
+27:46.180 --> 27:52.020
+with other folks that have been building Rust doc based tooling. Carbis and Verchex has
+
+27:52.020 --> 27:55.820
+actually managed to solve this problem. Carbis and Verchex is not the first attempt at a
+
+27:55.820 --> 28:01.420
+Sembrer linter but it's the first one that managed to be isolated from changes in the
+
+28:01.420 --> 28:06.020
+underlying Rust doc format. Instead of requiring that you use a specific nightly, we're actually
+
+28:06.020 --> 28:11.260
+able to support multiple stable Rust versions concurrently. It doesn't matter which Rust
+
+28:11.260 --> 28:16.820
+doc JSON format version we get, they should work fine so long as they're reasonably recent.
+
+28:16.820 --> 28:21.860
+And the way this works is we rely on a query engine called Trustfall to sit in between.
+
+28:21.860 --> 28:26.740
+Carbis and Verchex runs queries in this Trustfall language syntax that I showed you a couple
+
+28:26.780 --> 28:32.900
+of slides ago. And Trustfall figures out which Rust doc JSON format version it's looking at
+
+28:32.900 --> 28:39.020
+and uses a little shim, little adapter, a little Rust piece of code that is able to translate
+
+28:39.020 --> 28:44.340
+that JSON format into something that adheres to the Trustfall schema that Carbis and Verchex
+
+28:44.340 --> 28:49.860
+is used to. That schema is written in a fairly high level. It talks about, you know, Rust
+
+28:49.860 --> 28:54.580
+functions and modules and importable path and, you know, whether things are public or
+
+28:54.620 --> 29:00.460
+private and does not say this value is in a field named such and such and it's an object
+
+29:00.460 --> 29:06.300
+containing the following fields and so on. So it's very unlikely to be broken by format
+
+29:06.300 --> 29:12.500
+changes in Rust doc because Rust today, tomorrow and next week is still going to have functions,
+
+29:12.500 --> 29:16.700
+modules, structs, fields and so on, right? All of that stuff doesn't really change very
+
+29:16.700 --> 29:22.700
+much. So in practice that means that we get to encapsulate all of the format specific
+
+29:22.740 --> 29:28.420
+logic in these adapters and nothing outside of this big ellipse at the bottom knows anything
+
+29:28.420 --> 29:33.980
+about how the data is represented and what format it came in. The query engine on top
+
+29:33.980 --> 29:38.860
+figures out how to most efficiently run these queries that we're running and that just leaves
+
+29:38.860 --> 29:43.780
+Carbis and Verchex writing business logic in this query language. Carbis and Verchex
+
+29:43.780 --> 29:48.180
+only cares about this is the semver logic that we're interested in implementing and
+
+29:48.220 --> 29:55.220
+everything else happens behind the scenes at a lower level in this diagram. I just want
+
+29:55.700 --> 29:59.100
+to give you a little bit of a taste of what Trustful is in case this seems interesting
+
+29:59.100 --> 30:04.620
+to you. It's a project that I also started. It allows us to represent data as a graph and
+
+30:04.620 --> 30:08.100
+query any kind of data sources. So this is not something that's specific to Rust doc
+
+30:08.100 --> 30:13.340
+at all. It's heavily battle tested. It's been in production for more than seven years.
+
+30:13.340 --> 30:17.580
+It's written in Rust. It's open source and it allows adapters to be written in a variety
+
+30:17.620 --> 30:23.460
+of programming languages like Rust, Python, JavaScript, WebAssembly and so on. And when
+
+30:23.460 --> 30:27.420
+I say it can turn everything into a database, I really mean it. If you have any kind of
+
+30:27.420 --> 30:31.980
+data source, be it an API, a database, an arbitrary file format, a machine learning
+
+30:31.980 --> 30:36.580
+model, you can query it with Trustful and you can do so in place and without having
+
+30:36.580 --> 30:41.340
+to do an ETL step in advance to ingest the data and then represent it in some other
+
+30:41.340 --> 30:47.340
+format. If you're interested in digging more into Trustful, I've given a couple of talks
+
+30:47.380 --> 30:52.620
+on that specifically. I gave a talk called How to query almost everything that's a deep
+
+30:52.620 --> 30:57.140
+dive into Trustful in particular and how it works. And I also gave a performance oriented
+
+30:57.140 --> 31:02.980
+talk talking about how cargo semper checks became more than 2,000 times faster by using
+
+31:02.980 --> 31:08.780
+some new optimization opportunities that Trustful exposed at P99 last year. And if you're
+
+31:08.780 --> 31:13.380
+interested in playing with Trustful yourself, we have a couple of playgrounds that you can
+
+31:13.420 --> 31:19.300
+check out on your laptop right now. We have a playground that uses Rustdoc JSON that uses
+
+31:19.300 --> 31:24.860
+the same exact code that powers cargo semper checks that lets you query popular Rust crates
+
+31:24.860 --> 31:29.220
+APIs and you can find all sorts of interesting things about them. And just to show that you
+
+31:29.220 --> 31:33.580
+can query any kind of other data set as well, you can query the hack and use rest APIs as
+
+31:33.580 --> 31:38.180
+well with Trustful queries from your browser. And just for kicks, because Rust is awesome
+
+31:38.220 --> 31:43.260
+like that, in these playgrounds we compile the entire Rust, we compile the entire Trustful
+
+31:43.260 --> 31:48.060
+engine to WebAssembly so all of the queries run client side in your browser. So really
+
+31:48.060 --> 31:52.540
+go crazy with these queries, I don't care, it's your bandwidth and your CPU, right? So
+
+31:52.540 --> 31:57.220
+if you get rate limited by hacker news, it's your problem, not mine, please go ham.
+
+31:59.980 --> 32:05.620
+Fundamentally, Trustful is what makes cargo semper checks possible. We need, there are
+
+32:05.660 --> 32:12.420
+hundreds of ways to break semantic versioning rules in Rust. And if we had to rewrite every
+
+32:12.420 --> 32:17.500
+one of our lints, whenever the format under the hood changed, this would be completely
+
+32:17.500 --> 32:24.020
+infeasible. By being able to decouple the format specific logic from the query logic,
+
+32:24.020 --> 32:29.180
+the business logic of linting semper, we can focus on linting and ergonomics and cargo semper
+
+32:29.220 --> 32:35.900
+checks and deal with everything else under the hood. We can take an n times m problem of n
+
+32:35.900 --> 32:40.660
+lints and m formats and turn it into an n plus m problem, which is much, much more
+
+32:40.660 --> 32:46.700
+maintainable, especially as a free open source project. So cargo semper checks on the back
+
+32:46.700 --> 32:51.420
+of Trustful has been growing fairly rapidly. We currently have 58 lints and almost every
+
+32:51.420 --> 32:56.500
+new release comes with a few more. This is twice as many as a year ago and still growing
+
+32:56.540 --> 33:02.460
+quite fast. We have 32 contributors and in fact, many of the new lints that we keep adding
+
+33:02.460 --> 33:07.020
+are first time contributions, which is awesome because it means that this query language
+
+33:07.020 --> 33:13.100
+is not something that is super niche and difficult to learn and is actually friendly to new folks.
+
+33:13.100 --> 33:17.820
+And most importantly, our users love us. Everybody prefers to find out about accidentally
+
+33:17.820 --> 33:23.100
+breaking changes before they get pushed to production and get released and then somebody
+
+33:23.140 --> 33:29.420
+opens an issue saying, sorry, you broke my project. So hopefully by this point, I've
+
+33:29.420 --> 33:33.900
+convinced you that semantic versioning is valuable, but it's impossible without automated
+
+33:33.900 --> 33:39.420
+help. And that cargo semper checks is a solution to this problem that has lots of happy users.
+
+33:39.420 --> 33:43.460
+So if you take nothing else away from this talk, please consider using cargo semper checks
+
+33:43.460 --> 33:49.540
+if you maintain Rust code because all of us will be better off. And if you'd like to help,
+
+33:49.580 --> 33:53.740
+you can contribute code and lints to cargo semper checks. Even though we have 58 lints
+
+33:53.740 --> 33:57.780
+right now, there are still dozens and hundreds more breaking changes that we still need to
+
+33:57.780 --> 34:02.700
+lint for. We could really use some sponsorships free and open source projects live and die
+
+34:02.700 --> 34:08.380
+by GitHub sponsors. So if you or your company use cargo semper checks, please consider sponsoring
+
+34:08.380 --> 34:14.220
+our development. And finally, for the sake of everyone in the Rust community, please try
+
+34:14.220 --> 34:18.540
+to not push out breaking changes. Nobody will blame you for it, but it's a lot more fun
+
+34:18.540 --> 34:24.580
+if you find them before you release the crate as opposed to after you release the crate.
+
+34:24.580 --> 34:28.460
+So please check out cargo semper checks. Please find me in the hallway if you'd like to chat
+
+34:28.460 --> 34:30.660
+more. And thank you so much for your time.
+
+34:30.660 --> 34:43.820
+So I think, do we have time for questions? Yeah, how long?
+
+34:43.820 --> 34:45.540
+Five minutes.
+
+34:45.540 --> 34:46.540
+So let's open it up.
+
+34:47.540 --> 34:51.540
+I'm going to give you the mic so that people on the industry can also hear.
+
+34:51.540 --> 34:58.140
+Awesome, thank you. So one of the things that I know about semantic versioning is that
+
+34:58.140 --> 35:03.300
+version zero is, it's an interesting one. And you didn't talk about it at all, but
+
+35:03.300 --> 35:08.540
+it also notes on the page that there was a lot of version zero. So I was wondering about
+
+35:08.540 --> 35:09.540
+your opinion on it.
+
+35:09.540 --> 35:16.740
+Yeah, that's a good question. The question was, is version zero special in Rust? The
+
+35:16.740 --> 35:22.300
+semper specification and the Rust community have diverged on what version zero means,
+
+35:22.300 --> 35:27.460
+essentially. So the semantic versioning is about communication, right? So it's about
+
+35:27.460 --> 35:32.300
+the norms that are accepted in the community rather than a fixed and rigid set of rules.
+
+35:32.300 --> 35:38.100
+And in the Rust community, we've decided that leftmost, you know, any zeros on the left-hand
+
+35:38.100 --> 35:42.900
+side of the version kind of don't count. So version zero dot five to version zero dot
+
+35:42.900 --> 35:48.620
+six counts as a major change, right? And zero dot zero dot one to zero dot zero dot two
+
+35:48.620 --> 35:56.660
+is also a major change, right? This in practice is what keeps all of us sane because otherwise
+
+35:56.660 --> 36:01.340
+if zero dot x to any zero dot y could ship any breaking change, then all projects would
+
+36:01.340 --> 36:05.660
+always, you know, stay on zero dot x and then cargo update would still not work and not
+
+36:05.660 --> 36:10.300
+be able to bump us. So this is from a point of pragmatism for the sake of the community
+
+36:10.300 --> 36:12.660
+as opposed to some rigid system of rules.
+
+36:12.660 --> 36:14.660
+Thanks.
+
+36:14.660 --> 36:24.660
+Like you said, some changes can be intentionally breaking semper. Is there a way to annotate
+
+36:24.660 --> 36:28.980
+them so the tool knows or do you have to bypass the tool in these cases?
+
+36:28.980 --> 36:33.580
+Great question. So the question is, since some changes might be intentionally breaking
+
+36:33.580 --> 36:37.660
+semper, is there a good way to annotate them so that users can notice them in a way that
+
+36:37.660 --> 36:44.500
+is not going to break their CI? Unfortunately, there's not a lot of great tooling here. Obviously,
+
+36:44.500 --> 36:49.020
+we have things like change logs. Authors will usually post on, you know, their social media
+
+36:49.020 --> 36:53.420
+pages and things like that. They will try to get the word out. It's very rare for a
+
+36:53.420 --> 36:59.100
+maintainer to deem something so critical that it justifies an intentional semper violation
+
+36:59.340 --> 37:05.060
+and yet just kind of tell nobody about it. But we don't have great tooling that will say,
+
+37:05.060 --> 37:09.180
+hey, by the way, this is intentionally breaking because of reasons x, y, and z that you should
+
+37:09.180 --> 37:14.780
+read up on. It would be lovely if we could sort of mark the item so that when it gets
+
+37:14.780 --> 37:19.460
+used then it causes a breaking change. We got a custom error message printed out by Rust
+
+37:19.460 --> 37:25.220
+C that says this is why this is happening and this is how you go about fixing it. Unfortunately,
+
+37:25.260 --> 37:29.740
+we're not there yet. And the answer is more code needs to be written and more financial
+
+37:29.740 --> 37:32.380
+support needs to go into all of these projects for that to happen.
+
+37:32.380 --> 37:49.700
+Is there any work going on integrating these tooling into packaging like Debian or which
+
+37:49.860 --> 37:52.060
+suffer from these problems once in a while?
+
+37:52.060 --> 37:57.860
+Yeah, great question. The question was whether there's any work ongoing to integrate something
+
+37:57.860 --> 38:02.380
+like Cargo-Sanverchex into the broader packaging tools that we already use on a daily basis.
+
+38:02.380 --> 38:07.700
+The answer is yes. So I've been in close contact with the cargo team. They actually reached out
+
+38:07.700 --> 38:12.940
+and asked if it would be feasible to work toward integrating Cargo-Sanverchex into cargo itself
+
+38:12.940 --> 38:18.620
+so that instead of running Cargo-Sanverchex, then Cargo publish, you just run Cargo publish and
+
+38:18.660 --> 38:24.140
+Cargo tells you whether, you know, what it found. This is obviously a little bit tricky.
+
+38:24.140 --> 38:30.340
+It's not super straightforward for a couple of reasons. One is that when things get merged into
+
+38:30.340 --> 38:34.020
+cargo, they're stable and they're stable forever. So we want to make sure that the APIs that we
+
+38:34.020 --> 38:38.620
+expose are really good and that the right API is not just for now and for next year,
+
+38:38.620 --> 38:44.780
+but for the next 10, 20, 50 years. The second thing is that we want to make sure that users
+
+38:44.820 --> 38:51.140
+can always override what Cargo-Sanverchex has found, right? Because there are these cases where
+
+38:51.140 --> 38:56.380
+an intentional Semver violation is justified. We want to have a workflow that's kind of like
+
+38:56.380 --> 39:03.060
+Cargo publish dash dash allow dirty, where Cargo publish will normally not allow you to do that,
+
+39:03.060 --> 39:07.340
+but there is a way to override and say, I know what I'm doing, I've thought about it,
+
+39:07.340 --> 39:12.340
+and this is still the right thing to do. So we really want to make sure that we dial in the
+
+39:12.380 --> 39:16.820
+exact user experience that is the right thing for everyone in the ecosystem and that we can
+
+39:16.820 --> 39:22.180
+support in the long run before we go about integrating it. But long story short, yes,
+
+39:22.180 --> 39:26.860
+the work on this is ongoing and again, it's a function of how quickly we can get this work done
+
+39:26.860 --> 39:29.460
+in order to make it happen.
+
+39:29.460 --> 39:40.660
+Okay, so last one. Okay, so let me give you the mic. So I'm interested in trustful. Do you know
+
+39:40.700 --> 39:45.820
+if there are other applications such as I'm thinking about validating breaking changes in
+
+39:45.820 --> 39:53.220
+open API definitions, for example? Yes, great question. I would love to chat. The question was
+
+39:53.220 --> 39:59.820
+if trustful has other applications besides Cargo-Sanverchex, the answer is yes. This is
+
+39:59.820 --> 40:04.020
+something I'm very interested in chatting about. So if anyone else has this question,
+
+40:04.020 --> 40:09.940
+please find me in the hallway and I can show you some more demos. A few other linters are looking
+
+40:09.940 --> 40:16.260
+into trustful for designing custom lints. I'm also working on a Python semantic versioning
+
+40:16.260 --> 40:22.140
+linter. Python is a very interesting beast because it's much more dynamic, so Semver is pretty
+
+40:22.140 --> 40:29.260
+tricky there. And my former employer actually uses trustful to enforce code standards that are not
+
+40:29.260 --> 40:34.300
+just correctness, but they're just about best practices that the company has decided are supposed
+
+40:34.340 --> 40:40.700
+to happen. In fact, one of the talks that I put on the slide, this how to query almost everything
+
+40:40.700 --> 40:46.540
+has a specific example of linting Python applications that get deployed and looking for
+
+40:46.540 --> 40:51.540
+mismatches in the Python version declared in the project manifest in a pyproject.toml file
+
+40:51.540 --> 40:56.380
+versus the Kubernetes configuration in the Docker file that goes with it, which also says,
+
+40:56.380 --> 41:02.300
+you know, from Python 3 colon 8 or whatever. It turns out that we can query for what does
+
+41:02.300 --> 41:06.060
+the Docker think the Python version is, what does the manifest think the Python version is and
+
+41:06.060 --> 41:11.020
+find cases where they don't match. And spoiler alert, I mean, we found hundreds of these issues
+
+41:11.020 --> 41:14.380
+when we rolled out those tools. These things just happen.
+
+41:14.380 --> 41:17.700
+Great. Thank you very much.
+
+41:17.700 --> 41:19.260
+Thank you so much for having me.
+

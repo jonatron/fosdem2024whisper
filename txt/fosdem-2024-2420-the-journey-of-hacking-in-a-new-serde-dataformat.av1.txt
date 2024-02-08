@@ -1,0 +1,380 @@
+Now we have the last talk of the day with Paul.
+He's going to teach us how to hack a new sturdy data format.
+And I'm really looking forward to it.
+Thank you.
+Thank you.
+Yeah.
+Hello, everyone.
+Hello, everyone, for the last talk of this day and of the Rustaf room, the journey of
+hacking in a new sturdy data format.
+If you read through the abstract, there are a lot of more things in there, but the main
+talking points are near for us.
+You're 30 and I want to present the journey of building that.
+And before we go into, I want to also emphasize what this talk is not what I'm not going
+to talk about.
+This is not going to be an introduction to 30.
+It's also not going to be an introduction to Neo4S.
+You don't really need to know what these are to understand what I'm talking about, hopefully,
+but you're also not going to know what these are after the fact.
+And similar to the talk about tower, I'm also not going to do an actual deep dive, also
+a shallow deep dive.
+And I'm also not going to do a discussion about how to pronounce 30.
+So with that about me, hi, I'm Paul.
+You can find me on GitHub with Knut Waco or on Hackyderm.
+And I work for a company called Neo4J, which is a graph database written in not Rust.
+We do have a Rust driver though, which is Neo4RS, hence the name.
+That one is written in poor Rust.
+We're not wrapping any existing C, ABI or API from some other driver, but it's developed
+under this thing called Neo4J Labs, which is an incubation community focused process.
+So there's not really that much product engineering behind it as mostly me doing this in my 20%
+time with contributions from occasional other people from the company or from the community.
+And a Neo4J driver for a database, we communicate via Bolt.
+Bolt is a binary protocol that is built on top of a pack stream, which is something that
+we use for general data types like strings, ints, lists and so on.
+This basically a binary JSON-ish thing, I think is an extension of a message pack.
+And you can have domain specific structs defined in there.
+And Bolt has some 15 structs on top of that and then another 15 for communication purposes,
+but we don't really need to talk about those.
+All of those various data types that the Bolt protocol can have as natively represents are
+in this big enum.
+Like you have a null type, you have an integer, you have a float, a string list and a node
+for graph database and node is an important thing.
+So it's also on there and there's a bunch of other stuff.
+Now in Neo4S in the 0.6 release, what is now the previous version, if you wanted to get
+some data from a node you would write something like this and in 0.7 you would write something
+like this.
+And if you think that looks exactly the same, that is on purpose.
+It's not a fact of low oxygen in the room.
+But you can also do something like this where you have your struct, you put a 30D0-size thing
+on it and then you can convert that into your node into that struct.
+And so I want to talk about how to, or some things that we did to implement this, to provide
+this functionality.
+30, if you're absolutely not familiar with it, I mean it's been mentioned a couple of
+times today already, a framework for serializing and deserializing data.
+If you want to get into what it is, you will not find it here but you can go to 30.rs and
+there's a video linked from John Janseth who goes into great detail about one side of 30
+that I'm not going to talk about.
+And in particular there are these kind of three big concepts there.
+There's a data type which is your structs where you put your derived serialize and deserialize
+on it.
+And then there's the data format which is the other side which has the trade serializer
+and deserializer.
+Notice the R at the end of the names.
+That's the main difference.
+And they communicate via this 30Data model but not really wire but this data model is
+mostly represented in the API only.
+This is one of the examples of something where I would have to put a big asterisk on it and
+then talk five minutes about why it's not actually like this but shallow dive.
+So for example JSON is a 30Data format.
+It's like how your data is represented, formatted in your bytes, in your string, on your desk,
+wherever it is.
+And 30Data is the trade that implements this data format, implements the serializer and
+deserializer trades.
+Now we want to bring them together.
+We already have this bold type enum and so we want to implement the data type for this
+particular thing.
+And we're also going to focus on the deserializer side only.
+Doing this while parsing the data into bold type and serializer implementations are on
+the roadmap.
+Let's say down there.
+And we also want to maintain the API compatibility.
+So as you saw before, the API should look the same.
+It's not actually the same but it's still going to be breaking but we don't want to
+have to introduce a lot of things we need to change.
+All right.
+So let's talk about this node, this thing that graph databases use.
+This is the definition from the bold documentation.
+We can put this in Rust.
+Very much looks the same.
+We have ID, labels and properties.
+And just to show what those actually are.
+This is Cypher, the query language for users.
+This is going to be the last slide on Cypher that you see in this talk.
+I'm just breaking this down so I can show you this particular thing.
+It's the label of the node.
+These JSON-ish looking thing are the properties of the node and we have in our end, in our
+return column, we have the actual node as this node struct.
+And we have our session thing with our deserialize on and we want to do something like this.
+I would say give me the value, it's called n as a session, which we could also write
+like get me a node and then convert that node into a session.
+So let's try to do that.
+First attempt that we could try is make our lives easy.
+Make our bold node, make that deserialize and then use some other data format to do
+the job for us.
+So we have here this tool function that we had earlier and we have a t bound that needs
+to implement deserialize and then we just say, okay, let's lose JSON and then convert
+our value into JSON and then convert from JSON to the actual user type.
+And say, are we done?
+If this was the solution, then this would be a 20 minute talk, not a 40 minute talk.
+So no.
+You get a bunch of these error messages that like field event in the year on there and that
+is because this, what we really want to read from node are the properties, mainly the properties,
+but we are deserializing the internal structure of a node like the fields, IDs, labels and
+properties.
+So user would have to write something like this where they wrap the actual thing in something
+like a node thing with the properties.
+We don't want them, but maybe we can fix it easily by just using the properties to pass
+them into JSON.
+And that kind of works in the sense that this example could compile and could run, but there's
+a one there's a fact that we're using JSON, which does not have the same representability
+of things that Bolt does, like it doesn't know about all those special data structures.
+And there's also no way to get to the IDs and labels and sometimes we really do want
+to use them and not just use the properties.
+So let's try again.
+We're not going to do this with JSON anymore.
+We're going to now start writing our own deserializer finally.
+And we want to, I think it might be able to look like this where we have our session struct
+with the two fields and then we have some other fields in there which are IDs and labels.
+So before we can talk about what the deserializer would look like, we need to understand how
+SIRD brings those as a data format side and the data type side, how it brings those together.
+If you have this thing where you have this derive deserialize attribute, you can use
+something like cargo expand to have a look what the result of that macro expansion looks
+like.
+And I'm going to show you a very simplified version of that which is more similar to what
+you would probably write if you would implement this on your own, if not be a macro that
+would implement this.
+So you start by implementing the deserialized trade for session.
+There's only one method that you need to implement called deserialize which gets a deserializer
+and it returns itself or an error where the error is defined by the deserializer.
+Here's a deserializer bound and for this particular session struct we call the deserialized struct
+method.
+So the deserializer has a bunch of methods and the idea is that we call a method that
+describes in the most precise way what we actually want to have.
+That's as we want to have a struct.
+It's called session.
+It got those four fields.
+There's something else and we hope that the deserializer can provide us the data in order
+to build this thing.
+And that's something else is a so-called visitor.
+Whereas a visitor is also a trade from Suri and we implement this as well.
+We don't need anything on the visitor except like some struct to implement it.
+So we have our struct, we implement visitor.
+This one actually defines what the value is that we return.
+This is the session struct and there's only one method, one function we actually need
+to implement which is this expecting thing that helps with reporting errors.
+If you only have a visitor like that it's not useful because the only thing it can do
+is report an error.
+So you also want to implement one of the other methods that you get.
+And you know like Rust Analyzer or so.
+Or your IDE can help you in figuring out what the methods are or documentation.
+And we expect when we say to the deserializer, hey, I want to have a struct, we expect that
+we get a map in return.
+Structs are like basically like named maps if you will.
+The keys are your field names, the values are the actual fields.
+And so we implement the visit map method we get, we also say we return our own value,
+we return the error from whatever the deserializer gives us.
+And it gives us this map access thing which is fancy iterator over key value pairs.
+And if we actually implement this, this looks very mechanical.
+We have our fields, we don't have any values for them.
+So they are all options of the actual field types with none of these defaults.
+We use the map access to say what is the next key in the map.
+We would match over that key if it's an event, we'll take the next value and put it into
+the event value.
+And here we are saying in the TurboFish there we want to have a string.
+And this call looks quite similar to the node.to call.
+The bound for string is deserialize and the map access implementation that has the actual
+value will know what the deserializer is and then you've got another deserializer and deserializer
+that come together and they do the same thing over again.
+So it's all like this kind of back and forth from top down.
+We do that with the rest of the fields and then we can build the value at the end and
+then we can throw an error for any fields that are missing.
+Then we plot that in and that is the deserialize site.
+What is generating and what we need to provide.
+So let's start by adding a struct for our bold node and we can also implement the into
+deserializer trait which we can use to tell us what kind of deserializer we want to deserialize
+a bold node.
+That is like a very fancy into this, nothing really special to it.
+So it's up to implementing deserializer for that bold node deserializer.
+We define an error.
+The error needs to implement a certain trait.
+I'm not going to talk more about this.
+It's like an enum of some typical error cases.
+And then there's this fancy thing.
+So if you implement deserializer you have a lot, like a lot of methods that you need
+to implement.
+Usually you don't really want to do that.
+And then there's this concept of self-describing data formats which is that within your data
+format you know what the next type is, what the next value is, what the next key is.
+You don't need any kind of information from the outside.
+And so in JSON, like if you're parsing a key you know okay that's the key, it's called
+that and then you have a value.
+So you know at every time where you are and you don't need the information that the next
+thing that comes is a string or an integer or something.
+You figure it out by the, just by looking at the data.
+Bold is such a self-describing data format and for those SIRTY recommends to just implement
+deserialize any and then use this macro to say every other thing just goes to any and
+we're all doing that.
+So we only need to look at ourselves and we don't need anything else.
+So let's implement this deserialize any here where we say we want to call this visit map
+method because that's what expected.
+And there's a map deserializer which is also from SIRTY where you can give an iterator
+over key value pairs and that will do the correct thing.
+So we don't actually need to implement anything fancy here.
+And we can bring those together in this two methods by calling deserialize and using the
+into deserializer trade to bring those together.
+So now after we did all of that, we are basically at where we started.
+We can deserialize our properties or deserialize our properties.
+But we also want to have the IDs and labels so let's have those before and instead of
+just using our properties, we are having, we're training this with getting the ID and
+getting the labels and then we're just passing that on.
+And that kind of works for this particular example only.
+We do get our IDs and labels but we only get them if we call the field ID and label string.
+It's harder than here as this ID string and label string.
+So you could never call him something else and we could use like special fields like
+underscore underscore ID or something.
+But if you want to have an ID, you would have to use one of those field names and you could
+never use this name in your actual properties because then you would have multiple entries
+in this map thing and SIRTY will say no, there's multiple values for the key ID and that is
+an error.
+And using like underscore like magic field names or something like that would maybe be
+possible but it feels not really that great to me.
+So let's try something else and we want to do something like this where we have, we call
+those extractors internally but these are new type structs.
+You have an ID struct and the public field that is the ID type and if a label struct
+with the public field is the labels type and instead of using the field name to say these
+are IDs or these are labels we're using the field type to say for whatever field name
+you have we want to, this one gets the ID from the node and everything else in the struct
+is still being deserialized from the properties.
+So in order to do that we can no longer use deserializeAny but we already know that we're
+not actually calling deserializeAny, we're calling deserializeStruct which has been using
+the forwarder from struct to any but if we also, if we remove struct from this big macro
+with the forwarding and then implement these there struct on our own we can basically say
+this is a special version if we know that you want to have a struct.
+Once we do that because we get these two additional information that deserializeAny
+doesn't get which is the name of the struct which we actually don't care about but we
+also get all the fields of the struct.
+And what we're doing here is we take our properties, we have another enum type in there
+if I want to show you all the code that is related to the enum there's a lot of it but
+it's very mechanical code.
+It's struct data has an enum of two cases property or node and there's a deserializer
+that's also an enum of two cases and each of those cases have their own deserializer
+implementation.
+And so we have our property fields and then we also iterate through all the fields that
+we get from this struct and we check if any of them are not in our node properties and
+then we say okay those we are going to deserialize by giving you some additional data from the
+node and not from the property.
+And then through this like big enum chain eventually we have okay here we chain them
+together and through this big enum chain we actually get to to in so-called to another
+internal deserializer and the new type fields ID and labels they when they get deserialized
+they don't call deserialized struct they call deserialized new type struct because they're
+a new type thing and here you get also the name of this struct you don't get any fields
+and new types there aren't any fields or like there is one field that's just called zero
+technique.
+And so we have this additional deserializer where we can implement this one and then
+here we can match on the name of the struct and if it's called ID we can say oh yeah
+okay I get the ID from my node and if it's labels we can deserialize labels of the node.
+And I see deserializer here similar to the map deserializer where we can use 30 to say
+here a bunch of values and put them in like a list at the end.
+These are things that SOTI provides in order to avoid like having to allocate a VAC or
+a map a hash map and then using that one so you can use this you know with like less
+overhead without allocations and potentially maybe also use it in in in no std environments.
+Right so if we're doing that and put those together then that works and the example will
+give you the data.
+There's still some downsides and I'm not gonna we're not gonna go into a fifth attempt
+now because those downsides are still not fixed and we're figuring out how to work around
+them and the biggest downside is that the deserial default attribute doesn't work.
+So if you have a struct and you annotate one of the fields with this SOTI default what
+SOTI will do when it generates this deserialize code instead of saying at the end hey I have
+this value and I do unwrap or else an error with the missing field it's gonna call the
+default method and then get the value from there and that's the only thing that changes.
+Like there's nothing else in this whole method call where we get the information that the
+user actually has this annotated with this default attribute.
+That means if you go through this next key next value train and we say here is a value
+and Zuri expects that we give it an actual value like if we say we have something for
+that value for that key we should provide something.
+And on the other side what we are doing is saying all the fields in the struct we put
+them in this iterator where we are saying we have something for the struct.
+So we eventually see the year field and we think well it must be one of those additional
+types because the year is not in the properties because it's missing in our node but then we
+are saying we are not getting one of those new types but we get these U64 and then we
+don't know what to do about it.
+Because it's not in the properties we have to do something we cannot say this type isn't
+available it's too late for that at that point in time and so we have to fail.
+So using the default attribute doesn't work but there is a workaround that you can use
+the option wrapper around it so you can manually choose and report default at the end and that
+works so we have a workaround and so we can figure out how to solve this eventually.
+So now that we are done with the nodes we can do the same thing for all the other 20
+variants.
+We are not going to do that here of course but you can imagine.
+But then we are still not done at the end there are still some smaller things that I
+wanted to mention that are just like things that we ran into and that gave us some learning
+experience.
+In particular Bolt has a bytes type so there is a native thing for here is a vec of U8
+and this is like some glob of data that the user has defined.
+Not many data types and many data formats have a bytes type so 30 while the data mod
+model has something for bytes.
+We can start by doing this like we get for example a string and we get a bytes and there
+is a visit string and visit bytes so hey cool we can just pass on our bytes array.
+But like I said many data formats have them so 30 doesn't actually generate visitors
+that expect that you call this visit bytes method because then you could never use it
+with for example JSON.
+What's really sad is if you have a vec of U8 in your data type you should call this as
+a sequence of individual bytes instead of like one blob of bytes.
+So you would have this visit seek and then there is a seek user and that doesn't really
+matter what is at the end there but we need to call this.
+But then we can use the same thing where there is a deserialized bytes and there are
+some third party crates there is 30 bytes there is 30 width that can be used to say
+to tell 30 hey this is a vec of U8 but actually I can provide bytes for that and please expect
+call to visit bytes and on the other side like I said earlier deserializer should call
+the most special like the method with the most information and so it should call not
+deserialize any at the end but deserialize bytes because it's saying well I actually
+can accept a call to visit bytes and so in here we can check if we are actually if we
+have bytes and then we can just pass them on and then we're done.
+So not really but we're running out of time here so I want to do a quick run through a
+couple of other things and if you ever ran into one of those issues I don't know you
+can find me afterwards and we can talk about this.
+So one thing is I said earlier we want to maintain the existing API and the existing
+API was based on conversions via the try from and from traits.
+So there was a bunch of traits implemented for try from bold type for a bunch of other
+types so we also needed to make sure that if you're using these bunch of other types
+at the other end our deserializer will do the right thing and part of those bunch of
+other types are various state related things from the chrono and time crates because bold
+has native structs for dates and times and date times and without time zones and all
+the fun with dealing with those.
+So this taught us about there's a thing called a human readable where you can say whether
+or not you're a deserializer or your serializer works with a human readable data format and
+I think the time crates, the time crates uses that in order to say if it's a human readable
+one it's being serialized and deserialized from string and it parsed from the RFC something
+3.9 format and the non-human readable format will pass in a bunch of integers and so we
+have to set that flag in order to provide the correct data and you can use annotations
+for one of those where you can say this is a time stamp but the resolution is in milliseconds
+or in seconds or in microseconds and then we have to figure out okay what is the actual
+value that we have to give you so that the calculation at the end turns out to be correct.
+So that was fun.
+The other thing is if you have conversion via from and try from trades because of the
+planket implementation you could also convert the bold type into a bold type and so we also
+need to be able to say we can visualize into from a bold type into another bold type and
+so we have a custom deserialized implementation for bold type that calls the appropriate method
+in a way that we know that we get the correct data which is not really that straightforward
+at the end result is a deserializer that isn't really usable for any other data format and
+so if you use that one and then deserialize a bold type into a trace on you get some
+trace on but that doesn't really make sense which is unfortunate and then there's there
+are things like what if you have more data in your node properties than you actually
+have in your struct and then usually a data format is expected to be implemented or to be
+doing the deserialization while parsing and if you're a imagine you're parsing through some
+JSON and you have this key and you give it to the visitor and the visitor says yeah I don't I
+don't I don't need this key it can't just continue and say give me the next key you have to go back
+and say well I don't care about this key but you need to still give me a value so that your
+parsing state is gonna be correct so that when I call you next you're gonna give me the next key
+and this is done by this ignored anything where so you will say give me a next value but I'm gonna
+ignore it so you can give me whatever you want just do the right thing on your end so that your
+internal state is correct for us we didn't really need to do anything because we already had everything
+fast and it's enum but since we're moving to doing this while parsing as well we need to take
+care of that properly then there's the zero copy deserialization we had earlier like oh I want
+zero copies being a red flag so consider the red flag if you will and all this code that I showed
+you actually doesn't compile because every trade from 30 has a lifetime around typically called
+take DE for deserialize and also our deserializer for the boat node doesn't actually have doesn't
+own the boat node it has a reference to the boat node and we put lifetimes on everything and then
+implement a bunch of methods that say well if you can make the Rust compiler happy with all the
+lifetimes that you're using then we don't need to copy data and so you could do things like
+extracting the labels not as a bag of string but bag of stir slices where you would still get an
+allocation for the back but the strings would point into the actual data from the boat node thing
+and we do that for how long we can do that but it's it's it was too much to show it in all
+the slides and yeah with that I am done and I think we still have time for questions if there are
+any otherwise yeah thanks for listening questions questions no questions no questions I do have
+one maybe just a short one you were mentioning like deserializing the bytes before when you say
+bytes do you mean like a vector of u8 or like the bytes crates or both actually that primarily a
+back of u8 because that's what we have in a standard library but I think we also have a test
+that makes sure that it works with the bytes type from the bytes grid so I think you can use that
+one as well okay then I think that's it for the day thank you the speaker thank you to the whole
+audience for staying with us next year

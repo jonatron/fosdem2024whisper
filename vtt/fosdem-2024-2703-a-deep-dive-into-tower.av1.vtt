@@ -1,0 +1,1016 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Welcome the next speaker, Adrian. He's going to talk about tower.
+
+00:19.400 --> 00:25.480
+Hello everyone. Thanks to the organizers for having me. I've been working in Rust for about
+
+00:25.480 --> 00:30.480
+three years now, mostly contributing to QuickWidth. QuickWidth is an open source distributed search
+
+00:30.480 --> 00:36.280
+engine for log and traces. We'll be presenting tomorrow in the monitoring and observability
+
+00:36.280 --> 00:43.280
+room. And if you want to follow along, you'll find a slide on this website. There will be
+
+00:44.120 --> 00:50.400
+quite a bit of code during the presentation, so that may be easier. So as you know today,
+
+00:50.440 --> 00:55.680
+we're talking about tower. It's a crate for building modular and networking clients and
+
+00:55.680 --> 01:02.680
+servers. If you're using widely used traits in the Rust ecosystem such as AXM, WAP, Tonic,
+
+01:06.480 --> 01:12.240
+you're using tower under the hood. Maybe you don't know it. And everything's based on
+
+01:12.240 --> 01:18.240
+the service trait that I'm going to describe at length during this talk. But before I do
+
+01:18.320 --> 01:24.040
+that, I would like us to take a step back and think about why we need tower. So I want
+
+01:24.040 --> 01:30.560
+you to think that you are a web developer. You're working with any web framework in an
+
+01:30.560 --> 01:36.200
+imaginary dynamic language. And you ask to write a simple handler to get a user from a
+
+01:36.200 --> 01:41.440
+database. So you probably would come up with something like this, a function that you would
+
+01:41.440 --> 01:47.940
+call getUser that would take your request in, add some logging, get the user from the database,
+
+01:48.900 --> 01:55.300
+save the response, log again, return the response you've done, and you're pretty happy. Pretty
+
+01:55.300 --> 02:01.300
+quickly, you would realize that maybe there's another way to do it. Maybe you could decouple
+
+02:01.300 --> 02:06.300
+the fetching the user part that's strictly about the database and all that stuff from
+
+02:06.300 --> 02:12.060
+the logging. Like the pattern wise, I'm going to log something before the request, and I'm
+
+02:12.060 --> 02:15.340
+going to log something after the response. It doesn't need to know about everything that's
+
+02:15.380 --> 02:20.300
+user related. So maybe you would write two functions. The first one would be with logging that
+
+02:20.300 --> 02:25.380
+would take two parameters, the request still, but also a handler that would be a generic
+
+02:25.380 --> 02:33.580
+function that also that returns a, accepts a request. And then you would write your getUser
+
+02:33.580 --> 02:39.180
+simply. It'll be a bit more simple, very focused on what it has to do. And then you would compose
+
+02:39.180 --> 02:43.460
+your with logging function with your getUser function, and you would achieve what you had
+
+02:43.500 --> 02:47.340
+achieved before. But now you have that other function with logging that you can use for
+
+02:47.340 --> 02:53.340
+like all your end-to-end lists. And isn't that the sense of programming? We want to write
+
+02:53.340 --> 03:00.180
+generic and reasonable functions that are really easy to compose. For the purpose of
+
+03:00.180 --> 03:06.740
+this talk, we're specifically interested in decorators. So the decorator pattern is basically
+
+03:06.860 --> 03:14.420
+when a function or a class wraps another function. It applies new behaviors before or after calling
+
+03:14.420 --> 03:18.620
+the inner function. It doesn't know about that inner function. It's totally opaque, and it
+
+03:18.620 --> 03:25.540
+doesn't matter, we don't care. It doesn't modify the behavior of the inner function. And you've
+
+03:25.540 --> 03:31.100
+heard, you've used decorators sometimes with different names, very often millwares in the
+
+03:31.900 --> 03:40.060
+context of client and servers, proxies. This is a term that's coming up a lot. And then what you
+
+03:40.060 --> 03:47.020
+can do with those is you have your handler at the bottom. You can also call it a leaf, and you
+
+03:47.020 --> 03:52.100
+stack millwares with different behaviors on top of it. And you apply different behaviors depending
+
+03:52.100 --> 03:56.980
+on what you need. And then you can build a nice library of millwares that you can share, that
+
+03:57.300 --> 04:05.700
+you can use from different libraries, and so on and so forth. In that example, we were using a
+
+04:05.700 --> 04:12.900
+dynamic language. It was really, really easy to do. Duc typing gave us great flexibility. We don't
+
+04:12.900 --> 04:17.660
+really care about the types of inputs and outputs. When we code, we think about it, do they match
+
+04:17.660 --> 04:21.780
+implicitly? If they do, we think it's going to work. We ship it to production. We cross our
+
+04:21.820 --> 04:33.140
+fingers. But implicitly, everything should match and then everything should work fine. So this is
+
+04:33.140 --> 04:40.020
+what we're trying to do with TauR in the Rust ecosystem. But this time, we still want to compose
+
+04:40.020 --> 04:45.500
+functions, but we want to do it in a very type safe manner. And we want to be still very flexible.
+
+04:46.340 --> 04:53.460
+And this is when the TauR service trade comes into play. It is the common interface that allows
+
+04:53.460 --> 05:00.740
+us implementing components in a protocol, agnostic, and composable way. So let me describe the trade.
+
+05:00.740 --> 05:08.900
+It has one generic parameter, request. It's called request by convention, but it can be any type
+
+05:09.020 --> 05:15.860
+and anything. An associated type, response, same thing. Cold response by convention, but it could
+
+05:15.860 --> 05:24.620
+really be anything. Error type also could be anything. And finally, a future type. The future
+
+05:24.620 --> 05:31.700
+type is constrained by the future trade. So it has to be a future. And you'll notice that the output
+
+05:31.700 --> 05:37.780
+of the future is fixed for you. It has to be a result of the response and the error that you
+
+05:37.780 --> 05:45.220
+define. So the only choice is choosing a future type. The output is always chosen when you say,
+
+05:45.220 --> 05:50.540
+I want this kind of response, this kind of error. And then in the trade, you have two methods,
+
+05:50.540 --> 06:01.220
+the pull ready function and the call. Call takes itself mutably, accepts the request,
+
+06:02.180 --> 06:09.860
+return the future. The future you define. So your mental model should be much easier than this
+
+06:09.860 --> 06:15.660
+trade. It's just simply be, this is just a generic async function. This is the same thing. The
+
+06:15.660 --> 06:21.860
+trade gives us that flexibility that we wanted and gives us the type safety that we wanted. But
+
+06:21.860 --> 06:29.700
+really, this is the mental model of what is a service trade. With all of twist, you have that
+
+06:29.740 --> 06:38.100
+additional pull ready function that needs to be called once before calling call. And it provides
+
+06:38.100 --> 06:47.420
+a way to provide back pressure to the caller. So the pull ready implementation for a service
+
+06:47.420 --> 06:54.220
+without any external dependencies for the hello service that we're going to define is very simple.
+
+06:54.420 --> 06:59.500
+Pull ready return is always ready and returns okay. If you're implementing something else,
+
+06:59.500 --> 07:05.340
+if it's not ready, you return pending. And later on, the task will be pulled again. Hopefully,
+
+07:05.340 --> 07:13.180
+it'll be ready. If you're writing a service that has external dependencies, for instance,
+
+07:13.180 --> 07:18.820
+you depend on a database, you need to acquire that database connection. So all the services that
+
+07:18.860 --> 07:24.700
+have external dependency need to load up upfront to receive the need. And so they can say when
+
+07:24.700 --> 07:31.180
+they're ready or not to the caller. So in this example, if we haven't acquired yet connection,
+
+07:31.180 --> 07:39.980
+we will pull our pull of connection to acquire a connection. We will save it mutably in our
+
+07:39.980 --> 07:48.660
+internal state. And then later in call, we actually consume the connection using take. So
+
+07:48.700 --> 07:53.500
+that's why the tariff trade is mutable because it's not necessarily state less. It can be
+
+07:53.500 --> 07:59.460
+stateful. So you can manage your resources. And you see with this example why you need to call
+
+07:59.460 --> 08:09.260
+pull ready always at least once before first before call. And for the services that I'm
+
+08:09.260 --> 08:15.700
+you know, where's so they basically wrap an inner service, you usually implementation is really
+
+08:15.740 --> 08:20.500
+straightforward. You delegate to the inner service. So you call pull pull ready on the inner
+
+08:20.500 --> 08:26.140
+service and you're done. So if you're not doing something too fancy in your service, usually
+
+08:26.140 --> 08:37.180
+is going to boil down to those three use cases. So it sounds it sounds simple on paper. Why does
+
+08:37.180 --> 08:42.100
+it get complex? I think people are a bit afraid of like towers tower and towers services in general,
+
+08:42.460 --> 08:47.580
+could they use a lot of generics. So it's a bit of it's not always easy to write. It's even hard
+
+08:47.900 --> 08:55.020
+to read and it's even harder to write. It's using all the the rest construct heavily. So you have
+
+08:55.020 --> 09:01.820
+to be comfortable with lifetime lifetime, sensing market rates, what is a thing is going to expose
+
+09:01.820 --> 09:08.380
+you to that. So if you've been using rust as a better C++ trying to avoid those concepts, writing
+
+09:08.420 --> 09:13.940
+towers services are going to be a bit challenging. But but once you get more comfortable, it'd be
+
+09:13.940 --> 09:17.820
+very rewarding because like because you're going to be exposed to those concepts. At some point,
+
+09:17.820 --> 09:23.260
+muscle memory is going to help you and you're going to feel more and more comfortable and you're
+
+09:23.260 --> 09:29.540
+going to get a bit of rust programmer. And in some cases, if you start writing your own futures
+
+09:29.540 --> 09:34.500
+for your services, then you need to know about future pulling and pinning and it gets very complex.
+
+09:35.500 --> 09:41.860
+So the only way to get better understanding services and writing them is just to start simple
+
+09:41.860 --> 09:49.100
+with like a hello services and build upon until working like more complex services. So this is
+
+09:49.100 --> 09:55.060
+exactly what we're going to do during the rest of the talk. So let's implement hello service
+
+09:55.060 --> 09:59.660
+together. Remember the mental model is just this hello function. This is what we want to do,
+
+09:59.700 --> 10:06.020
+but we want to do it the other way. So the input parameter is a hello request. The hello response
+
+10:06.020 --> 10:15.020
+will be returned and we try to implement that simple function. So we start defining a health
+
+10:15.020 --> 10:21.980
+struct and we start implementing service for it. The input parameter is a request. The response
+
+10:21.980 --> 10:25.660
+type is a response. The error is going to be a little bit specific here. It's going to be
+
+10:25.660 --> 10:31.580
+infallible because we're never going to fail with just printing stuff. And now we have to choose
+
+10:31.580 --> 10:38.020
+our future type and we have various options. And the first thing we can do is go with a box
+
+10:38.020 --> 10:44.460
+future. We can define our own type alias or we can reuse the type alias from the futures scrape,
+
+10:44.460 --> 10:52.140
+for instance. And why would we do that? When you get started with writing your own
+
+10:52.220 --> 10:56.340
+service, I would recommend starting with that because it's pretty easy, it's very readable.
+
+10:56.340 --> 11:05.620
+The cons are you pay a small fee for allocation in dynamic dispatch. It's fine if you're not,
+
+11:05.620 --> 11:12.580
+if it's a client or server that doesn't have an insane amount of QPS, it's totally fine. Sometimes
+
+11:12.580 --> 11:18.220
+people are afraid of allocation in dynamic dispatch. If you're working on a client or server that
+
+11:18.300 --> 11:22.780
+doesn't need working in IO, we're talking milliseconds. That allocation, dynamic dispatch is going to
+
+11:22.780 --> 11:28.460
+cost you microseconds, maybe even nanoseconds. So you should not worry too much and if you
+
+11:28.460 --> 11:32.900
+start worrying, you should measure before going for the box stuff. I would want to say,
+
+11:32.900 --> 11:37.820
+it's writing your own future is way more fun. So sometimes it's a little for my own future,
+
+11:37.820 --> 11:44.140
+just my own personal fun. So box futures are good chose for applications, less for libraries.
+
+11:44.540 --> 11:48.620
+When you're writing libraries, you want to decide the users of your libraries whether or not they
+
+11:48.620 --> 11:54.620
+want to incur some overhead. So it's better if you don't use box futures in your libraries so that
+
+11:54.620 --> 12:02.940
+people can opt out of the overhead. So in this example, we upsold box futures. We need to notice
+
+12:02.940 --> 12:09.060
+that this box futures as a lifetime that we'll choose and it has to be sent as well. That will
+
+12:09.380 --> 12:17.780
+become important later. So we choose the static lifetime. The service, the tower service rate is
+
+12:17.780 --> 12:23.540
+not generic of a lifetime. So we have to go for static. Then we write priority. It's always
+
+12:23.540 --> 12:31.940
+ready. So it's pretty straightforward. And then we write our future. So we declare an async move
+
+12:31.940 --> 12:38.340
+block in which we build a message and build a response. And then we box that future on the
+
+12:38.340 --> 12:46.020
+hip. We pin it with box pin and we should be done. This is how you would unitize that service.
+
+12:46.020 --> 12:53.460
+You instantiate it. You call ready. We're using the extension trait that makes it a bit easier to
+
+12:53.460 --> 13:00.260
+work with. So you call ready and then you call call and it works. So it's obviously a bit more
+
+13:00.260 --> 13:06.100
+complicated than just writing that hello function that I showed at the beginning. But it's all
+
+13:06.180 --> 13:13.380
+doable. When it comes to choosing a future, sometimes you have the choice to choose one from a
+
+13:13.380 --> 13:22.020
+third party crate. Futures has some ready to go futures. You can use towers as well. So sometimes
+
+13:22.020 --> 13:26.340
+those futures are going to fit your use case. You don't have to go for the box. You don't have to go
+
+13:26.340 --> 13:31.540
+for implementing your own. You can just reuse one. It's convenient. So in this example, we can use the
+
+13:32.100 --> 13:37.860
+ready trait from the futures crate. So this time, you do see my pointer crate.
+
+13:39.540 --> 13:46.100
+We change the return type here. It's ready and this time we return ready.
+
+13:47.300 --> 13:53.060
+So we got rid of the allocation and the dynamic dispatch. And it's actually more readable.
+
+13:53.780 --> 14:00.100
+So we built a simple hello service. We're going to build a middle one on top of it. That's our
+
+14:00.100 --> 14:07.540
+logging service. We want our logging service to work with our hello service. But ideally, we like it
+
+14:07.540 --> 14:13.140
+to work with any kind of service that implements the trait. So we're going to make it generic.
+
+14:13.300 --> 14:22.660
+So logging has an input parameter called s that will be the inner service.
+
+14:24.980 --> 14:27.060
+And we start implementing service for logging.
+
+14:30.980 --> 14:36.900
+What we want to do is calling call on the inner service. And we can only do that if it's a service
+
+14:36.900 --> 14:44.660
+itself. So we need that now. And we say the inner service is also a service
+
+14:44.660 --> 14:48.660
+generic over r, our two generic types here.
+
+14:51.460 --> 14:56.500
+Then we implement already. We delegate to the inner service pretty straightforward.
+
+14:59.140 --> 15:06.740
+And then we implement call, starting with using a box feature. So we built the inner future
+
+15:07.380 --> 15:17.700
+calling call on inner. And then we create our own future using an instinct move block. We do the
+
+15:17.700 --> 15:25.300
+logging. We evaluate the future here. So here on this line, we build a future that's not evaluated.
+
+15:25.300 --> 15:32.580
+It's actually evaluated here. Then we do the logging. And we respond to response. We box
+
+15:33.540 --> 15:41.620
+in the outer future. And now we go back to our terminal. We run cargo test. And it should work.
+
+15:42.660 --> 15:52.180
+Except it doesn't. We've omitted a little technicality. And that technicality is coming from what I
+
+15:52.180 --> 15:58.740
+said before. The box future must be sent. So the future that you return must be sent. So the inner
+
+15:58.740 --> 16:07.460
+future must be sent as well. So we need to tell the compiler that constrate. So not only we have
+
+16:07.460 --> 16:14.740
+constrate the service, s, we told the compiler it is a service, we also tell the compiler the
+
+16:14.740 --> 16:21.060
+future that an inner service is going to return is also sent in static. And all this time it works.
+
+16:21.380 --> 16:29.060
+So this is how you would instantiate your logging service. It's wrapping the
+
+16:29.860 --> 16:34.100
+hello service. And then you call it the exact same way. It's obviously not going to show up during
+
+16:34.100 --> 16:38.180
+the unit test. But now you have logging on top of your service. And that logging service
+
+16:38.820 --> 16:46.420
+is usable for some other services. Tower HTTP has a bunch of services that are ready for
+
+16:47.380 --> 16:49.940
+metrics, tracing. It works a lot like that.
+
+16:53.620 --> 16:58.260
+So we're going to do this again this time rolling on our own future. Because it's fun.
+
+16:58.260 --> 17:06.580
+And because when you're going to recode from AXM to NIC, you're always going to encounter those
+
+17:09.300 --> 17:12.740
+handwritten features. So it's good to get used to them.
+
+17:13.140 --> 17:22.260
+Unfortunately, writing a future from scratch is actually non-trivial because of the whole
+
+17:22.260 --> 17:28.180
+pinning thing. And this is not a talk about writing futures and me explaining to you pinning
+
+17:28.180 --> 17:34.500
+because I don't totally understand it myself. But I can be very practical and tell you how to do it.
+
+17:34.820 --> 17:47.220
+And I'll show it to you right now. So now the logging is going to happen in the future. So before
+
+17:47.220 --> 17:55.620
+we were wrapping a service with a service, and the idea is the same. We're going to wrap the
+
+17:55.620 --> 18:02.740
+inner future with our logging future so we can add behavior to the future. So you can add behavior
+
+18:03.300 --> 18:08.660
+to your service, but you can also wrap the future and do stuff after you're done pulling or before
+
+18:08.660 --> 18:14.660
+you were about to pull the future. And this is what can be tricky with our terrorist services is
+
+18:14.660 --> 18:20.420
+sometimes, for instance, you take rate limiting. There's a bit of logic in Pall Ready. There's a
+
+18:20.420 --> 18:25.460
+bit of logic in Call and there's a bit of logic in the future. So it's hard to understand where's
+
+18:25.460 --> 18:30.660
+the logic that's really to the business, what you're trying to achieve versus what just really to
+
+18:30.660 --> 18:36.900
+trying to write a service. So that's also part of the complexity of our Dillon and Vittorio services.
+
+18:38.100 --> 18:45.140
+But back to our logging future, it's going to wrap another future. So it's going to be generic over
+
+18:45.140 --> 18:52.820
+F. We need to use the create pin project to pin the inner future. So that's why you have the
+
+18:52.820 --> 19:04.260
+pin attribute there. And now we, that's how our service, the logging service now is going to look.
+
+19:04.260 --> 19:13.220
+We replaced the future type with our logging future and the use which relies on the inner future. So s
+
+19:14.180 --> 19:23.140
+call and call in future. And then in call, now when we are called, we do the first logging statement.
+
+19:23.140 --> 19:28.500
+Then we build the future and when the future will be pulled already, then this is when we'll actually
+
+19:30.420 --> 19:37.300
+add the last logging statement. So this is how you implement future for logging future.
+
+19:37.540 --> 19:45.060
+Same idea. We need to add the constraint and tell the compiler the inner future is also a future.
+
+19:45.780 --> 19:54.260
+It's output is the output of the inner future. We need to project. I don't actually know where
+
+19:54.260 --> 20:00.820
+that the term comes from. But you need to project self. It's usually a convention is the convention
+
+20:00.820 --> 20:09.540
+is to call this. And this gives you the same object. But when you use the inner futures,
+
+20:09.540 --> 20:15.220
+they're actually pullable. Because pull is not defined on the future type. It's defined
+
+20:16.500 --> 20:22.900
+on a pin future. So that's why you need to project which pins the future, which allows you to pull it.
+
+20:22.900 --> 20:30.260
+So those are the technicalities that you have to deal with when you're writing your
+
+20:31.940 --> 20:40.420
+handwritten function. But once you've done that, it's exactly like writing the normal call, I want
+
+20:40.420 --> 20:48.660
+to say. So we pull our future. And if it's ready, we add the logging statement. If it's not ready,
+
+20:48.660 --> 20:52.500
+it means it's pending. It's going to be pulled again later. And also we know that
+
+20:53.220 --> 20:59.060
+when a future is pulled and it's ready, it will be no longer pulled. So we know that this
+
+20:59.060 --> 21:07.940
+statement will appear only once. So let's build on top of that. Let's build a timeout service now.
+
+21:10.180 --> 21:14.740
+So same thing. We want to add a timeout to any service. It's also generic over s.
+
+21:14.980 --> 21:22.820
+But the timeout service is interesting because the logging service is pretty simplistic. It doesn't
+
+21:22.820 --> 21:28.420
+mutate or touch anything. The request not in the response. It's like it did not go through it.
+
+21:29.460 --> 21:34.900
+The timeout service is a bit interesting because you have to signal the timeout
+
+21:35.460 --> 21:41.060
+somehow in your written type. And the way you're going to signal the error is
+
+21:42.020 --> 21:47.220
+potentially using an enum. And in that enum, you will have two variants. The first one would be
+
+21:47.220 --> 21:52.740
+the timeout. If timeout appears, that would be the error. But if the inner service returns
+
+21:53.860 --> 21:58.820
+its error itself, you have to wrap it in inner. And then the caller will know if the error comes
+
+21:58.820 --> 22:04.740
+from the timeout with the inner error. That looks like a good idea to do it this way. And you can
+
+22:04.740 --> 22:11.140
+totally do it this way. The problem is if you adopt this pattern for timeouts, authentication,
+
+22:12.100 --> 22:18.260
+rate limiting, the nesting of all those errors in the inner is going to become pretty complicated.
+
+22:19.140 --> 22:28.340
+And really hard to compose. And it is easy to deal with. So what libraries usually favor is boxing.
+
+22:29.140 --> 22:34.740
+So if you use the tower services that modify the error type, they will return
+
+22:35.700 --> 22:42.180
+the tower box error. And it's much easier to compose. The downside is at some point,
+
+22:42.180 --> 22:44.420
+you have to donk at the error to know exactly what happened.
+
+22:47.700 --> 22:52.580
+So we're going to use this error type this time to implement our service on future.
+
+22:58.740 --> 23:06.660
+So it's very similar than before. The difference this time is the error needs to be boxable.
+
+23:06.660 --> 23:10.900
+So with other compiler, I can only be a timeout service for services where the
+
+23:12.580 --> 23:21.380
+inner error is boxable. The polarity is a little bit annoying because it's still delegating to the
+
+23:21.940 --> 23:34.580
+inner polarity function. But you must not forget to convert the result that is an s error to a box
+
+23:34.580 --> 23:42.740
+error. So that's why the result returned by the inner service must be, its error must be mapped
+
+23:42.740 --> 23:50.900
+to the box error. So that's why we need this. Now we implement calls. So we take a look at what
+
+23:51.460 --> 23:59.620
+we do as for our future. So our timeout future is very similar to our logging future. It just wraps
+
+23:59.620 --> 24:07.940
+two inner futures. One will be used for the inner future and the other ones will be for the sleep
+
+24:08.820 --> 24:15.780
+future. So the sleep future, you can reuse the future from Tokyo, for instance, if you're using
+
+24:15.780 --> 24:22.420
+the Tokyo runtime. So call becomes pretty simple. All you have to do is build your inner future and
+
+24:22.420 --> 24:30.980
+your sleep future and create your timeout future, which we're going to implement now.
+
+24:32.820 --> 24:41.940
+So the core of the logic this time is leaves in the code of the future itself. So some libraries
+
+24:42.020 --> 24:51.940
+sometimes split the service implementation in one module and they put the future in another
+
+24:51.940 --> 24:56.020
+module so you open the service and you're like, what does it do? Because everything happens in the
+
+24:56.020 --> 25:04.420
+future. So you need to understand that sometimes a lot of the work is actually done in the future.
+
+25:05.620 --> 25:06.740
+And this depends for timeout.
+
+25:06.740 --> 25:12.020
+So implementing future for timeout future,
+
+25:15.700 --> 25:24.260
+we, as before, we project self into this. We pull the first future, the inner future,
+
+25:24.900 --> 25:32.020
+and if it's ready, great. It's now the timeout, we return pull ready with the result. We don't
+
+25:32.100 --> 25:38.740
+forget to map the error, the potential error into its box. If the inner future is not ready,
+
+25:38.740 --> 25:44.020
+maybe it's taking too long. So we need to verify whether a timeout occurred or not. So we pulled
+
+25:44.660 --> 25:51.380
+timeout future this time. So if it's pending, nothing to do, we'll be pulled again, we'll go
+
+25:51.380 --> 25:59.620
+this work again. If it's ready, it means this is an actual timeout. So we need to return the timeout
+
+25:59.620 --> 26:09.380
+error and we return elapsed error, but boxed. Hence the hint too.
+
+26:13.780 --> 26:17.220
+So now we're going to see how you can stack services together.
+
+26:21.220 --> 26:27.060
+I could obviously stack my timeout on top of my LO and then
+
+26:28.020 --> 26:34.180
+add the logging on top of it, but I can also do it with services that are already ready in
+
+26:34.180 --> 26:39.780
+tower. So I import them directly. So I import the concurrency limit, the timeout,
+
+26:41.060 --> 26:47.940
+and I compose my service by wrapping everything on top of each other. So instantiate service,
+
+26:48.500 --> 26:52.900
+I add a concurrency limit on top of it, and then my timeout, and then the logging.
+
+26:52.900 --> 27:00.820
+So that involves a bit of body play, but it's not too hard to do. What's really tricky and the
+
+27:00.820 --> 27:06.500
+compiler is not going to help you with that is the order with which you wrap your services actually
+
+27:06.500 --> 27:12.820
+matters. You really want your logging to be on top. If your logging is like logging how long it
+
+27:12.820 --> 27:17.060
+took, you don't want logging to be in the middle. You really want it to be on top to capture the
+
+27:17.060 --> 27:21.460
+whole life cycle of the request. And it's probably the same thing. You want timeout to be applied
+
+27:22.340 --> 27:29.460
+above everything that's doing race limiting. It would be better to, if you had like a notification
+
+27:29.460 --> 27:36.180
+service, it would be better to put it pretty high up because if you have services that are below it,
+
+27:36.180 --> 27:42.580
+maybe they can do whatever they want. So this is what's tricky when stacking layers and the
+
+27:42.580 --> 27:51.300
+compiler is not going to help you there. So you got to be careful and you can hopefully rely
+
+27:51.300 --> 27:59.700
+on a good reviewer for like a double check. I wanted to leave a lot of time for questions.
+
+28:01.620 --> 28:06.900
+This talk is called a deep dive into TARRA. I realized that in 30 minutes it's actually
+
+28:07.780 --> 28:12.740
+not that easy to cover everything that we could cover when we talk about TARRA. So let's just
+
+28:12.740 --> 28:19.860
+call it a shallow deep dive into TARRA. If you want a real deep dive, there are really good
+
+28:19.860 --> 28:25.060
+resources out there. Two years ago, not that much, but there's really great content,
+
+28:25.060 --> 28:30.820
+blog posts on YouTube that I'm going to talk about a little bit that really can help you get really,
+
+28:30.820 --> 28:38.420
+really comfortable with TARRA. So there's something that I don't talk about today called a layer.
+
+28:39.300 --> 28:45.140
+A layer, TARRA people are pretty obsessed with composability. So a layer is a way to compose
+
+28:45.140 --> 28:51.220
+a stack of services. A service builder is a way to conveniently build
+
+28:52.580 --> 28:57.940
+small stacks of services. A service builder helps you get rid of the boilerplate to write this,
+
+28:57.940 --> 29:06.260
+for instance. So if you want to keep studying TARRA, I would start with layer and service builder.
+
+29:07.140 --> 29:13.380
+Then I would recommend reading, inventing the service rate. That's a blog post by David Pedersen,
+
+29:13.380 --> 29:18.580
+who's a TARRA contributor. It's a really good introductory blog post. Maybe you can start with
+
+29:18.580 --> 29:26.500
+that. It takes about 15 minutes. I find that the AXM documentation page about MinoWares is really,
+
+29:26.500 --> 29:36.580
+really good. So I think that's a really good resource. And then in the spirit of building and
+
+29:36.580 --> 29:42.260
+reading and writing late services that are more and more complex, I think the next step for us
+
+29:42.260 --> 29:48.180
+is looking at the rate limit service. The concurrency limit is also a bit more complex,
+
+29:48.180 --> 29:55.460
+but really interesting. And then you can look at the channel from Tonic. It gets pretty complex
+
+29:55.460 --> 30:01.300
+as well. And then if you really want to take it to the next level, think the pool in TARRA. So
+
+30:02.500 --> 30:08.020
+here we're only showing that a service that wraps just one service. But now you could wrap
+
+30:08.020 --> 30:14.500
+multiple service. And that's what the pool adds. And the pool is a service. It wraps multiple
+
+30:14.500 --> 30:21.460
+services. And it's using pool ready to track the load of each inner service to handle back pressure.
+
+30:21.460 --> 30:28.500
+So it's a really interesting use case of using pool ready in a very fancy way. So pool is also
+
+30:28.500 --> 30:37.300
+very interesting. Good videos on YouTube. Also David Pedersen has a TARRA stream about tower.
+
+30:38.020 --> 30:44.740
+He goes through the same thing. There's a hello and logging and time out. And you see him dealing
+
+30:44.740 --> 30:49.780
+like the old delivery things. Because obviously on presentation, I get everything right on the first
+
+30:49.780 --> 30:55.300
+try. But it's not exactly how that happens when you either yourself. And if you want to get more
+
+30:55.300 --> 31:01.300
+comfortable with a single weight in rest and futures in general, John has a great talk on YouTube as
+
+31:01.300 --> 31:06.900
+well. And you'll find those resources on the slides that are available at this thing.
+
+31:31.620 --> 31:38.420
+Back in the first few slides, you mentioned the pool ready function. And you were initializing a
+
+31:38.420 --> 31:43.700
+database connection. I didn't get it. If the database connection is actually a future or not,
+
+31:43.700 --> 31:45.620
+because the pool ready function doesn't return a future.
+
+31:48.660 --> 31:52.900
+Is you talking the database one? Yeah, that's where you initialize the connection. You know,
+
+31:52.900 --> 31:58.820
+you depend on a connection. Yeah, it has to be a future. I mean, no, it doesn't return a future.
+
+31:58.820 --> 32:05.700
+But because that one, yeah, this one. Yeah, I'll pass quickly because it's a bit complex.
+
+32:07.060 --> 32:16.180
+So already doesn't return a future. But it behaves like one because you pass it the context,
+
+32:16.180 --> 32:23.940
+the context as a waker so you can rebuild future really easily with access to the context.
+
+32:24.260 --> 32:30.340
+And that's I'm happy you asked you asking this question because if you look at
+
+32:32.020 --> 32:32.820
+come back here.
+
+32:38.340 --> 32:47.780
+Talk about the concurrency element. The concurrency element uses a semaphore. So a naive way of
+
+32:48.740 --> 32:57.780
+implementing pool ready with a semaphore is would be to call try a choir. And if you get the permit
+
+32:57.780 --> 33:04.820
+right away at school, pool ready is ready and just save the permit and then you get rid of it
+
+33:04.820 --> 33:12.340
+in call once you're done. But a better way to do is to start pulling the future. You don't call
+
+33:12.340 --> 33:18.180
+pool ready. You call ready. And if it's not ready yet, it's okay. You keep you still maintain
+
+33:18.180 --> 33:26.500
+that future that you started that started acquiring a permit. You save it in your internal state.
+
+33:26.500 --> 33:30.740
+And then the next time you keep pulling that future instead of each time doing try, acquire,
+
+33:30.740 --> 33:36.020
+try, acquire. So it's really unique to trick that you can see in the concurrency element service.
+
+33:37.380 --> 33:38.420
+Okay, cool. Thank you.
+
+33:39.060 --> 33:48.580
+When is tower gonna go version one because now it's on zero and hyper just ditched it because
+
+33:48.580 --> 33:55.940
+it's not one yet. So I'm not a tower contributor. So I don't know exactly. I think they're waiting
+
+33:55.940 --> 34:03.140
+for the the Khmer people to give us the full story of what is sync is gonna is gonna become.
+
+34:03.140 --> 34:06.820
+You'll see that with the last release of rust now you can return
+
+34:08.340 --> 34:13.620
+an implement implement future future, but they still like the weather it said or not to to deal
+
+34:13.620 --> 34:21.780
+with though. So eventually, I think they want they're waiting for see what we can do in rust.
+
+34:21.780 --> 34:28.180
+And then then what once the old async work is stabilized, I think they will come up, they will
+
+34:28.180 --> 34:33.700
+come up with a new version of the trade. Like with those new those new constructs that are being
+
+34:33.700 --> 34:38.500
+released and will be released in the next version of rust. We can greatly simplify the service
+
+34:38.500 --> 34:45.060
+trade. So they will wait for this feature to land, revise the trade and then release 1.0.
+
+34:46.660 --> 34:53.140
+And the second question is there a way to make this tower layers, let's say optional so you can
+
+34:53.140 --> 35:00.100
+enable disable them from outside the code from the compiler somehow. Yeah, I mean you you have
+
+35:01.220 --> 35:05.380
+you could use there would be different ways you could use like feature flags,
+
+35:05.380 --> 35:11.540
+you could use environment viable like they services have a stake. So and you the
+
+35:12.500 --> 35:16.340
+they mutable so you can do you can do what you can do you can do a lot you could have
+
+35:17.300 --> 35:22.260
+you should I to make bullying somewhere in there and you can enable disable it.
+
+35:24.980 --> 35:25.460
+Thank you.
+
+35:25.460 --> 35:31.460
+Yeah.
+
+35:41.540 --> 35:42.980
+I'm on the time of future slide.
+
+35:44.180 --> 35:48.740
+What time of future this one.
+
+35:49.300 --> 35:54.340
+Yes, there's a poll function and if none of them is ready, it will just return and how would it
+
+35:54.340 --> 35:55.540
+know when to call it again.
+
+35:59.540 --> 36:01.540
+Like you pulled once and none of them is ready yet.
+
+36:02.180 --> 36:04.180
+It's the runtime is going to take care of it.
+
+36:06.900 --> 36:09.460
+With it's well it depends on the runtime you're using it's
+
+36:11.060 --> 36:15.700
+it knows it's not ready and then I mean then we're talking about how you implement the runtime
+
+36:15.700 --> 36:22.660
+basically. It maintains like a queue of features and it regularly pulls them using some
+
+36:23.700 --> 36:29.460
+a waker which is it's using that context in the waker when it's ready it's going to call the waker
+
+36:29.460 --> 36:32.260
+that's going to wake the the runtime so and so forth.
+
+36:32.980 --> 36:37.300
+But you as an implementer of the future you're not in charge of like telling when you're going to
+
+36:37.300 --> 36:40.180
+you should be pulled again. You're just in charge of saying I'm ready or I'm not.
+
+36:40.820 --> 36:45.220
+That whole machinery is left to whoever implements our AC runtime.
+
+36:45.940 --> 36:46.500
+Okay thank you.
+
+36:54.100 --> 36:58.420
+Thanks for your talk. I had a question because you mentioned that there was some overlap between
+
+36:58.980 --> 37:04.020
+implementing your own future and the tower service trade itself proposing like a poll
+
+37:04.020 --> 37:10.900
+function and a poll rate function. Is there any reason apart from fun to implement a future
+
+37:10.900 --> 37:18.580
+trip yourself like is there any benefit from dealing with the internals of creating a future
+
+37:18.580 --> 37:24.580
+versus implementing your whole logic inside of the service trade itself and just using the
+
+37:25.780 --> 37:32.660
+basic tower or basic futures future types. You mean a box of doc futures? Yeah exactly.
+
+37:32.660 --> 37:36.180
+Your question is like why would I bother writing my own future when I can use box?
+
+37:36.820 --> 37:41.300
+Yeah when I have this poll function inside of a service trade itself where I can
+
+37:41.300 --> 37:46.020
+bake my own logic and not have to deal with you know projecting my pins and so on and so forth.
+
+37:48.900 --> 37:54.980
+I'm not sure I totally understand your question so my answer might not satisfy you. I think you're
+
+37:54.980 --> 38:00.420
+right you want a future if you want you're writing a library and you don't want you don't want your
+
+38:00.420 --> 38:08.100
+users to incur the overhead of like the box future. You write it if you have like some constraint
+
+38:08.100 --> 38:15.700
+that might be related to performance that's going to push you to write a hand rolled future that
+
+38:15.700 --> 38:25.140
+doesn't allocate it doesn't have dynamic dispatch. Yeah that would be my answer. I think it also
+
+38:25.140 --> 38:29.860
+depends on your team if like if you're the only guy in the team that's going to understand like oh
+
+38:29.940 --> 38:34.420
+I pin the I project the future and are you spinning if just you maybe maybe you don't do it.
+
+38:35.860 --> 38:38.260
+It depends on those constraints. Okay thanks.
+
+38:46.180 --> 38:50.900
+Awesome so if there's no more questions let's thank our speaker. Thank you.
+

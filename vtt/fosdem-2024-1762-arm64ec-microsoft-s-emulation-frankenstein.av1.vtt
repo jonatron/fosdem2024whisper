@@ -1,0 +1,1517 @@
+WEBVTT
+
+00:00.000 --> 00:11.600
+Alright, so time has flown. This is already the last talk for the emulator development
+
+00:11.600 --> 00:17.760
+room today. Thanks everybody for showing up. It's a crazy turnout. Today we've got Peter
+
+00:17.760 --> 00:24.920
+who's going to talk about a really interesting feature from Microsoft Windows. Is there a
+
+00:24.920 --> 00:31.360
+question already at the start? Let's get what's happening here. Oh, okay. Alright, so Peter
+
+00:31.360 --> 00:36.960
+has a lot of C++ experience and he can talk more about what he's going to do. So let's
+
+00:36.960 --> 00:40.000
+give him a hand.
+
+00:40.000 --> 00:51.320
+Okay, so first of all, why am I here at FOSDEM talking about some closed source Microsoft
+
+00:51.320 --> 00:58.800
+attack? That's what you're all thinking, right? So let's address that question first.
+
+00:58.800 --> 01:03.160
+So if you don't know me, one of my hobbies is hacking on LuaJet, which is a free and
+
+01:03.160 --> 01:09.960
+open source JIT compiler for Lua. And LuaJet recently gained support for Windows on ARM
+
+01:09.960 --> 01:17.320
+64. Or at least I thought it did until this guy came along and was like, so do you support
+
+01:17.320 --> 01:26.160
+this other Windows on ARM 64? And we're like, wait, wait, what? You did what? So first I
+
+01:26.160 --> 01:32.160
+was horrified, then I was intrigued, and now I'm here speaking to all of you about what
+
+01:32.160 --> 01:39.080
+it is. So that went well. So hopefully I'm going to take you all on the same journey
+
+01:39.080 --> 01:44.600
+that I went through, kind of figuring out what this thing is, what it does, why it does
+
+01:44.680 --> 01:52.120
+it, and whether it does what it says it should do. Before we get into any of that, I'm talking
+
+01:52.120 --> 01:57.160
+about some Microsoft tech I do not work for. Microsoft, I'm talking about emulating Intel
+
+01:57.160 --> 02:02.120
+on ARM. I don't work for either Intel or ARM. If you know about LuaJet, you might have
+
+02:02.120 --> 02:09.640
+heard of Mike Paul. That's not me. Any of yous herein are my own, bugs are my own. If
+
+02:10.200 --> 02:16.280
+I'm wrong, that's my fault. Right then. Let's go into things. So we're going to do three
+
+02:16.280 --> 02:21.080
+kind of broad chapters here. First, we're going to have a general look at doing emulation
+
+02:21.080 --> 02:27.160
+of Intel code on ARM. I'm going to get really bored saying 64 all the time. So when I say
+
+02:27.160 --> 02:34.160
+Intel, I mean X64 code, and when I say ARM, I mean ARM 64 code, because otherwise all
+
+02:35.120 --> 02:41.120
+of 64 is going to get way too much. Then we'll look at this ARM 64 EC thing in particular,
+
+02:41.120 --> 02:46.120
+and then a bit of time about how LuaJet ported to this thing and whether that worked and
+
+02:46.120 --> 02:53.120
+how it worked. So emulation 101. You take Intel instructions like that one there, you
+
+02:53.600 --> 02:57.920
+turn them into ARM instructions like those three there, and you just do this for every
+
+02:58.000 --> 03:05.000
+single instruction that you find. How hard can this be? We've got this entire room to
+
+03:06.080 --> 03:12.080
+talk about doing this. One Intel instruction may become several, because Intel instructions
+
+03:12.080 --> 03:19.080
+are often more complex than ARM ones. If you're not familiar with assembly code, the square
+
+03:20.680 --> 03:25.680
+brackets here are memory loads or memory stores. In this case, they're all loads, but they
+
+03:25.760 --> 03:32.760
+could also be stores. I mentioned this because memory is complicated. Memory is what makes
+
+03:33.000 --> 03:39.640
+this more complex than it might look. Here are some of the things that I forgot to mention
+
+03:39.640 --> 03:45.400
+on the first slide. Let's start with memory ordering. If you have several threads that
+
+03:45.400 --> 03:49.880
+are all trying to work with memory at the same time, you can do cross-thread communication
+
+03:49.960 --> 03:55.960
+through memory, which on Intel often works. Intel gives you a very nice memory ordering
+
+03:56.360 --> 04:03.360
+properties, so you don't need memory barriers all that often. Whereas ARM is whatever, if
+
+04:03.360 --> 04:07.760
+you want to do cross-thread memory stuff, you will want some barriers in there to make
+
+04:07.760 --> 04:13.680
+it work. If you are trying to emulate the Intel code on ARM, you need to insert extra barriers
+
+04:13.680 --> 04:17.960
+that weren't there, otherwise we're going to introduce some concurrency bugs that weren't
+
+04:18.040 --> 04:24.040
+there. The annoying part here is that most memory operations aren't doing cross-thread
+
+04:24.040 --> 04:28.600
+stuff, but if you're doing an emulator, you don't know which instructions need the barriers
+
+04:28.600 --> 04:33.200
+and which ones don't, so you have to throw in the expensive memory barriers for almost
+
+04:33.200 --> 04:40.200
+every load and store, which is going to slow you right down. This middle question mark is
+
+04:40.320 --> 04:46.320
+saying, so memory is not just a big array of bytes. Memory is working out into pages,
+
+04:46.880 --> 04:53.880
+and those pages can have protections on them and other stuff, and all they make mapped
+
+04:53.960 --> 04:59.960
+to a PCIe device rather than going to RAM. You've got a question like, do you emulate
+
+04:59.960 --> 05:05.960
+an MMU and a bunch of things on it, or do you just pass it off to the host and let the
+
+05:05.960 --> 05:12.960
+host do whatever it would do? The final question mark here is flags. If that doesn't yet mean
+
+05:13.920 --> 05:20.920
+anything to you, that's good for you. Where can I get to the flag next? Because flags are
+
+05:20.960 --> 05:27.960
+a pain. Most Intel instructions, when you run them, they'll give you the main result
+
+05:28.240 --> 05:34.000
+that you're trying to get. They will also give you this array of six flags. Meanwhile, on
+
+05:34.000 --> 05:39.120
+ARM, some instructions will give you flags, and those that do only give you an array of
+
+05:39.120 --> 05:46.120
+four flags. I'm not a mathematician, but four is less than six, right? We've got a
+
+05:46.200 --> 05:53.200
+slight problem here. The question is, can we emulate the two that we don't have? Let's
+
+05:54.200 --> 05:58.880
+just run through all the flags. This could be a quick summary of what they are. We've
+
+05:58.880 --> 06:04.880
+got Z or ZF, just telling you whether the actual result, your main computation was zero or
+
+06:04.960 --> 06:11.960
+not. SF or N is telling you whether it was negative or not. Then we get to PF. Now, PF
+
+06:12.640 --> 06:19.640
+is great. Intel added PF in 1972 to give you the parity of the low eight bits of whatever
+
+06:20.200 --> 06:25.360
+it is that you were actually doing the computation of. Because back in 1972, you wanted a one
+
+06:25.360 --> 06:32.360
+bit checksum for doing modems and stuff. Intel being Intel, they've kept it ever since.
+
+06:32.780 --> 06:39.280
+You can emulate this thing on ARM. You just need to do a pop count of the low eight bits
+
+06:39.280 --> 06:43.780
+of whatever it is that you computed. If you know ARM assembly, you'll be like, wait a
+
+06:43.780 --> 06:46.540
+minute, there is no pop count instruction for general purpose rotors. We'll just gloss
+
+06:46.540 --> 06:53.540
+over that one. Then you've got the overflow flag or OF or V. That tells you whether any
+
+06:54.200 --> 07:00.200
+overflow happened during your computation. Useful for doing checks. Arithmetic and stuff.
+
+07:00.360 --> 07:07.360
+Then we've got CF and C, which is an extra carry bit in or out of your addition or subtraction.
+
+07:07.880 --> 07:12.440
+Fun point here is that there are two possible meanings for this flag in subtraction. And
+
+07:12.440 --> 07:17.240
+guess what? Intel choose one meaning, ARM choose the other meaning. If you're trying
+
+07:17.240 --> 07:21.360
+to emulate one on the other, you often have to flip the value of this flag to make them
+
+07:21.360 --> 07:28.360
+match up. Thankfully for this, ARM in ARM V8.4 added an instruction called CFINV, which
+
+07:30.360 --> 07:37.200
+for flipping the value of that flag added to make doing this kind of emulation easier.
+
+07:37.200 --> 07:44.200
+The final flag ARM doesn't have is AF on the right there. AF. AF is if you're doing
+
+07:44.200 --> 07:51.200
+binary coded decimal arithmetic. If you've never done any of that, good. Again, good
+
+07:51.720 --> 07:58.720
+for you. Intel thought back when they made these chips back in the 70s, BCD was a thing
+
+07:58.800 --> 08:03.280
+that people did. To make it fast, they added this extra flag that gives you the carry bit
+
+08:03.280 --> 08:09.480
+out of the low four bits of your computation because BCD uses groups of four bits. You
+
+08:09.480 --> 08:16.480
+can emulate the AF flag if you need to. We're doing a bunch of extra work to compute these
+
+08:16.720 --> 08:21.800
+things that we'd rather not do. A good emulator will try and work out when it doesn't have
+
+08:21.800 --> 08:27.200
+to compute anything at all or if it can defer the problem and hope that you don't actually
+
+08:27.200 --> 08:33.040
+need the answers at all. If you do have to compute them, there's extra work to do here
+
+08:33.040 --> 08:40.040
+which will slow you down. Start flags quickly. Next up, there are a bunch of existing solutions
+
+08:42.400 --> 08:49.160
+for doing emulation of Intel on ARM. Q emu we've heard quite a lot about here. With two
+
+08:49.160 --> 08:55.600
+flavors of Q emu, there's system mode and user mode, which boils down to in system mode,
+
+08:55.640 --> 09:01.800
+which will emulate an MMU and a bunch of devices on it, whereas user mode won't, so it's pushed
+
+09:01.800 --> 09:08.800
+off to the host. Therefore, Q emu user is much faster, but can't emulate as many things.
+
+09:08.800 --> 09:14.960
+There are a bunch of other open source solutions in the middle here. Starting with Justine
+
+09:14.960 --> 09:21.960
+Tini's Blink, which if you've not seen it, is part of a portable executable project for
+
+09:22.040 --> 09:29.040
+emulating Intel on anything. Her take is like, you know, we don't need a JVM with a portable
+
+09:30.360 --> 09:37.360
+bytecode that's used Intel code as a portable... Anyway, it does actually work. There's FeX
+
+09:38.600 --> 09:43.800
+emu that I'm not overly familiar with, but I think they're trying to be like Q emu user,
+
+09:43.800 --> 09:49.800
+but faster by only doing certain emulation of certain things on certain other things.
+
+09:49.840 --> 09:56.840
+I basically only Intel on ARM, whereas Q emu does everything on everything.
+
+09:57.120 --> 10:02.240
+Box 64 I wanted to mention because they pull this Q trick of saying, we will spot when
+
+10:02.240 --> 10:08.760
+you're trying to emulate a library that we've heard of, they're like, yeah, that's libc,
+
+10:08.760 --> 10:14.920
+that's SDL. I'm like, well, we won't emulate it. We'll just like, swap it out for our native
+
+10:14.920 --> 10:21.920
+version of it, which makes it faster because you don't have to emulate as much code. Obviously,
+
+10:21.920 --> 10:27.360
+the other big one that's not open source is Apple's Rosetta 2, which cheats by solving
+
+10:27.360 --> 10:33.720
+things in hardware. So, you know, this slide again, yeah, Apple solved this problem in
+
+10:33.720 --> 10:40.720
+hardware, this problem in hardware, this problem in hardware. So, you know, they cheat by adding
+
+10:40.800 --> 10:46.760
+extra hardware to their chips, and that makes that emulation extremely fast. Good for them,
+
+10:46.760 --> 10:52.760
+less good for other people. So, Apple can make a very appealing pitch to their developers,
+
+10:52.760 --> 10:57.840
+which is, you know, you can keep on with your kind of Intel code, and it'll like run fast
+
+10:57.840 --> 11:02.680
+on our custom hardware still. Or you can import it to ARM code, and it'll run even faster.
+
+11:02.680 --> 11:09.280
+I know Apple will port all of their kind of first party code, and the programmers in their
+
+11:09.320 --> 11:14.280
+ecosystem will do what they are told. Apple says you port your code, they will put their
+
+11:14.280 --> 11:21.040
+code. You know, the trade-off of working in a kind of Apple type system. Meanwhile, Microsoft
+
+11:21.040 --> 11:27.320
+have a far harder time. Like, you can target Intel, but it'll be dog-snow. Okay, not good.
+
+11:27.320 --> 11:31.480
+Or you can port your code to ARM, but you can't if you've got something like closed source
+
+11:31.480 --> 11:36.760
+library or plugins as part of your program. And this being that Microsoft's ecosystem,
+
+11:36.800 --> 11:42.280
+of course there are closed source libraries or plugins. So, yeah, Microsoft are in a really
+
+11:42.280 --> 11:49.280
+hard place here. And when I say slow, I mean slow. So, to give you a kind of idea here,
+
+11:49.680 --> 11:56.680
+I took the AllureJet benchmark suite, and I ran it on this Mac here as ARM code, 33 seconds.
+
+11:57.720 --> 12:04.320
+Fine, fine. Compiled it as Intel code, ran it under, was that a 2? 44 seconds. I mean,
+
+12:04.520 --> 12:11.520
+not great, but it's not a massive slow down. You can live with that. I ran a Windows VM
+
+12:11.720 --> 12:17.960
+on this thing, and the ARM version then took 37 seconds, which is a little bit slower.
+
+12:17.960 --> 12:22.280
+I'm not sure whether that's part of the VM or part of Windows slowing it down, or because
+
+12:22.280 --> 12:29.280
+Windows is running with 4K pages rather than 16K pages, same kind of ballpark. Then take
+
+12:29.360 --> 12:35.360
+the Intel version and run it under Windows' emulation, 106 seconds. Yeah, this is not
+
+12:35.360 --> 12:42.360
+good, not good. So, you know, you are someone at Microsoft, okay, so option one, I emulate
+
+12:42.680 --> 12:49.680
+the Intel code, it's too slow. Option two, I port it to ARM, is possibly impossible.
+
+12:49.680 --> 12:55.480
+At this point, I like to imagine some mad scientist at Microsoft, like, so, can we take
+
+12:55.520 --> 13:02.520
+two bad options, blend them together, and get a good option. Which, when you put it
+
+13:05.160 --> 13:12.160
+like that, seems insausable, but it turns out to actually work, surprisingly. So, that
+
+13:12.600 --> 13:19.600
+gets to part two. What is ARM64 EC? I, this crazy idea to get out of this error or to
+
+13:19.880 --> 13:26.880
+spot. Which is, let's let you port part of your application to ARM code. So, you know,
+
+13:27.880 --> 13:31.240
+if there are any kind of Intel bits that you can't port, because they're plug-ins or
+
+13:31.240 --> 13:36.280
+closed source, sure, leave them as like Intel code, but the stuff that you can port, you
+
+13:36.280 --> 13:41.460
+should port, and you can mix them all up, like, together, and allow you to like, cheaply
+
+13:41.460 --> 13:48.460
+interrupt between the two parts. And, you know, this is ARM64 EC. The ARM code is compact
+
+13:49.840 --> 13:56.840
+able with the emulated Intel code in a way that should hopefully work. Hopefully. So,
+
+13:56.840 --> 14:01.840
+that's the kind of thing. Big plan. But what does this mean? Like, how do we actually do
+
+14:01.840 --> 14:06.360
+this? Like, we're going to have to share the virtual address space between the Intel parts
+
+14:06.360 --> 14:10.480
+and the ARM parts, okay? We're going to need to share data structures out between the Intel
+
+14:10.480 --> 14:15.480
+parts and the ARM parts, okay? We're going to need to share call stacks between the two,
+
+14:15.520 --> 14:19.840
+fair enough. We're going to make things a little bit simpler by saying we can only
+
+14:19.840 --> 14:23.960
+kind of switch between Intel and ARM when you make a function call or you return from
+
+14:23.960 --> 14:28.680
+a function call. Or when you throw from a function and catch it higher up, that's, you
+
+14:28.680 --> 14:34.040
+know, painful. We're going to have to adjust how we do function calls a little bit to make
+
+14:34.040 --> 14:39.600
+this work, but ideally not too much. So, we're going to kind of delve into each of these
+
+14:39.600 --> 14:44.840
+points in turn. A shared virtual address space means, you know, you have all of your, you
+
+14:44.880 --> 14:50.280
+know, kind of address space and there's X people code in there and you have to know for
+
+14:50.280 --> 14:56.400
+any piece of X people code, is it ARM code or is it Intel code? So, we need an extra
+
+14:56.400 --> 15:02.600
+bit on every page to tell you kind of which one it is. I mentioned kind of doing cross
+
+15:02.600 --> 15:06.080
+thread communication earlier. Obviously, you know, our address space can have several
+
+15:06.080 --> 15:10.640
+threads in it. We're all trying to kind of talk to each other and any kind of Intel code
+
+15:10.680 --> 15:15.400
+running under, emulation still needs all of those extra barriers to be put in by the emulator,
+
+15:15.400 --> 15:21.280
+which will, you know, keep it slowed down but keep it correct. Meanwhile, any ARM code,
+
+15:21.280 --> 15:25.840
+Microsoft thought, just, you know, let the programmer that's doing the port put in the
+
+15:25.840 --> 15:30.440
+barriers where they have to be, which, you know, solves that problem at the cost of, you
+
+15:30.440 --> 15:34.520
+know, the programmer has to actually think. You can't just like recompile and not change
+
+15:34.560 --> 15:41.440
+your code and hope it works. So, all of that is kind of fine. Let me go to shared data structure
+
+15:41.440 --> 15:46.480
+layouts. Now, this starts off looking fairly simple. We say, you know, this is some kind
+
+15:46.480 --> 15:52.560
+of data structure. Let's make it compatible between Intel and ARM. Obviously, we can't
+
+15:52.560 --> 15:56.560
+change the Intel code, the whole point is we're kind of running free existing Intel code
+
+15:56.560 --> 16:02.880
+under emulation. So, we have to, you know, in ARM 64 EC mode, all of these types need
+
+16:02.920 --> 16:09.360
+the same size and alignment as ARM Intel. So, you know, longs are four bytes because windows
+
+16:09.360 --> 16:15.760
+doubles are eight bytes, pointers are eight bytes fine, function pointers, again, eight
+
+16:15.760 --> 16:20.960
+bytes. And this being why we needed an extra bit on every page to tell you whether it's
+
+16:20.960 --> 16:28.280
+Intel code or ARM code, because you might think, just like put it in the function pointer,
+
+16:28.280 --> 16:31.600
+but like there's no space. You have to make them one bit bigger to tell you whether they
+
+16:31.640 --> 16:38.640
+are Intel ARM pointers, which we can't do. So, we have to put that bit on the per page.
+
+16:38.640 --> 16:45.640
+But, you know, this all looks fine so far. Things get more interesting, though. So, if
+
+16:45.640 --> 16:50.680
+you're a C programmer, you'll know about set jump and long jump, which are C's equivalence
+
+16:50.680 --> 16:56.320
+to throw and catch. And there's this structure called jump buff that kind of tells you when
+
+16:56.360 --> 17:03.040
+I catch, this is the CPU state to kind of go back to when I do my catch. And you can
+
+17:03.040 --> 17:08.480
+pass the jump buff, you know, around, you know, you'll set it over here and use it over
+
+17:08.480 --> 17:15.480
+there. And in particular, in ARM 64 EC, you can do a long jump from Intel code to ARM
+
+17:15.480 --> 17:20.440
+code or from ARM code to Intel code. So, this jump buff guy has to be kind of compatible
+
+17:20.440 --> 17:26.280
+between the two. As I said, jump buff contains the CPU state that you want to go back to.
+
+17:27.240 --> 17:34.240
+But, like, Intel CPUs and ARM CPUs have different amounts of CPU state. So, that's going to
+
+17:34.240 --> 17:40.040
+be fun. To make it even worse, there's this Windows structure called context in all caps
+
+17:40.040 --> 17:46.640
+that contains the entire CPU state for a particular thread. But, again, you can pass around and
+
+17:46.640 --> 17:53.080
+do things with. And, yeah, so that guy has to be the same size as on ARM 64 EC as it
+
+17:53.120 --> 17:57.760
+is on Intel, despite there being a different amount of CPU state. So, this is starting to
+
+17:57.760 --> 18:06.760
+look a little hairy. So, what is all of the CPU state that we have to fit in to make these
+
+18:06.760 --> 18:11.720
+data structures compatible? So, we want a quick table here of, like, the user-visible
+
+18:11.720 --> 18:18.560
+CPU state on Intel and on ARM. ARM in one column, Intel in the other. I'm going to go
+
+18:18.640 --> 18:23.960
+through row by row to kind of go through them quickly. To, like, general purpose registers
+
+18:23.960 --> 18:30.960
+to start with, Intel has 16 of them, ARM has 32. You will notice we can't fit 32 into 16.
+
+18:30.960 --> 18:36.960
+This is going to be a slight problem. Next row is not so bad. We've got a bunch of, like,
+
+18:36.960 --> 18:43.960
+weird kind of edge cases. We've got RIP and PC. They're, like, the same thing. PSA and
+
+18:44.040 --> 18:50.040
+PSA because they're the same thing. The two FP things on ARM, we can fit into MX, CSR
+
+18:50.040 --> 18:55.040
+on Intel, but that much is fine. We've got the spare GS thing, which we'll come back
+
+18:55.040 --> 19:02.040
+to later. Next row is our floating point or vector registers. Again, Intel has 16, ARM
+
+19:02.760 --> 19:09.760
+has 32. 32 is more than 16. So, again, problem there. The bright sparks in the audience might
+
+19:10.520 --> 19:15.520
+say doesn't modern Intel with, like, AVEX 2 and AVEX 512 have far more registers than
+
+19:15.520 --> 19:22.520
+they're far larger. Yes, but ambient laters can't use AVEX or AVEX 2 or AVEX 512 because
+
+19:22.960 --> 19:27.960
+of patents. So, we're stuck with the kind of old, kind of, 16 of them and not only 128
+
+19:27.960 --> 19:34.960
+bits wide. This final row is interesting because Intel way back added the AVEX 87 stack, which
+
+19:35.960 --> 19:42.960
+is 880-bit floating point registers. ARM has no such thing because this is, like, this
+
+19:44.280 --> 19:51.280
+old weird, like, legacy thing, but this is actually really good for us. So, our question
+
+19:51.320 --> 19:58.320
+is how do we fit all of the ARM column into the Intel column? So, let's start with the
+
+19:58.520 --> 20:04.720
+floating point registers and we'll say, okay, let's pretend ARM only has 16 of them. Problem
+
+20:04.760 --> 20:11.760
+solved, right? If you're writing ARM 64 EC code, you cannot use the high 16 of these
+
+20:11.840 --> 20:18.840
+guys. I mean, it'll come in a performance cost, but it'll make things work. The other
+
+20:19.000 --> 20:24.400
+way we had problem was with this first row, where we'd like to be not quite as extreme
+
+20:24.400 --> 20:30.680
+as throwing away half of them. So, we've got, like, 16 that we can fit over here. One can
+
+20:30.720 --> 20:37.720
+fit in GS and then 10 can fit down there. So, 16 plus 1 plus 10 means we can fit 27 of
+
+20:39.880 --> 20:46.880
+these guys in here somewhere. It works, it works. But we are still down 5. So, they'll
+
+20:50.320 --> 20:55.760
+become 5 general purpose registers that you cannot use. So, Microsoft said, okay, you
+
+20:55.840 --> 21:02.840
+just can't use X13, X14, X23, X24 or X28 in addition to the 16 factor things that you
+
+21:04.800 --> 21:10.480
+cannot use. So, this is the cost of making your data structures compatible between the
+
+21:10.480 --> 21:17.480
+two and it seems like a fairly high cost, but, you know, such is life. Moving on, we are
+
+21:17.800 --> 21:24.800
+sharing our call stacks between Intel and ARM. If you're familiar with Intel and ARM,
+
+21:25.400 --> 21:29.360
+your first point will be, so, doesn't like ARM put the return address in a register,
+
+21:29.360 --> 21:34.840
+whereas Intel puts it on the stack. Yes, we're going to have to fix that one up. The problem
+
+21:34.840 --> 21:40.280
+that you might not have noticed was that ARM requires your stack points to be 16-byte
+
+21:40.280 --> 21:47.280
+aligned when you use it for a load or a store. Intel merely recommends this very strongly.
+
+21:47.760 --> 21:53.640
+But doesn't actually check for it. So, you can very happily run with an only eight-byte
+
+21:53.640 --> 21:58.960
+aligned stack for a very long time and not notice that you've done anything wrong because
+
+21:58.960 --> 22:02.600
+it doesn't actually check for it. So, we're going to have to fix that one up, that one
+
+22:02.600 --> 22:07.920
+up too. So, a bit of work required to make these things work, but, you know, we can understand
+
+22:07.920 --> 22:13.200
+what that work is. And then we get to the actual meter things of, like, how do we switch between
+
+22:13.200 --> 22:17.440
+these two modes? We've made these things of compatible-ish or we've understood how
+
+22:17.440 --> 22:24.440
+to make them compatible, but how do we actually switch between Intel and ARM? So, if you're
+
+22:25.280 --> 22:28.960
+at use for assembly, you'll know what a calling convention is, which is, like, when we make
+
+22:28.960 --> 22:35.440
+a function call, where do we put the arguments for that call? Which registers contain when
+
+22:35.440 --> 22:40.240
+or what do you put on the stack when? And then, like, you can read these, like, long
+
+22:40.280 --> 22:46.560
+docs from ARM or from, like, other people about how to do this. And then there's a set
+
+22:46.560 --> 22:51.640
+of these rules for ARM, a set of these rules for Intel. We don't want to change those rules
+
+22:51.640 --> 22:57.000
+too much because, like, they mostly work, but they're not the same rules. You have to,
+
+22:57.000 --> 23:02.640
+like, put things in different places between Intel and ARM. So, we have to do some work
+
+23:02.640 --> 23:07.960
+to kind of fix that one up. And the work that you have to do will depend on the types of
+
+23:08.000 --> 23:13.760
+the arguments and the type of the return value of your function. So, we're going to need
+
+23:13.760 --> 23:18.160
+some kind of code for doing this work, and this code has to live on the ARM side of things
+
+23:18.160 --> 23:22.160
+because, again, we're trying to run Intel code that doesn't know it's running under
+
+23:22.160 --> 23:26.880
+emulation, so we can't change it. We can't add extra stuff in there. We have to add
+
+23:26.880 --> 23:33.880
+the extra stuff on the ARM side, which means if you're writing assembly code in ARM 64
+
+23:33.880 --> 23:39.880
+it's like, how do I do a function call? This is how you do a function call. Step one,
+
+23:39.880 --> 23:44.880
+as you would normally put the arguments where they would be for a normal ARM call, and then,
+
+23:44.880 --> 23:49.880
+like, so, am I calling Intel or am I calling ARM? On the left-hand side, we've got the
+
+23:49.880 --> 23:56.880
+am I calling ARM column, and it, again, works like a normal ARM call other than this mystery
+
+23:57.360 --> 24:03.200
+box about exit points in X10 that I'm going to gloss over from now and come back to later.
+
+24:03.200 --> 24:08.480
+But other than that box, the left-hand column is a fairly normal function call on ARM. You
+
+24:08.480 --> 24:11.680
+put the results where they're meant to be, you call the function, you get the results
+
+24:11.680 --> 24:17.440
+back from where they are normally meant to be. The weird case is the Intel case on the
+
+24:17.440 --> 24:21.600
+right here, where we reduce some other things. Where we put the function that we want to
+
+24:21.600 --> 24:28.600
+call in the X9 register, has to be X9, and then we call an exit function. You're going
+
+24:29.400 --> 24:35.400
+to say, Peter, what is an exit function? And I will get to that in just a bit, but I want
+
+24:35.400 --> 24:41.720
+to address a different point first, which is this code has a branch in it, right? Everyone
+
+24:41.720 --> 24:48.720
+prefers straight line code to branchy code. But, like, we can get rid of these branches,
+
+24:48.720 --> 24:52.880
+mostly. You know, we'll have to have to do, like, both of these two steps, and push them
+
+24:52.880 --> 24:58.920
+up there, and then combine both of the calls. Because, like, this row, we're going to do
+
+24:58.920 --> 25:05.400
+a function call. We just don't know, like, where to yet. So, like, some kind of, like,
+
+25:05.400 --> 25:08.960
+conditional marks on where we want to call. And then we can make this whole lot straight
+
+25:08.960 --> 25:14.840
+line code. At which point, it'll look like this. You know, first box is the same. Second
+
+25:14.840 --> 25:19.000
+box is, like, we've pulled up both of the previous steps and just done both of them.
+
+25:19.120 --> 25:27.120
+This middle step is calling this magical mystery function from Microsoft. And then you do a
+
+25:27.120 --> 25:32.640
+call to somewhere. And then this last box is the same as previously. And if you're wondering,
+
+25:32.640 --> 25:37.440
+what does this magical mystery function from Microsoft do? You know, it turns this side
+
+25:37.440 --> 25:44.440
+back into this side. I mean, so, if you're reading assembly code, this is what you will
+
+25:44.480 --> 25:51.080
+see, but this is what it does. And now, I'll get to the previous point of so, what are
+
+25:51.080 --> 25:57.680
+these exit functions? So, they kind of fill the gap in. They kind of, the extra bits you
+
+25:57.680 --> 26:02.240
+have to do to transition off to arm mode. Which is we have to take the arguments that
+
+26:02.240 --> 26:06.520
+we carefully put in their arm places, take them out of their arm places, and put them
+
+26:06.520 --> 26:11.120
+into where they should be for the Intel style call. Which, you know, a bunch of work, but
+
+26:11.200 --> 26:16.800
+it's fine. And then ensure that the function that we want to call is still in X9. And then
+
+26:16.800 --> 26:22.040
+we call the next magical mystery function from Microsoft. And we have to do it in a
+
+26:22.040 --> 26:27.040
+special way. We have to put the address of this function in X16 and then call X16. Which
+
+26:27.040 --> 26:33.540
+is going to seem weird, but we're going to have to see why in a bit. And once the magical
+
+26:33.540 --> 26:38.080
+mystery function kind of comes back, we take the results from where they would live in
+
+26:38.120 --> 26:42.080
+Intel world, pull them out of that world, and put them where they would be for an arm
+
+26:42.080 --> 26:48.600
+world, and then we return as normal. So, okay. Next up, let's look at this magical mystery
+
+26:48.600 --> 26:55.600
+function. Which is this guy. So, first box in the top left. I mentioned that ARM puts
+
+26:59.320 --> 27:04.240
+return address on the register, whereas Intel puts it on the stack. This first box is fixing
+
+27:04.240 --> 27:11.240
+up that problem. Then the rest of the left-hand column is your kind of usual loop for emulating
+
+27:11.760 --> 27:17.400
+a CPU. You know, we get the next instruction. We do it somehow. Then we move to the next
+
+27:17.400 --> 27:24.400
+instruction and we do that one. In practice, there's going to be a far more complex logic
+
+27:24.520 --> 27:28.800
+in here. So, you know, like optimize stuff. And you're like, you know, jit compiler or
+
+27:28.800 --> 27:33.080
+AOT compiler or all sorts of clever stuff in there. But as far as we're concerned, as
+
+27:33.160 --> 27:39.680
+well as what it does, this kind of describes what it does. At some point, it'll say, wait
+
+27:39.680 --> 27:44.440
+a minute. You're now asking me to go back to ARM mode, because I've found code that's
+
+27:44.440 --> 27:50.440
+no longer like Intel code. We are doing some kind of mode switch. Now, I said earlier,
+
+27:50.440 --> 27:55.840
+mode switches, we've said they're only going to happen at function call or function return.
+
+27:55.840 --> 28:02.440
+Oh, go. If we've now gone from Intel's ARM, this is either a call or a return. And how
+
+28:02.520 --> 28:09.520
+do we know which? And the cheeky part there is that we look at the four bytes just before
+
+28:10.000 --> 28:16.520
+where we're going to start running and say, is this a call X16 instruction? Why is that
+
+28:16.520 --> 28:22.720
+the question? Because we have to call this magical mystery function as a call X16, which
+
+28:22.720 --> 28:27.440
+means if we just found that, it means we've just come back from the call that we were
+
+28:27.520 --> 28:34.520
+doing. We are in a function return type thing. And we set the return pointer to the code
+
+28:34.840 --> 28:39.880
+we want to run to, and we go to it. And this final column means that we're doing a function
+
+28:39.880 --> 28:46.360
+call, because the four bytes before where we're going to are anything else. And then
+
+28:46.360 --> 28:51.080
+we need to do, again, the opposite problem of where your return address wants to be. Is
+
+28:51.080 --> 28:56.480
+it on the stack or is it in a register? So we fix up that problem. And then we've set
+
+28:56.520 --> 29:00.760
+X4 to be the stack pointer. Why do we do that? Because the next step is to say we have to
+
+29:00.760 --> 29:05.920
+forcibly realign the stack pointer. Because remember that point where I said like, Intel
+
+29:05.920 --> 29:12.920
+code doesn't care about your alignment for as ARM does, this is where we fix that problem.
+
+29:12.920 --> 29:18.520
+And then we tail call X9's alternative entry point. Remember, X9 being the sting that we've
+
+29:18.520 --> 29:25.520
+inferred is a function tool that we're trying to make. So we do a call to almost that function.
+
+29:25.720 --> 29:30.720
+Again, you're going to say, Peter, what are these alternative entry points? So that's next.
+
+29:31.720 --> 29:38.320
+So every ARM function that could be called from Intel needs a so-called alternative entry point
+
+29:38.320 --> 29:44.040
+for handling when it is called from Intel. And it does all of the gubbins that have to be done
+
+29:44.040 --> 29:50.320
+to make this transition work. The only question is how do you find this alternative entry point,
+
+29:51.080 --> 29:56.080
+which is you put the offset of it in the four bytes before the start of the function,
+
+29:56.080 --> 30:01.280
+which is handy because we already had to read those four bytes to check whether they were
+
+30:01.280 --> 30:09.680
+that guy. So if they're not that guy, then they are the offset of this guy. And what is in one of
+
+30:09.680 --> 30:16.440
+these guys? Ignore the right hand column for now and look at just the left hand column,
+
+30:16.880 --> 30:21.360
+which point in the left hand column is mostly the opposite of what we saw earlier. We have to
+
+30:21.360 --> 30:25.440
+take the arguments from where they are in Intel and pull them out of there, put them where they
+
+30:25.440 --> 30:31.080
+should be for ARM land, call the real part of the function, and then take the results out of
+
+30:31.080 --> 30:35.720
+there and put them where they should be for Intel, and then call the next magical mystery function.
+
+30:35.720 --> 30:41.480
+The only interesting part here is this first box where we're saying if there are arguments that
+
+30:41.520 --> 30:47.440
+come off the stack, we can't read them from the stack point, we have to read them from x4. Why is
+
+30:47.440 --> 30:53.000
+this because of this forcibly realigning sp? You can no longer read your arguments from there
+
+30:53.000 --> 30:59.160
+because we might have changed it to realign it, but x4 tells you where they used to be. So that's
+
+30:59.160 --> 31:08.240
+fine. The interesting point is that the logic on the slide only depends upon the types of the
+
+31:08.280 --> 31:14.760
+arguments and the types of the return. It doesn't actually care about what the function actually
+
+31:14.760 --> 31:21.040
+does, and therefore you can kind of share these guys between multiple functions if those functions
+
+31:21.040 --> 31:27.160
+have the same type, which is good for like, you know, code sharing keeps your memory usage down,
+
+31:27.160 --> 31:32.960
+your iCash is happier, whatnot. But if you want to, you could write one of these per function,
+
+31:33.560 --> 31:38.120
+which point in the right hand side becomes an option that you could do, and then you can
+
+31:38.120 --> 31:42.360
+kind of skip the kind of calling in the other bits, just put the copy of your function in there,
+
+31:42.360 --> 31:51.040
+if you so wish. Okay, so next magical mystery point function is this guy. Don't worry,
+
+31:51.040 --> 31:56.560
+you've seen most of this side previously. It's all the same side except for the first box in the
+
+31:56.640 --> 32:05.640
+top left, for which you're going to ask, so what does this box in the top left do? What is the
+
+32:05.640 --> 32:12.000
+value of lr that we have up there? And if you trace all the stuff through, you'll see it's the
+
+32:12.000 --> 32:18.760
+same lr that we popped over on this side, which was the return address that we popped off the stack
+
+32:18.760 --> 32:23.720
+because we think the Intel code just made a function call, at which point what we're putting
+
+32:23.760 --> 32:28.760
+back in the top left is the return address to go back into Intel mode. So it all kind of works
+
+32:28.760 --> 32:36.440
+out. As you've seen this slide previously, at which point we have run out of magical mystery
+
+32:36.440 --> 32:46.960
+functions, so you know, there's a hard part over, that all kind of works out. So that tells you
+
+32:46.960 --> 32:52.960
+roughly very quickly what arm64 EC is, what the kind of code for it will look like,
+
+32:53.920 --> 33:02.760
+so next up, the kind of the lured part of how did I make lured work with this thing. So if you
+
+33:02.760 --> 33:07.840
+know lured, it's written in a mixture of assembly and C, and notably the interpreter is several
+
+33:07.840 --> 33:14.240
+thousand lines of assembly code, which is, you know, fun. So porting that code, that assembly
+
+33:14.240 --> 33:19.280
+code to arm64 EC, means that we can no longer use the versus that we said we couldn't use,
+
+33:19.440 --> 33:27.840
+they don't fit in the context structures. So we lose v16 to v31. That's fine, didn't use them to
+
+33:27.840 --> 33:34.680
+start with. x13, x14, again didn't use them to start with, not a problem. Unfortunately we did
+
+33:34.680 --> 33:41.720
+use x23 and x24 for various things, but because of what they were used for, they could be reworked
+
+33:42.000 --> 33:49.440
+to not require them with some almost zero cost tricks, so that wasn't too much of a pain. Losing
+
+33:49.440 --> 33:56.480
+x28, more annoying, that kind of required extra loads and stores to kind of split. In this regard,
+
+33:56.480 --> 34:01.200
+the jic and pilot was actually easier to port than the interpreter, because the jic and pilot
+
+34:01.200 --> 34:06.080
+could already just not use certain things, so you just had to add some things onto the list of
+
+34:06.080 --> 34:10.160
+what it can't use, and like, you know, it'll then just not use them. Again, there will be some kind
+
+34:10.200 --> 34:17.360
+of like perf cost to not using them, but it wasn't hard on the kind of porting side. Next up is
+
+34:17.360 --> 34:23.800
+handling these mode switches. So the C compiler will do most of the work for all of the C parts of
+
+34:23.800 --> 34:31.440
+Lerget, but again, it won't handle the assembly parts. So there are kind of three parts, therefore,
+
+34:31.440 --> 34:38.840
+that it doesn't really handle. One is the interpreter opcode for calling Ler API C functions. That
+
+34:38.880 --> 34:44.240
+one's fairly simple, like the, it's only one place, it can only call one type of function, and the
+
+34:44.240 --> 34:52.200
+type of that function is super simple. So that one's fine. Harder is the ffi. So if you're not
+
+34:52.200 --> 34:58.520
+familiar with the ffi, it's the Lerget's foreign function interface, and it lets Ler code call
+
+34:58.520 --> 35:07.040
+C functions of any type. Whatever type you want, it'll call it for you, and it'll just make it
+
+35:07.080 --> 35:15.440
+work. And you can also jit compile your ffi calls in most cases. I say with simple types, like most
+
+35:15.440 --> 35:22.560
+types are simple, so you can jit compile most of them. We also support ffi callbacks, but you can
+
+35:22.560 --> 35:30.520
+take a Ler function and make it into a C function, and then C code can call you. So again, it's like
+
+35:30.520 --> 35:36.040
+Intel code is trying to call your kind of ARM code that you created from your Ler code. You have
+
+35:36.080 --> 35:46.280
+to make that one work. That one's actually not too bad. 10, great, thank you. So the hard part is
+
+35:46.280 --> 35:56.760
+these two, just because they're kind of arbitrary types of function. So this is what I made Lerget
+
+35:57.080 --> 36:05.720
+do for interpreted ffi calls. So the good thing about ffi calls is that they are one shot calls.
+
+36:05.720 --> 36:12.000
+You give the ffi a pointer to call, and the type to use it to call it, and it'll go and do it,
+
+36:12.000 --> 36:16.360
+and it'll do it once. Because you're doing it once, you can look at the thing that you're trying to
+
+36:16.360 --> 36:21.120
+call it like so. Is this ARM code or is it Intel code, and just do the right thing for whatever
+
+36:21.160 --> 36:28.440
+it is that you're trying to call? Which gives you this nice, simple diagram. There is a slight
+
+36:28.440 --> 36:35.680
+problem with this diagram, though. So this is what we're meant to do. This is our slide from
+
+36:35.680 --> 36:42.360
+previously, and this is what we're actually doing. The right-hand side is just like we've
+
+36:42.360 --> 36:50.880
+inlined the exit tank, it's all fine. The left-hand side has a slight problem. I skipped over this
+
+36:51.040 --> 36:58.040
+box a while ago, and it's like we'll just forget about that box. And you'll notice that it's missing
+
+36:58.040 --> 37:04.480
+on this side, which will mean that certain things don't work. And the question is what doesn't work?
+
+37:04.480 --> 37:11.040
+So this is why I have to now tell you why this weird box is there on the left about putting a
+
+37:11.040 --> 37:17.960
+thing in X10 when there's no obvious reason why you need to do it. So let's answer that question,
+
+37:18.880 --> 37:26.080
+which is if we are making a function call and we are ARM code, and we might call Intel code,
+
+37:26.080 --> 37:32.760
+then we will need an exit tank. Hopefully we've now covered what those do and why you need them,
+
+37:32.760 --> 37:40.400
+and things of that mind, etc. If you want to do a function call, you need an exit tank,
+
+37:40.400 --> 37:46.400
+and to know which one to use, you have to know the type of the function that you want to call.
+
+37:46.840 --> 37:54.440
+Now, there's a particular subset of functions that don't know the type of the thing that they
+
+37:54.440 --> 37:59.280
+want to call. You might say that that's kind of weird, but let's just run with it for a while.
+
+37:59.280 --> 38:07.240
+And furthermore, these functions don't know their own type, also weird, but what they do know is
+
+38:07.240 --> 38:13.480
+that their own type matches the type of the thing that they want to call. Now this may sound like
+
+38:13.520 --> 38:19.520
+a somewhat contrived set of properties, but it does actually crop up enough in practice that
+
+38:19.520 --> 38:25.800
+it's worth caring about. So to let these weird typeless functions that don't know their own type
+
+38:25.800 --> 38:31.920
+and don't know what they're calling, to make them work, we give them an exit tank in X10. So
+
+38:31.920 --> 38:37.040
+if they are ARM code, they can just like, you know, run and say, well, whoever calls us put the
+
+38:37.080 --> 38:45.880
+appropriate thing in X10, and that will let us do the call that we want to do. So that means that
+
+38:45.880 --> 38:52.200
+if we end up calling one of those functions, and it then wants to call an Intel function, then this
+
+38:52.200 --> 38:59.600
+isn't actually going to work, but in practice it's actually fine. It's not yet been a problem. It
+
+38:59.600 --> 39:05.440
+could be fixed, but it's going to be like a pain to fix. You might ask, why is it going to be a
+
+39:05.520 --> 39:12.360
+pain to fix? That's because the FRI can call any type of function. So we can't just like
+
+39:12.360 --> 39:15.840
+preprepare an appropriate function for every single type of function. That's going to be way
+
+39:15.840 --> 39:23.080
+too many functions. So we have to jit compile the function that we want to use. And I mean,
+
+39:23.080 --> 39:30.840
+like really, like, can we just like not do that? Yeah, I just rather not do that yet. So I've skipped
+
+39:30.960 --> 39:38.480
+it. But it works. So, you know, great. That was interpreted, FRI calls. Then we've got jit
+
+39:38.480 --> 39:43.560
+compiled FRI calls. They're different because you will jit compile your call once, but then run it
+
+39:43.560 --> 39:48.480
+multiple times. So if we are jit compiling a call through a function pointer, we don't know
+
+39:48.480 --> 39:53.400
+whether that function pointer will be Intel or will be ARM. So we have to kind of do what we're
+
+39:53.400 --> 39:59.960
+meant to do more closely or almost do what we're meant to do. So, you know, we prepare the
+
+40:00.000 --> 40:05.480
+arguments as if it were a ARM call. If it ends up going to Intel, then we'll use an exit function
+
+40:05.480 --> 40:13.280
+to fix it up. We do the prep work that we went to do for the magical mystery function. All
+
+40:13.280 --> 40:18.760
+but again, I didn't want to jit compile an exit function for every possible type of thing that
+
+40:18.760 --> 40:23.440
+we might call. Because like, we're already jit compiling a function. We don't want to jit compile
+
+40:23.440 --> 40:29.240
+a function in addition to that at the same time. It just gets kind of hairy. So again, I cheated a
+
+40:29.280 --> 40:36.120
+bit and said, well, let's just write one function. They can handle like every case that can get jit
+
+40:36.120 --> 40:43.560
+compiled and just pass it the signature that it has to kind of pretend to be and just put that in
+
+40:43.560 --> 40:50.040
+some other register. And again, this will work fine in practice unless we hit the case of calling
+
+40:50.040 --> 40:54.560
+one of these typos functions that doesn't know their own type and it wants to call Intel and it
+
+40:54.600 --> 41:00.960
+happens to trash X15 that I've used to like, stash this X foot piece of state in. So again, not
+
+41:00.960 --> 41:07.720
+quite following the rules, but again, it works fine in practice. And then the slide that you've
+
+41:07.720 --> 41:13.000
+possibly all been waiting for, like, does this whole thing work? So you'll recall the first two
+
+41:13.000 --> 41:19.720
+lines from previous day. We said like, native ARM code ran in 37 seconds. The Intel code running
+
+41:19.760 --> 41:29.240
+under relation to 106, whereas the R54 you see code takes 38, which is pretty good, right? So we're
+
+41:29.240 --> 41:37.320
+kind of saying here, this is, it's native ARM code, so it should be close to 37 seconds, but it's
+
+41:37.320 --> 41:44.160
+making a combination such that it could call Intel code as and when it needs to. And making those
+
+41:44.200 --> 41:49.440
+combinations will slow you down by a few percentage points. But you know, you're in a much
+
+41:49.440 --> 41:53.800
+better place than you would otherwise be. And yeah, this crazy idea of Microsoft actually works.
+
+41:53.800 --> 42:13.040
+I can do one more slide or questions. Do you want to do? One more slide. Okay, great. So problems
+
+42:13.080 --> 42:21.200
+you didn't know that you had. Yeah, Linux has LD preload, which if you've used, you know, I want
+
+42:21.200 --> 42:28.000
+to let you know, change the malloc that I call or like, make F sync not slow. LD preload, great.
+
+42:28.000 --> 42:33.840
+Mac OS has LD, the old insert libraries, same thing, not quite the same details, but like the same
+
+42:33.840 --> 42:42.040
+thing. Windows doesn't have such a thing. It has ad hoc machine code patching. Yeah. And as a bonus
+
+42:42.080 --> 42:49.120
+point, Microsoft research used to sell a product called detours for doing this. Possibly like
+
+42:49.120 --> 42:55.840
+Microsoft research is only consumer facing product. Unsure. They made that open source on
+
+42:55.840 --> 43:03.960
+GitHub in like 2016. So you can go and find detours on GitHub and it will do 0.3. So you know how
+
+43:03.960 --> 43:08.960
+code lying around in your Intel code that expects to be able to go into other functions and patch
+
+43:09.040 --> 43:15.440
+them up. So to make this work, we have to take our functions and wrap them in a small Intel shell.
+
+43:15.440 --> 43:20.040
+So if you look at the shell, you're like, yeah, that's in the Intel code. I'll just patch that for
+
+43:20.040 --> 43:27.480
+you. And that's fun, right? So one of these magical mystery functions can kind of spot these
+
+43:27.480 --> 43:33.080
+shells and kind of skip right over them. But yeah, those shells are going to be here to make this
+
+43:33.080 --> 43:36.600
+thing work. That shouldn't be a problem in the first place, but it is because Windows doesn't
+
+43:36.640 --> 43:43.120
+have any of these systems. Bonus funds. Let's get back to here when we don't have to worry about
+
+43:43.120 --> 43:51.640
+the bonus problems. Okay. Great. Thank you, Peter. We have time.
+
+43:51.640 --> 44:03.200
+All right, let's do some questions. I'm going to start with one from online because otherwise
+
+44:03.280 --> 44:14.800
+we won't forget it. Can Intel code call ARM code? Oh, yes. Quick yes. Yes. Hands. This is the loop.
+
+44:14.800 --> 44:20.640
+Am I now trying to call ARM code? No. So I'm going to call Intel code. No, I'm trying to call ARM
+
+44:20.640 --> 44:26.000
+code. So we go over here and we go through the stack for calling ARM code. Yep, it all works.
+
+44:26.000 --> 44:29.400
+All right, one more time, hands, because I wasn't paying attention. I'll start here.
+
+44:34.200 --> 44:49.880
+How do you decide which code you can compile to ARM and which parts of the code you cannot
+
+44:49.880 --> 44:55.400
+and have to leave as Intel? So for the Luiget case, it's fairly simple because there's already an ARM
+
+44:55.400 --> 45:03.160
+version of Luiget. If you're going to write your own program, the advice is start with
+
+45:04.120 --> 45:10.320
+the hot parts and port those first. If that works, then you can slowly port more and more.
+
+45:10.320 --> 45:14.640
+I can get incremental speed improvements after you're porting more and more code. Over.
+
+45:14.640 --> 45:24.800
+Next question. Close by. Okay. Hi. Very nice presentation. Thank you.
+
+45:25.800 --> 45:34.800
+Hello. Okay. Yeah. Thank you very much. It was a very nice presentation. I was just curious
+
+45:34.800 --> 45:42.440
+what your experience is with the tooling support for these. What support? Like tooling support for
+
+45:42.440 --> 45:48.920
+these AVI, like the bloggers, compilers, what the support is like, if it's easy to use or. So yeah,
+
+45:48.960 --> 45:57.240
+the Microsoft C compiler can handle all of this fine. I think clang in LVM, kind of getting a few
+
+45:57.240 --> 46:04.160
+patches solely, but I'm going to be there for a while. The Visual Studio debugger for this stuff is
+
+46:04.160 --> 46:09.960
+great. You can single step through from ARM code to Intel code. I like not even notice that you've
+
+46:09.960 --> 46:15.720
+done a mode switch, which was kind of scary. Like, okay, single step, single step, single step,
+
+46:16.360 --> 46:22.400
+wait, what? I'm now in like ARM code. Okay, fine. So yeah, the Microsoft tooling is very good.
+
+46:22.400 --> 46:25.240
+The open source tooling not yet, not yet really there.
+
+46:30.000 --> 46:34.520
+So what I don't, maybe I've missed it, but what I don't quite understand is what I see here is the
+
+46:34.520 --> 46:41.000
+ARM64 AVI has been changed to match the Intel AVI a little bit more, right, to make this work. Yep.
+
+46:41.080 --> 46:48.120
+So how does that work when calling ARM64 Windows API functions? Do they have ARM64 EC versions of
+
+46:48.120 --> 46:50.120
+all of them? Yep. Wow. Yep.
+
+46:57.560 --> 47:02.600
+Yes, I have another question. It's a bit related to the question that was just asked about tool
+
+47:02.600 --> 47:10.200
+sense. Do you know other open source tool sense that support ARM64 EC, like GCC or maybe other
+
+47:10.280 --> 47:17.320
+GIT compilers? Yeah, that's my first question. Yeah, I've seen some patches land in Y and in
+
+47:17.320 --> 47:24.680
+Clang and LVM, but I kind of, I suspect they're all kind of starting to do things rather than like full support.
+
+47:26.600 --> 47:30.680
+Okay, another question and maybe, maybe I'm not sure I understood, but so you have
+
+47:31.400 --> 47:39.320
+LuaGIT users that want to call, do FFI basically with X64 code. So that's basically why you implemented
+
+47:39.320 --> 47:42.760
+the... Yeah, yes, most of your program is in Lua.
+
+47:48.840 --> 47:49.160
+Thank you.
+
+47:52.680 --> 47:54.280
+Any more questions? Oh, yeah, of course.
+
+47:54.760 --> 48:02.280
+Just, I think I didn't get, so you reduced the number of ARM registers, but wouldn't it possible to
+
+48:02.280 --> 48:04.760
+spill them to memory when you do the mode switch?
+
+48:12.760 --> 48:15.240
+Here's my cutout. So I'm going to run around.
+
+48:17.800 --> 48:18.760
+Here you go.
+
+48:19.640 --> 48:28.760
+Yeah, so it's, you can't spill them because you don't have any way to spill them to.
+
+48:29.560 --> 48:35.640
+Like if it was only the operating system that did mode switches between threads, you'd be fine.
+
+48:37.160 --> 48:41.400
+But you know, you can call such jump and long jump and there's like, there's not space in the jump
+
+48:41.400 --> 48:49.320
+buff to put the extra things. Or if you're really adventurous, you can do kind of user space
+
+48:49.320 --> 48:55.160
+scheduling in Windows. You know, you can call suspend thread and then like resume thread and
+
+48:55.160 --> 49:01.160
+like move your contacts in between threads. And you know, you could have Intel threads doing this
+
+49:01.160 --> 49:05.240
+onto your ARM threads. The Intel threads don't know that they're doing this to ARM threads.
+
+49:05.960 --> 49:10.200
+So you don't have any extra space to put the ARM states because they didn't know that they'd need
+
+49:10.200 --> 49:11.320
+this extra space.
+
+49:16.440 --> 49:19.400
+Yeah, I'm going to be running. We have somebody all the way in the back who's been waiting for a long
+
+49:19.400 --> 49:24.360
+time. Sorry, I didn't see you. I'm going to have to run back. I said a question to you.
+
+49:25.640 --> 49:27.000
+How do you deal with the red zone?
+
+49:31.160 --> 49:32.360
+I was like, why is he not answering?
+
+49:33.160 --> 49:43.640
+So short answer, Windows doesn't have a red zone in either Intel or ARM.
+
+49:45.000 --> 49:52.040
+So that's mostly fine. There was a related concept of home space for the first four
+
+49:52.040 --> 49:57.880
+integer registers in a kind of Intel call. And yeah, you have to handle that. So when you're
+
+49:57.880 --> 50:02.280
+doing your marshalling and remarshalling of arguments, you need to leave space for the
+
+50:02.280 --> 50:08.760
+home space as you would for a normal Intel call. So yeah, there is no red zone, but the closest
+
+50:08.760 --> 50:10.280
+equivalent thing, yes, you have to handle.
+
+50:13.320 --> 50:16.840
+Are there more questions? Are we? Oh, great.
+
+50:19.320 --> 50:20.920
+How long did this take you to figure out?
+
+50:21.160 --> 50:29.400
+Probably not very long. I mean, the documentation is pretty good on the
+
+50:29.400 --> 50:35.160
+Microsoft side. So possibly a week or two, probably.
+
+50:40.040 --> 50:40.840
+One more over there.
+
+50:40.920 --> 50:53.240
+So is there any way to call like regular, let's call them closed source ARM 64 Windows components,
+
+50:53.240 --> 50:55.160
+or is it complete separation?
+
+50:57.320 --> 50:59.880
+Completely separate. Any more questions?
+
+51:03.960 --> 51:07.240
+Oh, were you going to elaborate on the answer? Of course, yeah. I thought that was a really
+
+51:07.240 --> 51:09.800
+short answer. I'm just trying to save myself from running.
+
+51:10.760 --> 51:17.640
+Yeah, completely separate. So yeah, any kind of ARM only DLLs you can't call into,
+
+51:17.640 --> 51:22.440
+you have to have these special ARM 64 EC DLLs. Thankfully Microsoft have already done that for
+
+51:22.440 --> 51:29.160
+all of the kind of system libraries. So anything from Microsoft you can already call. But yeah,
+
+51:29.160 --> 51:31.880
+other code has to be in this weird mode to make it work.
+
+51:34.840 --> 51:36.200
+Any more questions? Yeah.
+
+51:37.800 --> 51:41.880
+Really making me work this year. Where were you?
+
+51:44.760 --> 51:50.360
+I was wondering, like, is there already examples of software that uses it because you can
+
+51:51.320 --> 51:57.640
+find it quite easily because the executable is like a different type that it uses? Because I,
+
+51:59.960 --> 52:06.760
+is there any like software, I haven't heard of this feature before, but like so far already
+
+52:06.760 --> 52:09.480
+using this major things?
+
+52:18.040 --> 52:23.720
+Yeah, so the person that opened the issue on the Lujo project is apparently using this thing.
+
+52:27.080 --> 52:32.760
+I mean, I'm told that most of like Microsoft like Office and similar are running in this mode
+
+52:32.760 --> 52:39.000
+so that you can have your Intel type plugins work. But yeah, apparently there's a user for
+
+52:39.000 --> 52:46.840
+this stuff of the Lujo thing and using it. The last question or was that the last question?
+
+52:49.480 --> 52:53.560
+Can we pass it? Sorry, what did the EC stand for?
+
+52:56.680 --> 53:01.160
+Emulator compatible. Am I stealing it from you? Emulator compatibility.
+
+53:01.880 --> 53:08.280
+That's what it stands for. If that was the last question, then let's thank Peter one more time.
+
+53:14.120 --> 53:20.200
+So am I still, yeah, with that, that closes up the Emulator Development Room this year.
+
+53:20.200 --> 53:21.800
+I want to thank you all for coming.
+

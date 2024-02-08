@@ -1,0 +1,1667 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Okay, this is the kernel dev room.
+
+00:11.000 --> 00:14.000
+In case you wondered into the wrong room,
+
+00:14.000 --> 00:20.000
+the next talk is by Stefan Grabber about isolated user name spaces.
+
+00:20.000 --> 00:23.000
+All right, hello everyone.
+
+00:23.000 --> 00:26.000
+So, as Christian mentioned, I'm Stefan Grabber.
+
+00:26.000 --> 00:33.000
+I work for myself and I've been doing container stuff for the past 15 years or so at this point.
+
+00:33.000 --> 00:37.000
+I'm also the project leader for Linux containers.
+
+00:37.000 --> 00:43.000
+And with me, I've got Alex, who is a kernel engineer on the LexD team at Canonical.
+
+00:43.000 --> 00:47.000
+And basically this topic is something I've been thinking about
+
+00:47.000 --> 00:54.000
+and talking to a bunch of people, Christian, whoever else was at Plumbers for the past three, four years at this point.
+
+00:54.000 --> 00:59.000
+So, since about 2018, and I got lucky enough to have Alex at Canonical
+
+00:59.000 --> 01:03.000
+who's been able to actually get this thing working.
+
+01:03.000 --> 01:09.000
+So, bit of an intro, what are the user name spaces?
+
+01:09.000 --> 01:15.000
+To just kind of give an update on the current state of things before we try and replace it all.
+
+01:15.000 --> 01:23.000
+So, user name spaces were introduced back in this, well, fully introduced back in 312, 313-ish.
+
+01:23.000 --> 01:28.000
+That's back in 2013-2014 timeline.
+
+01:28.000 --> 01:35.000
+They allow for the creation of a name space, obviously,
+
+01:35.000 --> 01:42.000
+in which one can map one or multiple ranges of UIDs and GIDs.
+
+01:42.000 --> 01:52.000
+So, you effectively decide that, oh, in this name space, my UID 1000 is equal to UID 100,000 on the host or something like that.
+
+01:52.000 --> 01:57.000
+This allows for much safer containers because you can now map routes in the container
+
+01:57.000 --> 01:59.000
+to be something other than route on the host.
+
+01:59.000 --> 02:04.000
+So, even if something bad was to happen and you could escape the container for some reason,
+
+02:04.000 --> 02:08.000
+then you would end up being a nobody user on the system instead of being real route.
+
+02:08.000 --> 02:10.000
+That's kind of the idea.
+
+02:10.000 --> 02:17.000
+It's been used a fair bit in some container managers, especially the ones that we developed.
+
+02:17.000 --> 02:21.000
+So, Alex, Alex, they incurred all of those user name spaces quite extensively.
+
+02:21.000 --> 02:27.000
+It is also possible to use in Docker, Podman or other now, but doesn't tend to be the default.
+
+02:27.000 --> 02:34.000
+So, just to kind of show the current state of things again, so if I turn that one on, there we go.
+
+02:34.000 --> 02:37.000
+Let's just take a quick look at how that stuff works.
+
+02:37.000 --> 02:45.000
+So, as a completely normal random user name system, I can just do user name space, stream map, and now I'm route.
+
+02:45.000 --> 02:49.000
+Except I'm not, but I'm route in that name space anyways.
+
+02:49.000 --> 02:53.000
+So, when you do that, it just maps the route user to your own user.
+
+02:53.000 --> 03:00.000
+So, my own user, my laptop is UID 21105, and that's what route is in there.
+
+03:00.000 --> 03:03.000
+That works, but nothing else is mapped.
+
+03:03.000 --> 03:07.000
+So, if I try to actually switch to any other user, things are just going to blow up.
+
+03:07.000 --> 03:12.000
+Actually, this user doesn't even exist, but this will exist, because nobody would.
+
+03:12.000 --> 03:15.000
+And, yeah, it's just not going to work.
+
+03:15.000 --> 03:20.000
+So, the plain doesn't exist, which is going to cause a bunch of interesting side effects,
+
+03:20.000 --> 03:23.000
+like everything belonging to nobody, no group, all that kind of stuff.
+
+03:23.000 --> 03:29.000
+But, that's for an individual user just creating a community and privilege name space, and that works.
+
+03:29.000 --> 03:37.000
+Now, if we look at doing the container instead, so if we just create, as I was using in CURSE in this case,
+
+03:37.000 --> 03:42.000
+just creating an Ubuntu container, there we go.
+
+03:42.000 --> 03:48.000
+And, if we go in there, then that container is going to have an UID map and a GID map.
+
+03:48.000 --> 03:53.000
+So, in this case, it means UID 0 in the container is mapped to UID 1 million on the host,
+
+03:53.000 --> 03:59.000
+and the following 1 billion UIDs and GIDs are mapped the same way.
+
+03:59.000 --> 04:08.000
+So, UID 1000 would be UID 1 million, 1000 whatever on the host.
+
+04:08.000 --> 04:12.000
+We can also do, as I said, multiple maps, so you can start doing kind of punching type stuff.
+
+04:12.000 --> 04:21.000
+So, if you go and modify and you say, hey, actually I would like UID 1000 on the host to be UID 5000 in the container.
+
+04:21.000 --> 04:23.000
+I think that's in that order. It works.
+
+04:23.000 --> 04:29.000
+Then, you start the container back, and if you look at the map, did I forget to do something?
+
+04:29.000 --> 04:31.000
+So, G1.
+
+04:31.000 --> 04:34.000
+Oh, I looked at G. Oh, that's why. Hey, look at that.
+
+04:34.000 --> 04:38.000
+It shows you can actually do maps differently for UIDs and GIDs.
+
+04:38.000 --> 04:42.000
+So, yeah, UID does have that punch in the middle, which effectively causes three maps.
+
+04:42.000 --> 04:47.000
+That works. That's been around. It's fine.
+
+04:47.000 --> 04:50.000
+That's the status quo effectively.
+
+04:50.000 --> 04:52.000
+Now, what's wrong with this stuff?
+
+04:52.000 --> 04:59.000
+Well, so the current implementation, it relies on still a single global UID and GID space.
+
+04:59.000 --> 05:08.000
+And you get to then map, like create namespaces and map there UID and GID back to some trunk of that global UID space,
+
+05:08.000 --> 05:10.000
+a global UID GID space.
+
+05:10.000 --> 05:12.000
+That works.
+
+05:12.000 --> 05:15.000
+But you can create overlaps.
+
+05:15.000 --> 05:18.000
+So, you could have multiple containers that actually map to the same thing.
+
+05:18.000 --> 05:24.000
+You can have some random processes on the host that actually use the same UIDs and GIDs as you're trying to use in some containers.
+
+05:24.000 --> 05:26.000
+And that can cause some issues.
+
+05:26.000 --> 05:31.000
+That can cause the occasional oops, I've got way more privilege than I intended to have.
+
+05:31.000 --> 05:40.000
+And also, it can cause some issues with like potential denial of service attacks if you're starting to like use user specific limits or that kind of stuff.
+
+05:40.000 --> 05:47.000
+There is a way to try and avoid that, which is using shadows, sub UID and sub GID files,
+
+05:47.000 --> 05:51.000
+along with some helpers called New UID Map and New GID Map.
+
+05:51.000 --> 05:58.000
+And the idea with those tools is you get to actually assign for each user what maps they're allowed to use on the system.
+
+05:58.000 --> 06:03.000
+And so long as everyone uses those helpers and everyone looks at the file, there shouldn't be any conflicts.
+
+06:03.000 --> 06:07.000
+The problem is that not everyone uses the helpers and not everyone looks at the file.
+
+06:07.000 --> 06:13.000
+And even when they do look at the file, the tools that write the file gets really confused sometimes.
+
+06:13.000 --> 06:16.000
+This is an example of what happens when it gets really confused.
+
+06:16.000 --> 06:21.000
+I mean, nobody in this room hopefully can figure out what the root user actually gets as far as allocation,
+
+06:21.000 --> 06:24.000
+because even if you could, it's just broken.
+
+06:24.000 --> 06:29.000
+There's like, they actually overlap each other in conflict to the point where if you actually try to figure it out,
+
+06:29.000 --> 06:32.000
+it just ends up with something that's invalid.
+
+06:32.000 --> 06:34.000
+That's a bit of a problem.
+
+06:34.000 --> 06:37.000
+And just the general concept hasn't really worked out.
+
+06:37.000 --> 06:42.000
+So in practice, most tools at this point just ignore those files entirely and just do whatever they want.
+
+06:42.000 --> 06:45.000
+But that can have security implications, which is not ideal.
+
+06:45.000 --> 06:49.000
+So what can we do about this issue?
+
+06:49.000 --> 06:53.000
+Well, what if we had a lot more UIDs than GIDs?
+
+06:53.000 --> 06:56.000
+I mean, that would fix everyone's problems, right?
+
+06:56.000 --> 06:58.000
+Like, what about a lot more of them?
+
+06:58.000 --> 07:02.000
+Like, about, say, 4.2 billion times as many.
+
+07:02.000 --> 07:06.000
+Well, yeah, that's effectively what we've been doing.
+
+07:06.000 --> 07:12.000
+So in the Linux kernel, a UID or a GID that's represented as a UN32.
+
+07:12.000 --> 07:15.000
+We've changed that to a UN64.
+
+07:15.000 --> 07:19.000
+That obviously comes with some interesting side effects, which we'll get through.
+
+07:19.000 --> 07:28.000
+But that's the general idea, and that's the kind of concept we came back with at Linux Planner as kernel summit back in 2019.
+
+07:28.000 --> 07:31.000
+Now, yeah, but that's going to break everything, right?
+
+07:31.000 --> 07:33.000
+Well, it doesn't have to.
+
+07:33.000 --> 07:38.000
+So we obviously can't change user space to use 64-bit UIDs and GIDs.
+
+07:38.000 --> 07:40.000
+We're not going to even try to do that.
+
+07:40.000 --> 07:42.000
+That would be a very bad idea.
+
+07:42.000 --> 07:46.000
+And we would actually just move the problem, not fix it.
+
+07:46.000 --> 07:52.000
+No, what we want to do instead is keep that on the in-cannel and have, of that 64-bit,
+
+07:52.000 --> 07:56.000
+32-bit is your normal user-visible UID and GID.
+
+07:56.000 --> 08:02.000
+32-bit is effectively an ID, like a namespace ID, if you wish.
+
+08:03.000 --> 08:10.000
+And the obvious issue with that now is, okay, what happens with persistence,
+
+08:10.000 --> 08:14.000
+what happens with anything that is not in that namespace looking at those kind of IDs?
+
+08:14.000 --> 08:16.000
+You're going to have issues there.
+
+08:16.000 --> 08:23.000
+Well, if it's a process outside of the namespace looking at a process running in such a namespace,
+
+08:23.000 --> 08:30.000
+we can use the credential attached to the user namespace to figure out who created the user namespace
+
+08:30.000 --> 08:32.000
+and use that as kind of the proxy ID we show.
+
+08:32.000 --> 08:34.000
+So that's one thing we can do.
+
+08:34.000 --> 08:37.000
+On the file system side, we're going to go into more details in a tiny bit,
+
+08:37.000 --> 08:42.000
+but effectively we absolutely don't want the file systems to be aware of any of that,
+
+08:42.000 --> 08:46.000
+like file systems, still 32-bit, still normal.
+
+08:46.000 --> 08:51.000
+That means that out of the box, you won't be able to write or even really read anything.
+
+08:51.000 --> 08:55.000
+But thankfully, there are mechanisms in the next channel now that makes it possible
+
+08:55.000 --> 09:00.000
+to actually handle those kind of translations and mappings, which then fixes that.
+
+09:00.000 --> 09:04.000
+So how does that stuff work?
+
+09:04.000 --> 09:07.000
+So here you've got a tiny bit of code that actually creates one of those namespaces.
+
+09:07.000 --> 09:10.000
+So you do unshare user namespace, as usual,
+
+09:10.000 --> 09:13.000
+and then normally you would go ahead and at that point write your map.
+
+09:13.000 --> 09:16.000
+So you would normally write your ID map and your GID map.
+
+09:16.000 --> 09:22.000
+Instead, we just write to that magic file and say, hey, we want an isolated user namespace.
+
+09:22.000 --> 09:26.000
+And then we switch to the root user, and we're done.
+
+09:26.000 --> 09:30.000
+At that point, you are running as root inside of that isolated user namespace,
+
+09:30.000 --> 09:34.000
+and you get to use every single UID and GID that you want.
+
+09:34.000 --> 09:38.000
+As mentioned, don't try to access the file system.
+
+09:38.000 --> 09:40.000
+That is not going to work well.
+
+09:40.000 --> 09:45.000
+But as far as you being able to like spawn process, like actually switching user
+
+09:45.000 --> 09:48.000
+and messing with those users, that's going to work.
+
+09:48.000 --> 09:50.000
+And there's quite a few more things you can actually do in that stage,
+
+09:50.000 --> 09:55.000
+even before you look at any kind of data persistency or any other kind of stuff.
+
+09:55.000 --> 09:58.000
+So, okay, fine, file system, what happens there?
+
+09:58.000 --> 10:06.000
+All right, so on the file system front, there are kind of two different things you can do.
+
+10:06.000 --> 10:11.000
+The first one is, hey, you're in a user namespace, you can unshare also a mountain namespace.
+
+10:11.000 --> 10:13.000
+Now in that mountain space that you own,
+
+10:13.000 --> 10:18.000
+anything you can mount is owned by your namespace, and you can write to that.
+
+10:18.000 --> 10:22.000
+Obviously, we don't allow mounting most stuff inside of a user namespace
+
+10:22.000 --> 10:24.000
+because that would be a terrible security risk.
+
+10:24.000 --> 10:30.000
+So, your options are mostly tempFS, you can also mount fuse,
+
+10:30.000 --> 10:33.000
+and you can mount a few other select file systems in there.
+
+10:33.000 --> 10:36.000
+And if you do, on those, you can, because they are effectively visual,
+
+10:36.000 --> 10:38.000
+we're created from within a namespace, you can persist,
+
+10:38.000 --> 10:43.000
+like whatever UIDs you see inside of that namespace will be written as search on that file system.
+
+10:43.000 --> 10:45.000
+That works perfectly fine.
+
+10:45.000 --> 10:53.000
+Now, if you care about normal file systems and persistency and all that kind of boring stuff,
+
+10:53.000 --> 10:58.000
+well, then that's when you need to actually use a new feature,
+
+10:58.000 --> 11:03.000
+which was introduced by Trish Novodev, a wallback called VFSIDMAP.
+
+11:03.000 --> 11:10.000
+And with that, it lets you, so that does need a privileged operation, obviously.
+
+11:10.000 --> 11:16.000
+But as a privileged user, you can now say this mount on the host needs to be,
+
+11:16.000 --> 11:21.000
+like on outside of the namespace, needs to be exposed inside the namespace at this path,
+
+11:21.000 --> 11:25.000
+and this map is applied for the transition between the two,
+
+11:25.000 --> 11:31.000
+which most often for us means we just want to map one to one from inside of the ASA to the namespace to the host.
+
+11:31.000 --> 11:37.000
+So, if you write as UID 1000 in that isolated thing, it shows up as 1000 on the file system.
+
+11:37.000 --> 11:41.000
+So, that's effectively how you handle the persistent thing.
+
+11:41.000 --> 11:43.000
+You need to pick specifically what files you want.
+
+11:43.000 --> 11:50.000
+You need to go through a privileged helper type tool to pass those through as VFSIDMAP to mount.
+
+11:50.000 --> 11:54.000
+And then you get to actually use this thing.
+
+11:54.000 --> 11:56.000
+So, let's take a look.
+
+11:56.000 --> 12:06.000
+I'm going to go into, what's the, actually I have that in my notes.
+
+12:06.000 --> 12:09.000
+Just trying to figure out what the name of the VM is now.
+
+12:09.000 --> 12:13.000
+User analysis. This guy.
+
+12:13.000 --> 12:15.000
+Pretty sure. Yeah, there we go.
+
+12:15.000 --> 12:24.000
+Okay, so this is a virtual machine which is running Alex's patch set on top of the current 6.8 RC1 kernel.
+
+12:24.000 --> 12:27.000
+And right now I'm, right now I'm rude, so let's not do that.
+
+12:27.000 --> 12:30.000
+So, I'm going to switch to the open to user,
+
+12:30.000 --> 12:38.000
+and I'm going to go into a folder where we've got some tooling that we've used to say that stuff up.
+
+12:38.000 --> 12:43.000
+So, if we look in here, we've got a tool called goisolated.c.
+
+12:43.000 --> 12:50.000
+If we go look at the code for that, it's pretty much a slightly longer version of what I showed on the screen earlier.
+
+12:50.000 --> 12:51.000
+So, it does an unshare.
+
+12:51.000 --> 13:01.000
+It sets the isolated UNS bit, and after that it switches to both UID and GID to root in there,
+
+13:01.000 --> 13:04.000
+and then it execs whatever command I'm passing it.
+
+13:04.000 --> 13:10.000
+Okay, so the way we're going to call that is we're going to call it as, well, call that wrapper,
+
+13:10.000 --> 13:16.000
+and then have it called unshare, and we're asking unshare to also unshare effectively the mount namespace,
+
+13:16.000 --> 13:18.000
+the pid namespace, and to fork.
+
+13:18.000 --> 13:22.000
+So, that gives us mostly a mostly functional container.
+
+13:22.000 --> 13:25.000
+Okay, so we do that, and now we're rude again.
+
+13:25.000 --> 13:33.000
+But this time, if we go look at the maps, so your ID map is empty, GID map is empty.
+
+13:33.000 --> 13:37.000
+So, there's no maps there, because we did not ask to actually map anything to the host,
+
+13:37.000 --> 13:39.000
+we just have that isolated user namespace.
+
+13:39.000 --> 13:45.000
+Okay, so we've got, fine, a query route, we could do that before, it's okay.
+
+13:45.000 --> 13:50.000
+We've got another helper here called setUID.C, which is also extremely simple.
+
+13:50.000 --> 13:54.000
+All it does is it changes your UID, and it execs the command.
+
+13:54.000 --> 13:55.000
+So, okay, fine.
+
+13:55.000 --> 13:59.000
+So, let's do setUID 1000 bash.
+
+13:59.000 --> 14:00.000
+So, that worked.
+
+14:00.000 --> 14:02.000
+That's something that would not normally work.
+
+14:02.000 --> 14:09.000
+Normally, a normal unprivileged user cannot create a username space and gets more than just their own ID.
+
+14:09.000 --> 14:13.000
+So, you can make route work, but you can't make an arbitrary number of users work.
+
+14:13.000 --> 14:18.000
+So, I can do, you know, just mash the keyboard, whatever number, and that works.
+
+14:18.000 --> 14:25.000
+So, you get to do that, and now, let's see, what does it want?
+
+14:25.000 --> 14:26.000
+Okay, fine.
+
+14:26.000 --> 14:31.000
+I just need to get a second shell, and we're going to go back inside of that VM.
+
+14:31.000 --> 14:35.000
+So, isolated userNAS bash, default project.
+
+14:35.000 --> 14:36.000
+Okay.
+
+14:36.000 --> 14:42.000
+So, now if we look at the tree from outside of that namespace, what we see is, and you
+
+14:42.000 --> 14:45.000
+see, I can't actually highlight, so you see it kind of towards the middle of the screen,
+
+14:45.000 --> 14:50.000
+you see switching to Ubuntu user, there's a share, then there's the unshare, then there's
+
+14:50.000 --> 14:51.000
+another share.
+
+14:51.000 --> 14:54.000
+And we see that the whole tree looks like it belongs to the Ubuntu user.
+
+14:54.000 --> 14:55.000
+That's not true.
+
+14:55.000 --> 15:02.000
+We know it's not true, because that last bash is actually under that whatever user I ended
+
+15:02.000 --> 15:04.000
+up typing on my keyboard.
+
+15:04.000 --> 15:10.000
+But because that can't be represented to the host system, as a real UID, it shows, as
+
+15:10.000 --> 15:15.000
+we said, whoever created the username space, which in this case is the Ubuntu user, so
+
+15:15.000 --> 15:18.000
+it shows the tree as belonging to the Ubuntu user.
+
+15:18.000 --> 15:22.000
+If we go back here, and we look at the process tree, we're going to see something quite different.
+
+15:22.000 --> 15:28.000
+In this case, the host IDs can't be represented, so they all show up as the kernel overflow,
+
+15:28.000 --> 15:29.000
+so nobody know group.
+
+15:29.000 --> 15:34.000
+But then our own processes do show correctly, so we see root, root for the first two, and
+
+15:34.000 --> 15:43.000
+then we see what is it, like 4788, which is what I just matched on my keyboard earlier.
+
+15:43.000 --> 15:44.000
+So that works.
+
+15:44.000 --> 15:46.000
+Okay, fine.
+
+15:46.000 --> 15:52.000
+With that, if I try, like even as that root user, if I try to touch anything, I'm going
+
+15:52.000 --> 15:54.000
+to have a bad day, as I said.
+
+15:54.000 --> 15:58.000
+Five systems don't like this, so they just tell you, no.
+
+15:58.000 --> 16:00.000
+Okay, that's fine.
+
+16:00.000 --> 16:06.000
+But now if I go ahead and I mount a tempFS, so I'm at the tempFS on slash temp, hey,
+
+16:06.000 --> 16:07.000
+now, yeah, this works.
+
+16:07.000 --> 16:08.000
+I can do that.
+
+16:08.000 --> 16:09.000
+It's fine.
+
+16:09.000 --> 16:16.000
+If I switch to render my random user, and I go here and foo, okay, that works.
+
+16:16.000 --> 16:24.000
+And if I look from this level still, oops, we've got foo, did I create foo twice?
+
+16:24.000 --> 16:25.000
+Yeah, I did.
+
+16:25.000 --> 16:26.000
+Okay, I should have actually created bar.
+
+16:26.000 --> 16:27.000
+That would have been nicer.
+
+16:27.000 --> 16:30.000
+So I can do that.
+
+16:30.000 --> 16:34.000
+Okay, so now we've got two files, one created by root, one created by 4788.
+
+16:34.000 --> 16:38.000
+You might notice that my statue ID wrapper thing doesn't bother with groups, so it only
+
+16:38.000 --> 16:40.000
+changed the user and other group.
+
+16:40.000 --> 16:42.000
+It's fine.
+
+16:42.000 --> 16:43.000
+And we see those two files.
+
+16:43.000 --> 16:47.000
+But now what happens if we try to look at the same two files from, again, from outside
+
+16:47.000 --> 16:49.000
+of the namespace completely?
+
+16:49.000 --> 16:50.000
+Stefan?
+
+16:50.000 --> 16:51.000
+Yep.
+
+16:51.000 --> 16:53.000
+Do you want to take questions during the talk?
+
+16:53.000 --> 16:57.000
+Well, I can probably do in like a minute for during the demo, yeah.
+
+16:57.000 --> 17:00.000
+That might be easier than going back to demo at the end.
+
+17:00.000 --> 17:06.000
+So just here, if we go look at one of those processes of 556, and we ask for the root file
+
+17:06.000 --> 17:08.000
+system, we look at demand.
+
+17:08.000 --> 17:12.000
+Again, I'm outside of the isolated user namespace, so everything shows up as we ever created
+
+17:12.000 --> 17:13.000
+the user namespace.
+
+17:13.000 --> 17:18.000
+So we see Ubuntu Ubuntu in this case as the owner for those files.
+
+17:18.000 --> 17:22.000
+Event are, it's not quite, it's not actually the real thing, but that's what's going to
+
+17:22.000 --> 17:23.000
+happen in this case.
+
+17:23.000 --> 17:30.000
+I'm just going to show the last piece, and then we can take a question for the demo,
+
+17:30.000 --> 17:32.000
+which is the persistence piece.
+
+17:32.000 --> 17:37.000
+So in this case, again, my user name, I've created a space works.
+
+17:37.000 --> 17:38.000
+I've got multiple users in there.
+
+17:38.000 --> 17:39.000
+That's fine.
+
+17:39.000 --> 17:44.000
+I can write data so long as I write it on a tempfes, but none of that is obviously persisted
+
+17:44.000 --> 17:47.000
+in a meaningful way, and there's no way for you to do that.
+
+17:47.000 --> 17:52.000
+You can access some files, as you've seen, like I've been using comments and stuff,
+
+17:52.000 --> 17:57.000
+that works, but it only works if only random user, as in if the order permission would
+
+17:57.000 --> 18:03.000
+allow it, because no other permission checks can actually work.
+
+18:03.000 --> 18:07.000
+Now, if we go back here, we've got another tool.
+
+18:07.000 --> 18:12.000
+I just need to find the usage for that one again.
+
+18:12.000 --> 18:16.000
+In my notes, there we go.
+
+18:16.000 --> 18:19.000
+So, in this, enter, yeah.
+
+18:19.000 --> 18:25.000
+Okay, so I need the process ID, so it's 556 we're using, and 556.
+
+18:25.000 --> 18:31.000
+So what that comment does is it enters the map namespace, but not the username space
+
+18:31.000 --> 18:32.000
+of the target process.
+
+18:32.000 --> 18:40.000
+It runs a comment from the host, which uses VFSID map, to then map from the host my home
+
+18:40.000 --> 18:45.000
+directory to a share folder inside of that namespace.
+
+18:45.000 --> 18:47.000
+So we do that.
+
+18:47.000 --> 18:54.000
+And now here, if we go look at that share folder, hey, the UIDs and stuff actually do
+
+18:54.000 --> 18:55.000
+resolve.
+
+18:55.000 --> 18:56.000
+Okay, that's cool.
+
+18:56.000 --> 19:03.000
+Well, if we were to go look at the non-map version of it, which is this, the dot.
+
+19:03.000 --> 19:14.000
+So now, as root, I could go in that share Ubuntu and touch foo, and then as a, so if
+
+19:14.000 --> 19:23.000
+I do my set UID thing, and I switch to 1000 inside of there, and I touch again in the
+
+19:23.000 --> 19:25.000
+share, and we'll do var.
+
+19:25.000 --> 19:28.000
+Oops, sorry, Ubuntu, var.
+
+19:28.000 --> 19:33.000
+And actually, this one should have been also share Ubuntu foo.
+
+19:33.000 --> 19:36.000
+Okay, so that worked perfectly fine.
+
+19:36.000 --> 19:42.000
+If inside of the namespace, we go look at those two files, we see the ownership cannot
+
+19:42.000 --> 19:44.000
+be having the way we expected.
+
+19:44.000 --> 19:49.000
+And remember, like when I did that earlier, looking from the outside, it was all belonging
+
+19:49.000 --> 19:52.000
+to that fake Ubuntu user, because that was the owner of the namespace.
+
+19:52.000 --> 19:54.000
+But this time, we're doing it through a map.
+
+19:54.000 --> 20:00.000
+So if I go look at the file system tree here, we see that it just went through the map and
+
+20:00.000 --> 20:04.000
+actually persisted the data going through that map as expected.
+
+20:04.000 --> 20:06.000
+There was a question?
+
+20:06.000 --> 20:08.000
+Yes.
+
+20:08.000 --> 20:14.000
+Yeah, hey, you showed how you touched a file as a root user, and then you changed to the
+
+20:14.000 --> 20:17.000
+unprimitive user inside this isolated username space.
+
+20:17.000 --> 20:23.000
+How is it possible that this unprimitive user is able to touch a file owned by a different user?
+
+20:23.000 --> 20:27.000
+Is that how it's supposed to work?
+
+20:27.000 --> 20:30.000
+That's a good point.
+
+20:30.000 --> 20:32.000
+Yeah, so it was the same group, that's sure.
+
+20:33.000 --> 20:37.000
+Because my setUID binary is kind of messed up and it only changes the UID and not the
+
+20:37.000 --> 20:42.000
+GID, combined with the default UMask, it was allowed to do it.
+
+20:42.000 --> 20:47.000
+If my setUID binary had done the right thing, which is change both the UID and the GID,
+
+20:47.000 --> 20:50.000
+that would have failed.
+
+20:50.000 --> 20:52.000
+Good catch.
+
+20:52.000 --> 20:56.000
+Yeah, so that's effectively how that stuff works.
+
+20:56.000 --> 21:07.000
+There are a bunch of other places where you will see resources owned by an isolated user
+
+21:07.000 --> 21:11.000
+namespace from the outside in one way or another.
+
+21:11.000 --> 21:18.000
+Those are going to be showing in this case as the owner of the namespace.
+
+21:18.000 --> 21:21.000
+We're doing the owner of the namespace instead of going with the overflow UID, because the
+
+21:22.000 --> 21:27.000
+overflow UID has been, I think, one of the biggest confusion caused by the user namespace.
+
+21:27.000 --> 21:34.000
+With the normal user namespace, anything that cannot be represented is going to show up
+
+21:34.000 --> 21:36.000
+as that overflow UID.
+
+21:36.000 --> 21:43.000
+The problem is that the overflow UID is, effectively, the nobody-no group under POSIX, which is 65534.
+
+21:43.000 --> 21:48.000
+The issue with that is that this is also an actual user.
+
+21:49.000 --> 21:57.000
+You end up with that really weird thing where you can have some stuff that shows up as the overflow UID.
+
+21:57.000 --> 22:03.000
+I guess one example you could do is, say you've got a process tree, you've got a user namespace in there,
+
+22:03.000 --> 22:06.000
+you've got some processes running in there.
+
+22:06.000 --> 22:12.000
+They show up as the overflow UID if you look at those from another user namespace.
+
+22:12.000 --> 22:17.000
+Then if in another user namespace you actually switch to the nobody user,
+
+22:17.000 --> 22:22.000
+you will think that what I am, UID 65534, those processes run according to everything,
+
+22:22.000 --> 22:26.000
+are 65534, I should be able to kill them.
+
+22:26.000 --> 22:29.000
+No, you can't, because they're not actually running as that UID.
+
+22:29.000 --> 22:31.000
+That's been causing a ton of confusion.
+
+22:31.000 --> 22:37.000
+We're trying to do things a bit differently here and hopefully make things slightly less confusing.
+
+22:37.000 --> 22:39.000
+Remains to be seen, but hopefully.
+
+22:39.000 --> 22:41.000
+There was something else?
+
+22:41.000 --> 22:46.000
+The question is, maybe I misunderstand this part of the demo.
+
+22:46.000 --> 22:53.000
+Is this 4nbar files, they have the owner and the group of user,
+
+22:53.000 --> 22:58.000
+is it still inside the container or is it visible outside of the container as root?
+
+22:58.000 --> 23:01.000
+Is it like an escape from this namespace or not?
+
+23:01.000 --> 23:04.000
+Or is it because it is inside and a center?
+
+23:04.000 --> 23:06.000
+Which one, the one I'm looking at right now?
+
+23:06.000 --> 23:07.000
+Yes.
+
+23:07.000 --> 23:09.000
+This is completely outside.
+
+23:09.000 --> 23:13.000
+From inside the container we were able to escape as root.
+
+23:13.000 --> 23:14.000
+That's how.
+
+23:14.000 --> 23:17.000
+That idea of ID mapped mounts.
+
+23:17.000 --> 23:20.000
+With an ID mapped mounts, that's effectively what you allow.
+
+23:20.000 --> 23:25.000
+If you provide an ID mapped mounts with the full map, then yes,
+
+23:25.000 --> 23:31.000
+the user is totally allowed to create a file that's owned by root and even make it set your ID if they want to.
+
+23:31.000 --> 23:32.000
+That is possible.
+
+23:32.000 --> 23:37.000
+That is why you need a privileged helper to be able to set that up.
+
+23:37.000 --> 23:42.000
+In most cases, what we do is the path you actually share comes from a non-traversable path
+
+23:42.000 --> 23:48.000
+on the host so that no user on the host can access any security binary you might be able to create in there.
+
+23:48.000 --> 23:50.000
+That's a specific use case, for example.
+
+23:50.000 --> 23:55.000
+Or you could use a map and don't map the ID zero.
+
+23:55.000 --> 23:56.000
+Wait a second, please.
+
+23:56.000 --> 24:01.000
+When, for example, what other users like Portman and so on do,
+
+24:01.000 --> 24:05.000
+they use this with OvalAFS or together with OvalAFS and they, for example,
+
+24:05.000 --> 24:09.000
+ID map the underlying mounts that are used for OvalAFS,
+
+24:09.000 --> 24:13.000
+but they leave the up amount where the actual writes occur un-mapped,
+
+24:13.000 --> 24:20.000
+which means that the writes that actually then go to disk still occur as the container user ID and GID.
+
+24:20.000 --> 24:22.000
+So there are different ways to actually use this.
+
+24:22.000 --> 24:25.000
+This is just specific to Lexi, for example.
+
+24:25.000 --> 24:28.000
+Lexi or Incus, but specific.
+
+24:28.000 --> 24:32.000
+You need to be very careful when you use that because indeed there is that pretty serious risk.
+
+24:32.000 --> 24:39.000
+If you do allow writing as UID zero on the host, then yes, you can start doing set UID stuff if you're not careful, for sure.
+
+24:39.000 --> 24:47.000
+And one thing, for example, you can do, even if you do that, you can, like the ID mappings attached to a mount
+
+24:47.000 --> 24:49.000
+are completely independent of the username space.
+
+24:49.000 --> 24:55.000
+So, for example, you could say, I want to ID map this mount, but in this mount, you can't write as root.
+
+24:55.000 --> 24:56.000
+So the UID zero isn't mapped.
+
+24:56.000 --> 25:00.000
+So you can't even create any files as UID zero or GID zero.
+
+25:00.000 --> 25:02.000
+So you could, for example, delegate.
+
+25:02.000 --> 25:07.000
+Yeah, it's kind of similar.
+
+25:07.000 --> 25:10.000
+Only that in this case you can't write as any user at all.
+
+25:10.000 --> 25:12.000
+Like it's basically the kernel tells you fuck off.
+
+25:12.000 --> 25:16.000
+The kernel tells you to go away because you get the overflow.
+
+25:16.000 --> 25:24.000
+But that's, for example, what I tend to do if I share specific data from the host into a container.
+
+25:24.000 --> 25:26.000
+And the container, for example, is privileged.
+
+25:26.000 --> 25:31.000
+I just don't map UID zero in that mount.
+
+25:31.000 --> 25:39.000
+And then even a privileged container can't write as UID or GID zero on the host.
+
+25:39.000 --> 25:49.000
+Yeah, so in HPC we have this kind of trick of like using sec-cop to, like, ignore basically set UID and CGID calls
+
+25:49.000 --> 25:55.000
+so that people can actually install packages as root as themselves.
+
+25:55.000 --> 26:10.000
+Have you thought about basically like aliasing everything that's within the isolated user namespace to the user that's created it as far as persistence goes?
+
+26:10.000 --> 26:14.000
+Well, it gets messy.
+
+26:14.000 --> 26:23.000
+I mean, every time you try to map multiple UIDs to a single UID, obviously the reverse becomes impossible, which causes a lot of problems as it turns out.
+
+26:23.000 --> 26:33.000
+I mean, in your case, like what you, you know, I mentioned that you can use Fuse and that's potentially how you could do, how you could do kind of whatever you want.
+
+26:33.000 --> 26:38.000
+Because at that point, any unprovided user on the system can create one of those, one of those isolated user namespaces.
+
+26:38.000 --> 26:47.000
+Then they can mount a Fuse file system of their choosing in there and then they could pivot root to that and make the Fuse file system their root file system.
+
+26:47.000 --> 26:52.000
+And then Fuse can do whatever it wants as far as keeping persistence here of UIDs and GIDs.
+
+26:52.000 --> 27:00.000
+So if you don't care about that crazy performance, that's probably the easiest way to handle that.
+
+27:00.000 --> 27:08.000
+Because you could use Fuse as a de facto overlay file system that writes that metadata on the side effectively.
+
+27:08.000 --> 27:20.000
+So, but for things like NFS and things you would have to proxy everything through this Fuse file system.
+
+27:20.000 --> 27:28.000
+Did you think about using file system extended attributes to store the UIDs and GIDs that can...
+
+27:28.000 --> 27:35.000
+Funny you mentioned it, because when we were designing the user namespace back in 2014, that was actually one of the ideas initially.
+
+27:35.000 --> 27:40.000
+It was like, hey, we could do something out of the start and just use extended attributes everywhere to store that stuff.
+
+27:40.000 --> 27:46.000
+As it turns out, that becomes really, really painful because not all files and implement them correctly.
+
+27:46.000 --> 27:47.000
+It doesn't scale.
+
+27:47.000 --> 27:50.000
+Yeah, effectively it doesn't scale. That's kind of the issue.
+
+27:50.000 --> 27:54.000
+But it could be used like I said, like with the Fuse thing, that could be a way that you store that.
+
+27:54.000 --> 27:58.000
+You might use a user extended attributes to just store that metadata that way.
+
+27:58.000 --> 28:02.000
+I think we're just going to keep on with the slides for a tiny bit and we'll do questions again at the end.
+
+28:02.000 --> 28:05.000
+Otherwise, we might just run out of time.
+
+28:05.000 --> 28:09.000
+Okay, can I just ask one? How do you do punching through the namespace map?
+
+28:09.000 --> 28:16.000
+The use cases using architectural distribution emulation containers, I punch my own UID through and my home directory.
+
+28:16.000 --> 28:19.000
+So I still have it in the distribution I'm emulating.
+
+28:19.000 --> 28:24.000
+So technically, there's nothing that prevents you from still using UID map and GID map.
+
+28:24.000 --> 28:27.000
+So you can use the combination of the two.
+
+28:27.000 --> 28:32.000
+It's more fun to show with none whatsoever because that's more fun to show as a committee and previous user.
+
+28:32.000 --> 28:40.000
+But there's technically nothing that prevents you from using a mix of the two to actually fully map a single user's shoe if you wanted to.
+
+28:40.000 --> 28:41.000
+All right.
+
+28:41.000 --> 28:45.000
+So isn't that going to be a massive change?
+
+28:45.000 --> 28:47.000
+That's kind of what we thought.
+
+28:47.000 --> 28:55.000
+Initially, we're like, well, the user namespace patch sets for anyone who looked at it back in 2013, 2014, that was rough.
+
+28:55.000 --> 28:58.000
+It needed changes to every single file system.
+
+28:58.000 --> 29:02.000
+It was absolutely massive when Eric was doing that work.
+
+29:02.000 --> 29:09.000
+But because the Linux calendar is mostly written in macros, it turns out it's not so difficult these days.
+
+29:10.000 --> 29:19.000
+So to our astonishment, really, we're looking at a very, very small patch set to actually do everything that was in that demo.
+
+29:19.000 --> 29:22.000
+And a bunch of it is kind of infrastructure type stuff.
+
+29:22.000 --> 29:24.000
+And then there's the actual type change.
+
+29:24.000 --> 29:25.000
+It wasn't so bad.
+
+29:25.000 --> 29:27.000
+We're not fully done.
+
+29:27.000 --> 29:30.000
+There are a few more issues that still need to be resolved.
+
+29:30.000 --> 29:33.000
+It possibly will be a bit larger than that, but not by much.
+
+29:33.000 --> 29:40.000
+And that's definitely something that's quite reviewable and that is hopefully not going to be scaring people all too much.
+
+29:40.000 --> 29:44.000
+It shouldn't be too difficult because you actually shouldn't have to touch the...
+
+29:44.000 --> 29:45.000
+Right, exactly.
+
+29:45.000 --> 29:47.000
+As far as all the VFS stuff, we've not changed anything.
+
+29:47.000 --> 29:50.000
+We still do 32-bit, but it's all fine.
+
+29:50.000 --> 29:56.000
+And for the rest, it's actually just some types that had to be changed and the rest works.
+
+29:56.000 --> 30:04.000
+I mean, the main thing is kind of like add the boundaries just like, oh, we need to go and pull the user credentials out of the user namespace to figure out what to show.
+
+30:04.000 --> 30:06.000
+But that's the main thing, really.
+
+30:07.000 --> 30:14.000
+If you do scan the QR code that gets you to the GitHub repo with the tools that I showed, as well as the link to the kernel tree that was used.
+
+30:14.000 --> 30:17.000
+I don't know if you put the link to the package as well.
+
+30:17.000 --> 30:19.000
+If not, we can add that afterwards.
+
+30:19.000 --> 30:23.000
+Because I did build the kernel I'm using.
+
+30:23.000 --> 30:27.000
+I built it for Debian 11.12 and Ubuntu 20.04, 20.04.
+
+30:27.000 --> 30:31.000
+So if people want to play with that, you can totally do it.
+
+30:31.000 --> 30:34.000
+All right, so what's next?
+
+30:34.000 --> 30:43.000
+Well, we've showed this work at the Linux Plumbers conference and the next kind of summit back in November.
+
+30:43.000 --> 30:48.000
+And at the time, the demo wasn't working quite as well because we just had a bad build that day, which was unfortunate.
+
+30:48.000 --> 30:50.000
+This time, the demo, everything works.
+
+30:51.000 --> 30:54.000
+We've talked to a whole bunch of people as well.
+
+30:54.000 --> 31:00.000
+I mean, Christian, I will say, we're very close with Christian, so we made sure that all of the VFS stuff and what I think can make sense.
+
+31:00.000 --> 31:07.000
+The real next step is going to be sending an RFC to the containers kernel mailing list to try and get some feedback there.
+
+31:07.000 --> 31:10.000
+Hopefully, Eric is around to actually look at it.
+
+31:10.000 --> 31:14.000
+He's a bit of a hit or miss here as far as answering stuff.
+
+31:15.000 --> 31:20.000
+But hopefully, we get to have that reviewed by the username space maintainer.
+
+31:20.000 --> 31:24.000
+Before we do that, there are a few more things.
+
+31:24.000 --> 31:30.000
+We want to be able to run kind of normal LXA, LXA, and in-cars type containers with this feature.
+
+31:30.000 --> 31:36.000
+And for that, one issue we've got right now is around CGroupFS and the CGroup namespace.
+
+31:36.000 --> 31:42.000
+So what we want to be able to do is create entries in the CGroup tree.
+
+31:42.000 --> 31:47.000
+Normally, you would then turn them to the right thing, which is a bit impossible.
+
+31:47.000 --> 31:52.000
+And after that, you would do the unshare of the CGroup namespace, and then you can use that from inside the container.
+
+31:52.000 --> 31:58.000
+So the impossible part is that we see a bit of an issue, so we're looking at how to fix that.
+
+31:58.000 --> 32:02.000
+I think that we've bounced a bunch of ideas over the past few days with Alex.
+
+32:02.000 --> 32:08.000
+I mean, one of them is to effectively do a VFS ID map type stuff on top of CGroupFS.
+
+32:08.000 --> 32:11.000
+We'll see if Christian wants to kill us when we send out.
+
+32:11.000 --> 32:19.000
+That's one of the ideas. There are a few other tricks that could be done to make CGroupFS be more aware of the 64-bit thing
+
+32:19.000 --> 32:22.000
+to handle those specific cases to be seen.
+
+32:22.000 --> 32:28.000
+But that's one of the issues right now that prevents a straight up Alexi container from just working.
+
+32:28.000 --> 32:35.000
+There's also still some work to be done around SEM creds, like passing around U creds and that kind of stuff
+
+32:35.000 --> 32:42.000
+to make sure that this also passes the credential of the creator of the username space instead of an overflow UID.
+
+32:42.000 --> 32:44.000
+It's different, yes.
+
+32:44.000 --> 32:52.000
+So there are a few more bits here and there as far as those boundaries are just in to look at and make sure that it's kind of consistent as far as what's exposed.
+
+32:52.000 --> 33:02.000
+Once that's actually been sent, hopefully reviewed, or hopefully merged, there are a few more things that we would need to consider doing on top of that.
+
+33:02.000 --> 33:05.000
+The biggest one of those being nesting.
+
+33:05.000 --> 33:13.000
+So being able to create either an isolated username space inside of an isolated username space, because who doesn't like total other way down,
+
+33:13.000 --> 33:18.000
+but also being able to create a normal username space inside of an isolated username space.
+
+33:18.000 --> 33:19.000
+Why?
+
+33:19.000 --> 33:21.000
+Well, it's the usual reason.
+
+33:21.000 --> 33:28.000
+The usual reason is someone wants to run their old Alexi, Docker, whatever thing inside of a container.
+
+33:28.000 --> 33:30.000
+That's such a tough thing we shouldn't do.
+
+33:30.000 --> 33:33.000
+We shouldn't mix isolated and regular.
+
+33:33.000 --> 33:40.000
+Isolated should only do isolated and not have any ID mappings attached and as regular user as an isolated user and as I think it's just painful.
+
+33:40.000 --> 33:43.000
+We have to see just how nasty it gets.
+
+33:43.000 --> 33:50.000
+I mean, I agree with the main case we care about, but she's going to be isolated and in isolated because that's what we mostly want for testing and whatever.
+
+33:50.000 --> 33:57.000
+Regular in isolated, we'll have to see just how many people we break and how bad it would be to fix.
+
+33:57.000 --> 34:04.000
+If it's trivial to do, then maybe if it's a massive budget to make it work, then it's not worth the effort.
+
+34:04.000 --> 34:06.000
+I agree.
+
+34:06.000 --> 34:07.000
+And that's it.
+
+34:07.000 --> 34:08.000
+So we can do more questions.
+
+34:08.000 --> 34:13.000
+I think there were a few more.
+
+34:13.000 --> 34:19.000
+So you can only really write to a tempFS unless you start doing the UID map maps.
+
+34:19.000 --> 34:20.000
+Right.
+
+34:20.000 --> 34:21.000
+TempFS or fuse.
+
+34:21.000 --> 34:23.000
+And fuse is kind of magic because you can do a lot of stuff with fuse.
+
+34:23.000 --> 34:24.000
+Yes.
+
+34:24.000 --> 34:26.000
+But is there any way to...
+
+34:26.000 --> 34:28.000
+So I want to use this in make or aside too.
+
+34:28.000 --> 34:33.000
+I used new UID map and new GID map now and Landerhate said because it's such a UID and everything.
+
+34:33.000 --> 34:34.000
+It just sucks.
+
+34:34.000 --> 34:39.000
+So the problem is like writing, making these images takes quite a bit of space.
+
+34:39.000 --> 34:42.000
+So if I have to do it all in the tempFS, the machine is just going to run out of memory.
+
+34:42.000 --> 34:50.000
+Is there any way to get the tempFS back by, I don't know, a swap file or something so that I can actually somehow get this stuff?
+
+34:50.000 --> 34:51.000
+Possibly.
+
+34:51.000 --> 34:53.000
+I mean, I don't know if the tempFS supports that.
+
+34:53.000 --> 34:57.000
+Maybe some of the other virtual file systems have something similar.
+
+34:57.000 --> 34:58.000
+Like can we...
+
+34:58.000 --> 35:02.000
+Is there like a tempFS backed by file type stuff in the kernel?
+
+35:02.000 --> 35:04.000
+No, I think so, right?
+
+35:04.000 --> 35:08.000
+I mean, yeah, right now you would do fuse.
+
+35:08.000 --> 35:11.000
+And fuse, you can make it write to whatever the hell you want.
+
+35:11.000 --> 35:13.000
+The question is going to be performance.
+
+35:13.000 --> 35:14.000
+Yes.
+
+35:14.000 --> 35:17.000
+Fuse got a lot better because of the work on Vata UFS.
+
+35:17.000 --> 35:20.000
+They've done a lot of optimizations for that.
+
+35:20.000 --> 35:21.000
+Yeah, that's fine.
+
+35:21.000 --> 35:26.000
+Any questions anyway?
+
+35:26.000 --> 35:31.000
+I mean, we're looking at VFS at like an previous support for a bunch of other file systems kind of underlined,
+
+35:31.000 --> 35:37.000
+but they're mostly networked type file system which will probably not help you a lot.
+
+35:37.000 --> 35:43.000
+Yeah, hey, so maybe I missed it, but can you actually figure out from the outside that you are using this isolated?
+
+35:43.000 --> 35:44.000
+I forgot to show that.
+
+35:44.000 --> 35:45.000
+Yes, you can.
+
+35:45.000 --> 35:46.000
+Does that actually work?
+
+35:46.000 --> 35:47.000
+Yeah.
+
+35:47.000 --> 35:48.000
+Okay.
+
+35:48.000 --> 35:55.000
+I think personally that like the issue with a lot of interfaces in the kernel is that you cannot figure out that something is actually happening or not.
+
+35:55.000 --> 35:59.000
+Yeah, so in here, like you see everything belongs to the open-to-user,
+
+35:59.000 --> 36:06.000
+but if I look at that use UID 556 and I look at the status file and we look at the UID,
+
+36:06.000 --> 36:10.000
+you see this isolated UIDs and associated GID in there,
+
+36:10.000 --> 36:13.000
+which shows you the inside UID and GID.
+
+36:13.000 --> 36:23.000
+So, you can actually figure it out that way and it gets you all of the different ones like the effective and all of those.
+
+36:23.000 --> 36:26.000
+So maybe not to you, but a general comment.
+
+36:26.000 --> 36:30.000
+Can we actually have this in adjacent or something in the kernel?
+
+36:30.000 --> 36:36.000
+Because there are lots of tools that are parsing this and they are doing it incorrectly a lot of times.
+
+36:36.000 --> 36:37.000
+Yeah.
+
+36:37.000 --> 36:42.000
+It's possible because this file gets generated as a SQL file in the kernel.
+
+36:42.000 --> 36:46.000
+So it just gets generated line by line.
+
+36:46.000 --> 36:49.000
+So JSON is just too hard, too complex for the kernel.
+
+36:49.000 --> 36:50.000
+So that's why.
+
+36:50.000 --> 36:51.000
+Yeah.
+
+36:55.000 --> 37:02.000
+But you know, we can have Tycho add something to that Libre source or whatever we come up with as far as libraries to also pass that file.
+
+37:02.000 --> 37:05.000
+Because we're looking at parsing all of those stupid files.
+
+37:07.000 --> 37:14.000
+I think this file is like extremely easy to pass compared to mountain 4 or CPU and 4, a bunch of the others.
+
+37:14.000 --> 37:15.000
+But yes.
+
+37:18.000 --> 37:25.000
+There was concern about a security around username, name spaces and I think about APAMO restriction.
+
+37:25.000 --> 37:27.000
+Yeah, Ubuntu had fun with our one.
+
+37:27.000 --> 37:32.000
+So is that helping in some ways?
+
+37:32.000 --> 37:34.000
+No, it's going to make it worse for APAMO.
+
+37:34.000 --> 37:35.000
+I think that.
+
+37:35.000 --> 37:43.000
+It's like a bunch of distros initially were of the opinion that username space is the devil and we should just prevent everyone from using it.
+
+37:43.000 --> 37:48.000
+Unless you're rude, which cannot affect the purpose to an extent.
+
+37:48.000 --> 37:51.000
+So this they can have the big hammer turn things off.
+
+37:51.000 --> 37:56.000
+Then Ubuntu did a really weird thing recently and it's just in Ubuntu kernel, which makes it even worse.
+
+37:56.000 --> 38:05.000
+Which is that you get to only use username spaces on Ubuntu if you're running from a program that has an APAMO profile that allows it.
+
+38:05.000 --> 38:09.000
+That has caused a lot of people to stop using Ubuntu kernel.
+
+38:09.000 --> 38:15.000
+Because that's really it's kind of weird and there's no other way to kind of opt out of this particular feature.
+
+38:15.000 --> 38:18.000
+It is kind of bizarre.
+
+38:19.000 --> 38:21.000
+So we'll see this.
+
+38:21.000 --> 38:23.000
+I mean, it's still going to be a username space.
+
+38:23.000 --> 38:29.000
+So any kind of concerns around those users and being able to like you're still in a user space.
+
+38:29.000 --> 38:30.000
+You can still create network devices.
+
+38:30.000 --> 38:34.000
+You can still access more APIs than you normally can as a community and privilege user.
+
+38:34.000 --> 38:42.000
+So those concerns are still valid and I expect that for any distro that offers knobs to turn things off will also effectively turn that one off at the same time.
+
+38:42.000 --> 38:49.000
+The question, the thing, Tara, is this is going to make adoption of username space in other applications for other developers significantly easier.
+
+38:49.000 --> 38:56.000
+Which may put some pressure on distros to not outright block things because they're going to be blocking actual useful workloads.
+
+38:56.000 --> 38:57.000
+We have one minute.
+
+38:57.000 --> 38:58.000
+Yeah, one minute.
+
+38:58.000 --> 39:02.000
+We can probably do like one more question or people can always catch me afterwards.
+
+39:02.000 --> 39:07.000
+If you do unshare network in a username space, then that's unshare privilege escalation.
+
+39:07.000 --> 39:08.000
+Yeah.
+
+39:08.000 --> 39:11.000
+Because of all the UAFs and network.
+
+39:11.000 --> 39:23.000
+So just with that last question and if anyone has more stuff, I'm happy to take them afterwards.
+
+39:23.000 --> 39:35.000
+So in the patch that I didn't see like any test, how much effort have you put into like first thing this or like write test for it and check for intended interactions.
+
+39:35.000 --> 39:37.000
+So testing is interesting.
+
+39:37.000 --> 39:41.000
+I don't know if we actually have a lot of username space tests in the camera, which is kind of unfortunate.
+
+39:41.000 --> 39:48.000
+I think that's something that should be improved and we should probably take a look at trying at starting to get that ball rolling with this one.
+
+39:48.000 --> 39:50.000
+That would be really good to say.
+
+39:50.000 --> 39:52.000
+Because like the VFS stuff is very well tested.
+
+39:52.000 --> 39:54.000
+The username space stuff, not so much.
+
+39:54.000 --> 39:56.000
+That's our plan to write this test.
+
+39:56.000 --> 40:00.000
+For non-isolated case and for isolated tool.
+
+40:00.000 --> 40:05.000
+So we want to write tests for both isolated case and for non-isolated tool.
+
+40:05.000 --> 40:06.000
+Because we have not so much yet.
+
+40:06.000 --> 40:07.000
+Alright. Thanks everyone.
+

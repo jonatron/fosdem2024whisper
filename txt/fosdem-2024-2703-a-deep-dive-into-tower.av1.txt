@@ -1,0 +1,338 @@
+Welcome the next speaker, Adrian. He's going to talk about tower.
+Hello everyone. Thanks to the organizers for having me. I've been working in Rust for about
+three years now, mostly contributing to QuickWidth. QuickWidth is an open source distributed search
+engine for log and traces. We'll be presenting tomorrow in the monitoring and observability
+room. And if you want to follow along, you'll find a slide on this website. There will be
+quite a bit of code during the presentation, so that may be easier. So as you know today,
+we're talking about tower. It's a crate for building modular and networking clients and
+servers. If you're using widely used traits in the Rust ecosystem such as AXM, WAP, Tonic,
+you're using tower under the hood. Maybe you don't know it. And everything's based on
+the service trait that I'm going to describe at length during this talk. But before I do
+that, I would like us to take a step back and think about why we need tower. So I want
+you to think that you are a web developer. You're working with any web framework in an
+imaginary dynamic language. And you ask to write a simple handler to get a user from a
+database. So you probably would come up with something like this, a function that you would
+call getUser that would take your request in, add some logging, get the user from the database,
+save the response, log again, return the response you've done, and you're pretty happy. Pretty
+quickly, you would realize that maybe there's another way to do it. Maybe you could decouple
+the fetching the user part that's strictly about the database and all that stuff from
+the logging. Like the pattern wise, I'm going to log something before the request, and I'm
+going to log something after the response. It doesn't need to know about everything that's
+user related. So maybe you would write two functions. The first one would be with logging that
+would take two parameters, the request still, but also a handler that would be a generic
+function that also that returns a, accepts a request. And then you would write your getUser
+simply. It'll be a bit more simple, very focused on what it has to do. And then you would compose
+your with logging function with your getUser function, and you would achieve what you had
+achieved before. But now you have that other function with logging that you can use for
+like all your end-to-end lists. And isn't that the sense of programming? We want to write
+generic and reasonable functions that are really easy to compose. For the purpose of
+this talk, we're specifically interested in decorators. So the decorator pattern is basically
+when a function or a class wraps another function. It applies new behaviors before or after calling
+the inner function. It doesn't know about that inner function. It's totally opaque, and it
+doesn't matter, we don't care. It doesn't modify the behavior of the inner function. And you've
+heard, you've used decorators sometimes with different names, very often millwares in the
+context of client and servers, proxies. This is a term that's coming up a lot. And then what you
+can do with those is you have your handler at the bottom. You can also call it a leaf, and you
+stack millwares with different behaviors on top of it. And you apply different behaviors depending
+on what you need. And then you can build a nice library of millwares that you can share, that
+you can use from different libraries, and so on and so forth. In that example, we were using a
+dynamic language. It was really, really easy to do. Duc typing gave us great flexibility. We don't
+really care about the types of inputs and outputs. When we code, we think about it, do they match
+implicitly? If they do, we think it's going to work. We ship it to production. We cross our
+fingers. But implicitly, everything should match and then everything should work fine. So this is
+what we're trying to do with TauR in the Rust ecosystem. But this time, we still want to compose
+functions, but we want to do it in a very type safe manner. And we want to be still very flexible.
+And this is when the TauR service trade comes into play. It is the common interface that allows
+us implementing components in a protocol, agnostic, and composable way. So let me describe the trade.
+It has one generic parameter, request. It's called request by convention, but it can be any type
+and anything. An associated type, response, same thing. Cold response by convention, but it could
+really be anything. Error type also could be anything. And finally, a future type. The future
+type is constrained by the future trade. So it has to be a future. And you'll notice that the output
+of the future is fixed for you. It has to be a result of the response and the error that you
+define. So the only choice is choosing a future type. The output is always chosen when you say,
+I want this kind of response, this kind of error. And then in the trade, you have two methods,
+the pull ready function and the call. Call takes itself mutably, accepts the request,
+return the future. The future you define. So your mental model should be much easier than this
+trade. It's just simply be, this is just a generic async function. This is the same thing. The
+trade gives us that flexibility that we wanted and gives us the type safety that we wanted. But
+really, this is the mental model of what is a service trade. With all of twist, you have that
+additional pull ready function that needs to be called once before calling call. And it provides
+a way to provide back pressure to the caller. So the pull ready implementation for a service
+without any external dependencies for the hello service that we're going to define is very simple.
+Pull ready return is always ready and returns okay. If you're implementing something else,
+if it's not ready, you return pending. And later on, the task will be pulled again. Hopefully,
+it'll be ready. If you're writing a service that has external dependencies, for instance,
+you depend on a database, you need to acquire that database connection. So all the services that
+have external dependency need to load up upfront to receive the need. And so they can say when
+they're ready or not to the caller. So in this example, if we haven't acquired yet connection,
+we will pull our pull of connection to acquire a connection. We will save it mutably in our
+internal state. And then later in call, we actually consume the connection using take. So
+that's why the tariff trade is mutable because it's not necessarily state less. It can be
+stateful. So you can manage your resources. And you see with this example why you need to call
+pull ready always at least once before first before call. And for the services that I'm
+you know, where's so they basically wrap an inner service, you usually implementation is really
+straightforward. You delegate to the inner service. So you call pull pull ready on the inner
+service and you're done. So if you're not doing something too fancy in your service, usually
+is going to boil down to those three use cases. So it sounds it sounds simple on paper. Why does
+it get complex? I think people are a bit afraid of like towers tower and towers services in general,
+could they use a lot of generics. So it's a bit of it's not always easy to write. It's even hard
+to read and it's even harder to write. It's using all the the rest construct heavily. So you have
+to be comfortable with lifetime lifetime, sensing market rates, what is a thing is going to expose
+you to that. So if you've been using rust as a better C++ trying to avoid those concepts, writing
+towers services are going to be a bit challenging. But but once you get more comfortable, it'd be
+very rewarding because like because you're going to be exposed to those concepts. At some point,
+muscle memory is going to help you and you're going to feel more and more comfortable and you're
+going to get a bit of rust programmer. And in some cases, if you start writing your own futures
+for your services, then you need to know about future pulling and pinning and it gets very complex.
+So the only way to get better understanding services and writing them is just to start simple
+with like a hello services and build upon until working like more complex services. So this is
+exactly what we're going to do during the rest of the talk. So let's implement hello service
+together. Remember the mental model is just this hello function. This is what we want to do,
+but we want to do it the other way. So the input parameter is a hello request. The hello response
+will be returned and we try to implement that simple function. So we start defining a health
+struct and we start implementing service for it. The input parameter is a request. The response
+type is a response. The error is going to be a little bit specific here. It's going to be
+infallible because we're never going to fail with just printing stuff. And now we have to choose
+our future type and we have various options. And the first thing we can do is go with a box
+future. We can define our own type alias or we can reuse the type alias from the futures scrape,
+for instance. And why would we do that? When you get started with writing your own
+service, I would recommend starting with that because it's pretty easy, it's very readable.
+The cons are you pay a small fee for allocation in dynamic dispatch. It's fine if you're not,
+if it's a client or server that doesn't have an insane amount of QPS, it's totally fine. Sometimes
+people are afraid of allocation in dynamic dispatch. If you're working on a client or server that
+doesn't need working in IO, we're talking milliseconds. That allocation, dynamic dispatch is going to
+cost you microseconds, maybe even nanoseconds. So you should not worry too much and if you
+start worrying, you should measure before going for the box stuff. I would want to say,
+it's writing your own future is way more fun. So sometimes it's a little for my own future,
+just my own personal fun. So box futures are good chose for applications, less for libraries.
+When you're writing libraries, you want to decide the users of your libraries whether or not they
+want to incur some overhead. So it's better if you don't use box futures in your libraries so that
+people can opt out of the overhead. So in this example, we upsold box futures. We need to notice
+that this box futures as a lifetime that we'll choose and it has to be sent as well. That will
+become important later. So we choose the static lifetime. The service, the tower service rate is
+not generic of a lifetime. So we have to go for static. Then we write priority. It's always
+ready. So it's pretty straightforward. And then we write our future. So we declare an async move
+block in which we build a message and build a response. And then we box that future on the
+hip. We pin it with box pin and we should be done. This is how you would unitize that service.
+You instantiate it. You call ready. We're using the extension trait that makes it a bit easier to
+work with. So you call ready and then you call call and it works. So it's obviously a bit more
+complicated than just writing that hello function that I showed at the beginning. But it's all
+doable. When it comes to choosing a future, sometimes you have the choice to choose one from a
+third party crate. Futures has some ready to go futures. You can use towers as well. So sometimes
+those futures are going to fit your use case. You don't have to go for the box. You don't have to go
+for implementing your own. You can just reuse one. It's convenient. So in this example, we can use the
+ready trait from the futures crate. So this time, you do see my pointer crate.
+We change the return type here. It's ready and this time we return ready.
+So we got rid of the allocation and the dynamic dispatch. And it's actually more readable.
+So we built a simple hello service. We're going to build a middle one on top of it. That's our
+logging service. We want our logging service to work with our hello service. But ideally, we like it
+to work with any kind of service that implements the trait. So we're going to make it generic.
+So logging has an input parameter called s that will be the inner service.
+And we start implementing service for logging.
+What we want to do is calling call on the inner service. And we can only do that if it's a service
+itself. So we need that now. And we say the inner service is also a service
+generic over r, our two generic types here.
+Then we implement already. We delegate to the inner service pretty straightforward.
+And then we implement call, starting with using a box feature. So we built the inner future
+calling call on inner. And then we create our own future using an instinct move block. We do the
+logging. We evaluate the future here. So here on this line, we build a future that's not evaluated.
+It's actually evaluated here. Then we do the logging. And we respond to response. We box
+in the outer future. And now we go back to our terminal. We run cargo test. And it should work.
+Except it doesn't. We've omitted a little technicality. And that technicality is coming from what I
+said before. The box future must be sent. So the future that you return must be sent. So the inner
+future must be sent as well. So we need to tell the compiler that constrate. So not only we have
+constrate the service, s, we told the compiler it is a service, we also tell the compiler the
+future that an inner service is going to return is also sent in static. And all this time it works.
+So this is how you would instantiate your logging service. It's wrapping the
+hello service. And then you call it the exact same way. It's obviously not going to show up during
+the unit test. But now you have logging on top of your service. And that logging service
+is usable for some other services. Tower HTTP has a bunch of services that are ready for
+metrics, tracing. It works a lot like that.
+So we're going to do this again this time rolling on our own future. Because it's fun.
+And because when you're going to recode from AXM to NIC, you're always going to encounter those
+handwritten features. So it's good to get used to them.
+Unfortunately, writing a future from scratch is actually non-trivial because of the whole
+pinning thing. And this is not a talk about writing futures and me explaining to you pinning
+because I don't totally understand it myself. But I can be very practical and tell you how to do it.
+And I'll show it to you right now. So now the logging is going to happen in the future. So before
+we were wrapping a service with a service, and the idea is the same. We're going to wrap the
+inner future with our logging future so we can add behavior to the future. So you can add behavior
+to your service, but you can also wrap the future and do stuff after you're done pulling or before
+you were about to pull the future. And this is what can be tricky with our terrorist services is
+sometimes, for instance, you take rate limiting. There's a bit of logic in Pall Ready. There's a
+bit of logic in Call and there's a bit of logic in the future. So it's hard to understand where's
+the logic that's really to the business, what you're trying to achieve versus what just really to
+trying to write a service. So that's also part of the complexity of our Dillon and Vittorio services.
+But back to our logging future, it's going to wrap another future. So it's going to be generic over
+F. We need to use the create pin project to pin the inner future. So that's why you have the
+pin attribute there. And now we, that's how our service, the logging service now is going to look.
+We replaced the future type with our logging future and the use which relies on the inner future. So s
+call and call in future. And then in call, now when we are called, we do the first logging statement.
+Then we build the future and when the future will be pulled already, then this is when we'll actually
+add the last logging statement. So this is how you implement future for logging future.
+Same idea. We need to add the constraint and tell the compiler the inner future is also a future.
+It's output is the output of the inner future. We need to project. I don't actually know where
+that the term comes from. But you need to project self. It's usually a convention is the convention
+is to call this. And this gives you the same object. But when you use the inner futures,
+they're actually pullable. Because pull is not defined on the future type. It's defined
+on a pin future. So that's why you need to project which pins the future, which allows you to pull it.
+So those are the technicalities that you have to deal with when you're writing your
+handwritten function. But once you've done that, it's exactly like writing the normal call, I want
+to say. So we pull our future. And if it's ready, we add the logging statement. If it's not ready,
+it means it's pending. It's going to be pulled again later. And also we know that
+when a future is pulled and it's ready, it will be no longer pulled. So we know that this
+statement will appear only once. So let's build on top of that. Let's build a timeout service now.
+So same thing. We want to add a timeout to any service. It's also generic over s.
+But the timeout service is interesting because the logging service is pretty simplistic. It doesn't
+mutate or touch anything. The request not in the response. It's like it did not go through it.
+The timeout service is a bit interesting because you have to signal the timeout
+somehow in your written type. And the way you're going to signal the error is
+potentially using an enum. And in that enum, you will have two variants. The first one would be
+the timeout. If timeout appears, that would be the error. But if the inner service returns
+its error itself, you have to wrap it in inner. And then the caller will know if the error comes
+from the timeout with the inner error. That looks like a good idea to do it this way. And you can
+totally do it this way. The problem is if you adopt this pattern for timeouts, authentication,
+rate limiting, the nesting of all those errors in the inner is going to become pretty complicated.
+And really hard to compose. And it is easy to deal with. So what libraries usually favor is boxing.
+So if you use the tower services that modify the error type, they will return
+the tower box error. And it's much easier to compose. The downside is at some point,
+you have to donk at the error to know exactly what happened.
+So we're going to use this error type this time to implement our service on future.
+So it's very similar than before. The difference this time is the error needs to be boxable.
+So with other compiler, I can only be a timeout service for services where the
+inner error is boxable. The polarity is a little bit annoying because it's still delegating to the
+inner polarity function. But you must not forget to convert the result that is an s error to a box
+error. So that's why the result returned by the inner service must be, its error must be mapped
+to the box error. So that's why we need this. Now we implement calls. So we take a look at what
+we do as for our future. So our timeout future is very similar to our logging future. It just wraps
+two inner futures. One will be used for the inner future and the other ones will be for the sleep
+future. So the sleep future, you can reuse the future from Tokyo, for instance, if you're using
+the Tokyo runtime. So call becomes pretty simple. All you have to do is build your inner future and
+your sleep future and create your timeout future, which we're going to implement now.
+So the core of the logic this time is leaves in the code of the future itself. So some libraries
+sometimes split the service implementation in one module and they put the future in another
+module so you open the service and you're like, what does it do? Because everything happens in the
+future. So you need to understand that sometimes a lot of the work is actually done in the future.
+And this depends for timeout.
+So implementing future for timeout future,
+we, as before, we project self into this. We pull the first future, the inner future,
+and if it's ready, great. It's now the timeout, we return pull ready with the result. We don't
+forget to map the error, the potential error into its box. If the inner future is not ready,
+maybe it's taking too long. So we need to verify whether a timeout occurred or not. So we pulled
+timeout future this time. So if it's pending, nothing to do, we'll be pulled again, we'll go
+this work again. If it's ready, it means this is an actual timeout. So we need to return the timeout
+error and we return elapsed error, but boxed. Hence the hint too.
+So now we're going to see how you can stack services together.
+I could obviously stack my timeout on top of my LO and then
+add the logging on top of it, but I can also do it with services that are already ready in
+tower. So I import them directly. So I import the concurrency limit, the timeout,
+and I compose my service by wrapping everything on top of each other. So instantiate service,
+I add a concurrency limit on top of it, and then my timeout, and then the logging.
+So that involves a bit of body play, but it's not too hard to do. What's really tricky and the
+compiler is not going to help you with that is the order with which you wrap your services actually
+matters. You really want your logging to be on top. If your logging is like logging how long it
+took, you don't want logging to be in the middle. You really want it to be on top to capture the
+whole life cycle of the request. And it's probably the same thing. You want timeout to be applied
+above everything that's doing race limiting. It would be better to, if you had like a notification
+service, it would be better to put it pretty high up because if you have services that are below it,
+maybe they can do whatever they want. So this is what's tricky when stacking layers and the
+compiler is not going to help you there. So you got to be careful and you can hopefully rely
+on a good reviewer for like a double check. I wanted to leave a lot of time for questions.
+This talk is called a deep dive into TARRA. I realized that in 30 minutes it's actually
+not that easy to cover everything that we could cover when we talk about TARRA. So let's just
+call it a shallow deep dive into TARRA. If you want a real deep dive, there are really good
+resources out there. Two years ago, not that much, but there's really great content,
+blog posts on YouTube that I'm going to talk about a little bit that really can help you get really,
+really comfortable with TARRA. So there's something that I don't talk about today called a layer.
+A layer, TARRA people are pretty obsessed with composability. So a layer is a way to compose
+a stack of services. A service builder is a way to conveniently build
+small stacks of services. A service builder helps you get rid of the boilerplate to write this,
+for instance. So if you want to keep studying TARRA, I would start with layer and service builder.
+Then I would recommend reading, inventing the service rate. That's a blog post by David Pedersen,
+who's a TARRA contributor. It's a really good introductory blog post. Maybe you can start with
+that. It takes about 15 minutes. I find that the AXM documentation page about MinoWares is really,
+really good. So I think that's a really good resource. And then in the spirit of building and
+reading and writing late services that are more and more complex, I think the next step for us
+is looking at the rate limit service. The concurrency limit is also a bit more complex,
+but really interesting. And then you can look at the channel from Tonic. It gets pretty complex
+as well. And then if you really want to take it to the next level, think the pool in TARRA. So
+here we're only showing that a service that wraps just one service. But now you could wrap
+multiple service. And that's what the pool adds. And the pool is a service. It wraps multiple
+services. And it's using pool ready to track the load of each inner service to handle back pressure.
+So it's a really interesting use case of using pool ready in a very fancy way. So pool is also
+very interesting. Good videos on YouTube. Also David Pedersen has a TARRA stream about tower.
+He goes through the same thing. There's a hello and logging and time out. And you see him dealing
+like the old delivery things. Because obviously on presentation, I get everything right on the first
+try. But it's not exactly how that happens when you either yourself. And if you want to get more
+comfortable with a single weight in rest and futures in general, John has a great talk on YouTube as
+well. And you'll find those resources on the slides that are available at this thing.
+Back in the first few slides, you mentioned the pool ready function. And you were initializing a
+database connection. I didn't get it. If the database connection is actually a future or not,
+because the pool ready function doesn't return a future.
+Is you talking the database one? Yeah, that's where you initialize the connection. You know,
+you depend on a connection. Yeah, it has to be a future. I mean, no, it doesn't return a future.
+But because that one, yeah, this one. Yeah, I'll pass quickly because it's a bit complex.
+So already doesn't return a future. But it behaves like one because you pass it the context,
+the context as a waker so you can rebuild future really easily with access to the context.
+And that's I'm happy you asked you asking this question because if you look at
+come back here.
+Talk about the concurrency element. The concurrency element uses a semaphore. So a naive way of
+implementing pool ready with a semaphore is would be to call try a choir. And if you get the permit
+right away at school, pool ready is ready and just save the permit and then you get rid of it
+in call once you're done. But a better way to do is to start pulling the future. You don't call
+pool ready. You call ready. And if it's not ready yet, it's okay. You keep you still maintain
+that future that you started that started acquiring a permit. You save it in your internal state.
+And then the next time you keep pulling that future instead of each time doing try, acquire,
+try, acquire. So it's really unique to trick that you can see in the concurrency element service.
+Okay, cool. Thank you.
+When is tower gonna go version one because now it's on zero and hyper just ditched it because
+it's not one yet. So I'm not a tower contributor. So I don't know exactly. I think they're waiting
+for the the Khmer people to give us the full story of what is sync is gonna is gonna become.
+You'll see that with the last release of rust now you can return
+an implement implement future future, but they still like the weather it said or not to to deal
+with though. So eventually, I think they want they're waiting for see what we can do in rust.
+And then then what once the old async work is stabilized, I think they will come up, they will
+come up with a new version of the trade. Like with those new those new constructs that are being
+released and will be released in the next version of rust. We can greatly simplify the service
+trade. So they will wait for this feature to land, revise the trade and then release 1.0.
+And the second question is there a way to make this tower layers, let's say optional so you can
+enable disable them from outside the code from the compiler somehow. Yeah, I mean you you have
+you could use there would be different ways you could use like feature flags,
+you could use environment viable like they services have a stake. So and you the
+they mutable so you can do you can do what you can do you can do a lot you could have
+you should I to make bullying somewhere in there and you can enable disable it.
+Thank you.
+Yeah.
+I'm on the time of future slide.
+What time of future this one.
+Yes, there's a poll function and if none of them is ready, it will just return and how would it
+know when to call it again.
+Like you pulled once and none of them is ready yet.
+It's the runtime is going to take care of it.
+With it's well it depends on the runtime you're using it's
+it knows it's not ready and then I mean then we're talking about how you implement the runtime
+basically. It maintains like a queue of features and it regularly pulls them using some
+a waker which is it's using that context in the waker when it's ready it's going to call the waker
+that's going to wake the the runtime so and so forth.
+But you as an implementer of the future you're not in charge of like telling when you're going to
+you should be pulled again. You're just in charge of saying I'm ready or I'm not.
+That whole machinery is left to whoever implements our AC runtime.
+Okay thank you.
+Thanks for your talk. I had a question because you mentioned that there was some overlap between
+implementing your own future and the tower service trade itself proposing like a poll
+function and a poll rate function. Is there any reason apart from fun to implement a future
+trip yourself like is there any benefit from dealing with the internals of creating a future
+versus implementing your whole logic inside of the service trade itself and just using the
+basic tower or basic futures future types. You mean a box of doc futures? Yeah exactly.
+Your question is like why would I bother writing my own future when I can use box?
+Yeah when I have this poll function inside of a service trade itself where I can
+bake my own logic and not have to deal with you know projecting my pins and so on and so forth.
+I'm not sure I totally understand your question so my answer might not satisfy you. I think you're
+right you want a future if you want you're writing a library and you don't want you don't want your
+users to incur the overhead of like the box future. You write it if you have like some constraint
+that might be related to performance that's going to push you to write a hand rolled future that
+doesn't allocate it doesn't have dynamic dispatch. Yeah that would be my answer. I think it also
+depends on your team if like if you're the only guy in the team that's going to understand like oh
+I pin the I project the future and are you spinning if just you maybe maybe you don't do it.
+It depends on those constraints. Okay thanks.
+Awesome so if there's no more questions let's thank our speaker. Thank you.

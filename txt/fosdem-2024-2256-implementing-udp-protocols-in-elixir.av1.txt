@@ -1,0 +1,367 @@
+There we go.
+I don't know about fun.
+We'll see.
+So thank you for the introduction.
+Hello, everyone.
+Nice to see you.
+Pretty happy that I can see so many Elixir developers on one place.
+I come from Croatia, where I think there is maybe 10 of us, and it's really hard to connect.
+So it's really nice to see that the community is growing worldwide.
+My name is Andre.
+I've been a developer for 11 years.
+I've been doing Elixir for the last three, two and a half-ish years.
+Previously, I've been a JavaScript developer.
+I decided that that's not going to fly anymore, that I need to have a life.
+So I switched to Elixir, and things have been going great.
+I'm a licensed accountant, building my own accounting software with Phoenix Liveview.
+It's going great.
+You should use it, Abandon React, use Liveview.
+It works for everything.
+I'm a vice president of the Croatian Association for Open Systems and Internet.
+I had to read that one out.
+We are very active in an open-source Croatian community.
+We organize an event.
+Please come talk to me after.
+I have some t-shirts.
+I have some stickers.
+And in the last slide, there is a coupon code for something percent off of the ticket.
+We're also going to try to have Sasha Urech this year there to come and talk.
+So if you want to mingle, please do come along.
+And I'm a member and the co-organizer of the conference.
+Let's start.
+So this is our plan today.
+We're going to go through the problem.
+As we're solving, we're going to fix it, and then we're going to talk why you should
+never do that things in Elixir or generally ever.
+So everything started.
+As things start, I was browsing Hacker News, and there were people doing a PP measuring
+context about their uptimes and who had the larger uptime.
+I update my servers, so I have a low uptime, but I wanted to be a part of that.
+And the idea was born.
+I want a fake uptime.
+How do you fake uptime?
+I didn't Google it.
+NTP server.
+I will just make the server ping for time, and every time it asks for time, I'll just
+downgrade the time, and hopefully it'll catch, and I will have a huge uptime.
+That's not how it works.
+You need to basically fake a kernel call.
+So maybe next year, I'm going to implement kernel modules in Elixir.
+It is possible, though.
+It is possible.
+I have a working proof of concept.
+You do, however, need a lower level language to call.
+I like solving these kinds of problems.
+So it's been super fun.
+Ever since I first applied at TopTel for a job, they gave me a task to implement the
+DNS server in JS.
+That's been super fun.
+So I wanted to see how it's done in Elixir.
+Spoiler alert, it's a lot easier and simpler and maintainable.
+And it's a cool topic to write about and talk about.
+This is a previous blog post.
+It's been featured in a couple of newsletters, which I'm still not sure why people like this,
+but maybe, hey, you share the same affinities as me.
+So the hardest thing was to discover the protocol.
+What's NTP?
+For those of you who might not know, it's a network time protocol.
+It is a terrible, oftenly abused protocol.
+Some of you might remember a couple of years back.
+It was used for a widespread DDoS attack.
+But it's one of the easiest ones to implement, so it turned out.
+So the first thing we need to do is we need to learn about the protocol.
+Now you can go and read RFC, but that's boring.
+I don't Google stuff, as it's obvious right now.
+So what I did, I just installed the TCP dump, NTP update in a virtual machine.
+I started up TCP dump and just updated the time.
+And I got the pick up file out.
+Now let's see how we read the pick up file.
+This is a very important part in implementing a protocol.
+So bear with me.
+This is how the packet looks like.
+If you love your life, unlike me, you'll probably use Wireshark.
+So it looks better.
+It's easier to browse, but this was also more fun.
+So let's get right into it.
+The first part, I've put up dots we should ignore it.
+That's the header of the UDP packet.
+This is something that's getting handled with us.
+If you remember the layers of TCP, the same thing applies to UDP as well.
+And the first parts are the hardware part, and then there is the network part.
+We can all ignore that, that will be handled for us by Elixir.
+So I just put dots in order not to confuse us.
+Everything else is super confusing anyways.
+So the first part, I'm just going to do this once.
+This is how you read the bytes.
+So this E3, you should convert to binary.
+And here we have something that we call flags.
+Here we have three flags.
+Those flags is something that you define as a protocol developer, or
+as whatever is the name of people defining protocols.
+So it's composed, this flag, this is three flags.
+So the first one is the leap here indicator.
+This is the NTP version and the packet mode.
+Now this packet mode is really important and you should remember that.
+So 011 is the client.
+So this is us asking for the time.
+And we will be making a server that responds.
+So you need to remember to flip this packet for shadowing.
+The next one is the clock stratum.
+Not important, we can ignore that.
+The pooling interval, this is how many packets will be sent,
+which is kind of telling that this kind of starts looking like a TCP,
+but whatever, you need to expect three.
+Not important, you can ignore that as well.
+And now we have a couple of flags.
+So we have the clock precision, the delay and dispersion.
+This is, since this is a VM, it doesn't look that all interesting.
+It's basically all zeros because it's lying about the time anyways.
+If you ran this on your computers and real laptops,
+you will see more details here.
+I've written some copious notes on that.
+So later go to this link and you will find a lot of links to the RFC and
+documentation if you really want to get into it.
+So let's continue.
+Now comes the more interesting parts, says he and there's all zeros.
+The first one is the reference ID.
+This is very important.
+This is how your server knows who asks for it.
+You can ignore it.
+The next part is the reference timestamp.
+So this is the timestamp we send to get actual time.
+Why it's zeros here?
+Because this is a client.
+The client does not need to tell the server it's time.
+You can however, the protocol allows it, but you don't need to.
+Next up is the origin timestamp.
+This is basically when the call was made or when the call was responded to.
+Again, you can send it as a client.
+You don't need to as a server, another story.
+The next part is the receive timestamp.
+This is actually when did we receive.
+This is very important for the server to send along because the client will
+then do some math between those three timestamps to get the actual timestamp.
+And this is the transmit timestamp.
+We need to return this as it is.
+Also foreshadowing, it took me way too much time to understand why I need to do this.
+It would be a lot easier if I read the RFC.
+Okay, so this was me at the point.
+After, this was after a couple of hours of things just not working, not understanding.
+I went through the documentation.
+Things started becoming a little more easier to understand.
+So let's get back to it.
+This is what we need.
+We need the reference ID and we need the transmit timestamp.
+Reference ID, again, repeating, this is very important to understand,
+is how we know to who to return the call to because you should keep some kind of
+a hash map or ETS tail or whatever.
+And the receive, the transmit timestamp you need to return.
+Otherwise, the client will return an error that it does not know how to calculate time
+because it diverged too much.
+So that's the main point.
+Okay, and this is where the fun part starts.
+If you ever did this with JavaScript, I should have included that slide.
+It's a lot of splitting on binary streams.
+It's extremely hard to read.
+And with Elixir, this is all that there is to it.
+So it's just pattern matching.
+And this was mind blowing to me.
+I know that Sasha has the whole chapter in his book about pattern matching on
+binary, I ignored it, I didn't kind of get it, but this is amazing.
+So what this does?
+I've decided to ignore the first part.
+Where is the mouse?
+I decided to ignore the first part.
+We don't need it.
+And I just ignore 12 bytes, right?
+Then we store the next four as the ID.
+Then we can ignore the rest 24.
+And then we just store the origin timestamp, the 8-1.
+That's all you need to do.
+When you receive a request, this is how you pattern match.
+Now imagine if you're developing your own protocol.
+This means that in a single line, you can basically parse the whole request that
+came to your server.
+Amazing.
+To me, this was mind blowing.
+I don't see too many mind blows.
+You either know this or don't think it's that interesting.
+But okay.
+So, and now we need to compile our response.
+We'll come to actual Elixir code in a second, don't worry.
+So, as you can see, we start with the receive timestamp as is.
+And now I've cheated here and you will see that I replied with the same two timestamps
+because I don't care about precision for this exercise.
+At this point, it was to me, it started becoming very obvious that whatever I returned,
+the uptime is not changing.
+So the level of this being fun started degrading rapidly.
+The only thing that was keeping me alive and to finish this little project was maybe I
+can get a blog post out of this.
+I don't know.
+Maybe some clout.
+So I stopped kind of caring.
+But yes, you should basically pull data from like a real clock source, like an atomic clock,
+a GPS clock, which is also kind of a fun thing to do because you can get an AliExpress
+those very cheap GPS USB modules, which are very easy to talk to and you can pull actual
+time from there.
+And it gives you the clock stratum.
+It gives you the precision and you can just dump it into it.
+So it is actually viable to create such a server in a language that I don't think it's
+best used for.
+But there we go.
+So we need to set again the reference, the origin and the receive timestamps now.
+The ID you will see later is basically the ID you respond with.
+Good practice started becoming just use your public IP as an ID because many NTP servers
+don't change their IPs at all.
+So it is a good idea to use it.
+It's not in the protocol, however.
+So you can do whatever you want.
+You can put Andre school there.
+And now let's create the actual UDP server in Elixir.
+By the way, it needs to run the port 123.
+I thought this was a joke.
+No, it's not.
+Pretty cool.
+So this can be done a lot better as I've learned later.
+But for posterity's sake, I decided to just continue on.
+If you use active false in this first line, you don't need to do a whole bunch of slides
+after.
+When I rewrote the slides after a meetup in Zagreb and I used active false, the whole
+presentation was kind of lacking for content.
+So I just left it in and decided, yes, we will do slides.
+And that's it.
+So let's use it.
+It's extremely simple to use.
+This will receive only one packet.
+If you put it active false, active true, it will receive many packets, whatever.
+So you need to open up a gen UDP server.
+You have the socket.
+What you then do is you can just pattern match on what you receive.
+We are mostly interested in the first part, like a real developer.
+I just ignore the errors and the closed states, whatever.
+Nobody cares about those anyways.
+And with the gen UDP send, you can send whatever.
+You can send strings even.
+That's it.
+This was also pretty mind blowing as an XJS developer.
+Just those condensed free lines in total is the whole UDP server.
+What?
+Just like a little side note, when I started learning Elixir, I was then, after JavaScript,
+I was a Python developer and a friend got me into learning Elixir.
+And one of my first revelations was, why was I writing so much code?
+I don't get it.
+So yes, this is all that there is to it.
+Let's create just like a simple server out of it.
+The first approach is, yes, let's just imitate something.
+So we have the init.
+And we'll just have a loop here.
+I forgot to call the actual loop, so don't forget to call the actual loop.
+So what this will do, just in a recursive fashion, every time it receives a packet, it
+will call itself again.
+That's it.
+To astound it a few here, this might look like a gen server, maybe.
+Yes, well, like everything in my life, I reinvented hot water, how we say in Croatian.
+So yes, let's make it into an actual gen server.
+So it's pretty simple.
+You can just use continue loop and have a handle continue.
+That's it.
+And don't forget to also include this part here, so you can actually start the gen server.
+In your supervision tree, in your application, for newbies in Elixir on the blog post, there
+is also a huge part how to start a new Elixir project that's not a Phoenix with the supervisor
+tree already set up.
+So you can go look at that.
+But if you have it set up, all you need to do is just include this child here and it'll
+get started and start working.
+And all that is super cool and fun, but where is the actual protocol?
+Where is the actual meat of the presentation?
+Well, it's also in the spirit of Elixir extremely simple.
+So we have one function here called generate NTP response.
+And you remember that pattern matching that I was raving on about?
+Well, I ignore everything, basically.
+I started and I just used the origin timestamp so I can do it in the function head as simple
+as this.
+We take the system time, which is the most precise way of getting time in the world.
+So everybody knows that.
+We store that as a receive timestamp.
+Doing a little bit of, thank you.
+I'll speed up.
+So I'm doing a little bit of code here to make it a bit more easier to read.
+Remember this sigil.
+If I'll have time, I'll show you how to implement your own sigils.
+Never do that again as well.
+But yes, this is way easier to read.
+So you just set up the header.
+Trust me, this is how you do it.
+Don't read too much into it.
+The ID is the private IP of that VM.
+And now comes the fun part.
+You can concatenate bit strings like anything else in the lixir.
+So this is how you do it.
+This NTP constant is really important.
+I have no idea what it is.
+I read the documentation.
+This is how you convert time vice versa.
+Why they need it?
+I don't understand.
+I'm very bad at math.
+So if somebody else knows it, please come and talk to me.
+Enlighten me.
+And again, you just compile the end result in a bit string.
+You return that instead of that hello world before that's it.
+So you can just generate NTP response from the request.
+You get the packet.
+You reply with it.
+Ta-da.
+There we go.
+All of this code, if you want to play around.
+And if you found mistakes, then you can go there and complain and do pull requests for
+a project that doesn't matter.
+But I would be more than happy to see what you guys think and what you feel about this.
+So come and see it.
+I still have a bit of more time.
+So let's implement the custom sigil and show how, again, how I should read more documentation.
+So let's create the sigil with tilde b, or whatever it was, quickly line b.
+It's pretty easy to do as well.
+You just create a module.
+You name it sigil and underscore and whatever letter you want that there to be.
+Now you can even do uppercase letter sites, I think, from the newest version of Elixir.
+And you can do even more letters than one.
+So that's cool.
+And you can just import it as is, and then it's available in that module.
+Now let's implement the actual parsing.
+So this is a string.
+And now here comes the me over complicating stuff.
+So I uppercase everything.
+I split everything.
+Then I do some mapping to get rid of multiple lines and whatever.
+And then reject empty spaces and then join everything.
+And I decode it.
+Well, I blame, blame, blame.
+You can just replace with a reg accent.
+Just decode it.
+But this looks way more fun anyways.
+Like everybody likes complications.
+So yes.
+That's it.
+A lot of the things I covered here I learned from this amazing book right over here from
+my friend Sasha Yurich.
+He gave us the 35% off code for the new version of the book.
+Go buy it.
+Even if you have the old versions support him.
+I think he is the foundation of learning Elixir in today's world.
+I've had so much fun with this book.
+Didn't reference it at all while I was doing this.
+I should have, but never mind.
+And also here is the coupon code 20% off.
+Here is the coupon code for the conference where we will try to also bring everybody
+who does Elixir there.
+So if you want to do, if you want to come over and hang out, or if you have open source
+projects in Elixir, do come talk about it with me.
+I have a Gantt T-shirt.
+I have some stickers here.
+Call for Spickle Flyers.
+And that's it.
+Thank you very much.
+You're welcome.
+Thank you.
+You're welcome.
