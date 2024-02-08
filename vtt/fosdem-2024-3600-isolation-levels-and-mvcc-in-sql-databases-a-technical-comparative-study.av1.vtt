@@ -1,0 +1,1511 @@
+WEBVTT
+
+00:00.000 --> 00:14.560
+So, yeah, the idea is to talk about resolution in postgres, compare it with other databases.
+
+00:14.560 --> 00:20.520
+We will see the concept and we will see also the practical usage from developer point of
+
+00:20.520 --> 00:21.520
+view.
+
+00:21.520 --> 00:22.520
+I'm Frank Bacheau.
+
+00:22.520 --> 00:26.160
+I've always been working with databases.
+
+00:26.160 --> 00:31.680
+Now I'm developer advocate at Sugabite that is distributed postgres.
+
+00:31.680 --> 00:38.280
+We use the postgres code for the SQL layer but the storage is completely different.
+
+00:38.280 --> 00:45.320
+So, let's start if my clicker works.
+
+00:45.320 --> 00:46.520
+I have a question for you.
+
+00:46.520 --> 00:49.040
+So this is a picture of a car, obviously.
+
+00:49.040 --> 00:54.560
+Do you think the car is moving forward or backward?
+
+00:54.560 --> 00:59.840
+So, think about it.
+
+00:59.840 --> 01:08.000
+Actually it's not moving because it's a picture, not a movie.
+
+01:08.000 --> 01:14.240
+But the snapshot, the picture was taken when the car was moving.
+
+01:14.240 --> 01:18.320
+But I cannot tell you if it was moving forward or backward.
+
+01:18.320 --> 01:26.200
+There are two snapshots there because it was taken with a long exposure during the night.
+
+01:26.200 --> 01:34.880
+So this is why you see this movement of the light and also with a short flash taken either
+
+01:34.880 --> 01:37.680
+at the beginning or at the end.
+
+01:37.680 --> 01:44.760
+And this is why with the same movement you see different kind of anomaly there with
+
+01:44.760 --> 01:47.000
+lights in front or the other.
+
+01:47.000 --> 01:51.600
+So I'm showing that to compare with databases.
+
+01:51.600 --> 01:55.840
+Databases are always moving because people are changing data.
+
+01:55.840 --> 02:02.120
+And when we want to read it, we want to see a consistent view of it of something that
+
+02:02.120 --> 02:03.120
+is moving.
+
+02:03.120 --> 02:04.120
+But the same.
+
+02:04.120 --> 02:11.640
+There are some anomalies that can happen because when you read things change.
+
+02:11.640 --> 02:17.680
+So how can you solve this anomaly?
+
+02:17.680 --> 02:19.120
+One solution is to stop the car.
+
+02:19.120 --> 02:22.680
+You stop the car, you take the picture and then you have a nice picture of it.
+
+02:22.680 --> 02:25.080
+But then the car cannot move.
+
+02:25.080 --> 02:31.080
+Another one is to take a movie of the car and then when you want to see the full picture
+
+02:31.080 --> 02:39.160
+of the car, you can go maybe back in the movie and pause it and then you can see it.
+
+02:39.160 --> 02:42.240
+And actually databases do the same.
+
+02:42.240 --> 02:50.240
+They can stop the database for modifications with locks or they can take a movie of the
+
+02:50.240 --> 02:56.440
+changes to be able to go back to the past.
+
+02:56.440 --> 03:03.520
+So two kind of implementations and you find them in all databases mostly.
+
+03:03.520 --> 03:08.320
+You look, you can look what you read and then it stops.
+
+03:08.320 --> 03:13.240
+It cannot be changed until the end of your transaction or you can read from a preview
+
+03:13.240 --> 03:14.240
+snapshot.
+
+03:14.240 --> 03:24.440
+So you lag, you don't see the latest changes but you have a consistent point of view.
+
+03:24.440 --> 03:30.880
+If you have read books, learned about isolation levels, it was probably not introduced with
+
+03:30.880 --> 03:32.000
+the pictures I've seen.
+
+03:32.000 --> 03:35.440
+It was probably introduced with that.
+
+03:35.440 --> 03:36.520
+Don't try to read it.
+
+03:36.520 --> 03:38.560
+I will not even talk about that.
+
+03:38.560 --> 03:40.840
+This is what you find in most courses.
+
+03:40.840 --> 03:46.360
+This is what you find in the SQL standard but actually no database implements that.
+
+03:46.360 --> 03:53.560
+That was defined before any implementation and the modern databases do not work like
+
+03:53.560 --> 03:59.360
+that and do not provide those isolation levels even if they put the name to match what is
+
+03:59.360 --> 04:00.680
+in the standard.
+
+04:00.680 --> 04:02.320
+They do not really do that.
+
+04:02.320 --> 04:04.800
+So let's forget about it.
+
+04:04.800 --> 04:08.480
+If you want to read about it, there are plenty of sources.
+
+04:08.480 --> 04:15.760
+I would like more to explain how the real databases work and basically the isolation
+
+04:15.760 --> 04:23.800
+levels that you find in modern databases, you find so really simple that is very similar
+
+04:23.800 --> 04:28.440
+to what is defined in the SQL standard but the others are based on snapshot isolation
+
+04:28.440 --> 04:31.960
+like the picture we have taken.
+
+04:31.960 --> 04:32.960
+Okay.
+
+04:33.080 --> 04:40.760
+So I'm really saying that there is the SQL standard on one side and there are the databases
+
+04:40.760 --> 04:45.160
+that you use on the other side and there is a big difference.
+
+04:45.160 --> 04:51.480
+For the SQL standard, when SQL standard was defined, the idea was that users do not have
+
+04:51.480 --> 04:54.600
+to care about the others in the database.
+
+04:54.600 --> 05:00.880
+You just work, define your transactions, code your access to the database as if you are
+
+05:00.880 --> 05:02.600
+alone in the database.
+
+05:02.640 --> 05:07.320
+You do not have to look explicitly anything.
+
+05:07.320 --> 05:11.360
+The database will do it for you.
+
+05:11.360 --> 05:18.840
+So for the SQL standard, looks is something that can happen in the database but not visible
+
+05:18.840 --> 05:21.000
+to the user in the SQL standard.
+
+05:21.000 --> 05:24.560
+There is no lock command for example.
+
+05:24.560 --> 05:32.440
+But in real life, in the real databases that exist today, this is not how it works.
+
+05:32.480 --> 05:39.400
+Most of databases are able to read from a past snapshot.
+
+05:39.400 --> 05:45.040
+They record the changes and they are able to read from the past so that they don't have
+
+05:45.040 --> 05:54.040
+to look too much and the developers can also choose to look themselves some information
+
+05:54.040 --> 06:01.200
+that they don't want to change, to be changed by other transactions during their transaction.
+
+06:01.240 --> 06:03.680
+That's typically the select for updates.
+
+06:03.680 --> 06:06.560
+You will not find that in the SQL standard.
+
+06:06.560 --> 06:12.440
+You will find the syntax for select for updates but not to lock it.
+
+06:12.440 --> 06:21.640
+So yeah, big mismatch between the theory and how databases work.
+
+06:21.640 --> 06:28.560
+Before talking more about MVCC and defining it, I will introduce a few concepts.
+
+06:28.560 --> 06:33.040
+My idea is that there are many databases and they have many versions.
+
+06:33.040 --> 06:38.840
+You cannot learn, remember how everything works but if you have the basic concept then
+
+06:38.840 --> 06:43.880
+you can understand better how all those things are working.
+
+06:43.880 --> 06:49.600
+So I will explain a bit more what is special about SQL transactions especially if you come
+
+06:49.600 --> 06:52.880
+from no SQL databases.
+
+06:52.880 --> 06:59.000
+I will explain the reads and writes time in a transaction because transactions can be
+
+06:59.000 --> 07:06.960
+long and we will see optimistic and payment-seemistic locking and maybe name them differently.
+
+07:06.960 --> 07:14.960
+This explicit locking in SQL that is not in the standard but that you use in SQL applications.
+
+07:14.960 --> 07:18.000
+Any questions so far?
+
+07:18.000 --> 07:21.800
+Okay, first, SQL transactions are complex.
+
+07:21.800 --> 07:29.120
+So if you work with SQL databases you probably know that if you work with no SQL databases
+
+07:29.120 --> 07:34.000
+and if you see the no SQL database vendors telling you that they have transaction, they
+
+07:34.000 --> 07:40.960
+have AC properties, they may be, they are not talking about the same thing exactly.
+
+07:40.960 --> 07:48.600
+SQL transactions are complex because they do many reads and writes during the transaction
+
+07:48.600 --> 07:53.960
+and the transaction can take a few milliseconds or seconds or even minutes.
+
+07:53.960 --> 08:02.160
+Many reads and writes and the complexity is that in a transaction usually the writes depend
+
+08:02.160 --> 08:04.440
+on what you have read.
+
+08:04.440 --> 08:14.040
+Usually if you take a simple example you check in for a flight so you read to see the seats
+
+08:14.040 --> 08:17.560
+available and then you will pick one.
+
+08:17.560 --> 08:22.120
+But your choice to pick one that is a write will depend on what you have read.
+
+08:22.120 --> 08:25.440
+You don't want to pick a seat that is not free.
+
+08:25.440 --> 08:31.440
+And then the problem is that another transaction may have read the same map of the three seats
+
+08:31.440 --> 08:32.920
+and may pick the same.
+
+08:32.920 --> 08:36.800
+This is where we will have conflicts and we will see how it is solved.
+
+08:36.800 --> 08:43.240
+So SQL transactions are complex especially when you have a decision on what you have
+
+08:43.240 --> 08:46.720
+read that will determine what is done later.
+
+08:46.720 --> 08:52.600
+And in SQL you do not declare everything that you will do.
+
+08:52.600 --> 09:00.640
+I can say begin transaction, read something, have a coffee, come back, write something because
+
+09:00.640 --> 09:03.880
+during the coffee I was thinking about what I will write.
+
+09:03.880 --> 09:10.400
+That's very different from, for example, no SQL databases where each call you exactly
+
+09:10.400 --> 09:14.920
+tell what you do, what the database has to do.
+
+09:14.920 --> 09:21.920
+Here you have a transaction with user, maybe user interaction between them.
+
+09:21.920 --> 09:30.760
+And even if you do a single row insert that looks like a simple write, so not this complex
+
+09:30.760 --> 09:36.680
+problem of reading, writing, actually on your table you may have foreign keys, you may have
+
+09:36.680 --> 09:41.640
+secondary indexes to update, you have a primary key.
+
+09:41.640 --> 09:48.080
+So even this simple statement has to read before write.
+
+09:48.080 --> 09:51.000
+You read, does the key already exist?
+
+09:51.000 --> 09:53.840
+If it exists already you have an exception.
+
+09:53.840 --> 09:56.360
+If it doesn't exist then you can write.
+
+09:56.360 --> 10:00.400
+And when you write you write to secondary index, you check the foreign keys.
+
+10:00.400 --> 10:05.840
+So even something that is very simple from the developer point of view can be a complex
+
+10:05.840 --> 10:12.760
+transaction where write depends on reads.
+
+10:12.760 --> 10:22.840
+And as I mentioned, no SQL vendors now start to have some transactional behavior.
+
+10:22.840 --> 10:32.560
+But when they call that ACID like the SQL properties, it's not about those complex transactions.
+
+10:32.560 --> 10:38.960
+For example, in no SQL databases you just have single calls you put or you get something.
+
+10:38.960 --> 10:43.600
+Many no SQL databases do not try to be consistent.
+
+10:43.600 --> 10:47.400
+They have individual consistency when updating the secondary index.
+
+10:47.400 --> 10:51.120
+They don't have unique keys, etc.
+
+10:51.120 --> 11:02.880
+So that was what is more complex with SQL and why it's not so easy to implement a database.
+
+11:02.880 --> 11:08.160
+And then during this transaction where you have reads and writes they cannot all happen
+
+11:08.160 --> 11:13.880
+at the same time because it's different place on disk, it's different CPU instructions.
+
+11:13.880 --> 11:24.400
+So the problem is that the reads and writes happen at different time during your transaction.
+
+11:24.400 --> 11:26.280
+Cannot be atomic.
+
+11:26.280 --> 11:35.800
+But for the application it has to look like it is at atomic all happening at commit time.
+
+11:35.800 --> 11:42.120
+And so it happens at different time then on different states of the database and then
+
+11:42.120 --> 11:44.080
+the consistency is difficult.
+
+11:44.080 --> 11:51.160
+So how databases can try to reduce the number of different states where it reads and writes.
+
+11:51.160 --> 11:58.040
+You can read from the past if you recorded all changes like in a movie.
+
+11:58.040 --> 12:03.480
+You can read from the past but you cannot read from the future.
+
+12:03.920 --> 12:08.240
+Obviously you don't know what the others will do.
+
+12:08.240 --> 12:14.960
+Except if there is no modification for example if you look everything that you read you can
+
+12:14.960 --> 12:19.240
+read from the future because you know that the future state is exactly the same as the
+
+12:19.240 --> 12:21.760
+current one.
+
+12:21.760 --> 12:24.320
+For writes it's the opposite.
+
+12:24.320 --> 12:30.560
+You cannot write to the past when you see movies where people go to the past and change
+
+12:30.560 --> 12:34.480
+something it's really consistent at the end.
+
+12:34.480 --> 12:41.720
+But again you can be sure that there are no modifications.
+
+12:41.720 --> 12:47.960
+You look everything that you write and then where you write is the same state as at the
+
+12:47.960 --> 12:50.120
+end.
+
+12:50.120 --> 12:59.680
+So if I have a timeline between my begin transaction and commit I read and write at multiple times
+
+12:59.680 --> 13:07.560
+I can read and see as of the time of the start of my transaction for example.
+
+13:07.560 --> 13:16.400
+And I can read and write and at commit time come back to set the right time stamp as the
+
+13:16.400 --> 13:20.480
+commit time because this is where everything is visible.
+
+13:20.480 --> 13:29.640
+So we'll see that in NVCC databases you read from a state at the beginning of your transaction
+
+13:29.640 --> 13:34.560
+and you write as of the commit time.
+
+13:34.560 --> 13:40.720
+That's the magic of databases to be able to do something that looks like happening at
+
+13:40.720 --> 13:45.600
+the same time even if it's not possible physically.
+
+13:45.600 --> 13:54.680
+So to do that in NVCC databases the writes take an exclusive look.
+
+13:54.680 --> 14:01.680
+In NVCC is about reading from the past the write you cannot do anything else than looking
+
+14:01.680 --> 14:07.640
+what you write to be sure that it doesn't change until the end of the transaction.
+
+14:07.640 --> 14:13.680
+To read you can read from the past and then instead of multiple different states of the
+
+14:13.680 --> 14:18.640
+database you have only two states the read state and the write state.
+
+14:18.640 --> 14:24.160
+But then you need some additional logic in the database that compares those states check
+
+14:24.160 --> 14:26.800
+if they are compatible.
+
+14:26.800 --> 14:34.440
+If something has changed in between it may have to raise an error to tell you okay you
+
+14:34.440 --> 14:40.400
+have read from this state you have written on this state but they are not compatible
+
+14:40.400 --> 14:45.800
+because someone changed something in the state in between.
+
+14:45.800 --> 14:52.160
+Another concept optimistic and pessimistic looking and so those are general names that
+
+14:52.160 --> 14:54.040
+are used at many levels.
+
+14:54.040 --> 14:59.880
+At low level in the implementation but also from the application you can the idea is
+
+14:59.880 --> 15:06.680
+that optimistic looking you think you will not have any conflicts or you do not do additional
+
+15:06.680 --> 15:11.480
+things for that you will just raise an error and retry if it happens.
+
+15:11.480 --> 15:17.920
+Pessimistic looking you expect that you will be in conflict and then you wait on it.
+
+15:17.920 --> 15:21.880
+But those terms are a bit misleading.
+
+15:21.880 --> 15:27.400
+Those are terms for example in new Gabbai when we did the documentation we used other
+
+15:27.400 --> 15:30.760
+terms like wait on conflict.
+
+15:30.760 --> 15:33.000
+So this is really the behavior.
+
+15:33.000 --> 15:37.880
+A conflict is detected for example you want to take an exclusive lock someone else has
+
+15:37.880 --> 15:40.840
+locked the row.
+
+15:40.840 --> 15:47.480
+You just wait that they are finished so that you can continue so there is an thank you.
+
+15:48.240 --> 15:56.520
+So you wait for you detect the conflict on the row for example but you wait for transaction.
+
+15:56.520 --> 16:02.440
+Another one is fail on conflict just you detect a conflict you don't wait you just raise an
+
+16:02.440 --> 16:08.120
+error to the application and then the application can retry later with the hope that the conflict
+
+16:08.120 --> 16:12.000
+is gone.
+
+16:12.000 --> 16:16.200
+But there is another one and that's also why optimistic and pessimistic looking are not
+
+16:16.240 --> 16:18.880
+really useful.
+
+16:18.880 --> 16:23.960
+There is another case where you may want to skip on conflict.
+
+16:23.960 --> 16:31.200
+For example you want to read and lock a row that is locked by another transaction.
+
+16:31.200 --> 16:32.760
+You don't want to wait for it.
+
+16:32.760 --> 16:37.120
+You don't want to raise an error you will just ignore this row.
+
+16:37.120 --> 16:42.200
+This again of course locks are not in SQL standard but this cannot be in the SQL standard
+
+16:42.240 --> 16:47.480
+because it's not very deterministic but this is used a lot for queues for example if you
+
+16:47.480 --> 16:53.080
+want to dequeue events that are in a table you want to lock them when you process them
+
+16:53.080 --> 16:58.520
+but if someone else is processing a row you just want to process the next one.
+
+16:58.520 --> 17:05.920
+Typically we will see that it's the case of select for update skip locked.
+
+17:05.920 --> 17:12.920
+And last concept before going into the different implementation.
+
+17:15.240 --> 17:22.240
+Explicit locking so by the application again this is not in the SQL standard but this is
+
+17:22.760 --> 17:29.760
+our most application under the anomalies that could happen in the different isolation
+
+17:30.720 --> 17:32.680
+levels that you will see.
+
+17:32.680 --> 17:39.680
+And typically when you read a select for update is a read but it's a bit more than a read
+
+17:39.720 --> 17:46.720
+you read and you tell the database about your intention to update something which means
+
+17:48.680 --> 17:55.680
+that it's a read that behaves like a write like an update lock with a lock on it.
+
+17:56.680 --> 18:00.680
+And then you have those choices.
+
+18:00.680 --> 18:02.680
+Wait on conflict.
+
+18:02.680 --> 18:03.680
+Don't wait.
+
+18:03.680 --> 18:05.680
+Raise an error or skip lock.
+
+18:05.680 --> 18:12.680
+Those three possibilities where the developer tells the database I want to read that I
+
+18:12.680 --> 18:18.680
+don't want it to change or lock it and if you cannot lock it then give me an error or
+
+18:18.680 --> 18:24.680
+wait until you can lock it or just go to the next row I will come back to this one later.
+
+18:26.680 --> 18:33.680
+So you can just ignore the isolation levels and just manage that from the application.
+
+18:36.680 --> 18:43.680
+If you know what you are doing for example if I know that I'm reading the status of a
+
+18:45.680 --> 18:51.680
+hotel room that I want to book I can select for update what I read and then I know that
+
+18:51.680 --> 18:56.680
+nobody will change its status until I commit my transaction.
+
+18:56.680 --> 19:03.680
+So you don't really need to care about isolation levels if you are okay about thinking about
+
+19:05.680 --> 19:07.680
+the conflict yourself.
+
+19:07.680 --> 19:13.680
+Thinking is in the code and of course in tests the problem with concurrency is that it's not
+
+19:13.680 --> 19:18.680
+always easy to test the different combinations.
+
+19:18.680 --> 19:21.680
+But it's totally possible.
+
+19:21.680 --> 19:28.680
+And those select for update we will see also for share those concern rows but sometimes to avoid
+
+19:32.680 --> 19:38.680
+some anomalies you may want to lock more than a row maybe a row that doesn't exist yet.
+
+19:38.680 --> 19:47.680
+For example you don't want anyone to insert a new row that's where you realize that this
+
+19:47.680 --> 19:51.680
+row does not exist then you can also lock a table.
+
+19:51.680 --> 19:57.680
+Again you don't find that in the SQL standard but all databases give you the possibility to
+
+19:57.680 --> 19:58.680
+lock.
+
+19:58.680 --> 20:03.680
+Okay do you have any question about that?
+
+20:03.680 --> 20:11.680
+So the main message there is that it's totally okay you can ignore the isolation levels do
+
+20:11.680 --> 20:16.680
+your own looking it's totally okay but only if you understand them.
+
+20:16.680 --> 20:25.680
+So most people use the default isolation levels read committed in Postgres and that's fine.
+
+20:25.680 --> 20:31.680
+You don't need other isolation level if you don't want to but you need to understand how it works
+
+20:31.680 --> 20:36.680
+to be sure that you handle correctly the cases where you have to block something yourself.
+
+20:41.680 --> 20:48.680
+So basically that's the goal of the presentation talking about how it works so that you understand
+
+20:48.680 --> 20:55.680
+it maybe you will not change your isolation level after understanding all that but at least you
+
+20:55.680 --> 21:01.680
+will understand how it works and if you have some flaws in the logic with the select for
+
+21:01.680 --> 21:03.680
+update you use for example.
+
+21:03.680 --> 21:12.680
+So MVCC stands for multiversion concurrency control I don't really like this name others may call it
+
+21:12.680 --> 21:19.680
+multiversion read consistency at least it makes it clear that it is only about reads.
+
+21:19.680 --> 21:26.680
+The writes you cannot do anything else than looking what you write this is only about reads
+
+21:26.680 --> 21:33.680
+isolation levels are only about reads it was also called multi-generational architecture
+
+21:33.680 --> 21:40.680
+in the first databases that implement it but basically it's versioning when you change a row
+
+21:40.680 --> 21:49.680
+the database keeps the old version of the row so that you can read from a previous snapshot.
+
+21:49.680 --> 21:59.680
+Twenty years ago IBM in a paper that compared with Oracle was saying MVCC is implemented in
+
+21:59.680 --> 22:08.680
+only one database Oracle no other database did it because basically it's not good and today
+
+22:08.680 --> 22:18.680
+I think that only DB2 is not using MVCC release or the history has proved that they were
+
+22:18.680 --> 22:28.680
+actually wrong now all databases use MVCC because you don't have to look too much when you read.
+
+22:28.680 --> 22:35.680
+Another thing that they were saying was that the model where you look what you read the one that is
+
+22:35.680 --> 22:42.680
+defined in the SQL standard is better because the developer or the user doesn't have to think about
+
+22:42.680 --> 22:51.680
+the code around the select for updates but finally most application developers really prefer to put
+
+22:51.680 --> 22:56.680
+the select for updates in the transactions where they are needed rather than going to
+
+22:56.680 --> 23:03.680
+isolation levels that may have other problems the only thing where they were right in this paper
+
+23:03.680 --> 23:11.680
+was saying that you need to understand it in your database because all implementations are different.
+
+23:11.680 --> 23:20.680
+So the non-NVCC ones like the DB2 they cannot read from the past because they do not record all the changes
+
+23:20.680 --> 23:26.680
+they have to record it for recovery reason but they don't record it for this reason.
+
+23:26.680 --> 23:35.680
+So they cannot go to the past the only way is to look when you read you look in share mode
+
+23:35.680 --> 23:41.680
+so many people can read at the same time but nobody can update something that you have read
+
+23:41.680 --> 23:49.680
+which cause problem because then you may have deadlocks then you may have you look too much basically
+
+23:49.680 --> 23:58.680
+for no LTP application and MVCC databases they look only for the rights they read from the past
+
+23:58.680 --> 24:07.680
+and they have some conflict detection to see if those two states conflict with your transaction consistency or not.
+
+24:07.680 --> 24:17.680
+This is also for repeatable read only because if you do read commit even within transaction
+
+24:17.680 --> 24:19.680
+you will read the current...
+
+24:19.680 --> 24:24.680
+The remark is that when I say I read from the beginning of the transaction
+
+24:24.680 --> 24:30.680
+that's the general case in read committed we will see the isolation level at the end
+
+24:30.680 --> 24:37.680
+the read time may be reset for each statement and we will see why.
+
+24:37.680 --> 24:42.680
+But the idea is that you have only two states when you are reading your statement.
+
+24:43.680 --> 24:47.680
+And yeah this is about read.
+
+24:50.680 --> 24:56.680
+I will go first I have a reference on the first mention of this architecture
+
+24:56.680 --> 25:03.680
+but basically the changes are versioned we will see that there are different implementation
+
+25:04.680 --> 25:15.680
+Postgres versions the rows in the table and query can read as of a specific time
+
+25:15.680 --> 25:22.680
+so we will see as of the beginning of the transaction or as of the start of a statement
+
+25:22.680 --> 25:29.680
+and then it can do those optimistic looking without locks that's the main value of it
+
+25:29.680 --> 25:34.680
+the readers do not block the writers.
+
+25:34.680 --> 25:42.680
+Typically in non-MVCC databases if you are the DBA and just want to count the tables
+
+25:42.680 --> 25:50.680
+the rows in the table and you do a select count star which you do easily in Postgres
+
+25:50.680 --> 25:56.680
+if you do that in DB2 you will lock all your applications because you will lock everything
+
+25:56.680 --> 26:02.680
+so yeah quite nice to be able to read without blocking the others.
+
+26:02.680 --> 26:09.680
+So basically MVCC became popular because it allowed mixed workloads
+
+26:09.680 --> 26:13.680
+even if you have a no LTP application there is some reporting on it
+
+26:13.680 --> 26:18.680
+there are some analytic queries on it and you don't want them to block the others.
+
+26:19.680 --> 26:30.680
+So then the implementation all databases most databases today implement MVCC
+
+26:30.680 --> 26:35.680
+but all in a different way and then the bravio may be different
+
+26:35.680 --> 26:38.680
+and that's why it's interesting to understand it.
+
+26:38.680 --> 26:44.680
+First when you version you have a version number some databases use a timestamp
+
+26:44.680 --> 26:50.680
+some databases use a number that is always increasing the log sequence number
+
+26:50.680 --> 26:55.680
+for example in Postgres and what do you version?
+
+26:55.680 --> 27:02.680
+Many databases version the rows in Postgres each row if you update a row
+
+27:02.680 --> 27:06.680
+you will have a new version of the row.
+
+27:06.680 --> 27:10.680
+Then the question is I say what about the index entries?
+
+27:10.680 --> 27:14.680
+There are some databases that also version the index entries
+
+27:14.680 --> 27:20.680
+Postgres doesn't do versioning for the index so the index has the two entries
+
+27:20.680 --> 27:24.680
+and then in the row you have this version number.
+
+27:24.680 --> 27:30.680
+There are some databases actually I think there is only one database that doesn't version at all level
+
+27:30.680 --> 27:36.680
+but at block level so a low level the storage the page or vehicle does that at block level
+
+27:36.680 --> 27:42.680
+so very different implementation and where do you store the past versions?
+
+27:42.680 --> 27:50.680
+That's also a big problem you can store it keep it where it is for example in Postgres
+
+27:50.680 --> 27:56.680
+you have a row you update it the new version will be written at the end of the heap table
+
+27:56.680 --> 28:05.680
+and the old versions just stays there in other databases this old version will be moved to an undue log
+
+28:05.680 --> 28:13.680
+a rollback segment can have a different name and both are pros and cons.
+
+28:13.680 --> 28:19.680
+If you move it then you have the overhead to move it but you don't put overhead on the other
+
+28:19.680 --> 28:25.680
+that we have to read and the size of the table so many different implementations.
+
+28:25.680 --> 28:32.680
+Also you need to change the versions if an index go to a row
+
+28:32.680 --> 28:39.680
+and then you see that this version is too early when compared to your read time
+
+28:39.680 --> 28:44.680
+you want to go to a past version or it can be the opposite you always go to the past version
+
+28:44.680 --> 28:48.680
+and then you see if there are new changes.
+
+28:48.680 --> 28:56.680
+So in Postgres when a row is updated a new version is written at the end of the heap
+
+28:56.680 --> 29:00.680
+and the old version has a pointer to it so from old to the old.
+
+29:00.680 --> 29:02.680
+Question?
+
+29:02.680 --> 29:15.680
+I didn't get the end of the question.
+
+29:15.680 --> 29:21.680
+We have a microphone it will be easier.
+
+29:21.680 --> 29:30.680
+I'm just asking that the version number whatever it is which shows that a change has been made
+
+29:30.680 --> 29:38.680
+so will it also point to the row or rows which have been updated or deleted or changed like in one version
+
+29:38.680 --> 29:43.680
+or it just shows that this table has been changed in this version?
+
+29:43.680 --> 29:51.680
+For example in Postgres it is per row so typically if I read from an index the index entry
+
+29:51.680 --> 29:57.680
+the value that I'm looking for I have one or multiple index entries for that
+
+29:57.680 --> 30:05.680
+and then it will go to the table and then if it's not the right version it will go to the right version
+
+30:05.680 --> 30:07.680
+so it follows it.
+
+30:07.680 --> 30:14.680
+Okay so I think it's kind of an idea which is attached to each row and not the whole table right?
+
+30:14.680 --> 30:19.680
+Yeah the version is per row for each row.
+
+30:19.680 --> 30:26.680
+I think only Oracle is very different where the version is per page so you read a page
+
+30:26.680 --> 30:34.680
+you see which transactions are there and then there is the information to undo the page to a previous version
+
+30:34.680 --> 30:37.680
+but most databases do it per row.
+
+30:37.680 --> 30:44.680
+Of course it has an overhead in the row because you need enough information to follow that.
+
+30:44.680 --> 30:49.680
+And also the big question you keep all versions but how long?
+
+30:49.680 --> 30:54.680
+Because your database will grow if you just keep all versions.
+
+30:54.680 --> 31:01.680
+So you need to keep all versions to cover the longest query.
+
+31:01.680 --> 31:10.680
+If I have a long report that takes one hour and if it's read time is one hour ago I need one hour of versions
+
+31:10.680 --> 31:17.680
+but after some time you need to clean that and it Postgres is the vacuum that does that.
+
+31:17.680 --> 31:21.680
+Kind of garbage collection again it has different name in all databases
+
+31:21.680 --> 31:25.680
+but basically you need something that cleans that.
+
+31:25.680 --> 31:31.680
+If the old version was moved in a different place then the cleanup may be easy.
+
+31:31.680 --> 31:35.680
+You have the overhead when you move it but then the cleanup may be easy.
+
+31:35.680 --> 31:43.680
+If it's done in a lazy way where the old version stays in place then you need something that cleans up.
+
+31:43.680 --> 31:50.680
+So all implementations are different and then the most difficult is the indexes.
+
+31:50.680 --> 31:59.680
+The secondary indexes in Postgres all indexes are secondary indexes because the row is stored in the heap tables.
+
+31:59.680 --> 32:04.680
+They have all the entries and then when you clean up the old version you need also to clean up the index.
+
+32:04.680 --> 32:10.680
+So it's really something that is very complex to implement MVCC in databases.
+
+32:10.680 --> 32:19.680
+It has the big value of readers not blocking writers but it's not easy and all implementations are different.
+
+32:19.680 --> 32:25.680
+I will not go into the detail in a few databases that I compared.
+
+32:25.680 --> 32:32.680
+So I already mentioned the level of versioning table rows for Postgres.
+
+32:32.680 --> 32:35.680
+Oracle does it per block.
+
+32:35.680 --> 32:39.680
+For example in Ugabite we are per row but also per index.
+
+32:39.680 --> 32:43.680
+So the index has also the versioning.
+
+32:43.680 --> 32:50.680
+The interface is the same as it's compatible with Postgres but the storage is completely different.
+
+32:50.680 --> 32:57.680
+So I already mentioned how it works with Postgres, happened to the heap table.
+
+32:57.680 --> 33:01.680
+Then you have to think about where are those versions.
+
+33:01.680 --> 33:06.680
+If it is happened then the different versions are scattered.
+
+33:06.680 --> 33:16.680
+There are some other implementations where all versions of a key, the primary key are together.
+
+33:16.680 --> 33:23.680
+For example SQL Server implemented MVCC very late compared to the other databases.
+
+33:23.680 --> 33:31.680
+They move the old version to another database where initially the time DB now they have a specific storage for that.
+
+33:31.680 --> 33:34.680
+But it's all per key.
+
+33:34.680 --> 33:38.680
+MySQL is also very special. MySQL doesn't have heap tables.
+
+33:38.680 --> 33:41.680
+It's only in the index organized table.
+
+33:41.680 --> 33:44.680
+So the rows stored in the primary key.
+
+33:44.680 --> 33:46.680
+And they have two logs.
+
+33:46.680 --> 33:51.680
+They have an insert log which you don't really care when you read from the past.
+
+33:51.680 --> 33:58.680
+You just ignore the new insert but they have also a log for the updates or deletes.
+
+33:58.680 --> 34:06.680
+If you delete it, it's just marked like an update saying it is the end of lifecycle of the whole.
+
+34:06.680 --> 34:09.680
+So they have another log for that.
+
+34:09.680 --> 34:11.680
+Yeah, question?
+
+34:18.680 --> 34:22.680
+It has only one log, not two logs. It has different types.
+
+34:22.680 --> 34:24.680
+In MySQL?
+
+34:24.680 --> 34:25.680
+In Unodebs.
+
+34:25.680 --> 34:28.680
+Yeah, okay. Yeah, thanks.
+
+34:28.680 --> 34:30.680
+Only one log.
+
+34:30.680 --> 34:32.680
+Those are very different.
+
+34:32.680 --> 34:37.680
+I know quite well Postgres, the Wacol and of course, you Gabbite.
+
+34:37.680 --> 34:39.680
+I know a bit less those.
+
+34:39.680 --> 34:44.680
+The documentation is also not very...
+
+34:44.680 --> 34:48.680
+The SQL Server implementation, there are not a lot of documentation about it.
+
+34:48.680 --> 34:50.680
+MySQL, yeah.
+
+34:50.680 --> 35:00.680
+But basically, they all have also garbage collection and the main difference, the choice of the databases.
+
+35:00.680 --> 35:07.680
+I said that the retention of version must cover the longest query.
+
+35:07.680 --> 35:17.680
+Some databases, for example, Wacol, doesn't care after a while not to have too many old versions.
+
+35:17.680 --> 35:21.680
+So it will remove it. You set the retention that you do.
+
+35:21.680 --> 35:27.680
+But that means that a long query may encounter this snapshot to old error saying,
+
+35:27.680 --> 35:30.680
+oh, I cannot rebuild the read time that you ask for.
+
+35:30.680 --> 35:38.680
+Other databases will just don't do garbage collection, render longer running queries.
+
+35:38.680 --> 35:46.680
+For example, in Postgres, if you have a long running query, vacuum will not be able to clean up everything that it has to clean up.
+
+35:46.680 --> 35:49.680
+And that can be problematic when you read from a standby.
+
+35:49.680 --> 35:54.680
+And that can be different. You can have the same equivalent of error.
+
+35:54.680 --> 35:56.680
+I'm not going to go into all detail.
+
+35:56.680 --> 35:59.680
+The most important is that you understand the different concepts.
+
+35:59.680 --> 36:01.680
+Those are different.
+
+36:01.680 --> 36:10.680
+Those are pros and cons, the overhead on different operations.
+
+36:10.680 --> 36:17.680
+One that is very nice with Postgres because you have all the old version in place.
+
+36:17.680 --> 36:20.680
+Rollback is very fast.
+
+36:20.680 --> 36:26.680
+Usually don't really care about how fast is a rollback in normal operation.
+
+36:26.680 --> 36:34.680
+But when you have a crash recovery, you need to rollback the transaction that were not committed at the time of the crash.
+
+36:34.680 --> 36:37.680
+So this is really fast in Postgres.
+
+36:37.680 --> 36:45.680
+But in Postgres, keeping the old version in place, you have all these problems with bloat and vacuum that you have to manage.
+
+36:45.680 --> 36:54.680
+In other databases, the problem of stopping garbage collection or not when you have long running query,
+
+36:54.680 --> 36:58.680
+do you want to give priority to those queries that they can finish?
+
+36:58.680 --> 37:02.680
+Or do you want to give priority to the garbage collection that maintains the performance?
+
+37:02.680 --> 37:07.680
+So those are different pros and cons that we have seen.
+
+37:07.680 --> 37:10.680
+Important to know what is the default isolation level.
+
+37:10.680 --> 37:13.680
+Important to know because most people do not change it.
+
+37:13.680 --> 37:14.680
+They use the default.
+
+37:14.680 --> 37:17.680
+So at least you should know what you are using.
+
+37:17.680 --> 37:21.680
+In Postgres, it is the read committed isolation level.
+
+37:21.680 --> 37:24.680
+The same for many databases.
+
+37:24.680 --> 37:26.680
+And mostly for performance reasons.
+
+37:26.680 --> 37:36.680
+If serializable was easy and fast, probably everybody would use it, but not the case.
+
+37:36.680 --> 37:46.680
+And even if they all use read committed, they have a different behavior.
+
+37:46.680 --> 37:53.680
+I said that at some point it has to detect conflicts between reads and writes.
+
+37:53.680 --> 38:00.680
+And when it detects a conflict, the big advantage of read committed, and I will explain that later,
+
+38:00.680 --> 38:08.680
+the big advantage is that when there is a conflict, in some cases the database can restart the statement
+
+38:08.680 --> 38:10.680
+to a newer read time.
+
+38:10.680 --> 38:18.680
+So from the application point of view, you just wait a bit more and it is managed by the database.
+
+38:18.680 --> 38:23.680
+Postgres does not restart the statement, but it can reread a row,
+
+38:23.680 --> 38:35.680
+which may show some inconsistency because it can read a row from a different read time.
+
+38:35.680 --> 38:39.680
+In my SQL, the default is repeatable read.
+
+38:39.680 --> 38:46.680
+We have also some strange things that may happen and look like inconsistency.
+
+38:46.680 --> 38:50.680
+Some operations are not really isolated.
+
+38:50.680 --> 38:52.680
+The serializable.
+
+38:52.680 --> 38:56.680
+Very few databases use serializable by default.
+
+38:56.680 --> 39:02.680
+A few distributed SQL databases use it, but for example,
+
+39:02.680 --> 39:04.680
+co-crochet is implementing read committed.
+
+39:04.680 --> 39:14.680
+Mostly to be compatible with existing applications and because serializable has to look too many things.
+
+39:14.680 --> 39:18.680
+So I mentioned the read restart.
+
+39:18.680 --> 39:27.680
+When, so in read committed, what is different with read committed is that the contract with the developer
+
+39:27.680 --> 39:34.680
+is that the read time can change during a transaction for each statement.
+
+39:34.680 --> 39:40.680
+If I am in isolation levels above, the read time is also the time where the transaction starts,
+
+39:40.680 --> 39:42.680
+the begin transaction.
+
+39:42.680 --> 39:46.680
+With read committed, each statement has its own read time,
+
+39:46.680 --> 39:54.680
+which may bring more anomalies if you rely on what has been read before.
+
+39:54.680 --> 40:00.680
+But the big advantage of it, because the read time can change during a transaction,
+
+40:00.680 --> 40:05.680
+if a conflict is detected within a statement,
+
+40:05.680 --> 40:11.680
+the database may be able to restart it as of a newer read time.
+
+40:11.680 --> 40:17.680
+You cannot do that for the whole transaction because you don't know what the application did before.
+
+40:17.680 --> 40:21.680
+Maybe the transaction did something not transactional.
+
+40:21.680 --> 40:31.680
+Some databases restart the read in read committed when they encounter a problem.
+
+40:31.680 --> 40:36.680
+Postgres doesn't. Postgres just rereads the new whole.
+
+40:36.680 --> 40:41.680
+I think, I'm not sure, I think the main reason is that to restart a statement,
+
+40:41.680 --> 40:50.680
+you have to take a snapshot just before and to roll back to this safe point.
+
+40:50.680 --> 40:53.680
+I said stop shots, I must say a safe point.
+
+40:53.680 --> 40:56.680
+To roll back to this safe point to redo it.
+
+40:56.680 --> 41:06.680
+And in postgres, current version taking safe points for each statement is probably too much overhead.
+
+41:06.680 --> 41:11.680
+Actually, this read restart is also possible in other isolation levels
+
+41:11.680 --> 41:16.680
+if it is the first statement of the transaction.
+
+41:16.680 --> 41:20.680
+The thing is not really related to the isolation level.
+
+41:20.680 --> 41:25.680
+It's more when the database knows that the application did nothing before,
+
+41:25.680 --> 41:33.680
+then it can move the read point.
+
+41:33.680 --> 41:37.680
+So basically, I'm going fast on that.
+
+41:37.680 --> 41:43.680
+Basically, bad things can happen with all databases at all isolation level
+
+41:43.680 --> 41:46.680
+and it's good to know it.
+
+41:46.680 --> 41:52.680
+So postgres can read rows at different point in time.
+
+41:52.680 --> 41:56.680
+Oracle can set a reusable that is not reusable.
+
+41:56.680 --> 42:01.680
+It's kind of a lie in interpreting the isolation levels.
+
+42:01.680 --> 42:09.680
+SQL server has MVCC, but when it needs to lock, there is an eye overhead,
+
+42:09.680 --> 42:13.680
+so it's not always recommended.
+
+42:13.680 --> 42:18.680
+MySQL in repeatable read can see commits by others.
+
+42:18.680 --> 42:25.680
+So basically, bad things can happen at any level, not at real serializable,
+
+42:25.680 --> 42:29.680
+but this has a cost in terms of performance.
+
+42:29.680 --> 42:35.680
+But it's not a big problem if you understand it
+
+42:35.680 --> 42:41.680
+and you know that you can do your own concurrency control with select for update, for example.
+
+42:41.680 --> 42:47.680
+So the goal is to know which problem can happen with your transaction.
+
+42:47.680 --> 42:51.680
+It depends on the isolation level, the database you use,
+
+42:51.680 --> 42:53.680
+but also what you are doing in your transaction,
+
+42:53.680 --> 42:58.680
+and then you can use mostly select for update to manage that.
+
+42:58.680 --> 43:06.680
+So with implicit locking, I already said that it was not in the SQL standard.
+
+43:06.680 --> 43:13.680
+SQL standard was made for a lot of user interactions, long transactions,
+
+43:13.680 --> 43:23.680
+where a user really starts a transaction, can go back later at the time where users are at only one screen,
+
+43:23.680 --> 43:27.680
+so you cannot switch to another application and leave a transaction open.
+
+43:27.680 --> 43:29.680
+Today, you just don't want to do that.
+
+43:29.680 --> 43:35.680
+Today, applications probably know all the transaction intent from the beginning,
+
+43:35.680 --> 43:38.680
+which means that the application can say,
+
+43:38.680 --> 43:46.680
+okay, I'm reading, but with the goal, the intent of writing, then I do a select for update.
+
+43:46.680 --> 43:54.680
+And in short, if you use read committed, big advantage, there are no locks on what you read,
+
+43:54.680 --> 43:59.680
+and the read time is the start of the statement, which is really cool.
+
+43:59.680 --> 44:05.680
+And if you want, but may have some anomalies, if you don't want those anomalies,
+
+44:05.680 --> 44:10.680
+just use select for share, select for update to lock what you want.
+
+44:10.680 --> 44:17.680
+Instead of having the database locking all reads, you just lock the few ones that you need to lock.
+
+44:17.680 --> 44:22.680
+In repeatable read, the difference is that the read time is the start of the transaction,
+
+44:22.680 --> 44:26.680
+not the start of the statement.
+
+44:26.680 --> 44:30.680
+The problem is that there, a conflict may raise an error,
+
+44:30.680 --> 44:39.680
+and then in the application, you need to catch this error, a serializable error, to retry later.
+
+44:39.680 --> 44:46.680
+But you can also lock with select for update, or lock at a higher level, lock a table,
+
+44:46.680 --> 44:51.680
+but then, be careful, you lock a table, nobody can update it.
+
+44:51.680 --> 44:55.680
+In serializable level, everything works well.
+
+44:55.680 --> 44:59.680
+You don't have to care, you don't have to lock anything yourself.
+
+44:59.680 --> 45:07.680
+There is a performance penalty, but also, the developer doesn't have to care about locking,
+
+45:07.680 --> 45:10.680
+but has to care about the retry logic.
+
+45:10.680 --> 45:14.680
+And that's not so easy, it's not just retry until it works.
+
+45:14.680 --> 45:20.680
+You probably went like an exponential back off, you retry 10 milliseconds later,
+
+45:20.680 --> 45:24.680
+if it still blocked, you retry 100 milliseconds later.
+
+45:24.680 --> 45:27.680
+Okay.
+
+45:27.680 --> 45:33.680
+Going fast on that, there is more than select for updates, you can select for share,
+
+45:33.680 --> 45:37.680
+it's just a read lock, many sessions can select for share,
+
+45:37.680 --> 45:41.680
+but be careful, if in a transaction, you select for share,
+
+45:41.680 --> 45:48.680
+and then you update, you may have some cases where you will have a conflict,
+
+45:48.680 --> 45:54.680
+and then you prefer to reserve with an exclusive lock before.
+
+45:54.680 --> 45:59.680
+You can lock tables, but be careful, and for all of them,
+
+45:59.680 --> 46:06.680
+you have the choice of wait on conflict, or raise and error, or skip it, if it's a queue.
+
+46:06.680 --> 46:10.680
+Okay, we are just on time.
+
+46:10.680 --> 46:15.680
+I have a series, or I don't know, maybe 10 block post about it.
+
+46:15.680 --> 46:19.680
+So I try to summarize that in this presentation.
+
+46:19.680 --> 46:24.680
+This is a topic that is very interesting, because different in all databases,
+
+46:24.680 --> 46:30.680
+and many developers, there are a lot of developers that do not develop only on Postgres,
+
+46:30.680 --> 46:38.680
+they have other databases, and many developers think that they can write database agnostic applications
+
+46:38.680 --> 46:43.680
+by using a framework that can generate the syntax for many databases,
+
+46:43.680 --> 46:49.680
+that works for the syntax, but as we have seen, the preview is different on all databases,
+
+46:49.680 --> 46:53.680
+so there is nothing like a database agnostic application.
+
+46:53.680 --> 46:59.680
+If you have questions, do not hesitate to contact me.
+
+46:59.680 --> 47:03.680
+I will be there all day, but I have a session in one hour,
+
+47:03.680 --> 47:07.680
+the other side on something different, Linux, load average,
+
+47:07.680 --> 47:10.680
+if you want to look at it.
+

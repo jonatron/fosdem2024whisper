@@ -1,0 +1,503 @@
+So, yeah, the idea is to talk about resolution in postgres, compare it with other databases.
+We will see the concept and we will see also the practical usage from developer point of
+view.
+I'm Frank Bacheau.
+I've always been working with databases.
+Now I'm developer advocate at Sugabite that is distributed postgres.
+We use the postgres code for the SQL layer but the storage is completely different.
+So, let's start if my clicker works.
+I have a question for you.
+So this is a picture of a car, obviously.
+Do you think the car is moving forward or backward?
+So, think about it.
+Actually it's not moving because it's a picture, not a movie.
+But the snapshot, the picture was taken when the car was moving.
+But I cannot tell you if it was moving forward or backward.
+There are two snapshots there because it was taken with a long exposure during the night.
+So this is why you see this movement of the light and also with a short flash taken either
+at the beginning or at the end.
+And this is why with the same movement you see different kind of anomaly there with
+lights in front or the other.
+So I'm showing that to compare with databases.
+Databases are always moving because people are changing data.
+And when we want to read it, we want to see a consistent view of it of something that
+is moving.
+But the same.
+There are some anomalies that can happen because when you read things change.
+So how can you solve this anomaly?
+One solution is to stop the car.
+You stop the car, you take the picture and then you have a nice picture of it.
+But then the car cannot move.
+Another one is to take a movie of the car and then when you want to see the full picture
+of the car, you can go maybe back in the movie and pause it and then you can see it.
+And actually databases do the same.
+They can stop the database for modifications with locks or they can take a movie of the
+changes to be able to go back to the past.
+So two kind of implementations and you find them in all databases mostly.
+You look, you can look what you read and then it stops.
+It cannot be changed until the end of your transaction or you can read from a preview
+snapshot.
+So you lag, you don't see the latest changes but you have a consistent point of view.
+If you have read books, learned about isolation levels, it was probably not introduced with
+the pictures I've seen.
+It was probably introduced with that.
+Don't try to read it.
+I will not even talk about that.
+This is what you find in most courses.
+This is what you find in the SQL standard but actually no database implements that.
+That was defined before any implementation and the modern databases do not work like
+that and do not provide those isolation levels even if they put the name to match what is
+in the standard.
+They do not really do that.
+So let's forget about it.
+If you want to read about it, there are plenty of sources.
+I would like more to explain how the real databases work and basically the isolation
+levels that you find in modern databases, you find so really simple that is very similar
+to what is defined in the SQL standard but the others are based on snapshot isolation
+like the picture we have taken.
+Okay.
+So I'm really saying that there is the SQL standard on one side and there are the databases
+that you use on the other side and there is a big difference.
+For the SQL standard, when SQL standard was defined, the idea was that users do not have
+to care about the others in the database.
+You just work, define your transactions, code your access to the database as if you are
+alone in the database.
+You do not have to look explicitly anything.
+The database will do it for you.
+So for the SQL standard, looks is something that can happen in the database but not visible
+to the user in the SQL standard.
+There is no lock command for example.
+But in real life, in the real databases that exist today, this is not how it works.
+Most of databases are able to read from a past snapshot.
+They record the changes and they are able to read from the past so that they don't have
+to look too much and the developers can also choose to look themselves some information
+that they don't want to change, to be changed by other transactions during their transaction.
+That's typically the select for updates.
+You will not find that in the SQL standard.
+You will find the syntax for select for updates but not to lock it.
+So yeah, big mismatch between the theory and how databases work.
+Before talking more about MVCC and defining it, I will introduce a few concepts.
+My idea is that there are many databases and they have many versions.
+You cannot learn, remember how everything works but if you have the basic concept then
+you can understand better how all those things are working.
+So I will explain a bit more what is special about SQL transactions especially if you come
+from no SQL databases.
+I will explain the reads and writes time in a transaction because transactions can be
+long and we will see optimistic and payment-seemistic locking and maybe name them differently.
+This explicit locking in SQL that is not in the standard but that you use in SQL applications.
+Any questions so far?
+Okay, first, SQL transactions are complex.
+So if you work with SQL databases you probably know that if you work with no SQL databases
+and if you see the no SQL database vendors telling you that they have transaction, they
+have AC properties, they may be, they are not talking about the same thing exactly.
+SQL transactions are complex because they do many reads and writes during the transaction
+and the transaction can take a few milliseconds or seconds or even minutes.
+Many reads and writes and the complexity is that in a transaction usually the writes depend
+on what you have read.
+Usually if you take a simple example you check in for a flight so you read to see the seats
+available and then you will pick one.
+But your choice to pick one that is a write will depend on what you have read.
+You don't want to pick a seat that is not free.
+And then the problem is that another transaction may have read the same map of the three seats
+and may pick the same.
+This is where we will have conflicts and we will see how it is solved.
+So SQL transactions are complex especially when you have a decision on what you have
+read that will determine what is done later.
+And in SQL you do not declare everything that you will do.
+I can say begin transaction, read something, have a coffee, come back, write something because
+during the coffee I was thinking about what I will write.
+That's very different from, for example, no SQL databases where each call you exactly
+tell what you do, what the database has to do.
+Here you have a transaction with user, maybe user interaction between them.
+And even if you do a single row insert that looks like a simple write, so not this complex
+problem of reading, writing, actually on your table you may have foreign keys, you may have
+secondary indexes to update, you have a primary key.
+So even this simple statement has to read before write.
+You read, does the key already exist?
+If it exists already you have an exception.
+If it doesn't exist then you can write.
+And when you write you write to secondary index, you check the foreign keys.
+So even something that is very simple from the developer point of view can be a complex
+transaction where write depends on reads.
+And as I mentioned, no SQL vendors now start to have some transactional behavior.
+But when they call that ACID like the SQL properties, it's not about those complex transactions.
+For example, in no SQL databases you just have single calls you put or you get something.
+Many no SQL databases do not try to be consistent.
+They have individual consistency when updating the secondary index.
+They don't have unique keys, etc.
+So that was what is more complex with SQL and why it's not so easy to implement a database.
+And then during this transaction where you have reads and writes they cannot all happen
+at the same time because it's different place on disk, it's different CPU instructions.
+So the problem is that the reads and writes happen at different time during your transaction.
+Cannot be atomic.
+But for the application it has to look like it is at atomic all happening at commit time.
+And so it happens at different time then on different states of the database and then
+the consistency is difficult.
+So how databases can try to reduce the number of different states where it reads and writes.
+You can read from the past if you recorded all changes like in a movie.
+You can read from the past but you cannot read from the future.
+Obviously you don't know what the others will do.
+Except if there is no modification for example if you look everything that you read you can
+read from the future because you know that the future state is exactly the same as the
+current one.
+For writes it's the opposite.
+You cannot write to the past when you see movies where people go to the past and change
+something it's really consistent at the end.
+But again you can be sure that there are no modifications.
+You look everything that you write and then where you write is the same state as at the
+end.
+So if I have a timeline between my begin transaction and commit I read and write at multiple times
+I can read and see as of the time of the start of my transaction for example.
+And I can read and write and at commit time come back to set the right time stamp as the
+commit time because this is where everything is visible.
+So we'll see that in NVCC databases you read from a state at the beginning of your transaction
+and you write as of the commit time.
+That's the magic of databases to be able to do something that looks like happening at
+the same time even if it's not possible physically.
+So to do that in NVCC databases the writes take an exclusive look.
+In NVCC is about reading from the past the write you cannot do anything else than looking
+what you write to be sure that it doesn't change until the end of the transaction.
+To read you can read from the past and then instead of multiple different states of the
+database you have only two states the read state and the write state.
+But then you need some additional logic in the database that compares those states check
+if they are compatible.
+If something has changed in between it may have to raise an error to tell you okay you
+have read from this state you have written on this state but they are not compatible
+because someone changed something in the state in between.
+Another concept optimistic and pessimistic looking and so those are general names that
+are used at many levels.
+At low level in the implementation but also from the application you can the idea is
+that optimistic looking you think you will not have any conflicts or you do not do additional
+things for that you will just raise an error and retry if it happens.
+Pessimistic looking you expect that you will be in conflict and then you wait on it.
+But those terms are a bit misleading.
+Those are terms for example in new Gabbai when we did the documentation we used other
+terms like wait on conflict.
+So this is really the behavior.
+A conflict is detected for example you want to take an exclusive lock someone else has
+locked the row.
+You just wait that they are finished so that you can continue so there is an thank you.
+So you wait for you detect the conflict on the row for example but you wait for transaction.
+Another one is fail on conflict just you detect a conflict you don't wait you just raise an
+error to the application and then the application can retry later with the hope that the conflict
+is gone.
+But there is another one and that's also why optimistic and pessimistic looking are not
+really useful.
+There is another case where you may want to skip on conflict.
+For example you want to read and lock a row that is locked by another transaction.
+You don't want to wait for it.
+You don't want to raise an error you will just ignore this row.
+This again of course locks are not in SQL standard but this cannot be in the SQL standard
+because it's not very deterministic but this is used a lot for queues for example if you
+want to dequeue events that are in a table you want to lock them when you process them
+but if someone else is processing a row you just want to process the next one.
+Typically we will see that it's the case of select for update skip locked.
+And last concept before going into the different implementation.
+Explicit locking so by the application again this is not in the SQL standard but this is
+our most application under the anomalies that could happen in the different isolation
+levels that you will see.
+And typically when you read a select for update is a read but it's a bit more than a read
+you read and you tell the database about your intention to update something which means
+that it's a read that behaves like a write like an update lock with a lock on it.
+And then you have those choices.
+Wait on conflict.
+Don't wait.
+Raise an error or skip lock.
+Those three possibilities where the developer tells the database I want to read that I
+don't want it to change or lock it and if you cannot lock it then give me an error or
+wait until you can lock it or just go to the next row I will come back to this one later.
+So you can just ignore the isolation levels and just manage that from the application.
+If you know what you are doing for example if I know that I'm reading the status of a
+hotel room that I want to book I can select for update what I read and then I know that
+nobody will change its status until I commit my transaction.
+So you don't really need to care about isolation levels if you are okay about thinking about
+the conflict yourself.
+Thinking is in the code and of course in tests the problem with concurrency is that it's not
+always easy to test the different combinations.
+But it's totally possible.
+And those select for update we will see also for share those concern rows but sometimes to avoid
+some anomalies you may want to lock more than a row maybe a row that doesn't exist yet.
+For example you don't want anyone to insert a new row that's where you realize that this
+row does not exist then you can also lock a table.
+Again you don't find that in the SQL standard but all databases give you the possibility to
+lock.
+Okay do you have any question about that?
+So the main message there is that it's totally okay you can ignore the isolation levels do
+your own looking it's totally okay but only if you understand them.
+So most people use the default isolation levels read committed in Postgres and that's fine.
+You don't need other isolation level if you don't want to but you need to understand how it works
+to be sure that you handle correctly the cases where you have to block something yourself.
+So basically that's the goal of the presentation talking about how it works so that you understand
+it maybe you will not change your isolation level after understanding all that but at least you
+will understand how it works and if you have some flaws in the logic with the select for
+update you use for example.
+So MVCC stands for multiversion concurrency control I don't really like this name others may call it
+multiversion read consistency at least it makes it clear that it is only about reads.
+The writes you cannot do anything else than looking what you write this is only about reads
+isolation levels are only about reads it was also called multi-generational architecture
+in the first databases that implement it but basically it's versioning when you change a row
+the database keeps the old version of the row so that you can read from a previous snapshot.
+Twenty years ago IBM in a paper that compared with Oracle was saying MVCC is implemented in
+only one database Oracle no other database did it because basically it's not good and today
+I think that only DB2 is not using MVCC release or the history has proved that they were
+actually wrong now all databases use MVCC because you don't have to look too much when you read.
+Another thing that they were saying was that the model where you look what you read the one that is
+defined in the SQL standard is better because the developer or the user doesn't have to think about
+the code around the select for updates but finally most application developers really prefer to put
+the select for updates in the transactions where they are needed rather than going to
+isolation levels that may have other problems the only thing where they were right in this paper
+was saying that you need to understand it in your database because all implementations are different.
+So the non-NVCC ones like the DB2 they cannot read from the past because they do not record all the changes
+they have to record it for recovery reason but they don't record it for this reason.
+So they cannot go to the past the only way is to look when you read you look in share mode
+so many people can read at the same time but nobody can update something that you have read
+which cause problem because then you may have deadlocks then you may have you look too much basically
+for no LTP application and MVCC databases they look only for the rights they read from the past
+and they have some conflict detection to see if those two states conflict with your transaction consistency or not.
+This is also for repeatable read only because if you do read commit even within transaction
+you will read the current...
+The remark is that when I say I read from the beginning of the transaction
+that's the general case in read committed we will see the isolation level at the end
+the read time may be reset for each statement and we will see why.
+But the idea is that you have only two states when you are reading your statement.
+And yeah this is about read.
+I will go first I have a reference on the first mention of this architecture
+but basically the changes are versioned we will see that there are different implementation
+Postgres versions the rows in the table and query can read as of a specific time
+so we will see as of the beginning of the transaction or as of the start of a statement
+and then it can do those optimistic looking without locks that's the main value of it
+the readers do not block the writers.
+Typically in non-MVCC databases if you are the DBA and just want to count the tables
+the rows in the table and you do a select count star which you do easily in Postgres
+if you do that in DB2 you will lock all your applications because you will lock everything
+so yeah quite nice to be able to read without blocking the others.
+So basically MVCC became popular because it allowed mixed workloads
+even if you have a no LTP application there is some reporting on it
+there are some analytic queries on it and you don't want them to block the others.
+So then the implementation all databases most databases today implement MVCC
+but all in a different way and then the bravio may be different
+and that's why it's interesting to understand it.
+First when you version you have a version number some databases use a timestamp
+some databases use a number that is always increasing the log sequence number
+for example in Postgres and what do you version?
+Many databases version the rows in Postgres each row if you update a row
+you will have a new version of the row.
+Then the question is I say what about the index entries?
+There are some databases that also version the index entries
+Postgres doesn't do versioning for the index so the index has the two entries
+and then in the row you have this version number.
+There are some databases actually I think there is only one database that doesn't version at all level
+but at block level so a low level the storage the page or vehicle does that at block level
+so very different implementation and where do you store the past versions?
+That's also a big problem you can store it keep it where it is for example in Postgres
+you have a row you update it the new version will be written at the end of the heap table
+and the old versions just stays there in other databases this old version will be moved to an undue log
+a rollback segment can have a different name and both are pros and cons.
+If you move it then you have the overhead to move it but you don't put overhead on the other
+that we have to read and the size of the table so many different implementations.
+Also you need to change the versions if an index go to a row
+and then you see that this version is too early when compared to your read time
+you want to go to a past version or it can be the opposite you always go to the past version
+and then you see if there are new changes.
+So in Postgres when a row is updated a new version is written at the end of the heap
+and the old version has a pointer to it so from old to the old.
+Question?
+I didn't get the end of the question.
+We have a microphone it will be easier.
+I'm just asking that the version number whatever it is which shows that a change has been made
+so will it also point to the row or rows which have been updated or deleted or changed like in one version
+or it just shows that this table has been changed in this version?
+For example in Postgres it is per row so typically if I read from an index the index entry
+the value that I'm looking for I have one or multiple index entries for that
+and then it will go to the table and then if it's not the right version it will go to the right version
+so it follows it.
+Okay so I think it's kind of an idea which is attached to each row and not the whole table right?
+Yeah the version is per row for each row.
+I think only Oracle is very different where the version is per page so you read a page
+you see which transactions are there and then there is the information to undo the page to a previous version
+but most databases do it per row.
+Of course it has an overhead in the row because you need enough information to follow that.
+And also the big question you keep all versions but how long?
+Because your database will grow if you just keep all versions.
+So you need to keep all versions to cover the longest query.
+If I have a long report that takes one hour and if it's read time is one hour ago I need one hour of versions
+but after some time you need to clean that and it Postgres is the vacuum that does that.
+Kind of garbage collection again it has different name in all databases
+but basically you need something that cleans that.
+If the old version was moved in a different place then the cleanup may be easy.
+You have the overhead when you move it but then the cleanup may be easy.
+If it's done in a lazy way where the old version stays in place then you need something that cleans up.
+So all implementations are different and then the most difficult is the indexes.
+The secondary indexes in Postgres all indexes are secondary indexes because the row is stored in the heap tables.
+They have all the entries and then when you clean up the old version you need also to clean up the index.
+So it's really something that is very complex to implement MVCC in databases.
+It has the big value of readers not blocking writers but it's not easy and all implementations are different.
+I will not go into the detail in a few databases that I compared.
+So I already mentioned the level of versioning table rows for Postgres.
+Oracle does it per block.
+For example in Ugabite we are per row but also per index.
+So the index has also the versioning.
+The interface is the same as it's compatible with Postgres but the storage is completely different.
+So I already mentioned how it works with Postgres, happened to the heap table.
+Then you have to think about where are those versions.
+If it is happened then the different versions are scattered.
+There are some other implementations where all versions of a key, the primary key are together.
+For example SQL Server implemented MVCC very late compared to the other databases.
+They move the old version to another database where initially the time DB now they have a specific storage for that.
+But it's all per key.
+MySQL is also very special. MySQL doesn't have heap tables.
+It's only in the index organized table.
+So the rows stored in the primary key.
+And they have two logs.
+They have an insert log which you don't really care when you read from the past.
+You just ignore the new insert but they have also a log for the updates or deletes.
+If you delete it, it's just marked like an update saying it is the end of lifecycle of the whole.
+So they have another log for that.
+Yeah, question?
+It has only one log, not two logs. It has different types.
+In MySQL?
+In Unodebs.
+Yeah, okay. Yeah, thanks.
+Only one log.
+Those are very different.
+I know quite well Postgres, the Wacol and of course, you Gabbite.
+I know a bit less those.
+The documentation is also not very...
+The SQL Server implementation, there are not a lot of documentation about it.
+MySQL, yeah.
+But basically, they all have also garbage collection and the main difference, the choice of the databases.
+I said that the retention of version must cover the longest query.
+Some databases, for example, Wacol, doesn't care after a while not to have too many old versions.
+So it will remove it. You set the retention that you do.
+But that means that a long query may encounter this snapshot to old error saying,
+oh, I cannot rebuild the read time that you ask for.
+Other databases will just don't do garbage collection, render longer running queries.
+For example, in Postgres, if you have a long running query, vacuum will not be able to clean up everything that it has to clean up.
+And that can be problematic when you read from a standby.
+And that can be different. You can have the same equivalent of error.
+I'm not going to go into all detail.
+The most important is that you understand the different concepts.
+Those are different.
+Those are pros and cons, the overhead on different operations.
+One that is very nice with Postgres because you have all the old version in place.
+Rollback is very fast.
+Usually don't really care about how fast is a rollback in normal operation.
+But when you have a crash recovery, you need to rollback the transaction that were not committed at the time of the crash.
+So this is really fast in Postgres.
+But in Postgres, keeping the old version in place, you have all these problems with bloat and vacuum that you have to manage.
+In other databases, the problem of stopping garbage collection or not when you have long running query,
+do you want to give priority to those queries that they can finish?
+Or do you want to give priority to the garbage collection that maintains the performance?
+So those are different pros and cons that we have seen.
+Important to know what is the default isolation level.
+Important to know because most people do not change it.
+They use the default.
+So at least you should know what you are using.
+In Postgres, it is the read committed isolation level.
+The same for many databases.
+And mostly for performance reasons.
+If serializable was easy and fast, probably everybody would use it, but not the case.
+And even if they all use read committed, they have a different behavior.
+I said that at some point it has to detect conflicts between reads and writes.
+And when it detects a conflict, the big advantage of read committed, and I will explain that later,
+the big advantage is that when there is a conflict, in some cases the database can restart the statement
+to a newer read time.
+So from the application point of view, you just wait a bit more and it is managed by the database.
+Postgres does not restart the statement, but it can reread a row,
+which may show some inconsistency because it can read a row from a different read time.
+In my SQL, the default is repeatable read.
+We have also some strange things that may happen and look like inconsistency.
+Some operations are not really isolated.
+The serializable.
+Very few databases use serializable by default.
+A few distributed SQL databases use it, but for example,
+co-crochet is implementing read committed.
+Mostly to be compatible with existing applications and because serializable has to look too many things.
+So I mentioned the read restart.
+When, so in read committed, what is different with read committed is that the contract with the developer
+is that the read time can change during a transaction for each statement.
+If I am in isolation levels above, the read time is also the time where the transaction starts,
+the begin transaction.
+With read committed, each statement has its own read time,
+which may bring more anomalies if you rely on what has been read before.
+But the big advantage of it, because the read time can change during a transaction,
+if a conflict is detected within a statement,
+the database may be able to restart it as of a newer read time.
+You cannot do that for the whole transaction because you don't know what the application did before.
+Maybe the transaction did something not transactional.
+Some databases restart the read in read committed when they encounter a problem.
+Postgres doesn't. Postgres just rereads the new whole.
+I think, I'm not sure, I think the main reason is that to restart a statement,
+you have to take a snapshot just before and to roll back to this safe point.
+I said stop shots, I must say a safe point.
+To roll back to this safe point to redo it.
+And in postgres, current version taking safe points for each statement is probably too much overhead.
+Actually, this read restart is also possible in other isolation levels
+if it is the first statement of the transaction.
+The thing is not really related to the isolation level.
+It's more when the database knows that the application did nothing before,
+then it can move the read point.
+So basically, I'm going fast on that.
+Basically, bad things can happen with all databases at all isolation level
+and it's good to know it.
+So postgres can read rows at different point in time.
+Oracle can set a reusable that is not reusable.
+It's kind of a lie in interpreting the isolation levels.
+SQL server has MVCC, but when it needs to lock, there is an eye overhead,
+so it's not always recommended.
+MySQL in repeatable read can see commits by others.
+So basically, bad things can happen at any level, not at real serializable,
+but this has a cost in terms of performance.
+But it's not a big problem if you understand it
+and you know that you can do your own concurrency control with select for update, for example.
+So the goal is to know which problem can happen with your transaction.
+It depends on the isolation level, the database you use,
+but also what you are doing in your transaction,
+and then you can use mostly select for update to manage that.
+So with implicit locking, I already said that it was not in the SQL standard.
+SQL standard was made for a lot of user interactions, long transactions,
+where a user really starts a transaction, can go back later at the time where users are at only one screen,
+so you cannot switch to another application and leave a transaction open.
+Today, you just don't want to do that.
+Today, applications probably know all the transaction intent from the beginning,
+which means that the application can say,
+okay, I'm reading, but with the goal, the intent of writing, then I do a select for update.
+And in short, if you use read committed, big advantage, there are no locks on what you read,
+and the read time is the start of the statement, which is really cool.
+And if you want, but may have some anomalies, if you don't want those anomalies,
+just use select for share, select for update to lock what you want.
+Instead of having the database locking all reads, you just lock the few ones that you need to lock.
+In repeatable read, the difference is that the read time is the start of the transaction,
+not the start of the statement.
+The problem is that there, a conflict may raise an error,
+and then in the application, you need to catch this error, a serializable error, to retry later.
+But you can also lock with select for update, or lock at a higher level, lock a table,
+but then, be careful, you lock a table, nobody can update it.
+In serializable level, everything works well.
+You don't have to care, you don't have to lock anything yourself.
+There is a performance penalty, but also, the developer doesn't have to care about locking,
+but has to care about the retry logic.
+And that's not so easy, it's not just retry until it works.
+You probably went like an exponential back off, you retry 10 milliseconds later,
+if it still blocked, you retry 100 milliseconds later.
+Okay.
+Going fast on that, there is more than select for updates, you can select for share,
+it's just a read lock, many sessions can select for share,
+but be careful, if in a transaction, you select for share,
+and then you update, you may have some cases where you will have a conflict,
+and then you prefer to reserve with an exclusive lock before.
+You can lock tables, but be careful, and for all of them,
+you have the choice of wait on conflict, or raise and error, or skip it, if it's a queue.
+Okay, we are just on time.
+I have a series, or I don't know, maybe 10 block post about it.
+So I try to summarize that in this presentation.
+This is a topic that is very interesting, because different in all databases,
+and many developers, there are a lot of developers that do not develop only on Postgres,
+they have other databases, and many developers think that they can write database agnostic applications
+by using a framework that can generate the syntax for many databases,
+that works for the syntax, but as we have seen, the preview is different on all databases,
+so there is nothing like a database agnostic application.
+If you have questions, do not hesitate to contact me.
+I will be there all day, but I have a session in one hour,
+the other side on something different, Linux, load average,
+if you want to look at it.

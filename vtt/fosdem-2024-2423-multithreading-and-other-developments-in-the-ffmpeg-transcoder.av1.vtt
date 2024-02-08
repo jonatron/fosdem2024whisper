@@ -1,0 +1,953 @@
+WEBVTT
+
+00:00.000 --> 00:10.080
+Okay, so I'm Anton Hrnoff.
+
+00:10.080 --> 00:15.840
+I have been working on FFMPEG and LeBeuville for like 15 years.
+
+00:15.840 --> 00:23.320
+These days I work with FF Labs, which is a company that does FFMPEG-related consulting.
+
+00:23.320 --> 00:30.520
+I will talk about my recent work on the FFMPEG transcoder, the CLI2.
+
+00:30.520 --> 00:35.160
+So first of all, I will explain what this is, because this is a very frequent point
+
+00:35.160 --> 00:38.680
+of confusion for people who are not part of a community.
+
+00:38.680 --> 00:44.720
+So there is a project called FFMPEG, an open source project, and the main product of it
+
+00:44.720 --> 00:47.720
+are these libraries, LeBeuville something.
+
+00:47.720 --> 00:49.160
+LeBeuville codec is the main one.
+
+00:49.160 --> 00:54.640
+It's a suite of decoders, mainly encoders, encoder wrappers, and so on.
+
+00:54.640 --> 01:01.320
+It is used basically everywhere that decodes multimedia or encodes or does whatever, video
+
+01:01.320 --> 01:04.080
+players, web browsers, anything.
+
+01:04.080 --> 01:12.320
+Other libraries, AV format for muxing, demuxing, IO, AV filter for filtering.
+
+01:12.320 --> 01:19.640
+We have some other libraries that are less important, but AV codec is extremely widely
+
+01:19.640 --> 01:20.640
+used.
+
+01:20.640 --> 01:26.440
+Besides the libraries, we also have a set of tools, and the main tool is confusingly
+
+01:26.440 --> 01:32.320
+also called FFMPEG, and that is the reason this slide exists.
+
+01:32.320 --> 01:36.360
+So the tool is not the project, the tool is a subset of the project.
+
+01:36.360 --> 01:42.040
+We also have some other tools, which are less often used, but FFMPEG, the transcoder, is
+
+01:42.040 --> 01:45.280
+the thing I'm going to be talking about today, not the libraries.
+
+01:45.280 --> 01:50.840
+I also do work on the libraries sometimes, but that's not the concept of this talk.
+
+01:50.840 --> 01:54.440
+So I hope that clarifies things.
+
+01:54.440 --> 02:00.040
+So now onto the tool.
+
+02:00.040 --> 02:09.120
+So the CLI is, I think, one of, you can say, it's the most popular transcoder on the planet,
+
+02:09.120 --> 02:12.000
+or two planets until recently.
+
+02:12.000 --> 02:16.680
+It is based on the libraries from our project, obviously.
+
+02:16.680 --> 02:24.400
+We try quite hard to put all format-specific logic in the libraries, so the tool is agnostic.
+
+02:24.400 --> 02:35.040
+We don't succeed entirely, but mostly we try.
+
+02:35.040 --> 02:41.600
+It tries to expose the entire power of the libraries to the bits of it that apply to
+
+02:41.600 --> 02:42.960
+transcoding.
+
+02:42.960 --> 02:48.320
+So usually when a feature is added into the libraries, the first user is this transcoder.
+
+02:48.320 --> 02:53.920
+So if you want all the features as soon as you get them, this is the tool you want to
+
+02:53.920 --> 02:55.800
+use.
+
+02:55.800 --> 03:01.760
+And this is the reason, or one of the reasons, why you might think this is just a thin wrapper
+
+03:01.760 --> 03:06.800
+of the library, because everything is, everything, like all the heavy lifting is in the library,
+
+03:06.800 --> 03:09.600
+so the tool is just a very simple wrapper.
+
+03:09.600 --> 03:11.680
+This is not true.
+
+03:11.680 --> 03:15.360
+It is a very complex tool.
+
+03:15.360 --> 03:19.880
+And the reason for it is that multimedia is really, really complicated, and handling
+
+03:19.880 --> 03:25.840
+all of it, all the weird corner cases, is very hard and requires a lot of code.
+
+03:25.840 --> 03:33.120
+And it really covers an absurd number of use cases.
+
+03:33.120 --> 03:38.200
+Individual users use it to convert your video, your personal files.
+
+03:38.200 --> 03:41.760
+Giant corporations use it to run transcoding farms.
+
+03:41.760 --> 03:49.360
+And anything in between, there's an uncountable number of websites which are just upload your
+
+03:49.360 --> 03:53.160
+video and run it through FFMPEG, and so on.
+
+03:53.160 --> 03:54.840
+So it is used at all scales.
+
+03:54.840 --> 03:57.720
+It has a ridiculous number of options.
+
+03:57.720 --> 04:03.120
+I think it's roughly 200, and nobody can remember them all.
+
+04:03.120 --> 04:07.760
+So the tool is really quite a complex one.
+
+04:07.760 --> 04:13.640
+I will go through its history a little bit for practical reason.
+
+04:13.640 --> 04:22.280
+So the FFMPEG project dates to the year 2000, and in the first commit that we have back
+
+04:22.640 --> 04:30.160
+from the CVS days, there is already FFMPEG.C tool, which had about 700 lines of code.
+
+04:30.160 --> 04:34.280
+But it was quite different from the one we have now.
+
+04:34.280 --> 04:36.600
+It could only do raw input.
+
+04:36.600 --> 04:41.840
+It could redraw YUV or PCM, and or PCM.
+
+04:41.840 --> 04:46.800
+It could also grab from V4L or Dev DSP.
+
+04:46.800 --> 04:50.840
+It could encode them, and if you had both, you could choose just one, but if you had
+
+04:50.840 --> 04:53.440
+both, it could max.
+
+04:53.440 --> 05:00.600
+And the intent, as far as I gather, was to use it as a companion tool with another tool
+
+05:00.600 --> 05:06.960
+which was called FFServer, and you could then use it to build a kind of a streaming solution,
+
+05:06.960 --> 05:11.360
+which was a big thing in those days.
+
+05:11.360 --> 05:17.920
+But later on, FFServer had issues and was very sick, and we had to put it down.
+
+05:18.040 --> 05:22.520
+But FFMPEG, the transcoder, survived and thrived.
+
+05:22.520 --> 05:25.960
+So this was what we started with.
+
+05:25.960 --> 05:29.520
+As time went on, we got to this.
+
+05:29.520 --> 05:35.480
+It's interesting that we got to this in only a year, and the size got to about three times
+
+05:35.480 --> 05:37.160
+as big.
+
+05:37.160 --> 05:41.080
+And now we have decoding, we have demaxing.
+
+05:41.080 --> 05:47.880
+You see we can have multiple inputs, and every input can have multiple streets.
+
+05:47.880 --> 05:53.040
+Streams and a string can be either decoded or string copied, which means you just copy
+
+05:53.040 --> 05:54.600
+it without transcoding.
+
+05:54.600 --> 06:02.560
+The things that are decoded are then sent to an encoder, and then to a maxer for maxing,
+
+06:02.560 --> 06:09.920
+you can have multiple maxers and a single, I don't know how, I do, a single string can
+
+06:09.920 --> 06:13.600
+be sent to multiple destinations.
+
+06:13.600 --> 06:18.440
+So in theory, you could build these kinds of complicated processing graphs.
+
+06:18.440 --> 06:22.200
+In practice, the user interface was essentially unusable.
+
+06:22.200 --> 06:27.840
+It was impossible to understand without reading the code, and nobody could actually do it.
+
+06:27.840 --> 06:32.800
+But in principle, this was possible.
+
+06:32.800 --> 06:35.920
+As time went on, we got more features.
+
+06:35.920 --> 06:41.840
+We got subtitles in 2005.
+
+06:41.840 --> 06:44.120
+After some time, we got filtering.
+
+06:44.120 --> 06:49.960
+AV Filter was a GSOC project, which had a very painful development process.
+
+06:49.960 --> 06:53.240
+It was out of mainstream for a very long.
+
+06:53.240 --> 06:58.200
+And eventually, it got merged.
+
+06:58.200 --> 07:03.040
+And then the first user, one of the first users of AV Filter was the FFM-Background
+
+07:03.040 --> 07:05.600
+Scoder, of course.
+
+07:05.600 --> 07:10.760
+So we got that in 2010.
+
+07:10.760 --> 07:17.320
+Then later, we got what is called complex filter graphs, which are best explained in
+
+07:17.320 --> 07:19.360
+contrast to simple filter graphs.
+
+07:19.360 --> 07:25.320
+So a simple filter graph is something you could just insert somewhere here.
+
+07:25.320 --> 07:29.120
+It's just a black box, and which would not change the meaning of the arrow.
+
+07:29.120 --> 07:34.960
+So it's a black box that has exactly one input, exactly one output, and they are both
+
+07:34.960 --> 07:35.960
+of the same type.
+
+07:35.960 --> 07:39.400
+And a complex filter graph is anything that is not that.
+
+07:39.400 --> 07:44.800
+So we can have multiple inputs, zero inputs potentially.
+
+07:44.800 --> 07:47.400
+It can have multiple outputs.
+
+07:47.400 --> 07:52.040
+It cannot have zero outputs, because that's not useful.
+
+07:52.040 --> 07:55.560
+It can have different types between inputs and outputs.
+
+07:55.560 --> 08:03.240
+We do have some filters, for example, that take audio and turn it into a picture.
+
+08:03.240 --> 08:08.760
+And anything that is of that kind is a complex filter graph, and we got support for that.
+
+08:08.760 --> 08:12.560
+A few years after simple filters.
+
+08:12.560 --> 08:16.040
+Then we got basic hardware acceleration.
+
+08:16.040 --> 08:19.920
+Back then, it was more of a playback feature.
+
+08:19.920 --> 08:25.680
+People didn't really use it for transcoding or for any kind of advanced processing, and
+
+08:25.680 --> 08:32.960
+as we heard today, only now we are getting some things fixed in full hardware pipelines.
+
+08:32.960 --> 08:40.360
+So back then, we got decoding, it was mostly a toy, because many chips also could not decode
+
+08:40.360 --> 08:42.280
+faster than real time.
+
+08:42.280 --> 08:44.160
+So it was a very limited usefulness.
+
+08:44.160 --> 08:50.920
+A few years later, we got full hardware pipelines, which means that a decoder gives you a frame,
+
+08:50.920 --> 08:58.200
+which is a hardware frame on the GPU, so some opaque pointer or handle, and then you could
+
+08:58.200 --> 09:03.840
+pass it to filters, which would process it still on the GPU, and then you could give
+
+09:03.840 --> 09:09.680
+it to a hardware encoder and encode it, and the entire process would go on without copying
+
+09:09.680 --> 09:15.600
+the frame into main memory, and so losing performance.
+
+09:15.600 --> 09:23.400
+By then, so by 2022, which was when I started this project, the tool got to 11,000 lines
+
+09:23.400 --> 09:24.400
+of code.
+
+09:24.400 --> 09:25.920
+So non-trivial.
+
+09:25.920 --> 09:35.600
+We got dynamic parameter changes, we got an absurd number of options, like seriously,
+
+09:35.600 --> 09:40.560
+and the options interact with each other in highly non-trivial ways, and it is sometimes
+
+09:40.560 --> 09:44.840
+some massive pain to, even for me, like I'm the main tenant of the tool, and keep it in
+
+09:44.840 --> 09:49.800
+mind how all of these options interact is impossible.
+
+09:49.800 --> 09:51.760
+So our poor users.
+
+09:51.760 --> 09:53.200
+But they all, they want it.
+
+09:53.200 --> 10:01.720
+People need all this stuff because of all the use cases that it covers.
+
+10:01.720 --> 10:06.360
+So the general transcoding pipeline right now looks roughly like this.
+
+10:06.360 --> 10:12.400
+The change from the previous one is that we have filter graphs here, and as you can see,
+
+10:12.400 --> 10:15.240
+this is a complex filter graph with no inputs.
+
+10:15.240 --> 10:23.440
+It could, for example, generate some sound effect from, like, a synthetic one.
+
+10:23.440 --> 10:31.040
+And the top one has, you know, the middle one has two inputs and two outputs.
+
+10:31.040 --> 10:34.440
+So those are complex filter graphs.
+
+10:34.440 --> 10:39.640
+Besides that, it looks kind of like the previous one, but the code around it is a lot more
+
+10:39.640 --> 10:41.760
+complex.
+
+10:41.760 --> 10:50.240
+And the problem is that the way we got here looks roughly like this.
+
+10:50.240 --> 10:54.720
+Somebody needs a feature, and they add the feature, and they take the shortest possible
+
+10:54.720 --> 10:56.840
+path to that feature.
+
+10:56.840 --> 11:03.560
+And this is, in most cases, done without much regard for how much harder will this feature,
+
+11:03.560 --> 11:09.320
+which is bolted on top of what was there, how much harder will it make future development?
+
+11:09.320 --> 11:15.280
+So sadly, almost nobody ever considered this much.
+
+11:15.280 --> 11:20.560
+And then every such step adds a multiplicative factor to program complexity.
+
+11:20.560 --> 11:26.320
+So when you add the feature and another and another and ten such features, you have to
+
+11:26.320 --> 11:32.560
+multiply the complexity from each such step, and at the end, when you want to add another
+
+11:32.560 --> 11:39.720
+feature, every one of these before getting away, which means that it grows exponentially.
+
+11:39.720 --> 11:45.760
+And if you know anything about exponential growth, it means your program has a hard bound
+
+11:45.760 --> 11:50.720
+on how big it can get after that no human can understand it.
+
+11:50.720 --> 11:59.280
+And this is essentially where we got the fundamental changes to the transcoder became essentially
+
+11:59.280 --> 12:02.000
+impossible.
+
+12:02.760 --> 12:10.000
+So at this point, I would like to mention the same by Dijkstra, which I really like,
+
+12:10.000 --> 12:12.040
+and which I don't think enough people believe.
+
+12:12.040 --> 12:17.120
+People pay lip service to it, but if they believed it, they would not write programs the way
+
+12:17.120 --> 12:18.120
+they do.
+
+12:18.120 --> 12:22.480
+Basically, elegance and simplicity are not an optional luxury.
+
+12:22.480 --> 12:23.480
+They are essential.
+
+12:23.480 --> 12:26.600
+If we don't have them, we cannot maintain our programs.
+
+12:26.600 --> 12:27.600
+Just cannot.
+
+12:27.600 --> 12:30.000
+Nobody can.
+
+12:30.000 --> 12:40.360
+So this is the motivation for which I started this project two years ago, which was, I call
+
+12:40.360 --> 12:47.080
+it multithreading, which is true in a way, but really that's marketing.
+
+12:47.080 --> 12:55.000
+The main thing is bring code architecture, the way the code is actually written in alignment
+
+12:55.000 --> 12:58.080
+with this, because this is the way the program works.
+
+12:58.080 --> 12:59.840
+This was not the way it looked like.
+
+12:59.840 --> 13:01.240
+If you looked at the code.
+
+13:01.240 --> 13:09.640
+So the project was make the actual structure of the code match the data flow.
+
+13:09.640 --> 13:17.360
+And the way I did this was mainly actual object-oriented design.
+
+13:17.360 --> 13:19.120
+So make things into objects.
+
+13:19.120 --> 13:21.280
+The objects have their responsibilities.
+
+13:21.280 --> 13:25.880
+They have their private states, which other objects cannot touch.
+
+13:25.880 --> 13:33.560
+And the data flows downstream through this pipeline that you saw here.
+
+13:33.560 --> 13:38.560
+So ideally, the way it should work, you would think, is that, well, some data originates
+
+13:38.560 --> 13:41.200
+here and just flows downstream from each of these.
+
+13:41.200 --> 13:42.200
+This was not the way it worked.
+
+13:42.200 --> 13:44.320
+We would get teleportation.
+
+13:44.320 --> 13:47.680
+We would get even worse backwards teleportation sometimes.
+
+13:47.680 --> 13:50.480
+And this is just impossible to reason about.
+
+13:50.480 --> 13:54.720
+So that is, that needed to be solved.
+
+13:54.720 --> 13:58.240
+And you can see that, yeah, multi-threading is somewhere in there.
+
+13:58.240 --> 14:03.600
+Every component, every note on that picture you saw now runs in a separate thread.
+
+14:03.600 --> 14:09.600
+And you might think typically when you hear threads, you hear performance, right?
+
+14:09.600 --> 14:11.080
+You want more speed.
+
+14:11.080 --> 14:20.600
+But this is kind of almost a side effect you get for free by picking the architecture correctly.
+
+14:20.600 --> 14:22.200
+So it is important.
+
+14:22.200 --> 14:23.200
+But we get it for free.
+
+14:23.200 --> 14:27.800
+It's almost a side effect.
+
+14:27.800 --> 14:29.280
+Anything else I wanted to say?
+
+14:29.280 --> 14:30.280
+Yes.
+
+14:30.280 --> 14:34.400
+So and with the right kind of architecture, you can add major new features.
+
+14:34.400 --> 14:41.280
+You can do development and add actually new things.
+
+14:41.280 --> 14:51.760
+So the project was started late 21 and was merged quite recently about two months ago.
+
+14:51.760 --> 14:52.920
+It was massive.
+
+14:52.920 --> 14:57.080
+It was 700 commits in total.
+
+14:57.080 --> 15:05.720
+The way I did it was small patch sets and typically a single patch set would move things around,
+
+15:05.720 --> 15:12.800
+add objects, move stuff to them, make things private, clean up some old things which didn't
+
+15:12.800 --> 15:18.480
+work and nobody could understand.
+
+15:18.480 --> 15:25.320
+I often encounter an attitude that moving code around is just cosmetics.
+
+15:25.320 --> 15:26.320
+It's just clean up.
+
+15:26.320 --> 15:28.560
+It's not real programming.
+
+15:28.560 --> 15:35.360
+And I strongly disagree with that because the way I see it, you move things around enough
+
+15:35.360 --> 15:40.840
+and suddenly things which were impossible before, they suddenly become possible and sometimes
+
+15:40.840 --> 15:42.400
+they become easy.
+
+15:42.400 --> 15:47.840
+So it's really important to appreciate that just moving things around can really, really
+
+15:47.840 --> 15:50.640
+help you a lot.
+
+15:50.640 --> 15:53.960
+Along the way we got some extras.
+
+15:53.960 --> 15:58.920
+We got three filters for demuxing for people who know what that is.
+
+15:58.920 --> 15:59.920
+That is sometimes useful.
+
+15:59.920 --> 16:01.840
+If you don't know what that is, you don't care.
+
+16:01.840 --> 16:03.560
+We got latency probes.
+
+16:03.560 --> 16:06.960
+I think that's quite a cute feature.
+
+16:06.960 --> 16:12.160
+The transcoder was not really designed for low latency use cases but people tried to
+
+16:12.160 --> 16:15.080
+use it that way anyway.
+
+16:15.080 --> 16:20.080
+We are trying to add more real support for it.
+
+16:20.080 --> 16:22.200
+This is one of the steps towards it.
+
+16:22.200 --> 16:28.200
+Now FFMPEG CLI, if you pass it the right flags, it will tell you how much latency is added
+
+16:28.200 --> 16:33.040
+by each step in the graph, which I think is nice.
+
+16:33.040 --> 16:39.800
+This is enabled by this feature which is also interesting to library users because it became
+
+16:39.800 --> 16:45.240
+possible in the libraries and then the tool started using it, which is opaque pass-through,
+
+16:45.240 --> 16:50.160
+which basically means that you get a packet from the demuxer, you attach some user data
+
+16:50.160 --> 16:55.760
+to it and it propagates all the way to the filter graph and through the processing graph
+
+16:55.760 --> 17:00.440
+and then you can extract it here and you can add more stuff to it along the way.
+
+17:00.440 --> 17:03.360
+This is the way these latency probes work.
+
+17:03.360 --> 17:07.440
+It was kind of possible before but you had to basically do all the work yourself.
+
+17:07.440 --> 17:14.160
+Now the library does a lot of it for you, which is nice I think.
+
+17:14.160 --> 17:17.920
+We got timestamps improvements.
+
+17:17.920 --> 17:23.760
+We had some really bad breakage in timestamps handling for years and maybe decades.
+
+17:23.760 --> 17:26.400
+Some of that was fixed as a part of this cleanup.
+
+17:26.400 --> 17:32.560
+We have a nice really cool thing that is called the sync use, which almost nobody cares about
+
+17:32.680 --> 17:36.760
+but they make output predictable in some cases where it wasn't before.
+
+17:42.480 --> 17:44.520
+That's the status.
+
+17:44.520 --> 17:52.600
+Future work is, what we got now is everything is multi-threaded but that's not the end.
+
+17:53.560 --> 18:04.120
+Another thing, other things that I want to have are, so you see in this picture that we have demuxers
+
+18:04.120 --> 18:09.880
+and we have decoders and also we have encoders and we have muxers.
+
+18:09.880 --> 18:16.280
+The status right now is that a decoder is a part of a demuxer.
+
+18:16.280 --> 18:21.880
+They always go together and similarly an encoder is embedded in the muxer
+
+18:21.960 --> 18:29.960
+and this is limiting for a bunch of reasons because for example sometimes you might want to instantiate a decoder as a standalone thing
+
+18:29.960 --> 18:31.000
+without a demuxer.
+
+18:31.000 --> 18:37.000
+For example, you might want to pipe encoded output back to a decoder and sort of feed it back into a filter.
+
+18:37.000 --> 18:41.160
+There are use cases that need that and this is not possible with current design.
+
+18:41.160 --> 18:48.760
+So what I've been working on after that is splitting the decoders into their standalone objects
+
+18:48.760 --> 18:51.560
+so they can be instantiated on their own.
+
+18:51.560 --> 19:01.240
+That is work in progress and eventually I want to do the same for encoders because you might want to send for example the output
+
+19:01.240 --> 19:06.840
+of one encoder not to just one muxer but to multiple muxers without encoding it twice.
+
+19:06.840 --> 19:13.240
+This is also useful for some cases and this is not possible currently but in the future hopefully.
+
+19:13.880 --> 19:23.400
+Dynamic pipelines that is more speculative in the future are adding nodes basically at runtime
+
+19:23.400 --> 19:30.520
+and for that we would need some kind of scripting maybe Lua that's at this point this is just vague
+
+19:30.520 --> 19:32.040
+hand waving for the future maybe.
+
+19:34.680 --> 19:43.160
+There have been some mentions of an event loop based architecture maybe again this is something we are just thinking about
+
+19:43.800 --> 19:45.400
+there are no actual steps towards it.
+
+19:46.200 --> 19:54.600
+It might have some advantages to have like a single thread which dispatches work to a pool of worker threads.
+
+19:54.600 --> 19:56.680
+It might be more efficient in some cases.
+
+19:57.320 --> 19:57.800
+We'll see.
+
+20:00.280 --> 20:02.440
+So that is the current status.
+
+20:03.320 --> 20:03.800
+Thank you.
+
+20:13.880 --> 20:14.840
+So many of you.
+
+20:14.840 --> 20:16.360
+Am I supposed to choose?
+
+20:17.560 --> 20:19.560
+Okay so you're the first.
+
+20:20.920 --> 20:31.640
+Several months ago I noticed I was trying to package fmpeg and I noticed that you know we're on the help site at the point to
+
+20:31.640 --> 20:35.480
+any of the documentation for the library since it's in the header files of course.
+
+20:35.480 --> 20:42.760
+I noticed this in public in the fmpeg twitter accounts and stick the other accounts it began insulting me calling me terrible terrible names
+
+20:42.840 --> 20:45.960
+and as a result I don't plan to be working on fmpeg in the future.
+
+20:46.520 --> 20:58.120
+However I wanted to know is this something that you've personally seen or is anyone else because personally I think this stuff is very interesting but that unfortunately is an entirely separate issue that makes it very difficult for me to contribute.
+
+20:58.520 --> 21:06.280
+So I wanted to kind of leave it there and I understand that's not a question people have answers to but I really really wanted to say it's very important to me and I would like other people to ask that question.
+
+21:07.080 --> 21:10.840
+It is an issue a problem we are working on it but yeah it's not really related.
+
+21:11.800 --> 21:13.720
+Summarizing this case the question.
+
+21:14.280 --> 21:15.640
+Our community has issues.
+
+21:17.560 --> 21:17.960
+Sadly.
+
+21:19.960 --> 21:20.280
+Sorry.
+
+21:22.920 --> 21:25.560
+We know you know sorry we are working on it.
+
+21:28.280 --> 21:28.520
+Yep.
+
+21:30.360 --> 21:31.560
+This is really impressive.
+
+21:32.120 --> 21:33.560
+Actually that you put this all.
+
+21:34.520 --> 21:36.440
+So I was wondering how did you do it.
+
+21:37.560 --> 21:43.720
+How did you start with it and how did you map it all out and then bring it back together all while.
+
+21:44.680 --> 21:47.080
+The rich and architecture is still under development.
+
+21:47.640 --> 21:49.720
+Well I think the way I described it is.
+
+21:51.240 --> 21:57.960
+Okay okay so the question is how would I plan such a work like in advance right.
+
+21:58.600 --> 22:00.120
+How would I schedule the work.
+
+22:04.520 --> 22:11.720
+Yes well I think this is the way I described it as moving things around is really the way to do it.
+
+22:12.040 --> 22:21.720
+So these are kind of small changes that really you just take a small piece of functionality and you move it somewhere else.
+
+22:22.040 --> 22:32.680
+Sometimes you decide well this thing should not be visible to outside of its owner because it doesn't need to be and then gradually after 700 commits as you see.
+
+22:33.000 --> 22:46.440
+The picture becomes much cleaner because when I started with was any component can see and sometimes access and touch and sometimes even change some other component which is distance and related.
+
+22:47.000 --> 22:47.560
+And.
+
+22:48.360 --> 22:53.560
+Yeah you you identify a list of these of these instances and you clean up every single one of them.
+
+22:53.800 --> 22:56.600
+It takes a lot of time it took me two years but it can be done.
+
+22:56.680 --> 22:57.400
+It can be done.
+
+22:58.600 --> 23:03.400
+And I don't believe that it could be done any other way like some kind of an initiative.
+
+23:04.040 --> 23:10.520
+Fix everything at once I think that would crash and burn because because we have so much functionality that like.
+
+23:11.240 --> 23:15.160
+20% of it would break and and users would riot and.
+
+23:15.880 --> 23:16.840
+Yeah that wouldn't work.
+
+23:18.280 --> 23:18.680
+Yep.
+
+23:26.840 --> 23:28.200
+Clean and well designed.
+
+23:31.640 --> 23:33.800
+Well if the code has a maintainer.
+
+23:35.400 --> 23:41.560
+Yes so how do how can I encourage the maintain the submitters to submit clean patches.
+
+23:42.440 --> 23:50.600
+So I think if the code has a maintainer who cares about the cleanliness of the code then I can tell somebody how this is this is garbage.
+
+23:51.560 --> 24:00.760
+Clean it up but most of the code unfortunately doesn't have a person who just sits there and reads our mailing list which is just a giant volume of patches.
+
+24:01.160 --> 24:11.160
+And if nobody rejects it then it often happens that code just goes in which is suboptimal so yeah we need maintainers basically who care about their their.
+
+24:11.960 --> 24:16.520
+Code or if we don't have maintenance we need to have people who care about.
+
+24:17.160 --> 24:27.720
+The project as a whole being maintainable and again that it's not so many people who are willing to really read the patches because reading the patches is.
+
+24:28.920 --> 24:30.520
+It's not fun sadly.
+
+24:31.320 --> 24:35.960
+So you would say that the strongest leverage you have is in case of the project.
+
+24:36.440 --> 24:40.760
+Well I can reject patches so yeah or I can tell people to to clean it up.
+
+24:41.480 --> 24:42.200
+Yeah.
+
+24:45.000 --> 24:47.000
+Of the future work you see going into.
+
+24:49.000 --> 24:51.480
+Release none of it which which work.
+
+24:51.480 --> 24:51.960
+What.
+
+24:53.000 --> 24:58.120
+And to expect the seven point out to be an LPS.
+
+25:00.120 --> 25:06.200
+So which which of this of this future work is going to seven point zero and the answer is.
+
+25:06.520 --> 25:12.280
+The answer is probably none of it because seven point zero is basically.
+
+25:13.320 --> 25:27.320
+Around the corner so I will not be able to finish any of this for seven point zero but seven point zero will be a massive massive release we have this we have VVC we have I am.
+
+25:27.320 --> 25:31.640
+We have a Vulcan AV one one we have so much stuff.
+
+25:31.640 --> 25:32.440
+Yep.
+
+25:36.600 --> 25:37.000
+Sadistic.
+
+26:04.600 --> 26:05.960
+So the question is.
+
+26:06.200 --> 26:14.380
+In whether the migration should be started as soon as possible,
+
+26:14.380 --> 26:16.880
+or should you wait until 7.0.
+
+26:16.880 --> 26:19.180
+7.0 will break APIs,
+
+26:19.180 --> 26:22.020
+but the breakage is not big.
+
+26:22.020 --> 26:25.020
+So in general, I would recommend to do it as soon as possible.
+
+26:25.020 --> 26:30.100
+So there isn't as much work you have to do.
+
+26:30.660 --> 26:32.700
+Okay. So we are done.
+
+26:32.700 --> 26:34.500
+So thank you.
+

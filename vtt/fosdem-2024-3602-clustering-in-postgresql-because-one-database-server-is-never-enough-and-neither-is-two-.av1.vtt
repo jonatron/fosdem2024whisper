@@ -1,0 +1,1370 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Hello, everyone.
+
+00:07.000 --> 00:12.000
+Welcome or welcome back to the Postgres Day Room.
+
+00:12.000 --> 00:21.000
+We have a great speaker again.
+
+00:21.000 --> 00:24.000
+Umar is going to talk about clustering in Postgres.
+
+00:24.000 --> 00:31.000
+Thank you.
+
+00:31.000 --> 00:33.000
+Hello and good afternoon, everyone.
+
+00:33.000 --> 00:37.000
+Thank you for being here and not going out for lunch instead.
+
+00:37.000 --> 00:41.000
+So we're going to be talking about clustering in Postgres,
+
+00:41.000 --> 00:45.000
+and we're going to be walking through an abstracted level concept
+
+00:45.000 --> 00:49.000
+as to why clustering is required, the various different architectures
+
+00:49.000 --> 00:53.000
+that are typically used in production to make your database reliable.
+
+00:53.000 --> 00:57.000
+And the challenges that are associated with the concept.
+
+00:57.000 --> 01:01.000
+A little bit of an introduction about myself.
+
+01:01.000 --> 01:03.000
+The name is Umar Shahid.
+
+01:03.000 --> 01:08.000
+I came all the way from Islamabad, Pakistan to talk to you about clustering.
+
+01:08.000 --> 01:12.000
+I've been working in the Postgres space for more than 20 years.
+
+01:12.000 --> 01:19.000
+And I am currently running a company, the name of Stormatics,
+
+01:19.000 --> 01:21.000
+which was founded about a year ago.
+
+01:21.000 --> 01:24.000
+So working on a startup focused on professional services.
+
+01:24.000 --> 01:31.000
+And yeah, my past has been associated with various other Postgres organizations,
+
+01:31.000 --> 01:36.000
+including EDB, Second Quadrant, OpenSTG and Percona.
+
+01:36.000 --> 01:38.000
+Two of these companies do not exist anymore.
+
+01:38.000 --> 01:42.000
+OpenSTG was acquired by Amazon and Second Quadrant was acquired by EDB.
+
+01:42.000 --> 01:47.000
+So Stormatics is focused on providing professional services for Postgres.
+
+01:47.000 --> 01:50.000
+We don't want to talk about that a whole lot.
+
+01:50.000 --> 01:54.000
+So, on to the topic.
+
+01:54.000 --> 02:01.000
+Now, in order to understand why clustering is required,
+
+02:01.000 --> 02:05.000
+it's important to understand what high availability is
+
+02:05.000 --> 02:10.000
+and why you need a highly available database.
+
+02:10.000 --> 02:13.000
+Now, you want your database to remain operational,
+
+02:13.000 --> 02:19.000
+even in the face of failure of hardware or network or your application.
+
+02:19.000 --> 02:24.000
+You want to minimize the downtime so that the users of your application
+
+02:24.000 --> 02:29.000
+do not experience any interruption in their experience.
+
+02:29.000 --> 02:34.000
+And it's absolutely essential for mission critical applications
+
+02:34.000 --> 02:37.000
+that need to be running 24 by 7.
+
+02:37.000 --> 02:43.000
+Now, if you go back about maybe 10 odd years,
+
+02:43.000 --> 02:49.000
+it was okay to, let's say, have your credit card declined
+
+02:49.000 --> 02:53.000
+or just not working on a machine because the network was not available
+
+02:53.000 --> 02:55.000
+or somehow the connection was broken
+
+02:55.000 --> 02:58.000
+or there was some problem with the communication.
+
+02:58.000 --> 03:01.000
+In this day and age, what you expect to be able to do
+
+03:01.000 --> 03:06.000
+is just to tap your phone and instantaneously get the transaction through.
+
+03:06.000 --> 03:10.000
+And you never expect it to be dropped
+
+03:10.000 --> 03:14.000
+or an error to pop up unless, of course, you run out of credit.
+
+03:14.000 --> 03:16.000
+That's a different story.
+
+03:16.000 --> 03:21.000
+But it just works. Everything just works.
+
+03:21.000 --> 03:24.000
+And the only reason everything just works
+
+03:24.000 --> 03:29.000
+is because the entire infrastructure is highly available.
+
+03:29.000 --> 03:31.000
+It's always available.
+
+03:31.000 --> 03:34.000
+And that availability is measured in 9s.
+
+03:34.000 --> 03:38.000
+And I'm going to explain in just a second what those 9s are.
+
+03:38.000 --> 03:42.000
+Now, we're going to start with a very basic
+
+03:42.000 --> 03:44.000
+and that's 90% availability.
+
+03:44.000 --> 03:47.000
+When I say 90%, it sounds like a lot,
+
+03:47.000 --> 03:49.000
+but that's one line of availability.
+
+03:49.000 --> 03:53.000
+And if you span that over the course of an entire year,
+
+03:53.000 --> 03:56.000
+that means that the potential of the database to be down
+
+03:56.000 --> 04:02.000
+while maintaining 90% of availability is 36.5 days.
+
+04:02.000 --> 04:07.000
+So in a given year, if your database is 90% available,
+
+04:07.000 --> 04:11.000
+it's going to be down for 36.5 days.
+
+04:11.000 --> 04:14.000
+Anybody find that acceptable?
+
+04:14.000 --> 04:17.000
+I really hope not.
+
+04:17.000 --> 04:19.000
+Now, you go to two 9s of availability.
+
+04:19.000 --> 04:22.000
+That's 99% and that's a better number.
+
+04:22.000 --> 04:28.000
+That's equal in order of magnitude higher in terms of availability.
+
+04:28.000 --> 04:34.000
+And the downtime goes down from 36 days to 3.6 days.
+
+04:34.000 --> 04:39.000
+Now, again, in a given year, if your database is 99% available,
+
+04:39.000 --> 04:43.000
+it is going to be down for almost 3.5 days.
+
+04:43.000 --> 04:46.000
+And again, for most mission critical applications,
+
+04:46.000 --> 04:49.000
+that is not acceptable.
+
+04:49.000 --> 04:52.000
+99.9% is 3.9s of availability
+
+04:52.000 --> 04:56.000
+with an allowance of 8.7 hours of downtime.
+
+04:56.000 --> 05:02.000
+You go off to 4.9s, 99.99, that's 52.6 minutes per year.
+
+05:02.000 --> 05:10.000
+And 5.9s of availability translate into 5.26 minutes per year.
+
+05:10.000 --> 05:16.000
+So just to make sure that we understand what availability is
+
+05:16.000 --> 05:19.000
+and how it is calculated.
+
+05:19.000 --> 05:26.000
+Now, the database runs on the cloud, so you don't care, right?
+
+05:26.000 --> 05:30.000
+How many people agree with this?
+
+05:30.000 --> 05:33.000
+Oh, I'm so glad that nobody agrees with that.
+
+05:33.000 --> 05:35.000
+We've got a bunch of experts over here.
+
+05:35.000 --> 05:38.000
+Yeah, so just because your database is on the cloud
+
+05:38.000 --> 05:42.000
+does not mean that it is always available.
+
+05:42.000 --> 05:49.000
+And here's, I just copied and pasted the service level agreement
+
+05:49.000 --> 05:55.000
+that Amazon has up on their website for highly available RDF clutches
+
+05:55.000 --> 05:59.000
+that are in multi-availability zone configuration.
+
+05:59.000 --> 06:04.000
+So you have the highest form of availability that you can get with RDS, right?
+
+06:04.000 --> 06:08.000
+They talk about MySQL, MariaDB, and Oracle, and Postgres,
+
+06:08.000 --> 06:12.000
+and they specifically say that it's only, this SLA,
+
+06:12.000 --> 06:16.000
+is only for multi-availability zone configurations,
+
+06:16.000 --> 06:23.000
+and they're going to make commercially reasonable efforts to make this available, right?
+
+06:23.000 --> 06:26.000
+So if they're losing money, they're not going to do it.
+
+06:26.000 --> 06:31.000
+And what they promise is three and a half nines.
+
+06:31.000 --> 06:37.000
+Not four, not five, three and a half nines, 99.95%.
+
+06:37.000 --> 06:42.000
+And if they're unable to give you those three and a half nines,
+
+06:42.000 --> 06:47.000
+what they say is that affected customers will be eligible to receive a service credit,
+
+06:47.000 --> 06:52.000
+i.e. the service that had gone down on you, you get more of it.
+
+06:52.000 --> 07:02.000
+So three and a half nines translate into 4.38 hours of downtime per year.
+
+07:02.000 --> 07:08.000
+So if you're running an RDF cluster that is spread over multiple availability zones,
+
+07:08.000 --> 07:14.000
+you can expect your database to be down for almost four and a half hours every year.
+
+07:15.000 --> 07:21.000
+Now, what do you do if you want better availability?
+
+07:21.000 --> 07:26.000
+That's one of the reasons why you have clustering.
+
+07:26.000 --> 07:35.000
+And I'm going to run through now a few basic architectures of how clustering works with Postgres.
+
+07:35.000 --> 07:40.000
+This is probably true generally for databases as well, but we are in the Postgres Dev Room,
+
+07:40.000 --> 07:44.000
+so we are going to be talking about Postgres.
+
+07:44.000 --> 07:53.000
+Now, in this very simple basic cluster, you've got one primary database and two standby nodes.
+
+07:53.000 --> 07:59.000
+The way this cluster is structured is that the internals of the architecture are invisible to the application.
+
+07:59.000 --> 08:06.000
+The application simply talks to the cluster, which of the nodes it's talking to doesn't care.
+
+08:06.000 --> 08:14.000
+It reads and writes to the cluster, and the two standbys are essentially read replicas,
+
+08:14.000 --> 08:18.000
+so there's redundancy in data in each of these replicas.
+
+08:18.000 --> 08:24.000
+And in case the primary overhead goes down for whatever reason, there's a hardware error,
+
+08:24.000 --> 08:28.000
+there's a software error, there's a network communication error, whatever it is,
+
+08:28.000 --> 08:34.000
+one of the standbys can take over and the whole cluster will just continue working.
+
+08:34.000 --> 08:43.000
+And diagrammatically, just to explain how that works, just so that we're able to visualize the whole sequence,
+
+08:43.000 --> 08:45.000
+that's the sequence of events.
+
+08:45.000 --> 08:52.000
+If the primary goes down, step one, the standby one, or well, it could be the standby two as well,
+
+08:52.000 --> 08:56.000
+but just for illustration purposes, the standby one takes over as the primary.
+
+08:56.000 --> 08:59.000
+The previous primary is retired from the cluster.
+
+08:59.000 --> 09:06.000
+A new replication path is set up from standby one to standby two.
+
+09:06.000 --> 09:08.000
+The standby one is labeled as a primary.
+
+09:08.000 --> 09:16.000
+Standby two becomes the prime replica of this new primary, and a new node is spun up,
+
+09:16.000 --> 09:23.000
+or the old primary is recovered and included in part of the cluster.
+
+09:23.000 --> 09:28.000
+So this is, you know, at a very abstracted and high level, diagrammatically,
+
+09:28.000 --> 09:33.000
+how an auto-failover procedure works.
+
+09:33.000 --> 09:41.000
+Now, there are other forms or other variations of clusters that you can set up with Postgres,
+
+09:41.000 --> 09:43.000
+with various different intents.
+
+09:43.000 --> 09:48.000
+This illustration talks about a cluster that has load balancing,
+
+09:48.000 --> 09:56.000
+and what load balancing does is that it focuses the right processes to one node, which is the primary.
+
+09:56.000 --> 10:00.000
+Those rights, that data, is replicated over to the two standbys,
+
+10:00.000 --> 10:06.000
+and the application can actually read from one or both of the standbys.
+
+10:06.000 --> 10:15.000
+The idea over here is not to allow the primary node to get hogged by read operations.
+
+10:15.000 --> 10:21.000
+It can focus on the rights, and the read can be served from the two standbys.
+
+10:21.000 --> 10:23.000
+This is load balancing.
+
+10:23.000 --> 10:31.000
+And again, you know, the auto-failover, etc., goes on as previously discussed.
+
+10:31.000 --> 10:38.000
+Same cluster, now with a backup process in place for disaster recovery purposes.
+
+10:38.000 --> 10:42.000
+Now, notice that the backup is taken outside of the cluster.
+
+10:42.000 --> 10:50.000
+It's an off-site backup, and for good purpose, if the entire cluster goes down for some reason,
+
+10:50.000 --> 10:55.000
+if, you know, there's an earthquake, there's a fire, a whole, you know, data center goes down,
+
+10:55.000 --> 10:59.000
+you don't want your backups to also go down with it.
+
+10:59.000 --> 11:02.000
+So the backup is taken at a different location.
+
+11:02.000 --> 11:11.000
+These backups are taken with requirements in mind that are mostly fall under the two concepts of RTO and RPO.
+
+11:11.000 --> 11:16.000
+Both of these stand for recovery time objective and recovery point objective.
+
+11:16.000 --> 11:20.000
+Anybody over here who is hearing these two terms for the very first time?
+
+11:20.000 --> 11:25.000
+RTO and RPO? Okay, okay, so I'll, you know, just take a moment to explain this a little bit.
+
+11:25.000 --> 11:31.000
+So recovery time objective means that in case your cluster crashes or goes down for whatever reason,
+
+11:31.000 --> 11:38.000
+how much time is acceptable for you to be able to recover the entire database, right?
+
+11:38.000 --> 11:43.000
+Depending on the criticality of your application and the criticality of your cluster,
+
+11:43.000 --> 11:49.000
+that time could be very, very small, or you could allow, you know, a few hours, a few minutes,
+
+11:49.000 --> 11:53.000
+maybe a couple of days for the recovery time.
+
+11:53.000 --> 12:01.000
+Recovery point objective is how much data can you afford to lose in case the cluster crashes, right?
+
+12:01.000 --> 12:07.000
+From what point is it acceptable to be able to recover the cluster?
+
+12:07.000 --> 12:14.000
+Now, again, for critical clusters, the RPO might be very, very close to zero, i.e. you don't want to lose any data,
+
+12:14.000 --> 12:17.000
+but of course there are implications to it.
+
+12:17.000 --> 12:26.000
+There are efficiency in space and financial implications to trying to achieve both RPO and RPO that are close to zero.
+
+12:26.000 --> 12:35.000
+So you keep that in mind as you design your architecture and your disaster recovery strategy.
+
+12:35.000 --> 12:44.000
+Point in time recovery is something that is kind of aligned with that, you know, it's about what point you can recover your database from.
+
+12:44.000 --> 12:51.000
+You want to go back in time and recover your database to that point in time, that's the PITR concept.
+
+12:51.000 --> 12:59.000
+Also, it's a footnote over here, but just, you know, a piece of advice, it is extremely important to make sure that you're periodically testing your backups,
+
+12:59.000 --> 13:05.000
+because if the restore does not work, the backup is absolutely useless.
+
+13:05.000 --> 13:13.000
+And you will only discover that in the case of a disaster, and then, well, that's a double disaster.
+
+13:13.000 --> 13:21.000
+Another form of clusters that you can have is a multi-node cluster with an active-active configuration.
+
+13:21.000 --> 13:25.000
+In the previous configuration, we had a single active node with two stand-byes.
+
+13:25.000 --> 13:33.000
+In this configuration, you've got multiple actives where your application can both read and write on all of the nodes in the cluster.
+
+13:34.000 --> 13:43.000
+Now, this is a little tricky, and the topic also tends to be a little thorny when you're discussing this with enthusiasts.
+
+13:43.000 --> 13:52.000
+And the key point over here is that you have to have your conflict resolution at the application level.
+
+13:52.000 --> 13:59.000
+The database, at least Postgres, the way the open source Postgres works, does not have the capability to resolve the conflicts for you.
+
+13:59.000 --> 14:07.000
+So in case the application writes on active one and does an update of the same data on active two,
+
+14:07.000 --> 14:13.000
+there's a conflict as active one and active two try to replicate data to each other,
+
+14:13.000 --> 14:17.000
+that conflict where the database will not be able to resolve that conflict.
+
+14:17.000 --> 14:21.000
+It's the application that needs to be active-active aware.
+
+14:21.000 --> 14:27.000
+This is asynchronous replication between nodes, and this architecture is shared everything,
+
+14:27.000 --> 14:31.000
+which means that all of the data is written to all of the nodes.
+
+14:31.000 --> 14:35.000
+The data is replicated to all of the nodes.
+
+14:35.000 --> 14:44.000
+And then, you've got another cluster, which is multi-node with data sharding and horizontal scaling.
+
+14:44.000 --> 14:54.000
+This architecture is shared nothing, which means that no data is shared between the nodes across which the data is being sharded.
+
+14:54.000 --> 15:03.000
+So data is distributed and you can scale this cluster out horizontally, as much as you, well theoretically at least as much as you want to.
+
+15:03.000 --> 15:15.000
+There is a requirement of having a coordinator node up there, which decides which node to route the query to, which node to route the data to.
+
+15:16.000 --> 15:19.000
+And you could set up automatic sharding.
+
+15:19.000 --> 15:27.000
+You could also have the read and write operation automatically directed to the relevant nodes.
+
+15:27.000 --> 15:36.000
+And then, last of the architectures that I'm going to discuss in this conversation is globally distributed clusters.
+
+15:37.000 --> 15:48.000
+Now, theoretically speaking, the last two clusters that I described with active-active configurations and the sharding, you could have them globally distributed as well.
+
+15:48.000 --> 16:04.000
+But I have a separate slide for this, primarily because of one reason, and that is the specific requirement that different regulations can have about geofencing of your data.
+
+16:04.000 --> 16:15.000
+So many different jurisdictions of the world are increasingly enforcing that their resident's data does not get outside of the country that they reside in.
+
+16:15.000 --> 16:22.000
+And you want to make sure that you've got local data being stored locally and read locally.
+
+16:22.000 --> 16:31.000
+And with geographically distributed clusters and with the right configurations in place, you can implement that geofencing.
+
+16:31.000 --> 16:40.000
+That, of course, also has a side impact of better performance because you're reading and writing locally instead of somewhere that's 10,000 miles away.
+
+16:43.000 --> 16:55.000
+Now, talking about replication, primarily dividing it into two technologies, synchronous and asynchronous replication.
+
+16:55.000 --> 17:00.000
+I was just trying to explain over here a little bit about the differences between the two.
+
+17:00.000 --> 17:11.000
+Anyone over here who has not come across the concepts of synchronous and asynchronous replication have no idea what these two terms mean.
+
+17:11.000 --> 17:16.000
+Everybody already knows. I could have just skipped this slide.
+
+17:17.000 --> 17:26.000
+That's fine. So very quickly, walking through some of these points, in synchronous replication, data is transferred immediately.
+
+17:26.000 --> 17:34.000
+It is not committed till all nodes in the cluster acknowledge that they have the data and they can commit it.
+
+17:34.000 --> 17:41.000
+In case of asynchronous, the primary does not wait for that acknowledgement, that handshake.
+
+17:41.000 --> 17:48.000
+It will just commit the data locally and will assume that the replicas will commit that data in due time.
+
+17:48.000 --> 17:58.000
+What it does is with synchronous replication, there is a performance hit that you get because you need to wait for all of the nodes to agree that the data has been committed.
+
+17:58.000 --> 18:02.000
+And in asynchronous, you achieve much better efficiency.
+
+18:02.000 --> 18:12.000
+But also, there is that chance of inconsistency of data if you have an asynchronous replication set up in your cluster.
+
+18:12.000 --> 18:19.000
+It's faster, it's more scalable, but there is that little bit of data inconsistency problem.
+
+18:19.000 --> 18:27.000
+So in case it is absolutely critical for your application to have all of the data, all this consistent in all nodes of the cluster,
+
+18:27.000 --> 18:35.000
+synchronous replication is the way to go and you will need to take that performance hit.
+
+18:35.000 --> 18:40.000
+Any questions so far before we move on?
+
+18:40.000 --> 18:42.000
+Yes?
+
+18:42.000 --> 18:48.000
+In asynchronous replication, you are saying data may be inconsistent.
+
+18:48.000 --> 18:58.000
+It doesn't mean that some data may be lost in one of the replicas, so if you have to recover your data, some fun may be missing.
+
+18:58.000 --> 19:02.000
+And then how do you find that in the case of this?
+
+19:02.000 --> 19:10.000
+Okay, so the question is that in case of asynchronous replication, if I say over here that the data may be inconsistent,
+
+19:10.000 --> 19:14.000
+does that mean the data gets lost and if it does get lost, how do we recover it?
+
+19:14.000 --> 19:15.000
+That's the question, right?
+
+19:15.000 --> 19:17.000
+Okay, thank you, very good.
+
+19:17.000 --> 19:28.000
+So the idea over here is that as the data is being shipped from the primary to the replica, there is a certain time lag.
+
+19:28.000 --> 19:37.000
+It could be in microseconds, but there is a certain time lag where the data exists in the primary and does not exist in the replica.
+
+19:37.000 --> 19:45.000
+And in that fraction of a second, if there is a query that runs across both of those nodes, it will return different datasets.
+
+19:45.000 --> 19:48.000
+That is a risk that you take.
+
+19:48.000 --> 19:56.000
+Now, in case during that lag, during that time, the primary goes down,
+
+19:56.000 --> 20:04.000
+there are chances that the replica will never get that data and hence that data can be considered lost.
+
+20:04.000 --> 20:10.000
+Now, there are different ways to protect yourself against that kind of an eventuality.
+
+20:10.000 --> 20:14.000
+That includes being able to replay the right head logs.
+
+20:14.000 --> 20:19.000
+That includes just making sure that any data that is written is actually sent across.
+
+20:19.000 --> 20:28.000
+And so even if the primary node goes down or it crashes, the data is still in transit and the standby is going to eventually commit it.
+
+20:28.000 --> 20:31.000
+But yes, there is a slight risk there of data loss.
+
+20:31.000 --> 20:41.000
+In case if you don't have this kind of disaster happening in the meantime, is there still a possibility that like,
+
+20:41.000 --> 20:46.000
+because like you're saying, the commits are not waiting.
+
+20:46.000 --> 20:57.000
+So is there a possibility that there could be an incident that will fail or something goes wrong and like one commit just is missing?
+
+20:57.000 --> 21:02.000
+If nothing goes wrong, is there a guarantee that there is?
+
+21:02.000 --> 21:11.000
+So at the database level, because Postgres is compliant with Acid, it is going to be consistent.
+
+21:11.000 --> 21:15.000
+Within the cluster, however, there is a lag.
+
+21:15.000 --> 21:17.000
+We're going to discuss the application lag in just a little bit.
+
+21:17.000 --> 21:21.000
+It's one of the challenges in setting up clusters like this.
+
+21:21.000 --> 21:23.000
+But you're right.
+
+21:23.000 --> 21:29.000
+When we talked about the load balanced cluster in just a couple of slides ago,
+
+21:29.000 --> 21:41.000
+one of the things to keep in mind when you have a load balanced cluster and you're reading from the replica instead of the primary node is the fact that there is a lag between the primary and the replica.
+
+21:41.000 --> 21:49.000
+And when you are reading data from the replica, there's a possibility that some of the data has not yet been written.
+
+21:49.000 --> 21:51.000
+Does that help?
+
+21:51.000 --> 21:53.000
+Yes.
+
+21:53.000 --> 21:56.000
+What's the maximum network latency?
+
+21:56.000 --> 21:58.000
+I'm sorry, I can barely hear you.
+
+21:58.000 --> 22:08.000
+What's the maximum network latency to build up the cluster for synchronous and asynchronous?
+
+22:08.000 --> 22:14.000
+So the question is what's the maximum network latency that you can use to build up the replica?
+
+22:14.000 --> 22:15.000
+That's the question.
+
+22:15.000 --> 22:23.000
+I think that's a fairly open-ended question and I'm afraid I may not be able to give you a very precise answer.
+
+22:23.000 --> 22:27.000
+There's a lot of variables involved in designing that kind of an architecture.
+
+22:27.000 --> 22:40.000
+Network latency, and again, this is something that we're going to be discussing in a moment, depends on a lot of factors including, well, actually, it depends on a lot of factors and not all of those factors are directly related to your database.
+
+22:40.000 --> 22:51.000
+So it is related to your hardware, it is related to the network connectivity, it is related to the medium of connections that you've established between the two nodes, how far the two nodes are, you know, spread.
+
+22:51.000 --> 22:53.000
+So there's a lot of variables involved.
+
+22:53.000 --> 23:06.000
+And as you design the cluster, you need to be, you need to recognize those variables and you need to design the cluster based on what you have and allow for,
+
+23:07.000 --> 23:15.000
+and you should have allowances for some of those, some of that lag and some of those nuances of the network that you have.
+
+23:15.000 --> 23:17.000
+All right.
+
+23:19.000 --> 23:22.000
+Okay, let's move forward.
+
+23:25.000 --> 23:27.000
+Actually, this has absolutely nothing to do with my presentation.
+
+23:27.000 --> 23:32.000
+I just put it up there because, well, I don't want it to be too dry, right?
+
+23:32.000 --> 23:50.000
+Okay, so, yeah, now we come to the part of the challenges that you face in clustering, as you set up clusters of Postgres, and there are four, and this is in no way a comprehensive list of challenges.
+
+23:50.000 --> 24:14.000
+And as we go into each of these challenges, I will also not be able to cover all aspects of these four points, but this is just to give you an overview of the kind of variables and the kinds of, you know, points that a DBA would typically need to keep in mind as they go about designing a cluster and make sure that they are highly available.
+
+24:15.000 --> 24:20.000
+And the first point that we're going to discuss is split brain.
+
+24:20.000 --> 24:29.000
+Now, anybody over here who, again, and I'm going to ask that question in a different way, has never heard of split brain, does not know what that is.
+
+24:29.000 --> 24:34.000
+Okay, a few hands went up. Good. So the next few slides are not wasted.
+
+24:35.000 --> 24:40.000
+Okay, so what is a split brain?
+
+24:41.000 --> 24:50.000
+It's a situation where two or more nodes in a cluster start to think that they are the primary.
+
+24:50.000 --> 25:09.000
+For whatever reason, there are different reasons for that. There could be different reasons for that, but for whatever reason, two or more nodes, if they start to think that they are the primary, they will lead to a situation that can cause data inconsistency, inconsistency that can cause data loss.
+
+25:09.000 --> 25:13.000
+And the scenario that is called split brain.
+
+25:13.000 --> 25:29.000
+And it could be caused by connectivity problems. It could be caused by latency. It could be caused by a server locking up because of, I don't know, a long running query.
+
+25:29.000 --> 25:41.000
+There are many different things that could cause it, but whatever causes it, it's a difficult situation to be in and it's a difficult situation to resolve.
+
+25:41.000 --> 25:48.000
+Now, a few ways to prevent a split brain scenario.
+
+25:49.000 --> 25:54.000
+So the first one is to use a reliable cluster manager.
+
+25:54.000 --> 26:06.000
+Doing it manually, writing scripts, et cetera, you know, it will still leave a few holes that are, that can cause the problem to recur.
+
+26:06.000 --> 26:13.000
+There are cluster managers, there are tools out there that can help you. We'll talk about them a little later in this presentation as well.
+
+26:13.000 --> 26:24.000
+And what they do is that they implement algorithms and heart rate mechanisms to monitor and automate the whole process of cluster management.
+
+26:24.000 --> 26:33.000
+And because these tools are designed to make the decisions for auto failover, they will help you prevent a split brain situation.
+
+26:33.000 --> 26:39.000
+Another thing to keep in mind is do what's called quorum based decision making.
+
+26:39.000 --> 26:48.000
+And essentially what that means is that a majority of the nodes need to agree which node is the primary.
+
+26:48.000 --> 26:56.000
+This also means that there's a requirement that an odd number of nodes, a cluster should be made off an odd number of nodes instead of even.
+
+26:56.000 --> 27:06.000
+Because if you want to do, if you want to rely on some voting on some quorum based process, you need to have an odd number of nodes that could vote in.
+
+27:06.000 --> 27:13.000
+Let's say in a particular case, you've got a primary that is operating as per what it thinks is normal.
+
+27:13.000 --> 27:19.000
+And one of the stand-byes loses contact with that primary and begins to think that it needs to take over as the primary.
+
+27:19.000 --> 27:25.000
+Now you've got the original primary and one node both acting as primary.
+
+27:25.000 --> 27:31.000
+You need to have a tiebreaker in place that will say that, hey, stand by one, you're wrong. The primary is still working.
+
+27:31.000 --> 27:35.000
+You just lost connection with it. So you need to, you know, stand down.
+
+27:35.000 --> 27:38.000
+So that's what the, what quorum based decision making is.
+
+27:38.000 --> 27:50.000
+Now in case there's some, and this is something that we, you know, sometimes work with our customers at times that are requirements from the customer that says that, well, you know, we can only have two nodes.
+
+27:50.000 --> 27:56.000
+We cannot have more than that. Or we can only have an even number of nodes, not an odd number of nodes for whatever reason.
+
+27:56.000 --> 28:07.000
+In that case, we implement a witness node, which does not hold data, but can be a voter in the quorum process in order to act as a tiebreaker.
+
+28:07.000 --> 28:10.000
+So that's what the witness server does.
+
+28:10.000 --> 28:18.000
+And, you know, you want to make sure in order to prevent a split print scenario, you want to make sure that your network is reliable.
+
+28:18.000 --> 28:26.000
+And it's, you have redundancy in the network. So if one path goes down for whatever reason, you, the traffic can take a different path.
+
+28:26.000 --> 28:31.000
+And you want to minimize the risk of partitions in the network.
+
+28:31.000 --> 28:41.000
+And you want to make sure that you've got reliable connectivity between data centers if your nodes happen to be split across data centers.
+
+28:41.000 --> 28:49.000
+And then there are a few miscellaneous housekeeping items that make sure that you've got a good monitoring and alerting mechanism in place.
+
+28:49.000 --> 29:03.000
+So in case, you know, your cluster is approaching a situation where the resources are running out or the network is getting congested or the CPU is being maxed out or whatever.
+
+29:03.000 --> 29:09.000
+You know, you get alerted in time so that you can get, you can act and take preventive measures.
+
+29:09.000 --> 29:21.000
+Regularly test your cluster. You can simulate situations where, you know, connectivity is lost to test how your cluster behaves in case of that.
+
+29:21.000 --> 29:37.000
+And you need to have very precise and clear documentation because if, let's say, I'm the one who's implementing this cluster and I take a few decisions as to what thresholds to set and what configurations to, to, to program into my cluster.
+
+29:37.000 --> 29:44.000
+A person coming in, let's say two years later or three years later may not know what the decision making was and why it was done a certain way.
+
+29:44.000 --> 29:55.000
+We want to make sure that you have very clear and precise documentation that is coupled with training with new resources that are coming on and are helping maintain and manage your cluster.
+
+29:55.000 --> 30:04.000
+Now, in case a split frame does occur, what are, you know, the recommended best practices to recover from it?
+
+30:04.000 --> 30:20.000
+So you get into a situation where now two nodes are thinking that they are the primary and they're ready to take, you know, data in and they want to establish, establish themselves as the publishers of the data and expect standby nodes to become the subscribers.
+
+30:20.000 --> 30:32.000
+What do you do? So the first thing, of course, is to actually identify that that has, that has happened. You won't be able to do anything if you don't know that the split frame has occurred.
+
+30:32.000 --> 30:42.000
+So in order to identify that kind of a situation, again, monitoring and alerting are crucial elements to it. You need to have a good monitoring plan in place.
+
+30:42.000 --> 31:01.000
+Stop all traffic from your application and stop all replication between the nodes. You know, this, this, this will mean that your application goes down, but your application stopping is a lot better than your application feeding in or reading the wrong data.
+
+31:01.000 --> 31:16.000
+So just stop the application. Now, this is all manual. I am not aware of a tool that will do this in an entirely automated fashion, but this is something that a DBA and an expert will need to do.
+
+31:16.000 --> 31:27.000
+So determine which node is the most up to date. Two nodes are competing to be the primary. It's now you who decide which one is the actual primary.
+
+31:27.000 --> 31:37.000
+Or maybe, you know, you're unable to decide that because there are some transactions that got committed on one primary and some transactions got committed to the second primary.
+
+31:37.000 --> 31:50.000
+What do you do now? You want to make sure that you, that you replay the transactions that are missing and make one primary the de facto leader of the, of the cluster.
+
+31:51.000 --> 32:00.000
+You want to make sure that the nodes are isolated from each other till the, till you've rectified the situation.
+
+32:00.000 --> 32:17.000
+And then you reapply either through backups or through the right-ahead logs and, you know, just, just reapply the transactions that are missing on the, on the primary that you've decided and then reconfigure configuration.
+
+32:17.000 --> 32:23.000
+So let's say, you know, you might decide that the standby who decided to take over actually has more transactions.
+
+32:23.000 --> 32:34.000
+So you make it the primary, make it the new primary. And now you need to reconfigure applications such that the other nodes are actually taking data or replicating data from this new primary.
+
+32:34.000 --> 32:35.000
+You had a question? Yes.
+
+32:35.000 --> 32:43.000
+You did mention twice already, right-ahead log. I think it would be helpful if you could also decipher why is it called right-ahead log, what it is.
+
+32:44.000 --> 32:49.000
+Okay. Thank you for asking that question. I will run under the assumption that, you know, it's something that everybody would know. So thank you.
+
+32:49.000 --> 32:56.000
+So the question is, I refer to right-ahead logs and what are they?
+
+32:56.000 --> 33:10.000
+So the way Postgres works is that every transaction that is written to the database goes into what's called wall buffers, wall, WAL wall that stands for right-ahead logs.
+
+33:10.000 --> 33:16.000
+It goes into buffers and then those buffers write to the logs on disk.
+
+33:16.000 --> 33:30.000
+And, you know, it's those logs that are getting committed to the database and the incremental transactions as they come in, the right-ahead logs keep track of those incremental transactions.
+
+33:31.000 --> 33:46.000
+And it's those logs that are used for replication, those logs are actually transferred to the replica, to the standby, and they are replayed on the replica in order to get the replica into the same state as the primary.
+
+33:46.000 --> 33:58.000
+So these are files that are on disk that contain all of the transactional data that the database is handling. Does that help? Yeah. Thank you for pointing it out.
+
+33:59.000 --> 34:13.000
+Now, once you confirm the integrity of your cluster is that, you know, is when you can start re-enabling the traffic coming into the cluster.
+
+34:13.000 --> 34:27.000
+But before you allow traffic coming in, you know, it might be a good idea to just run that cluster in read-only mode for a bit so that you can cross-check and double-check and re-verify that everything is working.
+
+34:28.000 --> 34:32.000
+And then you're working to your expectation before you allow write operations.
+
+34:32.000 --> 34:43.000
+And then, you know, make sure that you run a retrospective because a split-brain scenario is scary. It's difficult to recover from. You don't want it happening every other day.
+
+34:43.000 --> 34:45.000
+Right? Yes.
+
+34:45.000 --> 34:55.000
+You do not just have the fancy mechanism that fills up a secondary, a second primary, and then have it failover.
+
+34:55.000 --> 34:58.000
+I'm not sure I understand what...
+
+34:58.000 --> 35:27.000
+So, you're referring to shoot the node in the head, right?
+
+35:27.000 --> 35:46.000
+I think... I'm not sure if I can shoot the node in the head. No, I think it's... Oh, offending node in the head. Yes, that's what it is.
+
+35:46.000 --> 35:58.000
+So, yeah, there is a mechanism. I haven't talked about it in these slides, but in case there's an offending node that, well, you can't really rectify you shoot it in the head.
+
+35:58.000 --> 36:07.000
+Right? You just kill it and then you rebuild a new standby. So, yeah, that's what you're referring to, right? Or, what is something else?
+
+36:07.000 --> 36:15.000
+Why would you need this complicated rectification if you could just immediately stop the brain and then pay for it?
+
+36:15.000 --> 36:28.000
+So, because before you do this, you don't know which of the primaries is actually farther along in the right-to-head logs, or if there are transactions that are in one and not in the other.
+
+36:28.000 --> 36:34.000
+Right? So, you want to establish that fact first and then, you know, recover from there.
+
+36:34.000 --> 36:41.000
+So, this is in order to just make sure that you don't lose transactions. Right?
+
+36:41.000 --> 36:47.000
+Okay. So, yeah, running a retrospective, extremely important. Make sure that it doesn't happen again.
+
+36:47.000 --> 36:59.000
+We're going to go through some of the other challenges. I think split-brain is the most important one, but the other ones, you know, they're kind of like a variation that can cause split-brain,
+
+36:59.000 --> 37:06.000
+but we're going to go through these. Network latency is one of the things that we, you know, a question that was asked a little while earlier.
+
+37:06.000 --> 37:18.000
+So, what network latency means is that it's the time delay between when data starts off from one location and reaches the destination.
+
+37:18.000 --> 37:25.000
+So, any delay that it encounters going from one place to the other is called latency.
+
+37:25.000 --> 37:40.000
+And the challenge it causes is that delayed replication could possibly cause data losses because, you know, as we discussed, in case of disaster, the primary is going to shut down and there's possible data loss in there.
+
+37:40.000 --> 37:49.000
+And also, more lag or more latency can lead one of the stand-byes to believe that the primary has gone down. Right?
+
+37:50.000 --> 37:56.000
+And, you know, they can try, that can trigger a false failover.
+
+37:56.000 --> 38:05.000
+Causes of latency. The network could be getting choked. Low-quality network hardware.
+
+38:05.000 --> 38:12.000
+The hardware, it's easy to get wrong, especially when it's costly hardware that we're dealing with.
+
+38:12.000 --> 38:23.000
+The distance between the two nodes, at best, data travels at the speed of light and it takes a finite amount of time to go from one place to the other.
+
+38:23.000 --> 38:29.000
+And the longer the distance is between the two nodes, the longer it takes for data to replicate from one to the other.
+
+38:29.000 --> 38:36.000
+If you have a virtualization setup, it can cause overheads. There can be bandwidth limitations.
+
+38:36.000 --> 38:42.000
+And security policies can force inspection of all of the data packets causing further delay.
+
+38:42.000 --> 38:51.000
+And transmission medium will also cause some latency. For example, fiber optics are going to be much faster than something that's based on copper.
+
+38:51.000 --> 38:54.000
+Right? That's plain physics.
+
+38:57.000 --> 39:03.000
+And there are ways that you can prevent false positive resulting from latency.
+
+39:03.000 --> 39:20.000
+You want to make sure that all of your monitoring and alerting and mechanism that you set up during the design of your cluster are fine-tuned such that you adjust the heartbeat, you adjust the time-out settings,
+
+39:20.000 --> 39:29.000
+and you make sure that your cluster does not read latency as a trigger for failover.
+
+39:30.000 --> 39:38.000
+Some of the best practices include making sure that you're testing your cluster periodically.
+
+39:38.000 --> 39:44.000
+There are different workloads that you would want to run on your cluster to simulate different environments.
+
+39:44.000 --> 39:58.000
+So you want to know what kind of time pressures your cluster is going to encounter with different kinds of workloads applied to it and want to configure and tune your time-out and heartbeat accordingly.
+
+39:59.000 --> 40:03.000
+And of course, documentation and training are ever important.
+
+40:05.000 --> 40:09.000
+The third challenge is about false alarms.
+
+40:09.000 --> 40:14.000
+So we talked about network latency as one of the causes of causing a false alarm.
+
+40:14.000 --> 40:25.000
+And a false alarm essentially means that an issue is reported when an issue does not actually exist.
+
+40:25.000 --> 40:32.000
+And again, when an issue is reported, it can trigger a failover when a failover is not really needed.
+
+40:32.000 --> 40:37.000
+And a failover is an expensive operation. You don't want to do it needlessly. It impacts performance.
+
+40:37.000 --> 40:40.000
+And false alarms, of course, network issues are there.
+
+40:40.000 --> 40:47.000
+The configuration and the way your cluster has been set up could cause false alarms if your thresholds are too low.
+
+40:48.000 --> 40:55.000
+You might want your failover to happen instantaneously the moment the cluster detects that the primary has gone down.
+
+40:55.000 --> 41:02.000
+But the primary might not have gone down. It might have been just running a long, running query and is unresponsive.
+
+41:02.000 --> 41:06.000
+So you want to make sure that your configurations are correct.
+
+41:06.000 --> 41:13.000
+Resource constraints, if the load is too high, the network traffic is too high, the CPU is maxed out.
+
+41:14.000 --> 41:19.000
+Somebody had planned a schedule maintenance and not told you.
+
+41:19.000 --> 41:26.000
+Something as simple as that could cause a false alarm where you think, well, okay, the network has gone down.
+
+41:26.000 --> 41:28.000
+We need to do something about it. You don't want to do that.
+
+41:28.000 --> 41:39.000
+And some of the long running queries can create exclusive logs from the database which can make the database appear to be nonresponsive.
+
+41:39.000 --> 41:47.000
+And the automated systems will not double and triple check going into the logs and going into the stack tables to figure out which of the queries are running
+
+41:47.000 --> 41:54.000
+and whether the database is locked or it's just simply unresponsive. And they can cause a false alarm.
+
+41:56.000 --> 42:03.000
+And prevention techniques include making sure that your thresholds are optimized, testing,
+
+42:04.000 --> 42:11.000
+and making sure that you run simulations is the way to go in order to optimize those thresholds.
+
+42:11.000 --> 42:18.000
+You also want to make sure that your software and all components that are part of the cluster are up to date.
+
+42:18.000 --> 42:22.000
+You want the latest versions of your software. You want them to be bug free.
+
+42:23.000 --> 42:33.000
+And yeah, monitoring and alerting, comprehensive strategies, best practices, documenting, training your stuff.
+
+42:36.000 --> 42:40.000
+The last of the challenges to be discussed is data inconsistency.
+
+42:40.000 --> 42:47.000
+And what this means is that you call it data inconsistency.
+
+42:47.000 --> 42:52.000
+It doesn't happen within the database because as we discussed that Postgres is asset compliant.
+
+42:52.000 --> 43:04.000
+So the database will not be inconsistent, but within a cluster there is a chance of inconsistency if the nodes are not in sync with each other.
+
+43:04.000 --> 43:13.000
+And the challenge is, well, if you run the same query across different nodes of the cluster, there's a possibility that you get different results.
+
+43:13.000 --> 43:14.000
+You don't want that.
+
+43:15.000 --> 43:20.000
+The causes, one of them is replication lag. We've been talking about this over and over.
+
+43:20.000 --> 43:28.000
+In case data is written into the primary and is yet to be written to the replica and is being delayed for whatever reason,
+
+43:28.000 --> 43:34.000
+you will get inconsistent data between the two nodes.
+
+43:34.000 --> 43:37.000
+Network latency and high workloads could be a cause.
+
+43:38.000 --> 43:45.000
+And this can cause loss of data in case during that time a failover is triggered.
+
+43:45.000 --> 43:47.000
+That's one of the risks with this.
+
+43:51.000 --> 43:59.000
+Split brain can cause the data inconsistency as well because, well, if two nodes think they are the primary,
+
+43:59.000 --> 44:06.000
+they are going to try and take writing of the data or they are going to establish themselves as the publishers of the data
+
+44:06.000 --> 44:11.000
+and they are going to have different pieces of data, you don't want that to happen either.
+
+44:11.000 --> 44:15.000
+And any configuration that is not optimized for the functioning of your cluster,
+
+44:15.000 --> 44:21.000
+incorrect configuration, can cause inconsistency of data.
+
+44:21.000 --> 44:23.000
+How do you prevent it?
+
+44:23.000 --> 44:27.000
+You manage your asynchronous replication very closely.
+
+44:27.000 --> 44:31.000
+And now notice that I did not say synchronous replication over here.
+
+44:31.000 --> 44:38.000
+I said that you just use synchronous replication primarily because it has a huge impact on performance.
+
+44:38.000 --> 44:46.000
+And to do the extent possible, our advice typically is to avoid synchronous replication.
+
+44:46.000 --> 44:52.000
+And not only does it have an impact on performance, one of the downsides is that in case the primary is working
+
+44:52.000 --> 44:59.000
+and the replica goes down for whatever reason, the primary is going to continue waiting for an eclotage from the replica
+
+44:59.000 --> 45:03.000
+and the replica has essentially taken the entire cluster down with it.
+
+45:03.000 --> 45:08.000
+So there are very few challenges involved with synchronous replication.
+
+45:08.000 --> 45:15.000
+Regularly check transaction IDs across the cluster, monitor replication conflicts,
+
+45:15.000 --> 45:24.000
+there are statistics and tables that are and views that are available within Postgres to allow you to monitor this replication.
+
+45:24.000 --> 45:29.000
+You can monitor them and then detect those conflicts and resolve them promptly.
+
+45:29.000 --> 45:35.000
+And make sure that you have regular maintenance done on your database.
+
+45:35.000 --> 45:44.000
+Vacuum, we had a talk just a little while back that talked about why table is bloated, why dead tuples are there
+
+45:44.000 --> 45:48.000
+and why vacuum is needed in order to remove those dead tuples.
+
+45:48.000 --> 45:55.000
+And we want to also make sure that analyzes run frequently on your tables so that it can optimize query planning
+
+45:55.000 --> 46:01.000
+and you want to prevent a transaction ID wraparound which is probably something that is a whole talk in itself.
+
+46:01.000 --> 46:06.000
+We won't go into that during this conversation.
+
+46:06.000 --> 46:10.000
+And yes, this all sounds really, really hard.
+
+46:10.000 --> 46:17.000
+It is next to impossible for a single human being to be able to think about all of these variables
+
+46:17.000 --> 46:23.000
+and actually correctly configure clusters and be mindful of everything involved over here,
+
+46:23.000 --> 46:30.000
+which is why we've got tooling around it that does not automate the entire thing,
+
+46:30.000 --> 46:35.000
+but it takes care of the critical aspects of your cluster.
+
+46:35.000 --> 46:37.000
+I mentioned three tools over here.
+
+46:37.000 --> 46:39.000
+There are other tools available as well.
+
+46:39.000 --> 46:44.000
+All three are open source with reasonable license for usage.
+
+46:44.000 --> 46:48.000
+Repmanager at the top is licensed as GPL.
+
+46:48.000 --> 46:53.000
+It provides automatic failover and it can manage and monitor the application for you.
+
+46:53.000 --> 46:59.000
+PG pool has a license that's very similar to BST and MIT, which means it's a very liberal license.
+
+46:59.000 --> 47:03.000
+And it acts as a middleware between Postgres and client applications
+
+47:03.000 --> 47:06.000
+and it provides functionality much beyond simply clustering,
+
+47:06.000 --> 47:10.000
+so it will give you connection pooling and load balancing and caching as well,
+
+47:10.000 --> 47:12.000
+along with automatic failover.
+
+47:12.000 --> 47:16.000
+Petroni is a name that just keeps coming up.
+
+47:16.000 --> 47:20.000
+It's wildly popular to set up clusters with Postgres.
+
+47:20.000 --> 47:26.000
+The license is MIT and it provides a template for highly available Postgres clusters
+
+47:26.000 --> 47:29.000
+with the smallest cluster being three node.
+
+47:29.000 --> 47:34.000
+And it can help you with cluster management, auto failover and configuration management.
+
+47:34.000 --> 47:38.000
+And that brings us to the end of our presentation.
+
+47:38.000 --> 47:40.000
+Two minutes to go.
+
+47:40.000 --> 47:44.000
+That's the QR code for my LinkedIn.
+
+47:44.000 --> 47:46.000
+Thank you.
+
+47:49.000 --> 47:51.000
+Thank you.
+
+47:52.000 --> 47:54.000
+We actually have a question.
+
+47:54.000 --> 47:58.000
+The gentleman earlier alluded to network fence and Kubernetes.
+
+47:58.000 --> 48:01.000
+You'll have to be louder.
+
+48:04.000 --> 48:09.000
+The gentleman earlier referred to network fence and should denote,
+
+48:09.000 --> 48:12.000
+which is only possible because of PVCs, right?
+
+48:12.000 --> 48:15.000
+Like persistent volumes, they're saying Kubernetes, right?
+
+48:15.000 --> 48:20.000
+But the kicker is most often than not, the volumes themselves, the PVCs,
+
+48:20.000 --> 48:23.000
+are the cause of those transient issues.
+
+48:23.000 --> 48:26.000
+What if we don't want to use persistent volumes?
+
+48:26.000 --> 48:28.000
+What if we want to use ephemeral NVMe?
+
+48:28.000 --> 48:32.000
+Is it currently possible with Postgres to manage a cluster
+
+48:32.000 --> 48:36.000
+without using persistent storage and defaulting to shoot a node?
+
+48:36.000 --> 48:40.000
+So the thing is that when you're working with...
+
+48:40.000 --> 48:45.000
+They might have gone off, but let me try and answer you loudly over here.
+
+48:45.000 --> 48:48.000
+So the thing is that when you're working with databases,
+
+48:48.000 --> 48:52.000
+you want persistent storage, right?
+
+48:52.000 --> 48:57.000
+A Kubernetes kind of cluster is designed for stateless applications,
+
+48:57.000 --> 49:02.000
+at least on the ground up, but for databases, you want persistent storage, right?
+
+49:02.000 --> 49:07.000
+In case that you're working with a scenario that is just completely...
+
+49:07.000 --> 49:11.000
+That does not use persistent storage,
+
+49:11.000 --> 49:15.000
+those are cases where I don't have expertise in.
+
+49:15.000 --> 49:19.000
+So I won't be able to definitively tell you how to go about handling it.
+
+49:19.000 --> 49:22.000
+So Matix, those are like EC2, please, I imagine.
+

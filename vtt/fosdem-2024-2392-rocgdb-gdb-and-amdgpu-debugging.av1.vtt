@@ -1,0 +1,629 @@
+WEBVTT
+
+00:00.000 --> 00:07.480
+Hi everyone.
+
+00:07.480 --> 00:09.440
+So I am, that's for learning.
+
+00:09.440 --> 00:10.600
+I am Len Slott.
+
+00:10.600 --> 00:17.080
+I'm working for AMD actually and I'm also the maintainer of the AMD GPU back in AppStream
+
+00:17.080 --> 00:24.000
+GTB and I'm going to talk to you about a bit of how to debug program running on GPUs,
+
+00:24.000 --> 00:28.600
+on AMD GPUs because I don't really know much about the other one.
+
+00:29.480 --> 00:32.720
+Out of curiosity, with the show of hands,
+
+00:32.720 --> 00:37.160
+how many of you have no idea of things that are working on the GPU actually?
+
+00:39.520 --> 00:41.360
+Yeah, okay.
+
+00:41.360 --> 00:44.640
+I'll try to go through that a bit so you have some understanding.
+
+00:44.640 --> 00:52.680
+So my plan roughly is to give you an overview of what the architecture is of our GPU and
+
+00:52.680 --> 00:58.320
+the effect model of that and what is the programming model we use to work on that.
+
+00:58.320 --> 01:05.040
+And then we'll go into how to use ROG-GDB, which is the downstream fork of GDB we use
+
+01:05.040 --> 01:13.840
+at AMD, which is a support for debugging GPU programs and we'll talk about where we are
+
+01:13.840 --> 01:17.440
+at supporting GDB in AppStream.
+
+01:17.440 --> 01:21.160
+There, supporting AMD GPU in AppStream.
+
+01:21.160 --> 01:27.040
+So a very abstract view of a GPU could be that.
+
+01:28.040 --> 01:37.280
+So we have on the top left, global memory, which is your VRAM,
+
+01:37.280 --> 01:42.920
+like your RAM of your GPU plus all the host memory you have.
+
+01:42.920 --> 01:49.480
+That's virtual memory, that's like in Linux, everything else, that's a 48-bit address space,
+
+01:49.480 --> 01:53.360
+so we use 64-bit pointers.
+
+01:53.360 --> 01:55.840
+And yeah, pretty easy to do so far.
+
+01:55.840 --> 02:01.680
+Then, just below it, we have what we call the Scale-Up General Purpose Registers, so
+
+02:01.680 --> 02:07.680
+if you were to x86, that's your A or AX or BX and so on.
+
+02:07.680 --> 02:12.960
+One small difference is instead of having like eight of them, we have a hundred of them
+
+02:12.960 --> 02:17.320
+ish, plus some status registers.
+
+02:17.320 --> 02:22.840
+So that's the easy part, but we still have like the two-thirds of the diagram to go through,
+
+02:22.840 --> 02:25.600
+so we have a bit more than that.
+
+02:25.600 --> 02:34.320
+Next we have this big block, which are the VGPRs, which are the vector general purpose registers.
+
+02:34.320 --> 02:41.480
+You can see that the first approximation, like your AVX ish vector registers, with some
+
+02:41.480 --> 02:44.160
+differences.
+
+02:44.160 --> 02:50.000
+Our system, those vector registers, so they have a fixed number of lanes, so you can see
+
+02:50.000 --> 03:00.360
+a register of like a array of 64 elements, each element is a 32-bit value.
+
+03:00.360 --> 03:06.200
+And when we do vector math, that's going to be pretty much what you would expect with
+
+03:06.200 --> 03:12.960
+AVX, so if you do a vector add of v0, v0, v1, you will take like the value of v0, line
+
+03:12.960 --> 03:19.980
+0, you add that to the value of v0, line 1, start that in v0, line 0, and the same
+
+03:19.980 --> 03:26.240
+for every lane in parallel, so everything is happening at the same time.
+
+03:26.240 --> 03:31.520
+On top of that, we have what we have on the other side, on the top right, which is some
+
+03:31.520 --> 03:37.420
+memory which is going to be dedicated for every lane, so each lane, each one of those
+
+03:37.420 --> 03:42.300
+64 lanes will have its own pool of memory.
+
+03:42.300 --> 03:47.220
+So we can have like vector load instruction, which will take an address, and that address
+
+03:47.220 --> 03:51.460
+is going to be an address within that particular piece of memory specific for that lane, so
+
+03:51.460 --> 03:57.620
+you do one load and you load 64 value at a time from 64 different address spaces.
+
+03:57.620 --> 04:00.740
+It can be a bit tricky sometimes.
+
+04:00.740 --> 04:06.940
+And that's the basic, the base for like a compute element we have, and you can take
+
+04:06.940 --> 04:11.940
+a couple of them, put them together, and you will have what we can call a compute unit.
+
+04:11.940 --> 04:19.660
+In a compute unit, you can group some of those compute elements together, and they can talk
+
+04:19.660 --> 04:26.820
+a bit in exchange information via yet another address space, so that's a Perth red block
+
+04:26.820 --> 04:33.780
+memory here, which is a 32-bit address space, and they can have some synchronization primitive
+
+04:33.780 --> 04:35.020
+within that CU.
+
+04:35.020 --> 04:41.540
+And then you take multiple CUs, glue them together, and pretty much you go to GPU.
+
+04:41.540 --> 04:43.460
+That's what's quite few.
+
+04:43.460 --> 04:47.980
+So that's a very, very abstract model of what a GPU can be.
+
+04:47.980 --> 04:55.580
+The way we can program for that is going to be usually using the heap programming language,
+
+04:55.580 --> 04:59.740
+which is quite very similar to CUDA, to be honest.
+
+05:00.180 --> 05:05.340
+That's a single source programming model where you will have part of the code which will
+
+05:05.340 --> 05:11.180
+execute on the host on the GPU, and part of the code will execute on the device, on the
+
+05:11.180 --> 05:12.180
+GPUs.
+
+05:12.180 --> 05:18.060
+So here that's kind of the elbows of GPU programming where we do a vector addition.
+
+05:18.060 --> 05:23.460
+So a bit of setup, we just initialize some memory, we copy it to the device, and we have
+
+05:23.460 --> 05:30.580
+here we submit some work to the device to be done.
+
+05:30.580 --> 05:37.740
+And when we do that, we describe the geometry of our problem in terms of one, two, or three
+
+05:37.740 --> 05:39.380
+D space.
+
+05:39.380 --> 05:44.420
+So we describe the size of a block, which are like how many elements are going to be
+
+05:44.420 --> 05:51.940
+running on same CU, and we say how many blocks we want, so how many CU can, or how many workgroup
+
+05:51.940 --> 05:54.020
+can work concurrently.
+
+05:54.020 --> 05:55.020
+Not necessary.
+
+05:55.020 --> 05:59.820
+How many workgroup we have, they don't have to synchronize in any way.
+
+05:59.820 --> 06:04.940
+That's a very, very fast, because I didn't talk much time, in terms of what that can
+
+06:04.940 --> 06:05.940
+look like.
+
+06:05.940 --> 06:11.180
+And now the question is, how does everything look like inside GDB, and rock GDB?
+
+06:11.180 --> 06:20.780
+So those elements, like the fundamental part which executes is what we call a wave.
+
+06:20.780 --> 06:23.940
+And in GDB, we map one wave to a thread.
+
+06:23.940 --> 06:31.580
+So when we do info thread in GDB, you will see a bunch of threads as usual, and then
+
+06:31.580 --> 06:34.460
+you will have those AMD GPU waves.
+
+06:34.460 --> 06:40.620
+And this AMD GPU wave, so that this collection of those vector registers, those scalar registers,
+
+06:40.620 --> 06:42.700
+and they're working together.
+
+06:42.700 --> 06:51.740
+Each of them will be running like those 64 work items at once in parallel, in pretty
+
+06:51.740 --> 06:52.740
+much.
+
+06:52.740 --> 07:00.300
+So just so everyone is not too bit confused, that target ID, the way it's built, that's
+
+07:00.300 --> 07:05.540
+so you can identify where that thread comes from.
+
+07:05.540 --> 07:08.700
+So basically it's built that way.
+
+07:08.700 --> 07:12.260
+We have the agent ID, which is like the idea of the GPU.
+
+07:12.260 --> 07:13.460
+We have a QID.
+
+07:13.460 --> 07:18.220
+The Q is the mechanism you use to submit work to the GPU.
+
+07:18.220 --> 07:19.220
+Then you have a dispatch.
+
+07:19.220 --> 07:21.620
+A dispatch is a unique of work.
+
+07:21.620 --> 07:22.740
+And your wave ID.
+
+07:22.740 --> 07:29.020
+And for the convenience, you have XYZ coordinate of your work group and your wave index inside
+
+07:29.020 --> 07:31.580
+that work group.
+
+07:31.580 --> 07:35.660
+And from there, we do have also, if you want, info agent, info queue, info dispatch, which
+
+07:35.660 --> 07:44.780
+can be used to animate the live dispatch using agents on the system.
+
+07:44.780 --> 07:52.020
+And now we get to the trickier part, which is one wave, which has 64 lanes, is going
+
+07:52.020 --> 08:01.380
+to be executing 64 work items in parallel, concurrently, and all at the same time.
+
+08:01.380 --> 08:07.020
+And so among all the scale of registers which are shared for the entire wave, you have one
+
+08:07.020 --> 08:09.060
+which is a PC, like the instruction pointer.
+
+08:09.060 --> 08:16.140
+So that means that you have what you would think of 64 different threads in your source
+
+08:16.140 --> 08:24.780
+program, they're going to be running the exact same instruction altogether inside the GPU.
+
+08:24.780 --> 08:29.700
+And each one of those work items will map to a lane.
+
+08:29.700 --> 08:35.580
+So that's one slice of a vector register plus a given address space.
+
+08:35.580 --> 08:40.860
+So GDB has a concept of current lanes the same way we have a concept of a current thread.
+
+08:40.860 --> 08:49.300
+So when you step, if you have a lane selected, you will be presented with the same lane again.
+
+08:49.300 --> 08:54.740
+And so to be a bit consistent, we do have an info lanes command which works like a bit
+
+08:55.420 --> 08:56.420
+like the other one.
+
+08:56.420 --> 08:58.420
+That goes so fast.
+
+08:58.420 --> 08:59.420
+Sorry.
+
+08:59.420 --> 09:01.420
+How is it for the community?
+
+09:01.420 --> 09:06.060
+Yeah, I know.
+
+09:06.060 --> 09:09.860
+You have a lane command you can use to select a given lane.
+
+09:09.860 --> 09:15.300
+And the lane ID is constructed a bit in the same way that we have thread ID where we have
+
+09:15.300 --> 09:18.180
+the agent ID, the queue ID, the dispatch ID, the wave ID.
+
+09:18.180 --> 09:24.020
+And then within that you have your lane ID after the slash and you have the coordinate
+
+09:24.020 --> 09:27.180
+of the current work item inside the work group and the coordinate of the work group
+
+09:27.180 --> 09:33.700
+inside the grid which is like everything.
+
+09:33.700 --> 09:39.620
+And so now the big question is maybe all of your threads are not going to be doing the
+
+09:39.620 --> 09:40.620
+same thing.
+
+09:40.620 --> 09:46.620
+So if you have like if full of lane ID, you do something else, you do something else.
+
+09:46.620 --> 09:51.060
+And although that work because everyone like every lane is going to be executed exactly
+
+09:51.060 --> 09:53.380
+the same instruction at every time.
+
+09:53.740 --> 09:57.100
+The way it works is by using lane masking.
+
+09:57.100 --> 10:04.340
+Basically the vector operation are going to be configured with like a mask register
+
+10:04.340 --> 10:07.300
+so some lane have some side effects and some don't.
+
+10:07.300 --> 10:11.100
+So we will turn the effect for some lane as no op.
+
+10:11.100 --> 10:19.300
+So basically the case where the lane, the condition is true is full.
+
+10:19.300 --> 10:25.980
+We will actually execute the full, we will be an op, else we will actually reactivate
+
+10:25.980 --> 10:29.540
+the lane, do what we want to do and the else on the other end.
+
+10:29.540 --> 10:36.300
+When we are in the if branch, we will actually do have some effects so write the element
+
+10:36.300 --> 10:43.740
+and otherwise we will deactivate the lane for the else and that's going to be a no op.
+
+10:43.740 --> 10:52.100
+And so if you were to step like single step within GDB with that execution model basically
+
+10:52.100 --> 10:55.940
+that means that every instruction is going to be executed.
+
+10:55.940 --> 11:04.300
+So you test if my lane ID odd, apparently it's not, no apparently it's odd so we do
+
+11:04.300 --> 11:08.660
+the else but what the fuck we do then.
+
+11:08.660 --> 11:14.420
+So we execute everything and GDB has some support to avoid this kind of confusion which
+
+11:14.420 --> 11:23.860
+is we will just don't stop when the current lane is inactive.
+
+11:23.860 --> 11:30.100
+So we will step as expected if we have something odd we will do our test, go to the else branch
+
+11:30.100 --> 11:34.100
+and we don't stop in then branch and we continue.
+
+11:34.100 --> 11:39.660
+Cool, that's the basic of our like the execution model works.
+
+11:39.660 --> 11:43.900
+Now we get to the tricky parts.
+
+11:43.900 --> 11:49.300
+As I said before we have multiple address spaces and when we have an address space basically
+
+11:49.300 --> 11:55.780
+when you want to load data from that memory or store data you will need an address but
+
+11:55.780 --> 12:02.100
+then contrary to what you have in the CPU world if you just have an address that's not
+
+12:02.100 --> 12:09.060
+going to get you very far because you need to know what address is going, the address
+
+12:09.060 --> 12:14.460
+is going to be an offset in a given address space and so you need to glue those two information
+
+12:14.460 --> 12:17.060
+to have something that actually makes sense.
+
+12:17.060 --> 12:23.940
+And so we have this address space found offset notation which we use and that can be used
+
+12:23.940 --> 12:24.940
+through our GDB.
+
+12:24.940 --> 12:37.580
+Yeah, so I'll go very fast so that pretty much what we have.
+
+12:37.580 --> 12:42.300
+Usually things you know you will read the slide I don't have to go over that.
+
+12:42.300 --> 12:47.140
+One question we have and what difficulty we have is to describe all that and especially
+
+12:47.140 --> 12:52.620
+all the address spaces and everything that's not going to work very well with Dwarf where
+
+12:52.620 --> 13:00.060
+a location is usually referred to as an address and address is just a value and as I said
+
+13:00.060 --> 13:05.100
+if you just have a value and you don't know what address space that goes with you can
+
+13:05.100 --> 13:06.100
+just talk.
+
+13:06.100 --> 13:12.100
+So we have a proposal to redesign a bit of Dwarf and the evaluation mechanics in Dwarf
+
+13:12.100 --> 13:18.900
+to address that and we're working with other vendors to try to have that submitted to the
+
+13:18.900 --> 13:24.180
+Dwarf standard so that started the discussion going on but that takes time and that's not
+
+13:24.180 --> 13:34.580
+in Dwarf yet and very fast the state of what we have in, yeah sorry, so the state of the
+
+13:34.580 --> 13:42.820
+AMGGPU support in GDB so we have all the basic stuff for controlling the execution and basically
+
+13:42.820 --> 13:49.100
+we have a bunch of symbolic debugging so being able to do a backtrace, ping variable and
+
+13:49.100 --> 13:52.980
+everything which can't really do because we need Dwarf support to do that and Dwarf is
+
+13:52.980 --> 13:57.860
+not standardised yet to support that so we're stuck.
+
+13:57.860 --> 14:03.700
+And a bunch of links you can look online and that's pretty much the end, sorry, it took
+
+14:03.700 --> 14:11.500
+a bit more time than it should have and if you have any question please.
+
+14:11.500 --> 14:18.500
+So one or two questions maybe, sorry.
+
+14:18.500 --> 14:23.660
+Yeah, here.
+
+14:23.660 --> 14:28.700
+Can we use this with shaders running in GLSL or something?
+
+14:28.700 --> 14:32.340
+The question is can we use that to for shader running in GLSL?
+
+14:32.340 --> 14:36.620
+Probably not because GLSL that's going to be on the graphics get back and that's not
+
+14:36.620 --> 14:42.980
+like that's only going to work for compute shaders so that will work for OpenCL that
+
+14:42.980 --> 14:50.380
+will work with SQL like there is an implementation called the heap SQL you could use but like
+
+14:50.380 --> 14:54.660
+the graphics pipeline would be different and that's not going to work, that's just for
+
+14:54.660 --> 14:55.660
+compute.
+
+14:55.660 --> 14:57.660
+Yeah, we have a question over there.
+
+14:57.660 --> 15:04.660
+You mentioned waves are kind of like threads, I didn't know is it represented the same way
+
+15:04.660 --> 15:13.660
+as threads are in GDP or do you have a separate thing and I was going to ask is it architected
+
+15:13.660 --> 15:16.660
+to make it easy for debugging?
+
+15:16.660 --> 15:18.660
+I guess that's my real question.
+
+15:18.660 --> 15:25.660
+So that's two separate questions but I guess would you say this is easier or harder to
+
+15:25.660 --> 15:26.660
+answer?
+
+15:26.660 --> 15:27.660
+Yes.
+
+15:27.660 --> 15:30.540
+And from the hardware perspective, yes.
+
+15:30.540 --> 15:36.860
+One thread is one wave and that's what we show in GDP if we go to the very beginning.
+
+15:36.860 --> 15:41.980
+We show in for threads you will list waves and once you have selected a given thread
+
+15:41.980 --> 15:45.660
+you can select a lane within that thread.
+
+15:45.660 --> 15:46.660
+Cool.
+
+15:46.660 --> 15:52.340
+Do you have time for one more question maybe?
+
+15:52.340 --> 15:53.660
+Maybe one question.
+
+15:53.660 --> 15:54.660
+Yes.
+
+15:54.660 --> 15:59.660
+My question was about like you put those efforts for the upstream but the final decision will
+
+15:59.660 --> 16:03.660
+be like it will emerge to upstream and we don't have to use separate product or it's still
+
+16:03.660 --> 16:05.660
+with like a separate product.
+
+16:05.660 --> 16:08.660
+No, our goal is to have everything upstream.
+
+16:08.660 --> 16:16.660
+The sooner the better but we cannot do that completely today mostly because of dwarf issues.
+
+16:16.660 --> 16:22.660
+To have dwarf which can be powerful enough to describe what's actually happening on GPU.
+
+16:22.660 --> 16:29.660
+We need some fundamental changes in dwarf and so to get our change in GDP we would need
+
+16:29.660 --> 16:36.660
+to support that dwarf six-ish but dwarf six doesn't exist yet so like that's pretty much
+
+16:36.660 --> 16:39.660
+one of the big things which is holding us back.
+
+16:39.660 --> 16:42.660
+Somewhere in the future the idea will be to be upstream.
+
+16:42.660 --> 16:43.660
+Yes, that's our goal.
+
+16:43.660 --> 16:46.660
+That's what we want to do.
+
+16:47.660 --> 16:52.660
+Okay.
+
+16:52.660 --> 16:54.660
+And yeah, I forgot to repeat the question.
+
+16:54.660 --> 17:00.660
+The question is do we intend to have everything upstream or do we want to keep having work
+
+17:00.660 --> 17:01.660
+GDP as a separate product?
+
+17:01.660 --> 17:02.660
+We don't.
+
+17:02.660 --> 17:03.660
+Sorry.
+
+17:03.660 --> 17:04.660
+Time's up.
+
+17:04.660 --> 17:05.660
+Thank you.
+
+17:05.660 --> 17:10.660
+And that is it.
+

@@ -1,0 +1,178 @@
+Then let's start. We would like to talk about Dora-Arres, which is a project to create a
+modern data flow framework for robotic applications. The idea of a data flow framework is that
+you split your applications into lots of small nodes that each perform some operation on
+the data, and then you can send the data by message passing to the next node, and this
+way you get a very isolated architecture. If one component goes down, for example, then
+the other components can keep on running, so you have very reliable architecture. For
+example, on the right in this example we have a webcam node that generates images, and these
+pictures are sent both to a plot node and an object detection node. The object detection
+uses an object detection algorithm to detect common objects in the image, and if it detects
+any it sends a bounding box to the plot node as well. The plot node can then combine the
+two and draw a rectangle around the detected objects in the image and print it out on the
+display or something. One nice feature of this design is that you can also split your data flow
+across multiple machines. For example, if you have an embedded system that has limited
+processing power, you can offload heavy computations to a remote machine and use the network for
+sending back the process data. Also, you have these nice boundaries, so by observing all
+the messages that are sent you can get a pretty good idea of what your system is doing. You
+have also, for example, the option to lock all the messages and try to replay them later
+on a debug system to debug issues. The most popular frameworks that implement this pattern
+are ROS and ROS2. They are both CNC++ based and have unfortunately quite a complex build
+system which can be a bit intimidating to beginners, but they are quite mature and widely used in
+both research and industry. The motivation for Dora was that we want to make the creation
+of robotic applications simple and fast, and we want to focus on modern languages like
+ROS and Python, but we still want to keep supporting CNC++. We also have plans to support
+WebAssembly in the future to have even more isolation between components. For the build
+system we try to keep things as simple as possible and to use the build system of the
+different languages when possible. So, for example, if you are writing one node in ROS,
+then you should just use the CrateZero dependency and run a cargo build command without any
+additional project specific tooling. And also we want to make it easy to integrate with
+latest technologies such as Python, AI models that you should be able to just use without
+much setup. For the general design we decided to make each node a separate process to benefit
+from the isolation and fairness guarantees of the operating system and to give authors
+of nodes a lot of flexibility because you have full control over the process so you
+can access devices or include some libraries that you need and so on. And the nodes communicate
+by sending messages as we said. So, for this we decided to use a declarative approach.
+We have a YAML file that lists all the outputs and inputs and how they map to each other
+so you have like a single crown of truth how your data flow graph is laid out. One feature
+that we are quite proud of is the zero copy implementation that is transparently added
+whenever the sender and receiver are on the same machine. So in this case we use chat
+memory to pass the message contents and we encode the messages using the Apache Arrow
+data format which allows us to access the data and process the data without any copying
+as well. So for example, on the right we could have a Rust node that sends some data to a
+Python node, the Python node in its Python runtime does some processing using NumPy for
+example and using this Apache Arrow format, all of that is possible without any serialization
+or copying of the data which is quite nice and also results in a quite nice performance.
+So here we see the latency of a Python node in Rust 2 compared with Dora and we see that
+for large messages the latency is much better because we don't need to copy the data or
+serialize the data at all. We also for compatibility try to create a Rust 2 bridge to allow the
+step by step migration of existing Rust 2 applications and also to use the existing
+Rust 2 tooling which is quite mature for our Dora nodes because we don't have that kind
+of tooling yet. For the implementation we decided to do the interfacing at the DDS level,
+so at the middleware level, so we don't link to the Rust 2 libraries but instead we have
+our own DDS implementation and this way the build process stays simple and we don't need
+to complicate things but we still are able to auto generate bindings for Rust in C++
+because we pass the message definition files of Rust 2 and we also have automatic type
+conversions between the Rust 2 message types, the error data types and the native Rust or
+Python types.
+Yeah and lastly, so we have two more features, one is open telemetry, so it's for everything
+that is metadata, we don't want you to learn a new way of logging your logs, tracing your
+traces and having metrics, so we're using open telemetry which is an open format that
+is available on many languages, C++ Rust and it can connect to many back end as well,
+so if you're already using some promissory graphana you can just use Dora and use your
+back end really quickly and have all your data coming in and there's also a lot of applications
+that use this open telemetry such as website, servers and so you could have your Dora data
+at the same time as your other application data.
+So that's really useful and then we have also a hot reloading feature that helps us basically
+reload our application without having to reset the robots, this thing can take a bit of time
+and sometimes there's some calibration so we found it really useful to be able to change
+the code, change the logic without having to reset the robot and now that we can generate
+code with generative AI with chargeability as you probably tried out or mistral AI on
+a local machine, it's really useful and actually it's very simple to code, you can use, you
+just have to check your state and if the state doesn't change, if it's compatible you can
+just swap state and it works, so yeah I'm going to do a quick demo because I think it's
+probably easier for you to understand, so I have a robot, I have a microphone, I have
+a speaker, I'm going to use whisper as a node to convert my speech to text and then I'm
+going to use an LLM to change the text to code and using the hot reloading feature it's
+able to directly change the behavior of the robot and then I have two webcams just so
+that everyone can see and then I have additional node but I'll let you go into detail later
+because I don't have too much time, so this is kind of an overview of what is happening
+underneath and yeah let's do a quick demo, so I'm going to start my graph instead of
+my computer and fortunately I can't share my screen because somehow my event is not working
+with the HDMI so I'm just going to use my microphone to try to work with the robot, so let's say
+I have a robot here, I'm going to say okay, can you set the rotation to 50 and so now whisper
+is going to convert what I said to code and then the code is going to be hot reloaded
+in the robot in real time hopefully, so the first thing is takes a bit of time but it
+should get there at some point, I'm just going to try again, can you change the rotation
+to 50 please, just give me one sec and normally it should move, there is no problem, so I
+go and so this is just code, right, it's not something that I've pre-implemented, it's
+not and we can, if people want to have a look, we can have a look deep behind the back and
+talk about it, I can make him move but the table is really small so maybe I can just
+try something very small, yeah, can you set the variable x to 1, so yeah, okay he didn't
+understand, he didn't understand the Bible, so yeah, can you set the x variable to 1,
+okay, the node should move, yeah, so you can really, you have all the control, you can
+make him move, rotate, thing, just going to hope it's not going too far but hopefully
+it should be okay, yeah, and yeah, so this is like really simple logic, it's just changing
+one variable but I can also use charge-pt which is way more powerful to generate way
+more complicated code, okay, so this is kind of, if you already used charge-pt before,
+you will see that it's not always reliable, so it should work but it's not a promise,
+right, and I'm sorry if it doesn't work and I probably have to do some debugging of the
+code that charge-pt generate but let's say I say, can you set the rotation according
+to bounding boxes, so you can't probably see but I'm running an object detection on
+my computer and so he's able to get bounding boxes, you've probably already seen demo
+with deep learning and pie torch and things like that and so it's actually very simple,
+right, if you look into details of many demos and so it's actually very simple to get bounding
+boxes, so I'm getting the webcam, I'm sending it to object detection and then I'm plotting
+it on my computer but I'm also sending it to the planning which is the thing that is
+controlling the robot and so then, so charge-ptd has to link this bounding box to a rotation
+axis which is actually quite complicated because the rotation is in angles and then
+only what he has is bounding boxes with x, y on a, like an image frame, right, so it's
+probably like 20 pixel left, 20 pixel right and so he has to generate this code but normally
+it should work and so charge-pt takes about 30 seconds to one minute, maybe more depending
+on the file length because it's per token right and so now it's still like talking
+with charge-pt I think and now it's finished so it should be able to move, I'm just going
+to log it, I'm sorry if I take a bit of time and, alright, so there was a bit of an issue,
+the true value of an array is complicated so, alright, just give me one sec, center
+x ratio, center x, center x, okay and then I'm going to put a zero here and normally
+it should work, is it moving? Oh yeah, okay, so now he should move according to what he
+sees, so if I'm here maybe he's going to move like here, okay, yeah and now it should stop
+moving, yeah, it's like doing some PID stuff, right, like kind of like brewing so, and
+so if I move here, he's going to move from here, yeah and so this is the whole logic
+it was charge-pt, I didn't code anything, I'm probably too lazy to code this thing but
+yeah, but you can see the idea so if, yeah, that's kind of where we are now and, yeah,
+time's up, okay, so here's the feature we have and if you have any features you can
+let us know and we'll try our best to make it happen, sometimes it doesn't happen but
+we'll try our best and yeah, so well, thanks for listening, yeah, thanks for having us,
+thanks.
+I have any questions?
+Hi, it was very interesting, when you showed the graph of the latency with ROS2 versus
+Dora, do you know what middleware you were using to compare against, because obviously
+ROS2 has a whole bunch of different middlewares that you can use some of shared memory, some
+over the loop back, do you know which one it was?
+I think it was default DDS.
+Yeah, it was default DDS.
+Or TPS or?
+Now I can't remember exactly the details but we tried to use the exact, like, tutorial
+version of ROS2 and in Python you can't do like shared memory things so like, we tried
+to use MW isorox thing with Python but it didn't really work out, yeah.
+And on real time stuff, do you have bindings for say POSIX, Tread Priority setting and other
+real time integrations or is that still in the Python?
+Yeah, that's probably things that we can improve but actually there's a lot of time spent on
+serialization, copying and so this is where we think that the biggest difference is, yeah.
+But we can definitely look more into detail into the benchmark if you're interested, yeah.
+I'll take up one over there.
+Right, I'll give you some problems.
+Oh yeah, it's moving because of bounding boxes, yeah, if you see.
+Hello, I'm curious why you chose to have an, over here, an explicit definition of all the kind of topics of communication.
+Like why use that instead of kind of the raw style just publish and subscribe without, blindly publish and blindly
+subscribe?
+Do you want to answer?
+Okay, okay.
+Yeah, I think it was just to have additional insight at the beginning directly.
+We also plan, I think if we go to the road again, we also plan this dynamic data flow feature again
+because in some cases it's quite useful to add nodes at runtime but for like getting started it was useful to be able to
+generate a graph of the whole thing and yeah, so.
+Okay, one more question.
+There was a guy over here, yeah.
+Hi, sorry, very interesting.
+Maybe I missed it but how do you communicate across different computers which networking provider are using?
+Right, so there's an SDK and so basically you can send messages with a protocol buffer and there's a small computer and it's
+interesting and the video stream is using H.264.
+Yeah, so I was talking about like Protobuf but just like what is like, I don't know, DDS for raws, then now they are moving to senior
+or what are you, how are you sending the messages actually?
+Okay, so now I'm just using the SDK of the robot for communicating, yeah, so it's very simple.
+In the future if we have remote machine we can use TCP and maybe Xeno type of thing for Dora itself.
+Okay, so Dora now it's only one computer.
+Now it's kind of one computer.
+Yeah, we have like basic TCP support for remote machines but nothing too optimized.
+Yeah, but it's definitely something we want to do.
+May I ask another one?
+Yeah, so have you tried R2R like the another raws Rust binding which is also like using the raws C library but wrapped and it doesn't
+use all the complicated, the amend and what not, cash is building with cargo which I agree it's a good advantage.
+So maybe it's interesting to check that library also.
+Yeah, absolutely, yeah, we definitely look into the raws thing and there's many clients.
+We're actually working on the raws to bridge as well and so we are using the Rust client from like an unofficial raws client that enables you to not use the
+complex like raws to build system and still use raws to.
+So this is how things are.
+Okay, so the robots are ticking over.
+Okay, thank you very much.
+Thank you.

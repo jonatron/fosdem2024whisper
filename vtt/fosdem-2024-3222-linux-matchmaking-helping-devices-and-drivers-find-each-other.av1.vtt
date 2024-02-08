@@ -1,0 +1,1109 @@
+WEBVTT
+
+00:00.000 --> 00:10.000
+So we're ready for our next talk, so we need to be a little bit more quiet.
+
+00:10.000 --> 00:13.000
+Ahmed is going to be talking about Linux matchmaking,
+
+00:13.000 --> 00:16.000
+helping devices and drivers find each other.
+
+00:16.000 --> 00:18.000
+Okay, thank you.
+
+00:18.000 --> 00:20.000
+Yeah, my name is Ahmed Fatoum,
+
+00:20.000 --> 00:25.000
+and I will talk to you about how devices and drivers find each other.
+
+00:25.000 --> 00:28.000
+I am an embedded Linux developer with Pingotronics.
+
+00:28.000 --> 00:33.000
+We do kernel and bootloader porting, system integration, graphics stuff.
+
+00:33.000 --> 00:38.000
+And I think we often do is update kernels or bring up kernels on new devices
+
+00:38.000 --> 00:42.000
+and run into the problems that happen when we do that.
+
+00:42.000 --> 00:46.000
+Often we have some kernel patches because not everything is upstream yet.
+
+00:46.000 --> 00:48.000
+Sometimes we have multiple topic branches.
+
+00:48.000 --> 00:53.000
+We use a tool called umphazet, but in the end we have Git tree that we built.
+
+00:53.000 --> 00:56.000
+Maybe if we do a kernel update we have an old config,
+
+00:56.000 --> 01:01.000
+so we learn make old config to get the old config to a new version.
+
+01:01.000 --> 01:04.000
+Then we type make to build the kernel.
+
+01:04.000 --> 01:09.000
+Then they deploy the kernel somehow and sometimes it works
+
+01:09.000 --> 01:12.000
+and sometimes it doesn't and the kernel hangs at boot.
+
+01:12.000 --> 01:14.000
+And then you need to debug why that happens.
+
+01:14.000 --> 01:17.000
+So if you are doing a kernel update and you have a known good,
+
+01:17.000 --> 01:21.000
+don't waste time, just do a git bisect if you have network boot
+
+01:21.000 --> 01:24.000
+or something quick to test new versions.
+
+01:24.000 --> 01:27.000
+And when you have the commits that cause the regression,
+
+01:27.000 --> 01:30.000
+you can reach out to the author or you can discuss it on the mailing list
+
+01:30.000 --> 01:35.000
+or you can read it and try to understand why this caused a problem for you.
+
+01:35.000 --> 01:41.000
+Maybe it causes problems for others too or maybe it's just a problem in your configuration.
+
+01:41.000 --> 01:47.000
+But if you are doing a new kernel bring up or you are moving from a much detached kernel,
+
+01:47.000 --> 01:50.000
+for example a vendor fork, you often don't have a known good
+
+01:50.000 --> 01:53.000
+that you could easily bisect between.
+
+01:53.000 --> 01:56.000
+And yes, that's what my talk is about.
+
+01:56.000 --> 01:59.000
+How would you debug early driver issues?
+
+01:59.000 --> 02:04.000
+Here is an example breakage that can happen that a colleague run into.
+
+02:04.000 --> 02:06.000
+So he updated the kernel.
+
+02:06.000 --> 02:09.000
+Here and make old dev config or menu config.
+
+02:09.000 --> 02:12.000
+So make old config will prompt you for all the new symbols
+
+02:12.000 --> 02:13.000
+or new configuration symbols.
+
+02:13.000 --> 02:15.000
+Do you need that driver? Do you need that driver?
+
+02:15.000 --> 02:19.000
+There is a lot of there and if you do old dev config,
+
+02:19.000 --> 02:22.000
+you are not prompted, it just takes the default.
+
+02:22.000 --> 02:25.000
+And yeah, after he did that the kernel no longer booted
+
+02:25.000 --> 02:28.000
+or some device didn't was not functional.
+
+02:28.000 --> 02:32.000
+And with a git bisect eventually you would have found this commit to be the cause.
+
+02:32.000 --> 02:36.000
+And what this commit is doing is that's renaming a symbol.
+
+02:36.000 --> 02:40.000
+So previously we had MFT RK808.
+
+02:40.000 --> 02:45.000
+This is a driver for the power management IC on that board
+
+02:45.000 --> 02:49.000
+and that was renamed to RK8XX which makes sense
+
+02:49.000 --> 02:54.000
+because as you see the driver supports 805, 808, 809 and so on.
+
+02:54.000 --> 02:57.000
+And so it's a bit confusing to have the driver called 808
+
+02:57.000 --> 03:00.000
+but it supports much more than that.
+
+03:00.000 --> 03:04.000
+But the problem is a Kconfig doesn't track such renames.
+
+03:04.000 --> 03:07.000
+It's from Kconfig's point of view.
+
+03:07.000 --> 03:11.000
+Your old config has an RK808 that doesn't exist anymore.
+
+03:11.000 --> 03:12.000
+So it's deleted.
+
+03:12.000 --> 03:18.000
+And the Neo kernel tree has an RK8XX that's by default off.
+
+03:18.000 --> 03:21.000
+So if you just do menu config this driver will get lost.
+
+03:21.000 --> 03:25.000
+And because that's a power management IC and everything depends on it.
+
+03:25.000 --> 03:29.000
+So if you need to drive a USB stick and output 5 volt,
+
+03:29.000 --> 03:32.000
+it has a dependency on that PMP MIC.
+
+03:32.000 --> 03:35.000
+If you want to use a higher speed mode on your SD card
+
+03:35.000 --> 03:38.000
+and need to lower the voltage, it has a dependency on that PMIC.
+
+03:38.000 --> 03:41.000
+And all these drivers that have a dependency on that one driver
+
+03:41.000 --> 03:46.000
+will fail to probe and you might not even be able to boot your system.
+
+03:46.000 --> 03:50.000
+And yes, you need to debug that somehow.
+
+03:50.000 --> 03:56.000
+If you know the culprit commit like here, the solution, the resolution is evident.
+
+03:56.000 --> 04:00.000
+You just open make menu config, you enable that one config option
+
+04:00.000 --> 04:05.000
+and then you are on your merry way and you can probe your driver
+
+04:05.000 --> 04:07.000
+and everything should work as before.
+
+04:07.000 --> 04:13.000
+But what I want to talk about is what if you don't know what's the problem.
+
+04:13.000 --> 04:18.000
+You have a system that's stuck on boots or you have reached user space
+
+04:18.000 --> 04:23.000
+and graphics don't work and you want to know so what happened.
+
+04:23.000 --> 04:28.000
+The kernel always be, of course, kernel bugs, but a lot of people use a kernel
+
+04:28.000 --> 04:34.000
+and if you run into an issue and you are not really the first one to try it out,
+
+04:34.000 --> 04:38.000
+it might be something in your configuration, maybe just a driver that's not enabled
+
+04:38.000 --> 04:41.000
+or maybe something that's specific to your board.
+
+04:41.000 --> 04:46.000
+And to be able to debug that, you will need some insight about how Linux
+
+04:46.000 --> 04:49.000
+does this early driver initialization step.
+
+04:49.000 --> 04:55.000
+So I will start with that and then talk a bit about the problems that can happen that early.
+
+04:55.000 --> 05:00.000
+So Linux device driver model is what matches devices with drivers.
+
+05:00.000 --> 05:02.000
+We have three main abstractions.
+
+05:02.000 --> 05:08.000
+One is the bus type, which is what sits between your device driver executing on your CPU
+
+05:08.000 --> 05:11.000
+and the device that you want to talk to.
+
+05:11.000 --> 05:17.000
+A bus type can be something like PCI or USB or MDIO or something like that.
+
+05:17.000 --> 05:24.000
+So it's meant to reflect an actual hardware bus and that's the software representation of it.
+
+05:24.000 --> 05:28.000
+Then you have the struct device driver, which is a data structure
+
+05:28.000 --> 05:30.000
+that has the entry points into your driver.
+
+05:30.000 --> 05:34.000
+And then you have the struct device, which is what the driver operates on.
+
+05:34.000 --> 05:38.000
+So you can have the same driver operating on multiple devices because for example,
+
+05:38.000 --> 05:43.000
+my laptop here has two USB controllers, one on that side and one on that side
+
+05:43.000 --> 05:46.000
+and one of them has also internal connections.
+
+05:46.000 --> 05:52.000
+So these are completely identical, but they are just at different places on the bus.
+
+05:52.000 --> 05:56.000
+You can see that here on that diagram.
+
+05:56.000 --> 05:59.000
+You have one PCI bus, there are three devices on it.
+
+05:59.000 --> 06:04.000
+Then you have a second PCI bus that hangs off the first one through a PCI bus bridge.
+
+06:04.000 --> 06:12.000
+And each device of these optimally has a driver that will try to bind to it.
+
+06:12.000 --> 06:15.000
+And this is done by a series of function pointers.
+
+06:15.000 --> 06:18.000
+There is a lot of entry points for device driver and so on,
+
+06:18.000 --> 06:22.000
+but the three function pointers that are interesting to us are match for bus type.
+
+06:22.000 --> 06:26.000
+This takes as an argument the device driver and the device itself
+
+06:26.000 --> 06:31.000
+and has to determine in a bus specific manner if they are compatible or not.
+
+06:31.000 --> 06:36.000
+So for PCI, where each device has a vendor ID and a device ID,
+
+06:36.000 --> 06:42.000
+which are, so if you are a vendor, the PCI sync group will give you a vendor ID
+
+06:42.000 --> 06:47.000
+if you pay them and then you can assign device IDs and then you can write drivers
+
+06:47.000 --> 06:50.000
+or people can write drivers via hardware that match on exactly that
+
+06:50.000 --> 06:53.000
+vendor ID and device ID.
+
+06:53.000 --> 06:57.000
+And here, once a match, once a bus determines a match,
+
+06:57.000 --> 07:02.000
+it will return to the driver call some positive value, a one,
+
+07:02.000 --> 07:05.000
+and then the device driver probe will commence.
+
+07:05.000 --> 07:09.000
+So the probe will take the device, will try to determine
+
+07:09.000 --> 07:13.000
+if that device is really what it's after, initialize it,
+
+07:13.000 --> 07:16.000
+and then you have a remove step to undo that probe.
+
+07:16.000 --> 07:18.000
+The struct device also has function pointers,
+
+07:18.000 --> 07:23.000
+but these are not interesting to us that early in the initialization stage.
+
+07:23.000 --> 07:26.000
+Here is a short quote example how it looks like for PCI.
+
+07:26.000 --> 07:28.000
+So you have a struct PCI device.
+
+07:28.000 --> 07:34.000
+This inherits struct device by embedding it and then adds PCI specific stuff.
+
+07:34.000 --> 07:38.000
+So it has the vendor ID, 16 bits, it has device ID, it has resources,
+
+07:38.000 --> 07:44.000
+so PCI devices have IOPods or memory mapped regions that are associated with it.
+
+07:44.000 --> 07:46.000
+That's all struct PCI device.
+
+07:46.000 --> 07:51.000
+Then you have a struct PCI driver that similarly does extend struct driver.
+
+07:51.000 --> 07:57.000
+And additionally, it has this ID table, which is a list of all vendor and device pairs
+
+07:57.000 --> 07:59.000
+that are matched by that driver.
+
+07:59.000 --> 08:01.000
+You see that structure at the end.
+
+08:01.000 --> 08:06.000
+And you can add to it also a driver data unsigned long
+
+08:06.000 --> 08:10.000
+where you can encode stuff so you have a...
+
+08:14.000 --> 08:19.000
+...
+
+08:29.000 --> 08:32.000
+Usually you have the platform bus, which is...
+
+08:32.000 --> 08:37.000
+There is a catch all in the back of chips bus because it does a lot
+
+08:37.000 --> 08:40.000
+because the bus itself doesn't do anything for you.
+
+08:40.000 --> 08:45.000
+The bus itself is usually just memory mapped and it doesn't tell you what device is where.
+
+08:45.000 --> 08:50.000
+It's not like a PCI bus where you can actually ask the bus to enumerate the devices and report them.
+
+08:50.000 --> 08:56.000
+You have to have some sort of hardware description that tells you what is where
+
+08:56.000 --> 08:58.000
+so you can actually use it.
+
+08:58.000 --> 09:01.000
+How that hardware description looks like is on the right.
+
+09:01.000 --> 09:06.000
+You will have this compatible, which tells you I have a device that's compatible with that.
+
+09:06.000 --> 09:10.000
+It has that address and it has these resources, these interrupts, these clocks and so on.
+
+09:10.000 --> 09:15.000
+And then the platform bus will take this description and try to match it with drivers
+
+09:15.000 --> 09:17.000
+who also list these compatibles.
+
+09:17.000 --> 09:20.000
+But that's just one thing the platform bus can do.
+
+09:20.000 --> 09:22.000
+It can also match on ACPI.
+
+09:22.000 --> 09:24.000
+It can match on strings.
+
+09:24.000 --> 09:27.000
+It can match on the driver name itself.
+
+09:27.000 --> 09:31.000
+It's where you throw everything in that doesn't have a proper bus.
+
+09:31.000 --> 09:33.000
+That's a platform bus.
+
+09:34.000 --> 09:40.000
+And yeah, once any bus, platform bus, PCI bus and so on finds a match,
+
+09:40.000 --> 09:43.000
+it will call the driver probe function.
+
+09:43.000 --> 09:47.000
+So the name of the function is a bit of a historical artifact.
+
+09:47.000 --> 09:52.000
+Normally if you have already done the match, the device will probably be what you expect.
+
+09:52.000 --> 09:56.000
+So you don't really need to probe the device if it's really yours.
+
+09:56.000 --> 10:01.000
+But in the past, for example, with the Superio chips on x86,
+
+10:01.000 --> 10:04.000
+they usually had the same IOPOD.
+
+10:04.000 --> 10:09.000
+And if you write the values appropriate to one of them in tools,
+
+10:09.000 --> 10:12.000
+in tools, registers of another, you could break it.
+
+10:12.000 --> 10:17.000
+So they had like schemes where you need to enter a password into a magic register two times.
+
+10:17.000 --> 10:21.000
+And then you read from another register if it's really the device that you expect.
+
+10:21.000 --> 10:26.000
+And if it's not, you can return an error code, you know, def or you know,
+
+10:26.000 --> 10:28.000
+such device or address.
+
+10:28.000 --> 10:34.000
+And the driver call will try something else, but that's usually nowadays a buck if you return in a def.
+
+10:34.000 --> 10:39.000
+Usually you don't intend to return in a def, but some other return value.
+
+10:39.000 --> 10:43.000
+So the return values that are relevant either the driver is happy,
+
+10:43.000 --> 10:47.000
+it has got a device, it claims its resources, it returns zero.
+
+10:47.000 --> 10:53.000
+After registering it with some other kernel framework, for example, if it's an Ethernet interface,
+
+10:53.000 --> 10:59.000
+it will register a net def, call register net def to register a network interface
+
+10:59.000 --> 11:03.000
+that can be later called to interface with the device.
+
+11:03.000 --> 11:07.000
+And that's an uninteresting case because everything works here.
+
+11:07.000 --> 11:11.000
+What's interesting case if it returns an error code.
+
+11:11.000 --> 11:15.000
+And that's usually what happens when your boot is stuck,
+
+11:15.000 --> 11:19.000
+sends kernel bugs of course, but if your boot is stuck,
+
+11:19.000 --> 11:23.000
+it's usually some driver that didn't want to probe.
+
+11:23.000 --> 11:33.000
+And that's usually because device dependencies because a device probe is just one little part of a function,
+
+11:33.000 --> 11:38.000
+but each device has, especially on a system and chip, has a lot of dependencies on other devices.
+
+11:38.000 --> 11:43.000
+And yeah, if you have like eight dependencies, maybe one of these dependencies is missing
+
+11:43.000 --> 11:48.000
+and that's propagates up and kills the possibility to probe anything that depends on it.
+
+11:48.000 --> 11:54.000
+This was the case with that PMIC example that I had in an earlier slide
+
+11:54.000 --> 11:58.000
+because that was not available. Everything that depended on it, for example,
+
+11:58.000 --> 12:06.000
+USB or SD card controller, didn't manage to probe because the dependency couldn't be satisfied.
+
+12:06.000 --> 12:12.000
+And there are a whole lot of these dependencies and they are used at very different places.
+
+12:12.000 --> 12:16.000
+So there are generic dependencies like PIN control.
+
+12:16.000 --> 12:21.000
+A chip usually has more functions than PINs available,
+
+12:21.000 --> 12:25.000
+so it needs to mocks the PINs into the correct states.
+
+12:25.000 --> 12:28.000
+The Generic Driver Core will do that for you.
+
+12:28.000 --> 12:30.000
+Also the MA configuration.
+
+12:30.000 --> 12:33.000
+Then the platform devices will also do like initial clock assignment
+
+12:33.000 --> 12:37.000
+if you need to ramp up the rate of a clock or you need to reparent a clock.
+
+12:37.000 --> 12:40.000
+If you have a power domain which are like power is inside the chip,
+
+12:40.000 --> 12:44.000
+it needs to be powered on so you can actually talk to the device.
+
+12:44.000 --> 12:47.000
+And then there is a whole lot of stuff that's device specific
+
+12:47.000 --> 12:51.000
+that is inside the probe function of your driver which is requesting clocks,
+
+12:51.000 --> 12:54.000
+multiple power domains, GPIO, resets, files,
+
+12:54.000 --> 13:00.000
+or like the supply of the PMICs that we just saw in that problem.
+
+13:00.000 --> 13:06.000
+And the problem is when the device driver probes, it expects these resources to be available.
+
+13:06.000 --> 13:09.000
+And if it's not available, it just can't progress.
+
+13:09.000 --> 13:14.000
+So if it's like a reset line, you really expect that reset line to get the device out of reset.
+
+13:14.000 --> 13:18.000
+You can't continue usefully often without having that resource.
+
+13:18.000 --> 13:25.000
+So what the kernel tries to do is to probe the dependencies that you require first
+
+13:25.000 --> 13:28.000
+before probing something that comes later.
+
+13:28.000 --> 13:34.000
+So we want the PMIC to probe very early and then later on we want USB to probe, for example.
+
+13:35.000 --> 13:41.000
+How that used to be done was statically in the build system using init calls and makefile ordering.
+
+13:41.000 --> 13:43.000
+So I don't know if it's a bit too small.
+
+13:43.000 --> 13:44.000
+No, it's okay.
+
+13:44.000 --> 13:51.000
+So yeah, there are init calls which are the different stages that the kernel will run its initialization code from
+
+13:51.000 --> 13:55.000
+and these are synchronized using these sync stages between them.
+
+13:55.000 --> 13:58.000
+And if you do something in a subsystem init call,
+
+13:58.000 --> 14:02.000
+you know when something in a device init call runs, it will be available.
+
+14:02.000 --> 14:06.000
+And so you can place dependencies in a subsystem init call, for example.
+
+14:06.000 --> 14:10.000
+But the kernel uses a lot of these init calls for itself.
+
+14:10.000 --> 14:14.000
+There are not enough to represent all what the kernel needs.
+
+14:14.000 --> 14:20.000
+So what was instead done was that the order in the makefiles were used.
+
+14:20.000 --> 14:24.000
+So the kernel will work all directories, collect object files,
+
+14:24.000 --> 14:31.000
+and the order in which the object files are collected is the order in which they land in the linker list
+
+14:31.000 --> 14:36.000
+of init calls and that's the order where drivers are registered
+
+14:36.000 --> 14:39.000
+and if the devices are available, that's the order where the devices are probed.
+
+14:39.000 --> 14:44.000
+And so you have makefiles that still have some stuff like regulators early
+
+14:44.000 --> 14:46.000
+since some subsystem might rely on them or DMA.
+
+14:46.000 --> 14:50.000
+DMA is very important, so do that extra early.
+
+14:50.000 --> 14:54.000
+But that of course breaks down once you have a dependency that goes into the other way.
+
+14:54.000 --> 15:00.000
+Like here is a power domain driver that requires power supply, requires a regulator
+
+15:00.000 --> 15:04.000
+and power domains are added before regulators.
+
+15:04.000 --> 15:07.000
+So in this case it breaks down.
+
+15:07.000 --> 15:11.000
+You can't have one order that is okay for everyone.
+
+15:11.000 --> 15:15.000
+You can do that in a simple microcontroller or on a board that you know beforehand.
+
+15:15.000 --> 15:20.000
+Yeah, I could do that in that order, but any more complex system you will have maybe cycles even
+
+15:20.000 --> 15:25.000
+or you will have stuff that you can generically say because you can have plug-and-play and so on.
+
+15:25.000 --> 15:29.000
+And you can have one fixed order that always works.
+
+15:29.000 --> 15:38.000
+So you have to have a system that is only avoiding the problem of requiring resource
+
+15:38.000 --> 15:41.000
+that's not available in the kernel since 2011 or something.
+
+15:41.000 --> 15:48.000
+Also does detection that this happens and tries to re-probe at a later time.
+
+15:48.000 --> 15:50.000
+This is done with a special return value.
+
+15:50.000 --> 15:52.000
+It's called E-probe defer.
+
+15:52.000 --> 15:54.000
+It has a value of minus 517.
+
+15:54.000 --> 15:58.000
+It's interesting because all other return values are smaller numbers
+
+15:58.000 --> 16:04.000
+because they start counting from E-perma at minus one and then go maybe, I don't know, minus 100 something.
+
+16:04.000 --> 16:11.000
+But minus E-probe defer is like over 500 so you can more easily spot it.
+
+16:11.000 --> 16:13.000
+And this is never reported to user space.
+
+16:13.000 --> 16:19.000
+It's only for internal use by the kernel and it's what the kernel driver uses to tell the kernel driver core,
+
+16:19.000 --> 16:21.000
+please try me at a later time.
+
+16:21.000 --> 16:25.000
+The kernel driver core will go through the exact same motions.
+
+16:25.000 --> 16:31.000
+It will clean up resources but instead of marking that the driver probe has failed
+
+16:31.000 --> 16:39.000
+and there is nothing we can do to fix it, it will instead add it to a list of deferred driver probes that will be retried later.
+
+16:39.000 --> 16:44.000
+So if another device fails, succeeds to probe,
+
+16:44.000 --> 16:55.000
+then the kernel will try, can try again to see if now every requirement for that device is there so it can attempt a reprobe.
+
+16:55.000 --> 17:04.000
+And once it runs through the whole list and no new devices appear or no devices in that list manage to probe,
+
+17:04.000 --> 17:07.000
+it knows there will nothing happen anymore.
+
+17:07.000 --> 17:16.000
+And in that case, yeah, you can't boot but in the case that you have drivers that will bind later
+
+17:16.000 --> 17:23.000
+or you have maybe a cyclic dependency here that will help you because the stuff is being retried.
+
+17:23.000 --> 17:26.000
+And how that looks in driver code, here's a small example.
+
+17:26.000 --> 17:34.000
+This is getting an interconnect and USB 1 and then you have, you say get me a regulator or get me an interconnect.
+
+17:34.000 --> 17:38.000
+And you check if it's an error and then if it's an error, you return it.
+
+17:38.000 --> 17:43.000
+So if it's an error that you can't recover from, you return it and then the driver calls now, okay, that won't work.
+
+17:43.000 --> 17:45.000
+I won't try this again.
+
+17:45.000 --> 17:52.000
+If it's an e-probe defer error, it will just be propagated and the driver call will try at a later time and you are responsible to do cleanup.
+
+17:52.000 --> 18:00.000
+So you must take or the driver or the author must take care to clean up all resources so the driver probe can be attempted again.
+
+18:00.000 --> 18:05.000
+What you often see is this check that the error code is not e-probe defer.
+
+18:05.000 --> 18:11.000
+That's because e-probe defer is an expected result.
+
+18:11.000 --> 18:18.000
+So if you had a driver that couldn't get it resourced on the first time and it would say it couldn't get interconnect
+
+18:18.000 --> 18:25.000
+and it would work later on the second try, that would confuse a lot if you had error messages that are not really errors.
+
+18:25.000 --> 18:34.000
+So often you check for e-probe defer and only write the error message if it's actually an error and not e-probe defer.
+
+18:34.000 --> 18:38.000
+And you can see all this deferred stuff in the CISFS.
+
+18:38.000 --> 18:47.000
+There is a file there, CISCURNELDebugDevicesDeferred if you have debugFS support enabled and it will list all devices that have the probe not done yet.
+
+18:47.000 --> 18:53.000
+And in the case that you don't reach a shell because you have some dependency of your root file system missing,
+
+18:53.000 --> 19:01.000
+after 10 seconds if you have config modules, the kernel will time out and print all devices that it couldn't satisfy,
+
+19:01.000 --> 19:04.000
+that it couldn't probe because of missing dependencies.
+
+19:04.000 --> 19:11.000
+And then here in this case I am missing an interconnect driver and everything that depends on that interconnect driver,
+
+19:11.000 --> 19:16.000
+the power domains, the USB files, the USB itself will defer the probe.
+
+19:16.000 --> 19:20.000
+But you don't actually know why it deferred the probe.
+
+19:20.000 --> 19:25.000
+If you look at the slides before that, we had an error message that says couldn't get interconnect,
+
+19:25.000 --> 19:36.000
+but we didn't want to print it the first time because we didn't know maybe in the future it will be really probes that we can satisfy.
+
+19:36.000 --> 19:41.000
+But at the time from e-probe defer, you want to print it only on the last e-probe defer when the kernel gives up.
+
+19:41.000 --> 19:46.000
+But because we check here for e-probe defer that error message is lost,
+
+19:46.000 --> 19:53.000
+which is why for a few years now we have dev-er probe as a function in the kernel,
+
+19:53.000 --> 19:57.000
+it takes advice and error code and an error message.
+
+19:57.000 --> 20:05.000
+And if the error code is equal to a probe defer, it will just store the message in the device.
+
+20:05.000 --> 20:09.000
+And if it's unequal to a probe defer, it will just print it directly.
+
+20:09.000 --> 20:16.000
+And with that you get actually reason why deferred probe has happened.
+
+20:16.000 --> 20:19.000
+So here you see how it looks like in the debug FS.
+
+20:19.000 --> 20:21.000
+It will tell you block control is not ready.
+
+20:21.000 --> 20:26.000
+And then if you look for block control, it will tell you fail to get knock entries.
+
+20:26.000 --> 20:30.000
+I wouldn't know what to do with that error message, but at least I can search for it.
+
+20:30.000 --> 20:35.000
+And then I will see in the kernel source, okay, it tries to get an ICC.
+
+20:35.000 --> 20:38.000
+Yeah, I will search what's an ICC and then I will see it's an interconnect.
+
+20:38.000 --> 20:41.000
+And then I will look in the device tree, see there is an interconnect.
+
+20:41.000 --> 20:44.000
+And then I know, oh, maybe I need to enable an interconnect driver.
+
+20:44.000 --> 20:48.000
+And this would be a lot more cumbersome if I didn't have that information.
+
+20:48.000 --> 20:53.000
+And 6.8 is the kernel release that's currently being stabilized.
+
+20:53.000 --> 20:59.000
+And since 6.8 Rc1, these reasons are also printed to the kernel log.
+
+20:59.000 --> 21:04.000
+So in the case that your system doesn't manage to boot, you get the same error messages.
+
+21:04.000 --> 21:09.000
+Before that, yeah, you had to like start an init.id or something and mount it there.
+
+21:09.000 --> 21:13.000
+But you don't have to do that anymore.
+
+21:13.000 --> 21:17.000
+And yeah, if you have devaprope, that's an easy thing.
+
+21:17.000 --> 21:24.000
+If you don't have devaprope, you need to trace a bit and try to find out what's the last call that's failing.
+
+21:24.000 --> 21:29.000
+I pasted here some of the stuff that I add to the kernel command line from the bootloader.
+
+21:29.000 --> 21:34.000
+I add some kernel options to try to zero in on what's the problem.
+
+21:34.000 --> 21:41.000
+Earlycon is a useful thing because many drivers have a separate earlycon implementation for outputting a character.
+
+21:41.000 --> 21:47.000
+And that can be used even before the normal kernel driver is initialized.
+
+21:47.000 --> 21:52.000
+And you even use that because of a serial driver while it sounds very simple.
+
+21:52.000 --> 21:55.000
+It has resets as dependencies.
+
+21:55.000 --> 21:57.000
+It has clocks as dependencies.
+
+21:57.000 --> 22:00.000
+It might have even a power domain as a dependency.
+
+22:00.000 --> 22:07.000
+And you don't want to wait for all that to initialize before you can actually see something on the console.
+
+22:07.000 --> 22:13.000
+And earlycon sidesteps that because with the assumption that the bootloader has set up your serial console,
+
+22:13.000 --> 22:18.000
+the kernel could just keep using that set up serial port.
+
+22:18.000 --> 22:25.000
+And yeah, and later on when a real console with the driver model is registered, it can take over.
+
+22:25.000 --> 22:34.000
+So at earlycon and set standard outpath in your device tree so the kernel knows what to what console to use earlycon on.
+
+22:34.000 --> 22:41.000
+Then ignore lock level will get a lot of output when you enable debug stuff, but it's better than no output at all.
+
+22:41.000 --> 22:46.000
+So I just say ignore lock level and then filter it on my side with init call debug.
+
+22:46.000 --> 22:49.000
+You can print out the debug as they happen.
+
+22:49.000 --> 22:52.000
+This is useful if the kernel gets stuck at the moment.
+
+22:52.000 --> 22:59.000
+Maybe then you can see what is the last init call that the kernel called or the last few init calls if it's done in a multi-threaded manner.
+
+22:59.000 --> 23:05.000
+With dynamic debugging, if your kernel is compiled with config dynamic debug,
+
+23:05.000 --> 23:11.000
+your kernel will have all the debug strings built in, but it won't output them by default.
+
+23:11.000 --> 23:16.000
+But with dynamic debug, you can enable that for example for a file or for a line or for module.
+
+23:16.000 --> 23:21.000
+Here it takes dd.c, that's a device driver model file.
+
+23:21.000 --> 23:30.000
+That's the main file that does matching the devices to the drivers in the kernel and also will print debug messages like deferring a probe and so on.
+
+23:30.000 --> 23:34.000
+So you can see how often the probe is deferred if that's useful to you.
+
+23:34.000 --> 23:36.000
+And with a plus p, that means print.
+
+23:36.000 --> 23:47.000
+So yeah, this line will cause if you have config dynamic debug enabled to print out debug information from your driver core.
+
+23:47.000 --> 23:57.000
+And for good measure, I always add clock ignore unused and PD ignore unused when I am debugging because that's when the kernel has finished starting up.
+
+23:57.000 --> 24:01.000
+It will disable clocks and power domains that it thinks it doesn't need anymore.
+
+24:01.000 --> 24:08.000
+But if you happen to need them, the system will get will hang itself because there is still devices that require it.
+
+24:08.000 --> 24:14.000
+So yeah, it's not really related to the other stuff, but because it's debug stuff that I copy and paste, I add that too.
+
+24:14.000 --> 24:19.000
+Of course, you will want to remove it later for when once you have found where your bug is.
+
+24:19.000 --> 24:28.000
+And then for that particular problem of understanding why that probe has deferred, you can use ftrace.
+
+24:28.000 --> 24:34.000
+So the function graph tracer will print assuming of course you have it enabled in the kernel and so on.
+
+24:34.000 --> 24:36.000
+And you have enabled boot time tracing.
+
+24:36.000 --> 24:38.000
+It's a separate option.
+
+24:38.000 --> 24:47.000
+Yeah, if you have that all enabled, you can on the kernel command line say ftrace function graph and that will enable the function graph tracer very early.
+
+24:47.000 --> 24:54.000
+You can set a ftrace graph filter, which is a function during which the ftrace should run and you can set a maximum depth.
+
+24:54.000 --> 25:01.000
+And what the kernel will do is that once you enter this probe function, it will print a line to the trace buffer.
+
+25:01.000 --> 25:06.000
+And if you enter a shite function, it will add some indentation and print the next.
+
+25:06.000 --> 25:09.000
+And if it returns, it will return and so on.
+
+25:09.000 --> 25:14.000
+And then you have the flow of how the kernel walks through the probe function before you.
+
+25:14.000 --> 25:24.000
+I limited here to three, to a depth of three, because usually it's functions that you are interested in that claim resources are at a depth of three or less.
+
+25:24.000 --> 25:26.000
+You can increase it as you like, of course.
+
+25:26.000 --> 25:31.000
+And then you can check out what was the last thing that the kernel called that might have failed.
+
+25:31.000 --> 25:37.000
+So if you see at the very end, okay, let's try to get a GPIO and after that you only see clean up.
+
+25:37.000 --> 25:40.000
+So yes, probably the GPIO that's missing.
+
+25:41.000 --> 25:48.000
+I wanted to automate this a bit because one nice thing would be to get the error code out.
+
+25:48.000 --> 25:59.000
+So if you could just see which ones return an error code that is E-probe defer, you could just look for that and you don't have to look what could plausibly be the cause.
+
+25:59.000 --> 26:02.000
+This seems to be possible with boot config.
+
+26:02.000 --> 26:11.000
+Boot config is an ftrace function graph red val tracer that records return values, but you need to use boot config for that.
+
+26:11.000 --> 26:14.000
+And I haven't had the chance to use boot config so far.
+
+26:14.000 --> 26:17.000
+I tried yesterday for the first time.
+
+26:17.000 --> 26:24.000
+And what I initially wanted to do, I wanted to dump the ftrace buffer during boot time.
+
+26:24.000 --> 26:33.000
+So if the kernel gets stuck, I can't access the tracers to output my trace buffer to find out what was the last function that's called.
+
+26:33.000 --> 26:36.000
+Yeah, I can help myself by adding an init addy.
+
+26:36.000 --> 26:42.000
+I have an init addy for arm64 that I can just, that has a small shell that I can use.
+
+26:42.000 --> 26:47.000
+And then I can on the small shell from the init addy mount tracers and read it out.
+
+26:47.000 --> 26:57.000
+I could like something just out of the box where the kernel just, if it can continue boot, it would just dump out why it couldn't continue to boot.
+
+26:57.000 --> 27:09.000
+It currently will dump out this deferred probe information, but if you don't have this devair probe call, you won't know what's the reason why it didn't probe.
+
+27:09.000 --> 27:11.000
+And so ftrace could help.
+
+27:11.000 --> 27:13.000
+But I haven't managed to get it working.
+
+27:13.000 --> 27:15.000
+There is an ongoing discussion about that.
+
+27:15.000 --> 27:23.000
+And once I get it working, or someone tells me how I can get it working, that might be someone of you too, you can reply to that mailing thread and others will know too.
+
+27:23.000 --> 27:27.000
+I will try for sure a bit on the way back in the train.
+
+27:27.000 --> 27:34.000
+Yeah, and, ah, fadflink is something I wanted to talk a little bit about too.
+
+27:34.000 --> 27:42.000
+fadflink, it's a problem with eProbeDefur, it works, but you retry probes a lot of times when you don't really need to.
+
+27:42.000 --> 27:48.000
+In the worst case, the next device that you want to probe is the last one in the list.
+
+27:48.000 --> 27:57.000
+So you walk the whole list, you try all probes, and all will return again eProbeDefur until you reach the last one, then you probe that, and then you start the list again.
+
+27:57.000 --> 28:02.000
+And so on, you keep walking the whole list because the one you are interested in is at the very end.
+
+28:02.000 --> 28:08.000
+And you could do better than that if the kernel could take note of the dependencies.
+
+28:09.000 --> 28:17.000
+And yeah, if the kernel could take note of the dependencies, like read them out of the device tree, it could order probes, and that's what fvdeflink is doing.
+
+28:17.000 --> 28:28.000
+And yeah, it doesn't replace eProbeDefur completely, but it minimizes it a lot, which should improve your boot up time because you don't need to redo probes so often.
+
+28:29.000 --> 28:31.000
+And that's it.
+
+28:31.000 --> 28:44.000
+So if you want to take one thing with you from this talk, if you debug such an issue and you find a place where you could add def-er probe to make the life of other people after you easier, please do so.
+
+28:44.000 --> 28:48.000
+So the world will be a bit better after that.
+
+28:48.000 --> 28:50.000
+Thank you for listening.
+
+28:59.000 --> 29:02.000
+We have time for maybe one or two questions.
+
+29:07.000 --> 29:14.000
+Hi, Ahmed. Thank you for your talk. I just figured out you can use magic sys request to print the trace buffer.
+
+29:14.000 --> 29:25.000
+Oh, okay. Yeah, that would be a way. If you add the magic sys request, you can do that over the serial console too, then you could ask for the trace buffer to be dumped.
+
+29:25.000 --> 29:31.000
+I was thinking about triggering an oops maybe, but that sounds a bit less severe.
+

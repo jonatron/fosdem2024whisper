@@ -1,0 +1,410 @@
+The stage is yours.
+Thank you very much, Martin.
+So as Martin told already to you, I'm Andrea
+and I'm a software engineer at Genetio.
+We are trying to build the cloud platform
+for web applications.
+So our user should build web and mobile applications
+and deploy them to us.
+Just before starting, I want to set some expectations.
+So first of all, this talk is going to be a talk
+of the challenges and solutions we've come up with
+by running real node applications on Unicernals.
+And secondly, I really hope that this presentation
+will spark some discussions.
+I know that the Unicernal community is active
+and creative and me and my colleagues are going to be around
+after the presentation for us to speak
+if you have use cases, questions, challenges
+that you've tackled and you want to chat with us about them.
+So let's get down to business.
+Okay, so before starting to build a platform,
+we really needed to put down some guidelines
+and the vision that we want to implement with that platform.
+So is this sound okay?
+Because it sounds weird to me.
+Okay.
+It sounds good, but that's not the Unicernal.
+Okay, okay, thanks.
+So back to vision.
+So first of all, we really want to optimize resources
+like power consumption, memory, CPU
+and costs for our users.
+Secondly, we don't want to throw away response time
+for that optimization that we did.
+So we want to have a snappy response for our clients.
+So response time is very important to us.
+And lastly, we want an easy to use, secure
+and auto scaling platform.
+That means that we want to take the burden
+from the developer to where I deploy this application.
+How should I scale it and stuff like this?
+This is the job of the cloud platform
+and we want to provide that to the end user.
+So to take all the boxes,
+we decided to try Unicernals
+in a function as a service environment.
+Function as a service essentially means
+that when we have an incoming request,
+we spawn a VM that will be bounded in time.
+So it will leave for a few moments, for a few minutes, sorry.
+It will handle that request and send back the response.
+And we are doing this with the Unicernals.
+So essentially we have our orchestrator down here
+and then for the request,
+we are spawning the Firecracker with OSV,
+that is the Unicernal that we are using,
+with Node.js and at the top level,
+we have the user application.
+But still this has some challenges,
+unique set of challenges than the classic Linux container
+and classic long-living server.
+So our challenges are reducing the call starts
+because we are spawning up many VMs,
+essentially every few minutes,
+we are spawning the VMs if we have incoming requests.
+We have to somehow reduce the boot time for these VMs.
+So we have to boot it very quickly
+or give it a try to another mechanism
+to improve this call start.
+Secondly, because we are a multi-tenant platform,
+we want to somehow be able to upgrade the Unicernal
+or do patch, patches it at the Unicernal level
+without really iterating through each image
+for each of our users and redeploy everything.
+And lastly, of course, we want security
+and we want process isolation.
+That means we don't want application one
+to be able to access resource from application two.
+So we've tackled first of all the call start,
+which is a big problem in the function of the service world.
+So to tackle that, we leverage snapshots,
+as everybody does probably,
+and we did snapshots as following.
+We are booting up the Unicernal.
+We are starting the Node.js process
+and immediately after we start the Node.js process,
+we pause and at that moment we are creating a snapshot
+and store it for later.
+When we want to spawn a new VM,
+what we do essentially is we start the firecracker,
+which helps us load the snapshot
+and then we are attaching a new disk with the user code.
+We are mounting it and we are importing it
+into the Node.js code that was already started
+in the snapshot.
+This will help us with the second challenge that we have,
+the upgrading the Unicernal
+and you'll see in a moment how.
+To optimize even further, what we are doing
+is that we are not really waiting for requests to come
+and to then start the firecracker load the snapshot
+and so on.
+We have already a pool of warmed VMs that are started
+but they are not scheduled on the CPU.
+They are just logged in the memory
+and then we have an incoming request.
+We just take such one VM from the pool,
+we attach the user code, we handle it
+and then we give back the response to the client.
+Going back to upgrading the Unicernal image.
+So as I told you, we are a multi-tenant platform
+so we expect to have thousands of user applications
+that are running on our platform.
+So somehow we don't want to embed the user code
+into the Unicernal image because if we do that,
+we will have to rebuild each image of each of our user
+once we do a Unicernal upgrade or a patch or a bug fix.
+So what we are doing is that we are creating
+a single snapshot with just with the Unicernal
+and with Node runtime and as I already told you,
+we are attaching the user code later.
+So essentially when we are doing an upgrade,
+we just have to upgrade that base image
+and each VM that is spawned afterwards,
+it will reference to that base image.
+So this is why we are mounting user code afterwards
+and this is how we can enable OSV and Unicernal upgrade
+without really redeploying everything on our platform.
+And lastly, we are doing security and isolation
+using Firecracker Jailer.
+This helps us running each process sandbox,
+Firecracker Jailer allows us to have
+different network namespaces in such a way
+that we are not using the same network interface
+with each process.
+We have different file systems
+and different process namespaces.
+And also Jailer allows us to limit resources
+to make sure that we have some kind of fairness
+between VMs because we don't really want one single VM
+to eat up the whole CPU or the whole IO bandwidth.
+So we can control the IO throughput
+and CPU time for each VM.
+Because we are running things with real world stuff,
+we also find out some bugs,
+especially in the first one is in the Node.js V8 compiler,
+it used the pop-up instructions incorrectly
+and in the privilege mode,
+which is the single mode in Unicernal,
+with this it enables interrupts and that was not,
+we cannot run any Node code essentially,
+it was all Node code was affected by this bug.
+And also we fixed some bugs in OSV
+and we made some contribution upstream.
+Those are related to using two file systems
+because we need the first file system for the Unicernal
+and the second one is the user code
+that we are attaching later.
+And also we found out some notepossicks compliant
+functions in P-treads library.
+Okay, now let's talk about metrics.
+So as I told you, the most important thing for us
+is the request response time,
+because we want to make sure that the end user
+of our clients are getting their requests
+as fast as possible.
+So they have a snappy feeling
+when they're using the applications.
+So we actually benchmark that to see if using
+the Unicernal versus Linux container is as fast,
+is there is a difference or if there is an improvement.
+So first of all, we did a bit of setup.
+We are using a client, so essentially the browser,
+let's say, the client is in Asia.
+And then we are comparing with the standard
+functions and service solution from AWS.
+And also we have our servers that are running
+on the GeneXia infrastructure.
+So these are the three actors.
+We are comparing AWS Lambda with OSV,
+which is a Unicernal solution,
+and with a classic Linux container to have
+a full comparison, to have a full picture of the problem.
+This is the code that we are running.
+Essentially it's a Hello World code.
+It's more of a ping.
+We are just sending a request
+and we are getting back a Hello World string.
+And these are the actual numbers.
+So for a cold call, a cold call means
+that there is no VM pre-warmed for us.
+So at the moment when we are handling the request,
+we also have to wait for the boot time.
+And in orange we have Lambda
+that was getting us the request back in 300 milliseconds.
+And in purple we have the OSV
+and in blue we have the Linux container
+that are performing like 60 milliseconds.
+And then we also have the worm call,
+which is for the Lambda is around 60 milliseconds.
+And for OSV and Linux is around 30 milliseconds.
+So as we can see first of all,
+is that the OSV and Linux are mostly performing the same.
+And the first question that comes into mind
+is why use a Unicernal and why bother with it
+if the Linux container is just as good.
+But what we cannot see on this graph
+is the Linux kernel footprint.
+So the Linux kernel takes up much more space in storage
+when we are creating the snapshot,
+much more space in memory
+when we're using the pre-warmed pool VMs and so on.
+So the reason we can use Unicernals
+is that we are optimizing resources,
+even memory and storage and so on.
+Next steps for us, first of all,
+is to integrate many more canals.
+So for now we are just using OSV
+because it was the mature project
+at the point that we started,
+but we want to use many more Unicernals
+that are just developing in the community.
+And then we also want to add more support
+for more programming languages.
+We just went full on for Node.js
+because it was very popular.
+But we also want to add more support
+in a way that every web programmer can deploy
+its backend code on Unicernals.
+As a last call, I want to stay in touch
+with the people that are interested
+in this kind of project.
+I think that this community of Unicernals
+is very active and is flourishing
+from the contributions that we are all making.
+That's all.
+Okay, again, time for questions here.
+I'll be there.
+Hello.
+Thank you for the talk.
+Very, very interesting.
+Just a very simple question.
+Can you give me an eyeball on how big
+your Unicernal base image for Node.js is?
+I don't really have the numbers.
+So how big is the Unicernal image?
+Yes, so...
+For Node.
+So the last one?
+For Node.
+For Node.
+I mean what you used in the demo.
+So you have some megabytes, the dependencies,
+or so adding up to the gigabytes.
+To be honest, I didn't look into megabytes.
+Under 100.
+So I just received the answer in the headphones.
+It's megabytes.
+Okay, perfect.
+Thank you.
+Thank you very much.
+I may have missed it in the presentation,
+but in the benchmark that you showed us,
+obviously Lambda was running on the Amazon hardware,
+but what was Genesio running on top of?
+Genesio is running on top of a bare metal
+in another cloud deployment called Host.
+So basically we are running, I think, on ARM,
+on an ARM server that is bare metal.
+So we are building everything up on the ground.
+Okay, so there may have been a difference
+also in the hardware that was provided by Amazon
+and the hardware.
+That might be true because the Avisunda
+is running Graviton and we don't have
+that kind of hardware, of course.
+Okay, thanks.
+Yeah.
+So, more questions, yes.
+A bit of access for me.
+Thank you very much.
+So thank you for the presentation.
+I have a kind of a question,
+like from someone considering to do serverless
+and knowing that there is AWS Lambda,
+what is basically your selling point?
+Why would one use Genesio versus Lambda?
+Given that AWS is a big company
+and that Lambda has been running for a long time.
+Oh, I see, so there are a lot of reasons
+why you would use Genesio over Lambda.
+So first of all, we provide a much more easy tooling to use.
+So it's more targeting to have a very low learning curve.
+So you can just pick up Genesio in the meters of minutes
+than AWS Lambda, which is a bit hard to understand
+for a first time user.
+And secondly, AWS Lambda is not really interested
+in resource optimization, at least
+at what we tested right now.
+So with Unicorus, we want to provide even more
+resource optimization and lower costs.
+Yeah, hi.
+Hello.
+Thank you for the presentation.
+One of the things that's interesting about Lambda's now
+is they have a snapshot mechanism for Java.
+Is that something which you're looking to do as well
+is to have snapshots for different platforms
+and different kind of run times on top of your framework?
+Yeah, so we are planning to use the same mechanism
+that we use for Node.js.
+So basically every program language that we want to support,
+it will also have snapshots and it will benefit
+from the same mechanism that we use.
+Okay, surprisingly, we have still time for questions.
+Okay.
+Bring them on.
+Yeah, I'm gonna kill it.
+Very nice optimization.
+I mean, with the preheating and the pooling and the others,
+are you targeting or are you planning to target also
+kernel internals because I mean,
+I'm getting this experience from Unicraft
+but also I guess in OSB, you could do a lot of fine tuning
+there.
+Are you looking into that or are you linking only on
+how to optimize it via, let's say, external means
+because what you showed there is I have this VM,
+I pre-warm it, is it something in internals?
+For example, bootloaders, boot times are dreaded,
+even in your major Unicornals.
+Firecracker can be also configured to ditch a lot of devices,
+all those sorts of stuff can be fine tuned and optimized
+for different use cases.
+If you're using Node, some items may not be required,
+so you can do, I'm not sure, some postponing.
+Are you looking into that as well?
+I mean, more of kernel internals?
+Yeah, so we are also looking into that.
+As I know, we didn't really look into the bootloaders,
+but for example, we looked on how to improve the network stack
+because it takes up a lot of time to boot up the network stack.
+Valdic, is it LWIP?
+What is the networking stack of OSB?
+The networking stack of it, is it also LWIP
+or what is it for OSB?
+The next stack.
+I'm not sure.
+The networking stack, what is it?
+I don't think it's the best one.
+Okay, that's a good one.
+I mean, LWIP is dreadful, but BSD is a better one.
+Gotcha?
+Yeah, so I know that we are looking into that,
+but right now, the things that we already have implemented
+are just treating OSB as a black box.
+Okay.
+Yeah, the next step for us would be to also optimize
+the Unicom and the bootloader part.
+We need a kind of site for that.
+No, no, for sure, for sure, because by many,
+Unicom also would take doing a different approach,
+but I think that's a very nice spot
+and also very challenging to look into.
+And Unicom will provide this because you are able to actually
+optimize the application itself,
+optimize the kernel because of the way it's running.
+Did you, I'm not sure, did you use SMP support for this?
+What is it currently running single core?
+It's running single core.
+No.
+No?
+We got different machine sizes.
+No, no, no, I mean the deployment of VM.
+Can a VM run multi-threaded with different trends
+on different cores?
+Yes.
+Okay.
+So when you deploy something, you can choose the machine
+size, you can get inside the size,
+you can get on the graph, that's all.
+And they have different CPUs now.
+Okay, for an actual Unicom only instance.
+Okay, awesome.
+Okay, let me have a question as well.
+I was quite taken by surprise that you don't optimize the image,
+which sort of goes in my opinion against the benefits
+of Unicom that you really optimize down the image
+just specifically to the workload and the APIs and whatever
+that the client is using.
+So why do you do this trade-off?
+Do your customers really think that rebuilding the image
+is so cumbersome?
+So that means that we have to let our clients tinker
+with the Unicom image, right?
+So we are actually targeting users that are not that much
+into the Unicom stuff, so they are much into writing back
+and codes and so on, and they have knowledge into that
+direction.
+So we'll kind of try to abstract that, so maybe this is why
+we did choose to create the base image for them
+without really asking them how can we improve it even more.
+Okay, so basically you are saying that you are automating it
+so you don't want to push that burden to the clients, right?
+Exactly.
+Okay, that makes sense.
+So maybe one final question?
+Okay, nothing?
+Anyway, thanks for the talk.
+Thank you.

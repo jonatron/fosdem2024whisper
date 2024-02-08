@@ -1,0 +1,1277 @@
+WEBVTT
+
+00:00.000 --> 00:14.000
+So, time to start. Please welcome to the stage, speaking about running Postgres on Kubernetes,
+
+00:14.000 --> 00:16.000
+Karen Jax.
+
+00:16.000 --> 00:27.800
+Hi, thanks, Jimmy. Yep, so I'm Karen Jax. I'm a senior solutions architect at Crunchy
+
+00:27.800 --> 00:33.400
+Data and I'm going to talk to you about running databases on Kubernetes or how to create a
+
+00:33.400 --> 00:42.840
+virtual DBA. I've always worked with databases, so I've just included a little picture of my
+
+00:42.840 --> 00:48.960
+career to date just to prove that I'm vaguely qualified to talk to you about DBA type stuff.
+
+00:48.960 --> 00:53.300
+This is the first ever job title I've had that doesn't have the word database in it,
+
+00:53.300 --> 00:59.300
+but I still only work with databases.
+
+00:59.300 --> 01:07.860
+Okay, so in the abstract I said a lot of people who have looking after databases as part of
+
+01:07.860 --> 01:16.820
+their job responsibilities aren't actually these days database administrators. I see
+
+01:16.820 --> 01:23.820
+sysadmins, I see infrastructure teams, I see application developers, I see DevOps teams,
+
+01:23.820 --> 01:29.340
+all sorts of different people who don't necessarily have a training or experience in database
+
+01:29.340 --> 01:34.980
+administration, database administration who are expected to look after their organization's
+
+01:34.980 --> 01:40.860
+databases. And I see that in particular in organizations where everything's running on
+
+01:40.900 --> 01:47.980
+Kubernetes and the databases are just seen as another part of that landscape. So if you're
+
+01:47.980 --> 01:53.460
+in that situation what do you do? Do you go out and quickly learn to be a database administrator?
+
+01:53.460 --> 02:02.700
+Do you phone a friend? Do you panic? I mean a better option would probably be to go out and
+
+02:02.700 --> 02:09.540
+think about using one of the Kubernetes operators that's been created by database experts.
+
+02:09.540 --> 02:21.500
+So we'll have a look at what a Kubernetes operator does and how it can help you to create a virtual
+
+02:21.500 --> 02:32.460
+DBA and what you want to look for when you're choosing an operator. So we'll quickly have a
+
+02:32.460 --> 02:38.940
+look back at how database architecture has evolved over time. Make sure everyone's kind of on the
+
+02:38.980 --> 02:48.620
+same page so that you know what kind of things Kubernetes does and what it's useful for. Look at
+
+02:48.620 --> 02:53.180
+some of the special features that makes Kubernetes suitable for running a database environment.
+
+02:53.180 --> 02:59.260
+Try and figure out what a DBA actually does because that's going to then give us an idea of what we
+
+02:59.260 --> 03:08.740
+need the operator to do. Understand what an operator for Kubernetes is. Look at the features that
+
+03:08.780 --> 03:14.500
+you might expect from it and then finally have a little look at how you might go about implementing
+
+03:14.500 --> 03:21.820
+an operator and trying that out for yourself. So first of all the history, I promise it will
+
+03:21.820 --> 03:29.380
+be extremely brief. Once upon a time databases were deployed on physical servers or bare metal.
+
+03:29.380 --> 03:36.020
+You could run multiple databases on a single server if you wanted to but you had to accept that
+
+03:36.060 --> 03:42.620
+those databases are sharing the resources of that physical server and competing for them. If you
+
+03:42.620 --> 03:49.620
+wanted isolation you had to deploy a single database instance per physical server and that's
+
+03:49.620 --> 03:56.780
+going to bring with it very high overheads in terms of maintenance, operating costs,
+
+03:56.780 --> 04:02.740
+hardware costs etc. But you do get that isolation, you can manage them independently.
+
+04:03.180 --> 04:10.300
+Then we got virtualization in the form of VMs. So now you can carve up a single physical
+
+04:10.300 --> 04:18.460
+server into multiple VMs and you can deploy a database instance to each of those VMs.
+
+04:18.460 --> 04:26.260
+So now you've got isolation, you can manage those independently. You've still got fairly high
+
+04:26.260 --> 04:30.900
+overheads. So you've got the, as well as your underlying operating system, you've got the
+
+04:30.900 --> 04:40.900
+hypervisor and then your guest OS. But you have got that isolation. And fast forward to 2024,
+
+04:40.900 --> 04:47.140
+many databases are now running in containers. So just to recap, a container is a lightweight
+
+04:47.140 --> 04:54.940
+self-contained software package that you can deploy pretty much anywhere. Containers use
+
+04:54.980 --> 05:01.580
+features of the underlying OS. So it's using C groups and namespaces. So they're sharing
+
+05:01.580 --> 05:06.300
+that underlying operating system. But they remain isolated from each other.
+
+05:06.300 --> 05:15.020
+So now if we deploy things like this, those database instances can be managed completely
+
+05:15.020 --> 05:20.220
+independently. They're not competing for resources. But because those containers are
+
+05:20.220 --> 05:24.220
+sharing the underlying OS, they're much more lightweight. You're looking at typically maybe
+
+05:24.300 --> 05:33.180
+tens of megabytes versus gigabytes for a VM. So not so many years ago, most people thought the
+
+05:33.180 --> 05:39.940
+idea of running databases in containers was a completely crazy idea. This year, all of my
+
+05:39.940 --> 05:45.260
+customers are running some or all of their production databases in a containerized environment.
+
+05:45.260 --> 05:51.740
+Some of them are running multi-terabyte mission critical databases. And some of them are running
+
+05:51.820 --> 05:57.100
+hundreds or even thousands of databases. So some things obviously changed. There's been a shift to
+
+05:57.100 --> 06:06.060
+make people see this now as a viable architecture for databases. So let's talk about some of those
+
+06:06.060 --> 06:10.860
+features that have made people move to a containerized environment for their databases.
+
+06:13.420 --> 06:18.700
+So as I mentioned briefly, containers are isolated, they're lightweight, and they're portable.
+
+06:18.700 --> 06:23.740
+You can create them and destroy them quickly and easily, which means that a containerized
+
+06:23.740 --> 06:31.500
+environment can be extremely flexible. It's very easy to scale. But containers are also stateless
+
+06:31.500 --> 06:38.140
+and ephemeral. A container's data and its state only last as long as that container exists. As
+
+06:38.140 --> 06:43.900
+soon as your container's destroyed, you lose that. Which as you can imagine strikes fear into the
+
+06:43.980 --> 06:49.900
+heart of your average database administrator. You need to take special care obviously when you're
+
+06:49.900 --> 06:57.580
+using a containerized environment for a database or at least ones where you have any kind of
+
+06:57.580 --> 07:05.180
+attach any kind of importance to your data. So putting aside the stateless and ephemeral issues
+
+07:05.180 --> 07:11.580
+just for now, your organization probably isn't managing just a couple of databases. Excuse me
+
+07:11.580 --> 07:26.460
+whilst I get my display back the way it's supposed to be. A lot of organizations are running hundreds
+
+07:26.460 --> 07:31.420
+or thousands of databases. And once you get to that stage, it's probably going to feel a lot
+
+07:31.420 --> 07:36.300
+like herding cats. You don't want to be doing all of those maintenance tasks associated with those
+
+07:36.300 --> 07:40.780
+containers and the databases in them. You don't want to be doing that manually. You need some kind
+
+07:40.780 --> 07:49.660
+of tooling to do that for you. Which is where container orchestration comes in. So container
+
+07:49.660 --> 07:56.860
+orchestration platform such as Kubernetes will let you manage many containers. It will automate
+
+07:56.860 --> 08:04.700
+the entire life cycle of those containers and it will integrate also with DevOps tools. So it
+
+08:04.700 --> 08:12.940
+allows you to do things in a flexible, automated, repeatable way. So a container orchestration
+
+08:12.940 --> 08:18.860
+tool will take care of a long list of tasks, things like provisioning, deployment, configuring
+
+08:18.860 --> 08:27.980
+your containers, scheduling, scaling up and down, repairing things, replacing containers that have
+
+08:28.060 --> 08:36.380
+failed services that have failed, creating services, allocating storage, different resources,
+
+08:37.100 --> 08:46.140
+load balancing, network and security. Kubernetes is an open source container orchestration tool
+
+08:46.140 --> 08:54.780
+and it's the industry standard for container orchestration. Just to reassure you that it's
+
+08:54.780 --> 09:00.380
+not a newfangled thing. It's actually been around a reasonable amount of time now and it's been a
+
+09:00.380 --> 09:10.380
+graduated CNCF, Cloud Native Computing Foundation projects, 2018. Kubernetes can be run pretty
+
+09:10.380 --> 09:15.500
+much anywhere. You can use a managed cloud platform or you can run it yourself either on
+
+09:15.500 --> 09:20.620
+premises or in the cloud. You can either run vanilla Kubernetes or there are a whole host
+
+09:20.620 --> 09:25.740
+of different flavors of Kubernetes. So you might hear people talk about OpenShift or Rancher or
+
+09:25.740 --> 09:33.340
+Tanzu or EKS, AKS, GKE. There are all sorts of different versions of Kubernetes that you can use.
+
+09:38.220 --> 09:46.140
+So to the why would you want to run Postgres on Kubernetes? It's no longer considered a leading edge
+
+09:46.940 --> 09:54.220
+technology. It's very much mainstream now and it's trusted in production by many, many users
+
+09:55.020 --> 10:01.500
+for database workloads. One of my favorite quotes is actually from Joe Conway's blog post where he
+
+10:01.500 --> 10:07.260
+says resistance to containers is futile and he points out that actually on modern Linux systems,
+
+10:07.260 --> 10:12.220
+because everything's running using C groups and namespaces, you're effectively already running
+
+10:12.220 --> 10:23.020
+your database in a container. So the customers I work with have many, many different reasons,
+
+10:23.020 --> 10:30.940
+use cases for running databases and Postgres on Kubernetes. Automating the deployment and
+
+10:30.940 --> 10:36.300
+administration of their databases is obviously a huge one. That's one of the main reasons that
+
+10:36.300 --> 10:43.340
+people cite for wanting to be able to do things. The features of a container orchestration platform
+
+10:43.340 --> 10:49.180
+that we saw on the previous slide are already, they go a long way towards doing the things that you
+
+10:49.180 --> 10:56.220
+would need automated to look after your database environment. There are other features as well
+
+10:56.220 --> 11:03.580
+that help with that and we'll look at those in a few slides. But otherwise, we see customers that
+
+11:03.580 --> 11:07.900
+want to be able to deploy and manage their database environments at scale. As I mentioned before,
+
+11:07.900 --> 11:16.860
+maybe hundreds or thousands of databases. They want to run multi-tenant environments. They want
+
+11:16.860 --> 11:23.180
+their database environment to complement an existing microservices environment. A lot of the
+
+11:23.180 --> 11:28.140
+time there's already Kubernetes in use in the organization. The applications might already
+
+11:28.140 --> 11:31.980
+be running in Kubernetes and they want to bring the databases into that environment.
+
+11:34.140 --> 11:39.100
+A lot of them do it because they want to be able to create a database as a service type offering,
+
+11:39.100 --> 11:41.500
+whether that's for internal or external customers.
+
+11:46.780 --> 11:52.140
+We'll have a quick look now at some of the other Kubernetes features that can help to build our
+
+11:52.140 --> 11:59.100
+virtual database administrator. First of all, a little bit of terminology. Even though Kubernetes
+
+11:59.100 --> 12:04.140
+is a container orchestration tool, you don't deploy an individual container in Kubernetes. You
+
+12:04.140 --> 12:10.060
+deploy a pod. In its simplest form, a pod you can think of as just a wrapper around your container,
+
+12:11.260 --> 12:18.460
+but it can contain multiple containers. Then we have a deployment. A deployment
+
+12:19.660 --> 12:26.380
+consists of one or more copies or replicas of a pod. The pods within a deployment are ephemeral
+
+12:26.380 --> 12:32.060
+and interchangeable. If one of those pods is destroyed for any reason, Kubernetes will just
+
+12:32.060 --> 12:43.580
+stand us up a new identical pod. We talked about the benefits of containers, the features of
+
+12:43.580 --> 12:50.860
+Kubernetes, but also the fact that a container's data only lasts as long as that container exists,
+
+12:51.980 --> 12:55.900
+which obviously would be a bit of a problem for a container that holds your database.
+
+12:57.180 --> 13:02.380
+You probably don't want your database to disappear if you lose a container, so you need some kind
+
+13:02.380 --> 13:11.260
+of persistent storage. Kubernetes provides that in the form of persistent volumes or PVs. By creating
+
+13:11.260 --> 13:16.700
+a persistent volume claim, a PVC, you can attach permanent storage to your container.
+
+13:17.020 --> 13:27.820
+What about standby databases? We've talked about pods in a deployment being interchangeable.
+
+13:29.660 --> 13:37.180
+If you lose a container, Kubernetes will just say, okay, that's fine, I'll just create you a new one.
+
+13:37.180 --> 13:44.220
+If that's your primary database container, you can't do that. A primary and a standby database
+
+13:44.220 --> 13:48.460
+aren't the same. They're not interchangeable. You can't just replace one with the other. You need
+
+13:48.460 --> 13:52.860
+something in there to tell Kubernetes that there is a difference between these.
+
+13:55.980 --> 14:02.780
+It's very rare that you'll be running just a standalone database. You will almost definitely
+
+14:02.780 --> 14:08.300
+want high availability, but also you might want replica databases for read scalability. Scalability
+
+14:08.300 --> 14:18.460
+is one of the big use cases for Kubernetes. We need Kubernetes to know that our primary and
+
+14:18.460 --> 14:24.060
+our standby database aren't interchangeable, that you can't just replace one with the other.
+
+14:24.620 --> 14:29.740
+We also need it to know that they can't just be started up and shut down in a random order.
+
+14:29.740 --> 14:37.420
+It needs to be carefully considered. For that kind of situation, we've got stateful sets.
+
+14:38.300 --> 14:44.460
+A stateful set is similar to a deployment, but each of our pods will have a persistent identifier,
+
+14:44.460 --> 14:50.300
+so it keeps that through any rescheduling. If pod one gets destroyed, it will be replaced by another
+
+14:50.300 --> 14:56.940
+pod one, and it will still be attached to that same PVC one. It will still be attached to that same
+
+14:56.940 --> 15:06.380
+storage, so it can keep that state. The Kubernetes documentation says that stateful sets are useful
+
+15:06.380 --> 15:12.620
+for applications that need stable persistent storage, ordered graceful deployment and scaling,
+
+15:13.820 --> 15:19.180
+and ordered automated rolling updates, which sounds very much like what you would want from a
+
+15:19.180 --> 15:29.820
+high availability database environment. Another useful feature is sidecars. We saw that a pod
+
+15:29.820 --> 15:36.540
+can contain one or more containers, so a sidecar is a kind of helper container, so it's tightly
+
+15:36.540 --> 15:41.660
+coupled with the main pod in your container. You might have, for example, alongside your database
+
+15:41.660 --> 15:49.100
+container, you might have one that exports metrics, one that exports statistics from your database,
+
+15:49.100 --> 15:51.260
+you might have one that performs your backup and recovery.
+
+15:51.740 --> 16:02.460
+We've seen what kind of things Kubernetes can do. What does a DBA actually do?
+
+16:05.420 --> 16:12.940
+This is a slide from the DBA evolution talk that I gave here last year, and for that I looked at
+
+16:12.940 --> 16:20.540
+various definitions of a DBA to try and find out what the general consensus is for the DBA roles.
+
+16:21.580 --> 16:27.660
+It turns out that apparently DBA is responsible for managing and securing computer systems that
+
+16:27.660 --> 16:35.180
+store data using specialist software, which tells us absolutely nothing about what a DBA does day to
+
+16:35.180 --> 16:43.500
+day. I compared that at the list of responsibilities that went with those definitions, and I looked at
+
+16:43.500 --> 16:50.620
+a whole load of different job adverts for DBAs to try and get some kind of consolidated list.
+
+16:51.340 --> 16:55.180
+Of the things that DBAs are actually expected to do, and it's a pretty long list.
+
+16:55.900 --> 16:59.820
+The general consensus is that a DBA will do some or all of,
+
+17:02.380 --> 17:07.500
+ensuring the availability of the database, usually involving putting in place some kind of
+
+17:07.500 --> 17:16.620
+high availability infrastructure. Design, implement, and maintain the necessary backup and recovery
+
+17:16.620 --> 17:26.380
+procedures. Design, implement, enforce, potentially various different security
+
+17:28.380 --> 17:35.260
+security requirements, create database users, manage database access, ensure data protection.
+
+17:37.580 --> 17:43.740
+Implement monitoring processes, perform ongoing monitoring of the databases, looking at things
+
+17:43.740 --> 17:52.300
+like performance, the security space, etc. Database design and development, including data
+
+17:52.300 --> 17:59.340
+modeling, for example. Support and troubleshooting, including 24-7 support, uncle support often.
+
+18:01.420 --> 18:07.580
+And it goes on. Installing and upgrading database software, providing database expertise to other
+
+18:07.580 --> 18:11.260
+teams, to other people, so for example to the business, to other technical staff.
+
+18:14.220 --> 18:20.700
+Performance tuning, capacity planning, putting in place the necessary procedures for creating
+
+18:20.700 --> 18:26.380
+databases and maintaining databases. Of course, there are different types of DBA.
+
+18:27.180 --> 18:35.740
+Some organizations will split the roles out differently. Some DBAs will be expected to do
+
+18:35.740 --> 18:39.660
+different things, but all of these things will need to be done by somebody.
+
+18:40.620 --> 18:50.540
+Okay. So we know that Kubernetes provides a lot of the features that you need to manage a database,
+
+18:51.660 --> 18:55.660
+but how are you going to go about setting up a containerized Postgres environment?
+
+18:56.860 --> 19:03.660
+Kubernetes doesn't natively speak Postgres. So you need to put in place some kind of mechanism
+
+19:04.620 --> 19:07.900
+that's going to tell Kubernetes how to manage your database cluster.
+
+19:08.940 --> 19:13.020
+You need it to know about replication, about backup and recovery, about monitoring,
+
+19:14.220 --> 19:19.820
+about upgrades, and all sorts of other things. To do that, you need expert knowledge in two
+
+19:19.820 --> 19:24.140
+domains. You need expert knowledge of Kubernetes and you need expert knowledge of Postgres.
+
+19:24.780 --> 19:29.980
+Most organizations find it difficult enough to find somebody that's got expert knowledge in
+
+19:29.980 --> 19:37.660
+one of these domains, let alone both of them. Fortunately, Kubernetes has another secret
+
+19:37.660 --> 19:44.060
+weapon, the operator. So this lets you extend Kubernetes functionality using custom resources,
+
+19:44.060 --> 19:49.740
+and we'll look at a custom resource later, and something called the control loop, where it keeps
+
+19:49.740 --> 19:55.500
+checking the current state of your cluster to see if it fits with what you've defined, and if not,
+
+19:55.500 --> 19:58.940
+it will make necessary changes to keep it in that required state.
+
+20:02.540 --> 20:08.060
+Even more fortunately, there are various Postgres operators that have been created by Postgres
+
+20:08.620 --> 20:14.780
+experts. I can speak in detail about the Crunchy Data Postgres operator, Pego, because that's the
+
+20:14.780 --> 20:22.540
+one I use day to day, but there are others out there. Each of them works in a slightly different
+
+20:22.540 --> 20:29.020
+way and might use different tools, but each of them combines that detailed Postgres and
+
+20:29.020 --> 20:34.780
+Kubernetes knowledge, so it extends the functionality of Kubernetes and lets it speak Postgres.
+
+20:37.420 --> 20:44.140
+It allows you to define in a manifest what your cluster should look like, and then work to deploy
+
+20:44.140 --> 20:54.780
+your cluster and keep it in that state. So what do you want from your Postgres operator for Kubernetes?
+
+20:56.940 --> 21:04.060
+The idea of Kubernetes operator is that it will perform all of the tasks that a human operator
+
+21:04.060 --> 21:10.860
+would otherwise do. So what we want it to do is automate as many as possible of those responsibilities,
+
+21:10.860 --> 21:17.820
+those tasks that we saw on the previous slides. For example, database availability.
+
+21:21.020 --> 21:24.700
+Most production environments, as we've said, need some kind of high availability.
+
+21:25.740 --> 21:30.460
+You'll probably be using Postgres' streaming replication so that you've got a primary database
+
+21:30.460 --> 21:37.900
+and one or more replica or standby databases. You'll then have some tool, a framework such as
+
+21:37.900 --> 21:43.100
+Petroni and XED. There are other frameworks available. This is one that we choose to use,
+
+21:43.100 --> 21:48.780
+and it's well respected and it has a rich set of features, so it's used by a lot of people.
+
+21:49.420 --> 21:55.900
+So you'll put that framework in place to manage your cluster. You might add in a tool such as
+
+21:55.900 --> 22:00.380
+HA proxy to maintain a virtual IP address so that you've always got your application
+
+22:00.380 --> 22:07.020
+connections pointing to your current primary database. There are quite a few moving parts here.
+
+22:07.020 --> 22:11.500
+There are various different tools to install and configure, and it can be quite fiddly to get
+
+22:11.500 --> 22:17.900
+that set up in the way you want. So you definitely want your operator to be doing that for you.
+
+22:19.500 --> 22:24.940
+If something goes wrong with your primary database, you want to be sure that you're going to get an
+
+22:24.940 --> 22:29.500
+automatic failover, that it's going to promote one of those replica databases to be your new
+
+22:29.500 --> 22:35.260
+primary, that it's then going to reconfigure any existing replicas to stream from that new primary,
+
+22:36.140 --> 22:41.500
+and that it's going to move your application connections to point to your new primary. You
+
+22:41.500 --> 22:45.020
+don't want to be doing any of that manually. You want that to happen automatically for you.
+
+22:47.420 --> 22:53.740
+And then for a combination of the self-healing magic of Kubernetes, Petroni, and your operator,
+
+22:55.180 --> 23:03.660
+you want to make sure that you have a new replica created to replace that primary database that you
+
+23:03.660 --> 23:12.700
+lost. You definitely want as much as possible of your backup and recovery to be automated.
+
+23:15.180 --> 23:21.340
+You want your operator to install your backup tool and configure it, so for example, PGBackrest.
+
+23:22.780 --> 23:29.100
+You want it to let you define one or more backup repositories that could be a local repository,
+
+23:29.100 --> 23:36.220
+that could be a cloud or network-based repository using S3, for example.
+
+23:38.700 --> 23:44.940
+You want it to take care of your wall archiving. You want it to take care of taking backups for you.
+
+23:46.060 --> 23:52.780
+You want to be able to schedule those backups. You want it to take care of removing obsolete
+
+23:52.780 --> 23:58.780
+backups once you no longer need them. You want it to retry backups if they fail.
+
+24:00.460 --> 24:06.460
+And then to minimize stress, data loss, and downtime, you definitely want as much of your
+
+24:06.460 --> 24:13.980
+recovery to be automated as possible. You'll still want a human operator in a lot of cases to say,
+
+24:13.980 --> 24:19.980
+yes or no, we are going to restore. Can we accept this data loss? Can we accept this downtime? There
+
+24:19.980 --> 24:25.820
+will be decisions like that to make by a human operator, but once those decisions are made,
+
+24:25.820 --> 24:29.500
+you want that process to be just a click of a button.
+
+24:34.300 --> 24:38.700
+In addition to your primary database cluster, you might want to be able to define a disaster
+
+24:38.700 --> 24:44.300
+recovery cluster or a standby cluster. A lot of people have a separate Kubernetes cluster in a
+
+24:44.300 --> 24:50.460
+different data center, in a different region, for example. And you want your operator to make
+
+24:50.460 --> 24:57.420
+sure that's kept up to date, either via wall streaming from a cloud backup repository that
+
+24:57.420 --> 25:03.020
+it sent the wall files to, or via streaming replication, or belt embraces. You might want it
+
+25:03.020 --> 25:11.500
+to do both. You might want to use a similar setup as this to create a clone of your database for
+
+25:11.500 --> 25:17.420
+test or development purposes. And you want your operator to allow you to do that very, very simply.
+
+25:22.380 --> 25:26.860
+In terms of security and data protection, there's obviously going to be
+
+25:26.860 --> 25:31.580
+manual effort here. You want to be in charge of defining your security policies.
+
+25:33.420 --> 25:36.620
+But the operator should provide you with the means to implement those.
+
+25:37.020 --> 25:41.900
+So you want it to do things like managing database access, so creating database users,
+
+25:41.900 --> 25:50.220
+making sure they've got the right permissions as defined by you. Maintaining pghba.conf entries,
+
+25:51.100 --> 25:55.420
+encrypting passwords and storing them in secrets, managing SSL or TLS,
+
+25:56.620 --> 25:59.020
+generating and managing the certificates for you.
+
+25:59.100 --> 26:07.820
+Monitoring is a hugely important part of database administration. You really need to know what's
+
+26:07.820 --> 26:14.540
+going on in your database. You want to be aware of potential issues before they come emergencies.
+
+26:17.100 --> 26:21.820
+Rather than reinvent the wheel and create your own monitoring system, trying to figure out the
+
+26:21.820 --> 26:26.060
+queries that you need, the scripts that you might want to run to keep track of what's going on in
+
+26:26.140 --> 26:30.780
+your database and then maybe setting up your own dashboards, you can let the operator configure
+
+26:30.780 --> 26:36.620
+monitoring for you. So the pigo monitoring architecture, for example, looks a bit like this.
+
+26:37.340 --> 26:42.860
+You want the operator to configure the logging parameters for you. You want to make sure that
+
+26:42.860 --> 26:49.100
+you're actually storing all of the information that you want in your PostQuest logs. You want it to
+
+26:49.740 --> 26:54.940
+export metrics from your database. So we have a sidecar there for metrics from your database.
+
+26:55.500 --> 27:02.620
+You then want it to either integrate with your existing monitoring stack or you want it to
+
+27:02.620 --> 27:07.980
+stand up a monitoring stack for you. So Prometheus with pre-configured metrics,
+
+27:07.980 --> 27:14.220
+alert manager with some pre-configured alerts, Grafana with dashboards that are already set up for you.
+
+27:19.340 --> 27:24.460
+You'll probably be pleased to know that it's not going to take over your database design and
+
+27:24.460 --> 27:28.620
+data modeling because you obviously want to keep some of the fun bits of database administration.
+
+27:31.900 --> 27:37.100
+And although the operator isn't going to completely relieve you of support duties,
+
+27:37.100 --> 27:43.500
+it should mean that you're called on less frequently in an emergency in the middle of the night,
+
+27:43.500 --> 27:50.140
+for example, because you've got that high availability already put in place and automated.
+
+27:50.140 --> 27:56.540
+You've got the self-healing capabilities of Kubernetes. You've got the monitoring in place so
+
+27:56.540 --> 28:01.580
+that you've already been keeping an eye on things and trying to react before things become a problem.
+
+28:02.620 --> 28:07.020
+You've got alerting in place, so hopefully when thresholds are exceeded, you already know about
+
+28:07.020 --> 28:12.700
+those things and you can fix them before they become emergencies. So hopefully you're only
+
+28:12.700 --> 28:17.580
+going to get involved if there's something particularly complicated going on that needs
+
+28:17.580 --> 28:29.180
+detailed analysis. What about database software install and upgrade? Well, the install bit's easy.
+
+28:29.180 --> 28:34.780
+You don't actually need to do any installing of Postgres or of those associated tools such as PG
+
+28:34.780 --> 28:44.220
+Backgres, the Prometheus Grafana, your Petrona. You don't need to install any of those because
+
+28:44.300 --> 28:49.580
+they come pre-installed in the container images that are available with your operator.
+
+28:52.940 --> 29:00.220
+As for upgrades, a few slides back we talked about stateful sets being useful for applications that
+
+29:00.220 --> 29:07.740
+need ordered automated rolling updates. The operator can use exactly that technique for
+
+29:07.740 --> 29:12.940
+performing a Postgres minor version upgrade. Next week, when you want to upgrade either from
+
+29:13.660 --> 29:23.020
+15.5 to 15.6 or 16.1 to 16.2, you can simply change the version in the manifest, so in the
+
+29:23.020 --> 29:29.820
+definition of your cluster. Reapply it and then you can watch as the replicas are upgraded.
+
+29:31.420 --> 29:34.780
+One of the replicas will be promoted to be the new primary.
+
+29:36.700 --> 29:39.020
+And then finally, the original primary is updated.
+
+29:43.100 --> 29:47.020
+Major version upgrades obviously require a lot more planning and testing.
+
+29:47.020 --> 29:51.740
+So the operator isn't going to take away all of those tasks for you. It's not going to take care
+
+29:51.740 --> 29:56.940
+of reading all of the release notes. It's not going to take care of testing your application
+
+29:56.940 --> 30:01.820
+with the new version. It's not going to take care of checking your application code to make sure
+
+30:01.820 --> 30:08.060
+that you're not using any deprecated features, for example. But you do want it to perform automated
+
+30:08.060 --> 30:15.420
+upgrades from one major version to another. So in the case of Pego, that uses PG upgrade.
+
+30:15.420 --> 30:21.020
+Other operators might either use PG upgrade or logical replication or PG dump and PG restore.
+
+30:27.340 --> 30:30.780
+Does the operator mean then that we don't need any database expertise?
+
+30:32.700 --> 30:37.180
+Well, as we saw, there is a lot of database expertise that's built into the operator.
+
+30:38.060 --> 30:41.820
+But it's not going to do everything. We still need a human export for things,
+
+30:41.820 --> 30:48.140
+experts for things like strategic considerations, looking at the need, the actual needs of the
+
+30:48.140 --> 30:52.460
+database application, considering business requirements, for example.
+
+30:57.580 --> 31:03.180
+Okay, performance tuning. Again, it's not going to do everything for you, but it can do certain
+
+31:03.180 --> 31:14.460
+things. You'll still need to do the initial setup, making sure that you've got your application
+
+31:14.460 --> 31:20.780
+configured the way you wanted, et cetera. But you do expect the operator to do some of it for you.
+
+31:21.980 --> 31:27.740
+So it could set initial parameters to a sensible value. It could make sure that you've got connection
+
+31:27.740 --> 31:33.100
+pooling available, make sure that you've got the PG stat statements, extension available and enabled,
+
+31:34.220 --> 31:38.780
+make sure that slow queries are being logged, for example. And as we saw before,
+
+31:38.780 --> 31:41.020
+make sure that you've got monitoring and alerting in place.
+
+31:48.780 --> 31:55.100
+Capacity planning. So the monitoring and alerting that you've put in place should mean that you
+
+31:55.100 --> 32:00.220
+can see what's going on in your database. You can see the resources it's using. You can see how
+
+32:00.220 --> 32:06.940
+much space it's using. You should be able to know approximately what kind of trends you're seeing.
+
+32:09.500 --> 32:13.740
+In your definition, in your manifest, your definition of your cluster,
+
+32:14.860 --> 32:20.140
+you'll have said how much storage you want. If you're using a storage class that supports dynamic
+
+32:20.140 --> 32:26.060
+resizing, you can just change that in your manifest, reapply it, and your volume will be
+
+32:26.060 --> 32:32.060
+resized. If not, you can create a new instance with a bigger volume and use the same technique that
+
+32:32.060 --> 32:39.100
+we saw for the Postgres minor version upgrade to do a rolling increase of your volume. If you're
+
+32:39.100 --> 32:43.900
+using that rolling technique, you can also use that if you want to reduce your volume in size.
+
+32:44.140 --> 32:54.300
+Other resources such as CPU and memory, for example, can also easily be scaled. And you can use things
+
+32:54.300 --> 33:02.940
+like the request and the limits to make sure that you allow it to claim more resources up to a certain threshold.
+
+33:08.620 --> 33:11.820
+Database creation and database maintenance.
+
+33:14.140 --> 33:21.020
+So users and databases, I don't know the details of how this works in other operators, but in
+
+33:21.020 --> 33:27.740
+Pego, for example, you can state a number of users that you want to have created automatically in
+
+33:27.740 --> 33:32.860
+your database and the databases that they should be able to access. If those databases don't already
+
+33:32.860 --> 33:43.420
+exist, it will create them for you. Database maintenance is a really wide ranging
+
+33:43.740 --> 33:49.180
+and very unspecific task. So this is a list of some of the things that might fall into that category
+
+33:49.180 --> 33:54.860
+of database maintenance. And we've already looked at a lot of them. So we know that we can expect
+
+33:54.860 --> 34:01.100
+our operator to help us with a lot of those. And other maintenance tasks such as index rebuilds,
+
+34:01.100 --> 34:05.900
+for example, gathering statistics, that kind of thing could be scheduled via the operator. You
+
+34:05.900 --> 34:14.460
+can define everything in the same place so that you don't have to then manually change things and
+
+34:14.460 --> 34:24.860
+implement things later. Okay, so you're now obviously really excited to give this a try and
+
+34:25.660 --> 34:33.100
+see all this magic for yourself. How can you do that? I'll show you how to get started with Pego,
+
+34:33.180 --> 34:40.780
+but as I've said, other operators are available. First of all, beg, borrow or build yourself
+
+34:40.780 --> 34:47.740
+Kubernetes cluster. As I've said, that can be either one that you build yourself, that can be
+
+34:48.380 --> 34:56.460
+in the cloud, that can be managed for you, or it can be vanilla Kubernetes. It can be one of the
+
+34:56.460 --> 35:01.660
+many different things. It could be OpenShift, Tanzu, Rancher, all sorts of different Kubernetes
+
+35:01.740 --> 35:10.380
+platforms available. Next, fork the Postgres operator example's repository, which gives you a
+
+35:10.380 --> 35:16.540
+sample manifest. It will give you Helm charts, customized manifests that help you install and
+
+35:17.100 --> 35:23.980
+configure and deploy your first Postgres cluster using the operator. Okay, so I'm just going to go
+
+35:24.060 --> 35:29.420
+through this step by step. So clone the repo and navigate into it.
+
+35:32.140 --> 35:37.180
+Create a Postgres operator namespace, and if you're lazy like me and don't like to keep typing
+
+35:37.180 --> 35:44.940
+minus n and the name of your namespace, set it as your default namespace. Install the operator using
+
+35:44.940 --> 35:49.420
+the customized file that you'll find in the install default folder.
+
+35:49.580 --> 35:56.860
+Then you'll see that it will create a load of resources for you that are needed for
+
+35:56.860 --> 36:03.340
+managing and managing that database cluster. So the one that we're most interested in is this
+
+36:04.860 --> 36:09.980
+Postgres cluster custom resource definition. That's what's going to let us define our cluster.
+
+36:10.700 --> 36:23.020
+Now, to define our cluster, we're going to just use the example Postgres.yaml that's provided for
+
+36:23.020 --> 36:31.500
+us, why reinvent the wheel. So I've created a copy of that in a Fostum folder, and then I can make
+
+36:31.500 --> 36:37.900
+whatever edits I want to my Postgres.yaml. So the first couple of lines here is just saying that
+
+36:37.900 --> 36:45.260
+I'm creating a Postgres cluster resource, that I'm going to give it a name Fostum just so I
+
+36:45.260 --> 36:54.940
+know which cluster it is, that I want to use Postgres version 16, that I want three replicas. So
+
+36:54.940 --> 36:59.820
+replicas here is in the Kubernetes sense of the word replica. So that means three database pods.
+
+36:59.820 --> 37:04.780
+So I'll have a primary database pod and two standby or replica database pods.
+
+37:05.020 --> 37:11.900
+And then I'm just using the default storage class, leaving all of the defaults there. So I'm just
+
+37:11.900 --> 37:17.020
+going to have a local volume here, but you can specify whichever storage works in your environment.
+
+37:17.020 --> 37:21.180
+You might want cloud storage, network storage, local, you know, whatever you're using.
+
+37:22.620 --> 37:27.340
+And I've just said that I want to have a one gig volume. That might not be hugely
+
+37:27.340 --> 37:33.580
+visible right down at the bottom there. Okay, last few lines of the manifest.
+
+37:35.020 --> 37:37.900
+So the last few lines set up the backup and recovery. So at the moment,
+
+37:39.020 --> 37:42.700
+we've got backups, pgbackrest, it is, it's just pgbackrest.
+
+37:46.380 --> 37:49.180
+I'm just going to configure a single repository called it repo one.
+
+37:49.420 --> 37:56.540
+And again, I'm just choosing all of the default parameters. So I've just got a local
+
+37:57.820 --> 38:01.820
+backup repository. You probably don't want to do that in production. You will probably want some
+
+38:01.820 --> 38:06.780
+kind of sensible place to store your backups, but this is just my little test cluster. So
+
+38:07.420 --> 38:15.660
+a local volume is absolutely fine. You can specify multiple repositories if you want to.
+
+38:15.660 --> 38:22.380
+So you can have a local repository and a cloud repository or a Google cloud repository and
+
+38:23.340 --> 38:26.940
+AWS one or whatever combination of repositories you want.
+
+38:29.100 --> 38:33.020
+Okay, so once I've created my manifest, that's my definition of my cluster.
+
+38:34.620 --> 38:41.180
+I apply that and the operator will set me up a three node high availability post-press cluster.
+
+38:41.180 --> 38:46.380
+So it's now got the Petroni managing that high availability. I've got a service that points
+
+38:46.380 --> 38:51.020
+me to my primary database. I've got all the things that we talked about before.
+
+38:52.540 --> 38:56.060
+So if we have a look at the pods that that's created for us, we can see
+
+38:57.020 --> 39:01.260
+that was my operator itself from when I did the operator install.
+
+39:03.660 --> 39:08.460
+These are my three, oh, sorry, no, those are my three post-press instances.
+
+39:08.700 --> 39:13.980
+I can use a different command if I want to see which is primary and which is stand by.
+
+39:14.940 --> 39:20.860
+It's created my repository and it's taken an initial backup for me. I've also,
+
+39:20.860 --> 39:26.780
+I've not talked about that, but there's also a PG admin pod there as well. So you can use
+
+39:26.780 --> 39:31.340
+PG admin to log in and look at your database and run queries, et cetera.
+
+39:32.220 --> 39:40.220
+So that was, I think it was a 26 line manifest. That's, that was enough to get you up and running
+
+39:40.220 --> 39:45.580
+with high availability, backup and recovery. You can then make all sorts of changes.
+
+39:46.860 --> 39:52.220
+If you tweak that manifest, you can set up backup schedules. You can create that standby
+
+39:52.220 --> 39:58.140
+cluster that we talked about. You can install the monitoring stack. You can implement connection
+
+39:58.140 --> 40:05.340
+pooling with PG bouncer. You can set your different post-press parameters, your patroni parameters.
+
+40:05.340 --> 40:13.020
+You can tell it to run certain SQL queries when it initializes your database, et cetera.
+
+40:15.500 --> 40:21.100
+I forgot other things. You can tell it where to schedule your pods if you want to. I've just
+
+40:21.100 --> 40:25.580
+left everything at the default and let it schedule them wherever they want. I've got a three node
+
+40:25.580 --> 40:28.860
+Kubernetes cluster and I'm just leaving it to do its thing.
+
+40:31.980 --> 40:36.300
+So that was just a really quick kind of, how can I get started? But I really do,
+
+40:38.460 --> 40:43.340
+even if you're not planning on using it in production, it's really good fun. So give it a try,
+
+40:43.340 --> 40:51.500
+kill your pods, delete services and watch it kind of repair itself. It's fun.
+
+40:51.660 --> 41:02.380
+So conclusions. So a post-press operator for Kubernetes really does act like a virtual database
+
+41:02.380 --> 41:11.740
+administrator. We've seen that it knows how to do most database administration tasks. It can automate
+
+41:11.740 --> 41:18.060
+everything from deployment of a high availability cluster to backup and recovery, monitoring,
+
+41:18.780 --> 41:27.660
+upgrades, et cetera. It lets you implement a, I think this is from my marketing team slides,
+
+41:27.660 --> 41:33.180
+it lets you implement a robust, secure, scalable architecture. It combines the strength of post
+
+41:33.180 --> 41:41.100
+-press and Kubernetes so that it keeps your database cluster running smoothly. And more
+
+41:41.100 --> 41:47.580
+importantly to me is it leaves you free to do the strategic, interesting and fun bits of database
+
+41:47.580 --> 41:56.220
+administration. So that is all that I've got to say on the topic of post-press on Kubernetes.
+
+41:56.220 --> 42:01.900
+And before I move to my thank you slide, I just want to do a plug in case today hasn't been enough
+
+42:01.900 --> 42:09.260
+post-press for you. The next community post-press conference in Europe is PG Day Paris on the
+
+42:09.260 --> 42:15.100
+14th of March. And we obviously really hope that as many of you as possible can join us. And just
+
+42:15.580 --> 42:21.500
+for Fostum, we have created a 10% discount code with limited availability. So I think that's
+
+42:21.500 --> 42:28.780
+available just until tomorrow. So very much hope to see you there. And that's me.
+
+42:38.540 --> 42:44.220
+I've put a link to the slides there in case anybody wants to see those. And I think,
+
+42:44.220 --> 42:50.060
+do we have time for questions? We do. So thank you. That was a very comprehensive talk with a lot
+
+42:50.060 --> 42:58.460
+of useful insights. Anyone who, I see a hand there. If you can make sure the next question is
+
+42:58.460 --> 43:04.460
+right at the bottom so that Jimmy has to run back and forth, that'd be great. And can ask you a
+
+43:04.460 --> 43:11.260
+favor. Can you repeat the question please so that it makes it into the video as well? Say you want
+
+43:11.340 --> 43:18.540
+to install an extension that's not by default in post-press, like post-GIS. How would that be handled
+
+43:18.540 --> 43:23.980
+by the post-press operator? Will it be detected when upgrading in such? So this operator does have
+
+43:23.980 --> 43:31.820
+that, sorry, the question was, if you want to install an extension that's not by default,
+
+43:32.460 --> 43:38.300
+something that's not by default in post-press, how would you handle that? So for this particular
+
+43:38.300 --> 43:48.300
+operator, post-GIS is one of the extensions that's available in the images. For others, I don't know,
+
+43:48.300 --> 43:52.940
+but I suspect that that would be available because it's an extremely popular extension. So we tried
+
+43:52.940 --> 43:59.420
+to include the most popular extensions. Otherwise, you can create a layer on top of the container
+
+43:59.420 --> 44:07.420
+images that are provided for you. You can install the extra extensions into that. Some of them will
+
+44:07.420 --> 44:13.500
+let you create your own custom sidecars. So we saw the extra helper pods, so you might be able to
+
+44:13.500 --> 44:23.980
+install certain things into a sidecar as well. You said that if a primary instance goes down,
+
+44:23.980 --> 44:33.180
+then the job of the operator is to assign, for example, replica one is now the new primary. So why
+
+44:34.140 --> 44:46.140
+to rephrase it, why is it, we don't want the operator and the primary instance to run on the
+
+44:46.140 --> 44:53.580
+same worker in the Kubernetes because if that worker is shut down of the electricity,
+
+44:53.580 --> 45:01.180
+there isn't anyone to assign a new primary. Okay, so the question is to do with the operator assigning
+
+45:01.900 --> 45:10.220
+a new primary database and saying that we don't want our two database pods to be on the same
+
+45:10.220 --> 45:17.820
+worker node, is that correct? So actually embedded in the operator code in this case are some anti-affinity
+
+45:18.460 --> 45:27.900
+rules. You've spoken a lot about the advantages. Do you also know some downsides, like for example
+
+45:28.140 --> 45:32.060
+the lower performance on the same hardware or something like that?
+
+45:33.820 --> 45:40.860
+So the question, I've obviously spoken a lot about the advantages but are the disadvantages,
+
+45:40.860 --> 45:48.060
+for example, performance for the same hardware. I haven't done extensive, well I say extensive,
+
+45:48.060 --> 45:52.780
+I haven't done benchmarking, but just anecdotally from what our customers see,
+
+45:53.020 --> 46:02.140
+they're not reporting any significant performance degradation. That's not to say that there isn't
+
+46:02.140 --> 46:08.540
+any, I haven't like I say, I haven't done those tests, but we certainly haven't seen customers saying
+
+46:08.540 --> 46:10.860
+we moved to Kubernetes and it's running more slowly.
+
+46:14.060 --> 46:20.380
+So you said that progress instances, progress pods are being managed as a stateful state,
+
+46:20.380 --> 46:25.340
+but what about pullers? So how many pullers do we need? For example, if I want to expose
+
+46:25.340 --> 46:31.660
+read writes and read-only service to my applications. So do you use a single puller
+
+46:31.660 --> 46:35.660
+for those read writes and read-only requests or you use a separate set of pullers?
+
+46:37.740 --> 46:45.260
+So the question if I've understood correctly is how do we use a single puller or multiple?
+
+46:45.260 --> 46:51.740
+You can configure, it's up to you depending on your actual use case, depending on where your
+
+46:51.740 --> 46:55.580
+connections are coming from, how many connections you've got, how they're being used, etc.
+
+46:56.460 --> 46:58.140
+You can define how many you want.
+
+46:58.460 --> 47:15.980
+There was a very, on Friday for the extra PG day, there was a very interesting presentation at
+
+47:15.980 --> 47:22.540
+by Joe about a problem with G-Lib C and correlations and one of the workarounds was you
+
+47:22.540 --> 47:28.380
+created your own binary. That's going to be a lot more complicated in Kubernetes or is that
+
+47:28.380 --> 47:35.020
+something which your operator supports? I'm just curious how to manage that sort of rare but
+
+47:35.020 --> 47:40.540
+important edge case? I guess that's the kind of situation where, oh sorry, repeat the question.
+
+47:42.220 --> 47:48.860
+So there was a talk on Friday by Joe Conway where he talked about an interesting edge case
+
+47:48.860 --> 47:55.100
+where there was an issue with G-Lib C and the workaround was to recompile the binaries.
+
+47:57.020 --> 48:03.180
+So is that more complicated with the operator? I mean it's for the average user that's going
+
+48:03.180 --> 48:08.620
+to be complicated whether you're running in Kubernetes or not potentially. That's the kind
+
+48:08.620 --> 48:16.380
+of thing where we would probably recreate a container image with that workaround and make
+
+48:16.380 --> 48:20.540
+that available. So certainly if it was for a paying customer, I imagine that's the kind of thing
+
+48:20.540 --> 48:27.500
+that would be done with the images available to the community. I guess at some point that would
+
+48:27.500 --> 48:34.380
+be made available or as I said before you can create your own images so you can base your own
+
+48:34.380 --> 48:43.180
+images on the ones that we provide so you could potentially do it in there. So potentially
+
+48:43.180 --> 48:50.700
+a bit more complicated but it's still the same process. And we have time for last question over
+
+48:50.700 --> 49:01.580
+here. Sorry. I was wondering how backups can be restored after a cluster-wide issue for instance.
+
+49:02.780 --> 49:09.660
+So the question is how can a backup be restored after a cluster-wide issue? So in the manifest
+
+49:09.660 --> 49:16.220
+there's a section where you can say what the source of your cluster should be so you can say that it
+
+49:16.220 --> 49:22.220
+should come from a backup and you can obviously put in your point in time recovery requirements etc.
+
+49:22.220 --> 49:37.820
+in there. Thank you very much.
+

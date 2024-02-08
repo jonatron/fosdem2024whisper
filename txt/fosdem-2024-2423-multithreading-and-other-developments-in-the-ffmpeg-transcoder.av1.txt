@@ -1,0 +1,317 @@
+Okay, so I'm Anton Hrnoff.
+I have been working on FFMPEG and LeBeuville for like 15 years.
+These days I work with FF Labs, which is a company that does FFMPEG-related consulting.
+I will talk about my recent work on the FFMPEG transcoder, the CLI2.
+So first of all, I will explain what this is, because this is a very frequent point
+of confusion for people who are not part of a community.
+So there is a project called FFMPEG, an open source project, and the main product of it
+are these libraries, LeBeuville something.
+LeBeuville codec is the main one.
+It's a suite of decoders, mainly encoders, encoder wrappers, and so on.
+It is used basically everywhere that decodes multimedia or encodes or does whatever, video
+players, web browsers, anything.
+Other libraries, AV format for muxing, demuxing, IO, AV filter for filtering.
+We have some other libraries that are less important, but AV codec is extremely widely
+used.
+Besides the libraries, we also have a set of tools, and the main tool is confusingly
+also called FFMPEG, and that is the reason this slide exists.
+So the tool is not the project, the tool is a subset of the project.
+We also have some other tools, which are less often used, but FFMPEG, the transcoder, is
+the thing I'm going to be talking about today, not the libraries.
+I also do work on the libraries sometimes, but that's not the concept of this talk.
+So I hope that clarifies things.
+So now onto the tool.
+So the CLI is, I think, one of, you can say, it's the most popular transcoder on the planet,
+or two planets until recently.
+It is based on the libraries from our project, obviously.
+We try quite hard to put all format-specific logic in the libraries, so the tool is agnostic.
+We don't succeed entirely, but mostly we try.
+It tries to expose the entire power of the libraries to the bits of it that apply to
+transcoding.
+So usually when a feature is added into the libraries, the first user is this transcoder.
+So if you want all the features as soon as you get them, this is the tool you want to
+use.
+And this is the reason, or one of the reasons, why you might think this is just a thin wrapper
+of the library, because everything is, everything, like all the heavy lifting is in the library,
+so the tool is just a very simple wrapper.
+This is not true.
+It is a very complex tool.
+And the reason for it is that multimedia is really, really complicated, and handling
+all of it, all the weird corner cases, is very hard and requires a lot of code.
+And it really covers an absurd number of use cases.
+Individual users use it to convert your video, your personal files.
+Giant corporations use it to run transcoding farms.
+And anything in between, there's an uncountable number of websites which are just upload your
+video and run it through FFMPEG, and so on.
+So it is used at all scales.
+It has a ridiculous number of options.
+I think it's roughly 200, and nobody can remember them all.
+So the tool is really quite a complex one.
+I will go through its history a little bit for practical reason.
+So the FFMPEG project dates to the year 2000, and in the first commit that we have back
+from the CVS days, there is already FFMPEG.C tool, which had about 700 lines of code.
+But it was quite different from the one we have now.
+It could only do raw input.
+It could redraw YUV or PCM, and or PCM.
+It could also grab from V4L or Dev DSP.
+It could encode them, and if you had both, you could choose just one, but if you had
+both, it could max.
+And the intent, as far as I gather, was to use it as a companion tool with another tool
+which was called FFServer, and you could then use it to build a kind of a streaming solution,
+which was a big thing in those days.
+But later on, FFServer had issues and was very sick, and we had to put it down.
+But FFMPEG, the transcoder, survived and thrived.
+So this was what we started with.
+As time went on, we got to this.
+It's interesting that we got to this in only a year, and the size got to about three times
+as big.
+And now we have decoding, we have demaxing.
+You see we can have multiple inputs, and every input can have multiple streets.
+Streams and a string can be either decoded or string copied, which means you just copy
+it without transcoding.
+The things that are decoded are then sent to an encoder, and then to a maxer for maxing,
+you can have multiple maxers and a single, I don't know how, I do, a single string can
+be sent to multiple destinations.
+So in theory, you could build these kinds of complicated processing graphs.
+In practice, the user interface was essentially unusable.
+It was impossible to understand without reading the code, and nobody could actually do it.
+But in principle, this was possible.
+As time went on, we got more features.
+We got subtitles in 2005.
+After some time, we got filtering.
+AV Filter was a GSOC project, which had a very painful development process.
+It was out of mainstream for a very long.
+And eventually, it got merged.
+And then the first user, one of the first users of AV Filter was the FFM-Background
+Scoder, of course.
+So we got that in 2010.
+Then later, we got what is called complex filter graphs, which are best explained in
+contrast to simple filter graphs.
+So a simple filter graph is something you could just insert somewhere here.
+It's just a black box, and which would not change the meaning of the arrow.
+So it's a black box that has exactly one input, exactly one output, and they are both
+of the same type.
+And a complex filter graph is anything that is not that.
+So we can have multiple inputs, zero inputs potentially.
+It can have multiple outputs.
+It cannot have zero outputs, because that's not useful.
+It can have different types between inputs and outputs.
+We do have some filters, for example, that take audio and turn it into a picture.
+And anything that is of that kind is a complex filter graph, and we got support for that.
+A few years after simple filters.
+Then we got basic hardware acceleration.
+Back then, it was more of a playback feature.
+People didn't really use it for transcoding or for any kind of advanced processing, and
+as we heard today, only now we are getting some things fixed in full hardware pipelines.
+So back then, we got decoding, it was mostly a toy, because many chips also could not decode
+faster than real time.
+So it was a very limited usefulness.
+A few years later, we got full hardware pipelines, which means that a decoder gives you a frame,
+which is a hardware frame on the GPU, so some opaque pointer or handle, and then you could
+pass it to filters, which would process it still on the GPU, and then you could give
+it to a hardware encoder and encode it, and the entire process would go on without copying
+the frame into main memory, and so losing performance.
+By then, so by 2022, which was when I started this project, the tool got to 11,000 lines
+of code.
+So non-trivial.
+We got dynamic parameter changes, we got an absurd number of options, like seriously,
+and the options interact with each other in highly non-trivial ways, and it is sometimes
+some massive pain to, even for me, like I'm the main tenant of the tool, and keep it in
+mind how all of these options interact is impossible.
+So our poor users.
+But they all, they want it.
+People need all this stuff because of all the use cases that it covers.
+So the general transcoding pipeline right now looks roughly like this.
+The change from the previous one is that we have filter graphs here, and as you can see,
+this is a complex filter graph with no inputs.
+It could, for example, generate some sound effect from, like, a synthetic one.
+And the top one has, you know, the middle one has two inputs and two outputs.
+So those are complex filter graphs.
+Besides that, it looks kind of like the previous one, but the code around it is a lot more
+complex.
+And the problem is that the way we got here looks roughly like this.
+Somebody needs a feature, and they add the feature, and they take the shortest possible
+path to that feature.
+And this is, in most cases, done without much regard for how much harder will this feature,
+which is bolted on top of what was there, how much harder will it make future development?
+So sadly, almost nobody ever considered this much.
+And then every such step adds a multiplicative factor to program complexity.
+So when you add the feature and another and another and ten such features, you have to
+multiply the complexity from each such step, and at the end, when you want to add another
+feature, every one of these before getting away, which means that it grows exponentially.
+And if you know anything about exponential growth, it means your program has a hard bound
+on how big it can get after that no human can understand it.
+And this is essentially where we got the fundamental changes to the transcoder became essentially
+impossible.
+So at this point, I would like to mention the same by Dijkstra, which I really like,
+and which I don't think enough people believe.
+People pay lip service to it, but if they believed it, they would not write programs the way
+they do.
+Basically, elegance and simplicity are not an optional luxury.
+They are essential.
+If we don't have them, we cannot maintain our programs.
+Just cannot.
+Nobody can.
+So this is the motivation for which I started this project two years ago, which was, I call
+it multithreading, which is true in a way, but really that's marketing.
+The main thing is bring code architecture, the way the code is actually written in alignment
+with this, because this is the way the program works.
+This was not the way it looked like.
+If you looked at the code.
+So the project was make the actual structure of the code match the data flow.
+And the way I did this was mainly actual object-oriented design.
+So make things into objects.
+The objects have their responsibilities.
+They have their private states, which other objects cannot touch.
+And the data flows downstream through this pipeline that you saw here.
+So ideally, the way it should work, you would think, is that, well, some data originates
+here and just flows downstream from each of these.
+This was not the way it worked.
+We would get teleportation.
+We would get even worse backwards teleportation sometimes.
+And this is just impossible to reason about.
+So that is, that needed to be solved.
+And you can see that, yeah, multi-threading is somewhere in there.
+Every component, every note on that picture you saw now runs in a separate thread.
+And you might think typically when you hear threads, you hear performance, right?
+You want more speed.
+But this is kind of almost a side effect you get for free by picking the architecture correctly.
+So it is important.
+But we get it for free.
+It's almost a side effect.
+Anything else I wanted to say?
+Yes.
+So and with the right kind of architecture, you can add major new features.
+You can do development and add actually new things.
+So the project was started late 21 and was merged quite recently about two months ago.
+It was massive.
+It was 700 commits in total.
+The way I did it was small patch sets and typically a single patch set would move things around,
+add objects, move stuff to them, make things private, clean up some old things which didn't
+work and nobody could understand.
+I often encounter an attitude that moving code around is just cosmetics.
+It's just clean up.
+It's not real programming.
+And I strongly disagree with that because the way I see it, you move things around enough
+and suddenly things which were impossible before, they suddenly become possible and sometimes
+they become easy.
+So it's really important to appreciate that just moving things around can really, really
+help you a lot.
+Along the way we got some extras.
+We got three filters for demuxing for people who know what that is.
+That is sometimes useful.
+If you don't know what that is, you don't care.
+We got latency probes.
+I think that's quite a cute feature.
+The transcoder was not really designed for low latency use cases but people tried to
+use it that way anyway.
+We are trying to add more real support for it.
+This is one of the steps towards it.
+Now FFMPEG CLI, if you pass it the right flags, it will tell you how much latency is added
+by each step in the graph, which I think is nice.
+This is enabled by this feature which is also interesting to library users because it became
+possible in the libraries and then the tool started using it, which is opaque pass-through,
+which basically means that you get a packet from the demuxer, you attach some user data
+to it and it propagates all the way to the filter graph and through the processing graph
+and then you can extract it here and you can add more stuff to it along the way.
+This is the way these latency probes work.
+It was kind of possible before but you had to basically do all the work yourself.
+Now the library does a lot of it for you, which is nice I think.
+We got timestamps improvements.
+We had some really bad breakage in timestamps handling for years and maybe decades.
+Some of that was fixed as a part of this cleanup.
+We have a nice really cool thing that is called the sync use, which almost nobody cares about
+but they make output predictable in some cases where it wasn't before.
+That's the status.
+Future work is, what we got now is everything is multi-threaded but that's not the end.
+Another thing, other things that I want to have are, so you see in this picture that we have demuxers
+and we have decoders and also we have encoders and we have muxers.
+The status right now is that a decoder is a part of a demuxer.
+They always go together and similarly an encoder is embedded in the muxer
+and this is limiting for a bunch of reasons because for example sometimes you might want to instantiate a decoder as a standalone thing
+without a demuxer.
+For example, you might want to pipe encoded output back to a decoder and sort of feed it back into a filter.
+There are use cases that need that and this is not possible with current design.
+So what I've been working on after that is splitting the decoders into their standalone objects
+so they can be instantiated on their own.
+That is work in progress and eventually I want to do the same for encoders because you might want to send for example the output
+of one encoder not to just one muxer but to multiple muxers without encoding it twice.
+This is also useful for some cases and this is not possible currently but in the future hopefully.
+Dynamic pipelines that is more speculative in the future are adding nodes basically at runtime
+and for that we would need some kind of scripting maybe Lua that's at this point this is just vague
+hand waving for the future maybe.
+There have been some mentions of an event loop based architecture maybe again this is something we are just thinking about
+there are no actual steps towards it.
+It might have some advantages to have like a single thread which dispatches work to a pool of worker threads.
+It might be more efficient in some cases.
+We'll see.
+So that is the current status.
+Thank you.
+So many of you.
+Am I supposed to choose?
+Okay so you're the first.
+Several months ago I noticed I was trying to package fmpeg and I noticed that you know we're on the help site at the point to
+any of the documentation for the library since it's in the header files of course.
+I noticed this in public in the fmpeg twitter accounts and stick the other accounts it began insulting me calling me terrible terrible names
+and as a result I don't plan to be working on fmpeg in the future.
+However I wanted to know is this something that you've personally seen or is anyone else because personally I think this stuff is very interesting but that unfortunately is an entirely separate issue that makes it very difficult for me to contribute.
+So I wanted to kind of leave it there and I understand that's not a question people have answers to but I really really wanted to say it's very important to me and I would like other people to ask that question.
+It is an issue a problem we are working on it but yeah it's not really related.
+Summarizing this case the question.
+Our community has issues.
+Sadly.
+Sorry.
+We know you know sorry we are working on it.
+Yep.
+This is really impressive.
+Actually that you put this all.
+So I was wondering how did you do it.
+How did you start with it and how did you map it all out and then bring it back together all while.
+The rich and architecture is still under development.
+Well I think the way I described it is.
+Okay okay so the question is how would I plan such a work like in advance right.
+How would I schedule the work.
+Yes well I think this is the way I described it as moving things around is really the way to do it.
+So these are kind of small changes that really you just take a small piece of functionality and you move it somewhere else.
+Sometimes you decide well this thing should not be visible to outside of its owner because it doesn't need to be and then gradually after 700 commits as you see.
+The picture becomes much cleaner because when I started with was any component can see and sometimes access and touch and sometimes even change some other component which is distance and related.
+And.
+Yeah you you identify a list of these of these instances and you clean up every single one of them.
+It takes a lot of time it took me two years but it can be done.
+It can be done.
+And I don't believe that it could be done any other way like some kind of an initiative.
+Fix everything at once I think that would crash and burn because because we have so much functionality that like.
+20% of it would break and and users would riot and.
+Yeah that wouldn't work.
+Yep.
+Clean and well designed.
+Well if the code has a maintainer.
+Yes so how do how can I encourage the maintain the submitters to submit clean patches.
+So I think if the code has a maintainer who cares about the cleanliness of the code then I can tell somebody how this is this is garbage.
+Clean it up but most of the code unfortunately doesn't have a person who just sits there and reads our mailing list which is just a giant volume of patches.
+And if nobody rejects it then it often happens that code just goes in which is suboptimal so yeah we need maintainers basically who care about their their.
+Code or if we don't have maintenance we need to have people who care about.
+The project as a whole being maintainable and again that it's not so many people who are willing to really read the patches because reading the patches is.
+It's not fun sadly.
+So you would say that the strongest leverage you have is in case of the project.
+Well I can reject patches so yeah or I can tell people to to clean it up.
+Yeah.
+Of the future work you see going into.
+Release none of it which which work.
+What.
+And to expect the seven point out to be an LPS.
+So which which of this of this future work is going to seven point zero and the answer is.
+The answer is probably none of it because seven point zero is basically.
+Around the corner so I will not be able to finish any of this for seven point zero but seven point zero will be a massive massive release we have this we have VVC we have I am.
+We have a Vulcan AV one one we have so much stuff.
+Yep.
+Sadistic.
+So the question is.
+In whether the migration should be started as soon as possible,
+or should you wait until 7.0.
+7.0 will break APIs,
+but the breakage is not big.
+So in general, I would recommend to do it as soon as possible.
+So there isn't as much work you have to do.
+Okay. So we are done.
+So thank you.

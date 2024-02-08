@@ -1,0 +1,209 @@
+Hi everyone.
+So I am, that's for learning.
+I am Len Slott.
+I'm working for AMD actually and I'm also the maintainer of the AMD GPU back in AppStream
+GTB and I'm going to talk to you about a bit of how to debug program running on GPUs,
+on AMD GPUs because I don't really know much about the other one.
+Out of curiosity, with the show of hands,
+how many of you have no idea of things that are working on the GPU actually?
+Yeah, okay.
+I'll try to go through that a bit so you have some understanding.
+So my plan roughly is to give you an overview of what the architecture is of our GPU and
+the effect model of that and what is the programming model we use to work on that.
+And then we'll go into how to use ROG-GDB, which is the downstream fork of GDB we use
+at AMD, which is a support for debugging GPU programs and we'll talk about where we are
+at supporting GDB in AppStream.
+There, supporting AMD GPU in AppStream.
+So a very abstract view of a GPU could be that.
+So we have on the top left, global memory, which is your VRAM,
+like your RAM of your GPU plus all the host memory you have.
+That's virtual memory, that's like in Linux, everything else, that's a 48-bit address space,
+so we use 64-bit pointers.
+And yeah, pretty easy to do so far.
+Then, just below it, we have what we call the Scale-Up General Purpose Registers, so
+if you were to x86, that's your A or AX or BX and so on.
+One small difference is instead of having like eight of them, we have a hundred of them
+ish, plus some status registers.
+So that's the easy part, but we still have like the two-thirds of the diagram to go through,
+so we have a bit more than that.
+Next we have this big block, which are the VGPRs, which are the vector general purpose registers.
+You can see that the first approximation, like your AVX ish vector registers, with some
+differences.
+Our system, those vector registers, so they have a fixed number of lanes, so you can see
+a register of like a array of 64 elements, each element is a 32-bit value.
+And when we do vector math, that's going to be pretty much what you would expect with
+AVX, so if you do a vector add of v0, v0, v1, you will take like the value of v0, line
+0, you add that to the value of v0, line 1, start that in v0, line 0, and the same
+for every lane in parallel, so everything is happening at the same time.
+On top of that, we have what we have on the other side, on the top right, which is some
+memory which is going to be dedicated for every lane, so each lane, each one of those
+64 lanes will have its own pool of memory.
+So we can have like vector load instruction, which will take an address, and that address
+is going to be an address within that particular piece of memory specific for that lane, so
+you do one load and you load 64 value at a time from 64 different address spaces.
+It can be a bit tricky sometimes.
+And that's the basic, the base for like a compute element we have, and you can take
+a couple of them, put them together, and you will have what we can call a compute unit.
+In a compute unit, you can group some of those compute elements together, and they can talk
+a bit in exchange information via yet another address space, so that's a Perth red block
+memory here, which is a 32-bit address space, and they can have some synchronization primitive
+within that CU.
+And then you take multiple CUs, glue them together, and pretty much you go to GPU.
+That's what's quite few.
+So that's a very, very abstract model of what a GPU can be.
+The way we can program for that is going to be usually using the heap programming language,
+which is quite very similar to CUDA, to be honest.
+That's a single source programming model where you will have part of the code which will
+execute on the host on the GPU, and part of the code will execute on the device, on the
+GPUs.
+So here that's kind of the elbows of GPU programming where we do a vector addition.
+So a bit of setup, we just initialize some memory, we copy it to the device, and we have
+here we submit some work to the device to be done.
+And when we do that, we describe the geometry of our problem in terms of one, two, or three
+D space.
+So we describe the size of a block, which are like how many elements are going to be
+running on same CU, and we say how many blocks we want, so how many CU can, or how many workgroup
+can work concurrently.
+Not necessary.
+How many workgroup we have, they don't have to synchronize in any way.
+That's a very, very fast, because I didn't talk much time, in terms of what that can
+look like.
+And now the question is, how does everything look like inside GDB, and rock GDB?
+So those elements, like the fundamental part which executes is what we call a wave.
+And in GDB, we map one wave to a thread.
+So when we do info thread in GDB, you will see a bunch of threads as usual, and then
+you will have those AMD GPU waves.
+And this AMD GPU wave, so that this collection of those vector registers, those scalar registers,
+and they're working together.
+Each of them will be running like those 64 work items at once in parallel, in pretty
+much.
+So just so everyone is not too bit confused, that target ID, the way it's built, that's
+so you can identify where that thread comes from.
+So basically it's built that way.
+We have the agent ID, which is like the idea of the GPU.
+We have a QID.
+The Q is the mechanism you use to submit work to the GPU.
+Then you have a dispatch.
+A dispatch is a unique of work.
+And your wave ID.
+And for the convenience, you have XYZ coordinate of your work group and your wave index inside
+that work group.
+And from there, we do have also, if you want, info agent, info queue, info dispatch, which
+can be used to animate the live dispatch using agents on the system.
+And now we get to the trickier part, which is one wave, which has 64 lanes, is going
+to be executing 64 work items in parallel, concurrently, and all at the same time.
+And so among all the scale of registers which are shared for the entire wave, you have one
+which is a PC, like the instruction pointer.
+So that means that you have what you would think of 64 different threads in your source
+program, they're going to be running the exact same instruction altogether inside the GPU.
+And each one of those work items will map to a lane.
+So that's one slice of a vector register plus a given address space.
+So GDB has a concept of current lanes the same way we have a concept of a current thread.
+So when you step, if you have a lane selected, you will be presented with the same lane again.
+And so to be a bit consistent, we do have an info lanes command which works like a bit
+like the other one.
+That goes so fast.
+Sorry.
+How is it for the community?
+Yeah, I know.
+You have a lane command you can use to select a given lane.
+And the lane ID is constructed a bit in the same way that we have thread ID where we have
+the agent ID, the queue ID, the dispatch ID, the wave ID.
+And then within that you have your lane ID after the slash and you have the coordinate
+of the current work item inside the work group and the coordinate of the work group
+inside the grid which is like everything.
+And so now the big question is maybe all of your threads are not going to be doing the
+same thing.
+So if you have like if full of lane ID, you do something else, you do something else.
+And although that work because everyone like every lane is going to be executed exactly
+the same instruction at every time.
+The way it works is by using lane masking.
+Basically the vector operation are going to be configured with like a mask register
+so some lane have some side effects and some don't.
+So we will turn the effect for some lane as no op.
+So basically the case where the lane, the condition is true is full.
+We will actually execute the full, we will be an op, else we will actually reactivate
+the lane, do what we want to do and the else on the other end.
+When we are in the if branch, we will actually do have some effects so write the element
+and otherwise we will deactivate the lane for the else and that's going to be a no op.
+And so if you were to step like single step within GDB with that execution model basically
+that means that every instruction is going to be executed.
+So you test if my lane ID odd, apparently it's not, no apparently it's odd so we do
+the else but what the fuck we do then.
+So we execute everything and GDB has some support to avoid this kind of confusion which
+is we will just don't stop when the current lane is inactive.
+So we will step as expected if we have something odd we will do our test, go to the else branch
+and we don't stop in then branch and we continue.
+Cool, that's the basic of our like the execution model works.
+Now we get to the tricky parts.
+As I said before we have multiple address spaces and when we have an address space basically
+when you want to load data from that memory or store data you will need an address but
+then contrary to what you have in the CPU world if you just have an address that's not
+going to get you very far because you need to know what address is going, the address
+is going to be an offset in a given address space and so you need to glue those two information
+to have something that actually makes sense.
+And so we have this address space found offset notation which we use and that can be used
+through our GDB.
+Yeah, so I'll go very fast so that pretty much what we have.
+Usually things you know you will read the slide I don't have to go over that.
+One question we have and what difficulty we have is to describe all that and especially
+all the address spaces and everything that's not going to work very well with Dwarf where
+a location is usually referred to as an address and address is just a value and as I said
+if you just have a value and you don't know what address space that goes with you can
+just talk.
+So we have a proposal to redesign a bit of Dwarf and the evaluation mechanics in Dwarf
+to address that and we're working with other vendors to try to have that submitted to the
+Dwarf standard so that started the discussion going on but that takes time and that's not
+in Dwarf yet and very fast the state of what we have in, yeah sorry, so the state of the
+AMGGPU support in GDB so we have all the basic stuff for controlling the execution and basically
+we have a bunch of symbolic debugging so being able to do a backtrace, ping variable and
+everything which can't really do because we need Dwarf support to do that and Dwarf is
+not standardised yet to support that so we're stuck.
+And a bunch of links you can look online and that's pretty much the end, sorry, it took
+a bit more time than it should have and if you have any question please.
+So one or two questions maybe, sorry.
+Yeah, here.
+Can we use this with shaders running in GLSL or something?
+The question is can we use that to for shader running in GLSL?
+Probably not because GLSL that's going to be on the graphics get back and that's not
+like that's only going to work for compute shaders so that will work for OpenCL that
+will work with SQL like there is an implementation called the heap SQL you could use but like
+the graphics pipeline would be different and that's not going to work, that's just for
+compute.
+Yeah, we have a question over there.
+You mentioned waves are kind of like threads, I didn't know is it represented the same way
+as threads are in GDP or do you have a separate thing and I was going to ask is it architected
+to make it easy for debugging?
+I guess that's my real question.
+So that's two separate questions but I guess would you say this is easier or harder to
+answer?
+Yes.
+And from the hardware perspective, yes.
+One thread is one wave and that's what we show in GDP if we go to the very beginning.
+We show in for threads you will list waves and once you have selected a given thread
+you can select a lane within that thread.
+Cool.
+Do you have time for one more question maybe?
+Maybe one question.
+Yes.
+My question was about like you put those efforts for the upstream but the final decision will
+be like it will emerge to upstream and we don't have to use separate product or it's still
+with like a separate product.
+No, our goal is to have everything upstream.
+The sooner the better but we cannot do that completely today mostly because of dwarf issues.
+To have dwarf which can be powerful enough to describe what's actually happening on GPU.
+We need some fundamental changes in dwarf and so to get our change in GDP we would need
+to support that dwarf six-ish but dwarf six doesn't exist yet so like that's pretty much
+one of the big things which is holding us back.
+Somewhere in the future the idea will be to be upstream.
+Yes, that's our goal.
+That's what we want to do.
+Okay.
+And yeah, I forgot to repeat the question.
+The question is do we intend to have everything upstream or do we want to keep having work
+GDP as a separate product?
+We don't.
+Sorry.
+Time's up.
+Thank you.
+And that is it.

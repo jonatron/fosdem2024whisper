@@ -1,0 +1,425 @@
+So, time to start. Please welcome to the stage, speaking about running Postgres on Kubernetes,
+Karen Jax.
+Hi, thanks, Jimmy. Yep, so I'm Karen Jax. I'm a senior solutions architect at Crunchy
+Data and I'm going to talk to you about running databases on Kubernetes or how to create a
+virtual DBA. I've always worked with databases, so I've just included a little picture of my
+career to date just to prove that I'm vaguely qualified to talk to you about DBA type stuff.
+This is the first ever job title I've had that doesn't have the word database in it,
+but I still only work with databases.
+Okay, so in the abstract I said a lot of people who have looking after databases as part of
+their job responsibilities aren't actually these days database administrators. I see
+sysadmins, I see infrastructure teams, I see application developers, I see DevOps teams,
+all sorts of different people who don't necessarily have a training or experience in database
+administration, database administration who are expected to look after their organization's
+databases. And I see that in particular in organizations where everything's running on
+Kubernetes and the databases are just seen as another part of that landscape. So if you're
+in that situation what do you do? Do you go out and quickly learn to be a database administrator?
+Do you phone a friend? Do you panic? I mean a better option would probably be to go out and
+think about using one of the Kubernetes operators that's been created by database experts.
+So we'll have a look at what a Kubernetes operator does and how it can help you to create a virtual
+DBA and what you want to look for when you're choosing an operator. So we'll quickly have a
+look back at how database architecture has evolved over time. Make sure everyone's kind of on the
+same page so that you know what kind of things Kubernetes does and what it's useful for. Look at
+some of the special features that makes Kubernetes suitable for running a database environment.
+Try and figure out what a DBA actually does because that's going to then give us an idea of what we
+need the operator to do. Understand what an operator for Kubernetes is. Look at the features that
+you might expect from it and then finally have a little look at how you might go about implementing
+an operator and trying that out for yourself. So first of all the history, I promise it will
+be extremely brief. Once upon a time databases were deployed on physical servers or bare metal.
+You could run multiple databases on a single server if you wanted to but you had to accept that
+those databases are sharing the resources of that physical server and competing for them. If you
+wanted isolation you had to deploy a single database instance per physical server and that's
+going to bring with it very high overheads in terms of maintenance, operating costs,
+hardware costs etc. But you do get that isolation, you can manage them independently.
+Then we got virtualization in the form of VMs. So now you can carve up a single physical
+server into multiple VMs and you can deploy a database instance to each of those VMs.
+So now you've got isolation, you can manage those independently. You've still got fairly high
+overheads. So you've got the, as well as your underlying operating system, you've got the
+hypervisor and then your guest OS. But you have got that isolation. And fast forward to 2024,
+many databases are now running in containers. So just to recap, a container is a lightweight
+self-contained software package that you can deploy pretty much anywhere. Containers use
+features of the underlying OS. So it's using C groups and namespaces. So they're sharing
+that underlying operating system. But they remain isolated from each other.
+So now if we deploy things like this, those database instances can be managed completely
+independently. They're not competing for resources. But because those containers are
+sharing the underlying OS, they're much more lightweight. You're looking at typically maybe
+tens of megabytes versus gigabytes for a VM. So not so many years ago, most people thought the
+idea of running databases in containers was a completely crazy idea. This year, all of my
+customers are running some or all of their production databases in a containerized environment.
+Some of them are running multi-terabyte mission critical databases. And some of them are running
+hundreds or even thousands of databases. So some things obviously changed. There's been a shift to
+make people see this now as a viable architecture for databases. So let's talk about some of those
+features that have made people move to a containerized environment for their databases.
+So as I mentioned briefly, containers are isolated, they're lightweight, and they're portable.
+You can create them and destroy them quickly and easily, which means that a containerized
+environment can be extremely flexible. It's very easy to scale. But containers are also stateless
+and ephemeral. A container's data and its state only last as long as that container exists. As
+soon as your container's destroyed, you lose that. Which as you can imagine strikes fear into the
+heart of your average database administrator. You need to take special care obviously when you're
+using a containerized environment for a database or at least ones where you have any kind of
+attach any kind of importance to your data. So putting aside the stateless and ephemeral issues
+just for now, your organization probably isn't managing just a couple of databases. Excuse me
+whilst I get my display back the way it's supposed to be. A lot of organizations are running hundreds
+or thousands of databases. And once you get to that stage, it's probably going to feel a lot
+like herding cats. You don't want to be doing all of those maintenance tasks associated with those
+containers and the databases in them. You don't want to be doing that manually. You need some kind
+of tooling to do that for you. Which is where container orchestration comes in. So container
+orchestration platform such as Kubernetes will let you manage many containers. It will automate
+the entire life cycle of those containers and it will integrate also with DevOps tools. So it
+allows you to do things in a flexible, automated, repeatable way. So a container orchestration
+tool will take care of a long list of tasks, things like provisioning, deployment, configuring
+your containers, scheduling, scaling up and down, repairing things, replacing containers that have
+failed services that have failed, creating services, allocating storage, different resources,
+load balancing, network and security. Kubernetes is an open source container orchestration tool
+and it's the industry standard for container orchestration. Just to reassure you that it's
+not a newfangled thing. It's actually been around a reasonable amount of time now and it's been a
+graduated CNCF, Cloud Native Computing Foundation projects, 2018. Kubernetes can be run pretty
+much anywhere. You can use a managed cloud platform or you can run it yourself either on
+premises or in the cloud. You can either run vanilla Kubernetes or there are a whole host
+of different flavors of Kubernetes. So you might hear people talk about OpenShift or Rancher or
+Tanzu or EKS, AKS, GKE. There are all sorts of different versions of Kubernetes that you can use.
+So to the why would you want to run Postgres on Kubernetes? It's no longer considered a leading edge
+technology. It's very much mainstream now and it's trusted in production by many, many users
+for database workloads. One of my favorite quotes is actually from Joe Conway's blog post where he
+says resistance to containers is futile and he points out that actually on modern Linux systems,
+because everything's running using C groups and namespaces, you're effectively already running
+your database in a container. So the customers I work with have many, many different reasons,
+use cases for running databases and Postgres on Kubernetes. Automating the deployment and
+administration of their databases is obviously a huge one. That's one of the main reasons that
+people cite for wanting to be able to do things. The features of a container orchestration platform
+that we saw on the previous slide are already, they go a long way towards doing the things that you
+would need automated to look after your database environment. There are other features as well
+that help with that and we'll look at those in a few slides. But otherwise, we see customers that
+want to be able to deploy and manage their database environments at scale. As I mentioned before,
+maybe hundreds or thousands of databases. They want to run multi-tenant environments. They want
+their database environment to complement an existing microservices environment. A lot of the
+time there's already Kubernetes in use in the organization. The applications might already
+be running in Kubernetes and they want to bring the databases into that environment.
+A lot of them do it because they want to be able to create a database as a service type offering,
+whether that's for internal or external customers.
+We'll have a quick look now at some of the other Kubernetes features that can help to build our
+virtual database administrator. First of all, a little bit of terminology. Even though Kubernetes
+is a container orchestration tool, you don't deploy an individual container in Kubernetes. You
+deploy a pod. In its simplest form, a pod you can think of as just a wrapper around your container,
+but it can contain multiple containers. Then we have a deployment. A deployment
+consists of one or more copies or replicas of a pod. The pods within a deployment are ephemeral
+and interchangeable. If one of those pods is destroyed for any reason, Kubernetes will just
+stand us up a new identical pod. We talked about the benefits of containers, the features of
+Kubernetes, but also the fact that a container's data only lasts as long as that container exists,
+which obviously would be a bit of a problem for a container that holds your database.
+You probably don't want your database to disappear if you lose a container, so you need some kind
+of persistent storage. Kubernetes provides that in the form of persistent volumes or PVs. By creating
+a persistent volume claim, a PVC, you can attach permanent storage to your container.
+What about standby databases? We've talked about pods in a deployment being interchangeable.
+If you lose a container, Kubernetes will just say, okay, that's fine, I'll just create you a new one.
+If that's your primary database container, you can't do that. A primary and a standby database
+aren't the same. They're not interchangeable. You can't just replace one with the other. You need
+something in there to tell Kubernetes that there is a difference between these.
+It's very rare that you'll be running just a standalone database. You will almost definitely
+want high availability, but also you might want replica databases for read scalability. Scalability
+is one of the big use cases for Kubernetes. We need Kubernetes to know that our primary and
+our standby database aren't interchangeable, that you can't just replace one with the other.
+We also need it to know that they can't just be started up and shut down in a random order.
+It needs to be carefully considered. For that kind of situation, we've got stateful sets.
+A stateful set is similar to a deployment, but each of our pods will have a persistent identifier,
+so it keeps that through any rescheduling. If pod one gets destroyed, it will be replaced by another
+pod one, and it will still be attached to that same PVC one. It will still be attached to that same
+storage, so it can keep that state. The Kubernetes documentation says that stateful sets are useful
+for applications that need stable persistent storage, ordered graceful deployment and scaling,
+and ordered automated rolling updates, which sounds very much like what you would want from a
+high availability database environment. Another useful feature is sidecars. We saw that a pod
+can contain one or more containers, so a sidecar is a kind of helper container, so it's tightly
+coupled with the main pod in your container. You might have, for example, alongside your database
+container, you might have one that exports metrics, one that exports statistics from your database,
+you might have one that performs your backup and recovery.
+We've seen what kind of things Kubernetes can do. What does a DBA actually do?
+This is a slide from the DBA evolution talk that I gave here last year, and for that I looked at
+various definitions of a DBA to try and find out what the general consensus is for the DBA roles.
+It turns out that apparently DBA is responsible for managing and securing computer systems that
+store data using specialist software, which tells us absolutely nothing about what a DBA does day to
+day. I compared that at the list of responsibilities that went with those definitions, and I looked at
+a whole load of different job adverts for DBAs to try and get some kind of consolidated list.
+Of the things that DBAs are actually expected to do, and it's a pretty long list.
+The general consensus is that a DBA will do some or all of,
+ensuring the availability of the database, usually involving putting in place some kind of
+high availability infrastructure. Design, implement, and maintain the necessary backup and recovery
+procedures. Design, implement, enforce, potentially various different security
+security requirements, create database users, manage database access, ensure data protection.
+Implement monitoring processes, perform ongoing monitoring of the databases, looking at things
+like performance, the security space, etc. Database design and development, including data
+modeling, for example. Support and troubleshooting, including 24-7 support, uncle support often.
+And it goes on. Installing and upgrading database software, providing database expertise to other
+teams, to other people, so for example to the business, to other technical staff.
+Performance tuning, capacity planning, putting in place the necessary procedures for creating
+databases and maintaining databases. Of course, there are different types of DBA.
+Some organizations will split the roles out differently. Some DBAs will be expected to do
+different things, but all of these things will need to be done by somebody.
+Okay. So we know that Kubernetes provides a lot of the features that you need to manage a database,
+but how are you going to go about setting up a containerized Postgres environment?
+Kubernetes doesn't natively speak Postgres. So you need to put in place some kind of mechanism
+that's going to tell Kubernetes how to manage your database cluster.
+You need it to know about replication, about backup and recovery, about monitoring,
+about upgrades, and all sorts of other things. To do that, you need expert knowledge in two
+domains. You need expert knowledge of Kubernetes and you need expert knowledge of Postgres.
+Most organizations find it difficult enough to find somebody that's got expert knowledge in
+one of these domains, let alone both of them. Fortunately, Kubernetes has another secret
+weapon, the operator. So this lets you extend Kubernetes functionality using custom resources,
+and we'll look at a custom resource later, and something called the control loop, where it keeps
+checking the current state of your cluster to see if it fits with what you've defined, and if not,
+it will make necessary changes to keep it in that required state.
+Even more fortunately, there are various Postgres operators that have been created by Postgres
+experts. I can speak in detail about the Crunchy Data Postgres operator, Pego, because that's the
+one I use day to day, but there are others out there. Each of them works in a slightly different
+way and might use different tools, but each of them combines that detailed Postgres and
+Kubernetes knowledge, so it extends the functionality of Kubernetes and lets it speak Postgres.
+It allows you to define in a manifest what your cluster should look like, and then work to deploy
+your cluster and keep it in that state. So what do you want from your Postgres operator for Kubernetes?
+The idea of Kubernetes operator is that it will perform all of the tasks that a human operator
+would otherwise do. So what we want it to do is automate as many as possible of those responsibilities,
+those tasks that we saw on the previous slides. For example, database availability.
+Most production environments, as we've said, need some kind of high availability.
+You'll probably be using Postgres' streaming replication so that you've got a primary database
+and one or more replica or standby databases. You'll then have some tool, a framework such as
+Petroni and XED. There are other frameworks available. This is one that we choose to use,
+and it's well respected and it has a rich set of features, so it's used by a lot of people.
+So you'll put that framework in place to manage your cluster. You might add in a tool such as
+HA proxy to maintain a virtual IP address so that you've always got your application
+connections pointing to your current primary database. There are quite a few moving parts here.
+There are various different tools to install and configure, and it can be quite fiddly to get
+that set up in the way you want. So you definitely want your operator to be doing that for you.
+If something goes wrong with your primary database, you want to be sure that you're going to get an
+automatic failover, that it's going to promote one of those replica databases to be your new
+primary, that it's then going to reconfigure any existing replicas to stream from that new primary,
+and that it's going to move your application connections to point to your new primary. You
+don't want to be doing any of that manually. You want that to happen automatically for you.
+And then for a combination of the self-healing magic of Kubernetes, Petroni, and your operator,
+you want to make sure that you have a new replica created to replace that primary database that you
+lost. You definitely want as much as possible of your backup and recovery to be automated.
+You want your operator to install your backup tool and configure it, so for example, PGBackrest.
+You want it to let you define one or more backup repositories that could be a local repository,
+that could be a cloud or network-based repository using S3, for example.
+You want it to take care of your wall archiving. You want it to take care of taking backups for you.
+You want to be able to schedule those backups. You want it to take care of removing obsolete
+backups once you no longer need them. You want it to retry backups if they fail.
+And then to minimize stress, data loss, and downtime, you definitely want as much of your
+recovery to be automated as possible. You'll still want a human operator in a lot of cases to say,
+yes or no, we are going to restore. Can we accept this data loss? Can we accept this downtime? There
+will be decisions like that to make by a human operator, but once those decisions are made,
+you want that process to be just a click of a button.
+In addition to your primary database cluster, you might want to be able to define a disaster
+recovery cluster or a standby cluster. A lot of people have a separate Kubernetes cluster in a
+different data center, in a different region, for example. And you want your operator to make
+sure that's kept up to date, either via wall streaming from a cloud backup repository that
+it sent the wall files to, or via streaming replication, or belt embraces. You might want it
+to do both. You might want to use a similar setup as this to create a clone of your database for
+test or development purposes. And you want your operator to allow you to do that very, very simply.
+In terms of security and data protection, there's obviously going to be
+manual effort here. You want to be in charge of defining your security policies.
+But the operator should provide you with the means to implement those.
+So you want it to do things like managing database access, so creating database users,
+making sure they've got the right permissions as defined by you. Maintaining pghba.conf entries,
+encrypting passwords and storing them in secrets, managing SSL or TLS,
+generating and managing the certificates for you.
+Monitoring is a hugely important part of database administration. You really need to know what's
+going on in your database. You want to be aware of potential issues before they come emergencies.
+Rather than reinvent the wheel and create your own monitoring system, trying to figure out the
+queries that you need, the scripts that you might want to run to keep track of what's going on in
+your database and then maybe setting up your own dashboards, you can let the operator configure
+monitoring for you. So the pigo monitoring architecture, for example, looks a bit like this.
+You want the operator to configure the logging parameters for you. You want to make sure that
+you're actually storing all of the information that you want in your PostQuest logs. You want it to
+export metrics from your database. So we have a sidecar there for metrics from your database.
+You then want it to either integrate with your existing monitoring stack or you want it to
+stand up a monitoring stack for you. So Prometheus with pre-configured metrics,
+alert manager with some pre-configured alerts, Grafana with dashboards that are already set up for you.
+You'll probably be pleased to know that it's not going to take over your database design and
+data modeling because you obviously want to keep some of the fun bits of database administration.
+And although the operator isn't going to completely relieve you of support duties,
+it should mean that you're called on less frequently in an emergency in the middle of the night,
+for example, because you've got that high availability already put in place and automated.
+You've got the self-healing capabilities of Kubernetes. You've got the monitoring in place so
+that you've already been keeping an eye on things and trying to react before things become a problem.
+You've got alerting in place, so hopefully when thresholds are exceeded, you already know about
+those things and you can fix them before they become emergencies. So hopefully you're only
+going to get involved if there's something particularly complicated going on that needs
+detailed analysis. What about database software install and upgrade? Well, the install bit's easy.
+You don't actually need to do any installing of Postgres or of those associated tools such as PG
+Backgres, the Prometheus Grafana, your Petrona. You don't need to install any of those because
+they come pre-installed in the container images that are available with your operator.
+As for upgrades, a few slides back we talked about stateful sets being useful for applications that
+need ordered automated rolling updates. The operator can use exactly that technique for
+performing a Postgres minor version upgrade. Next week, when you want to upgrade either from
+15.5 to 15.6 or 16.1 to 16.2, you can simply change the version in the manifest, so in the
+definition of your cluster. Reapply it and then you can watch as the replicas are upgraded.
+One of the replicas will be promoted to be the new primary.
+And then finally, the original primary is updated.
+Major version upgrades obviously require a lot more planning and testing.
+So the operator isn't going to take away all of those tasks for you. It's not going to take care
+of reading all of the release notes. It's not going to take care of testing your application
+with the new version. It's not going to take care of checking your application code to make sure
+that you're not using any deprecated features, for example. But you do want it to perform automated
+upgrades from one major version to another. So in the case of Pego, that uses PG upgrade.
+Other operators might either use PG upgrade or logical replication or PG dump and PG restore.
+Does the operator mean then that we don't need any database expertise?
+Well, as we saw, there is a lot of database expertise that's built into the operator.
+But it's not going to do everything. We still need a human export for things,
+experts for things like strategic considerations, looking at the need, the actual needs of the
+database application, considering business requirements, for example.
+Okay, performance tuning. Again, it's not going to do everything for you, but it can do certain
+things. You'll still need to do the initial setup, making sure that you've got your application
+configured the way you wanted, et cetera. But you do expect the operator to do some of it for you.
+So it could set initial parameters to a sensible value. It could make sure that you've got connection
+pooling available, make sure that you've got the PG stat statements, extension available and enabled,
+make sure that slow queries are being logged, for example. And as we saw before,
+make sure that you've got monitoring and alerting in place.
+Capacity planning. So the monitoring and alerting that you've put in place should mean that you
+can see what's going on in your database. You can see the resources it's using. You can see how
+much space it's using. You should be able to know approximately what kind of trends you're seeing.
+In your definition, in your manifest, your definition of your cluster,
+you'll have said how much storage you want. If you're using a storage class that supports dynamic
+resizing, you can just change that in your manifest, reapply it, and your volume will be
+resized. If not, you can create a new instance with a bigger volume and use the same technique that
+we saw for the Postgres minor version upgrade to do a rolling increase of your volume. If you're
+using that rolling technique, you can also use that if you want to reduce your volume in size.
+Other resources such as CPU and memory, for example, can also easily be scaled. And you can use things
+like the request and the limits to make sure that you allow it to claim more resources up to a certain threshold.
+Database creation and database maintenance.
+So users and databases, I don't know the details of how this works in other operators, but in
+Pego, for example, you can state a number of users that you want to have created automatically in
+your database and the databases that they should be able to access. If those databases don't already
+exist, it will create them for you. Database maintenance is a really wide ranging
+and very unspecific task. So this is a list of some of the things that might fall into that category
+of database maintenance. And we've already looked at a lot of them. So we know that we can expect
+our operator to help us with a lot of those. And other maintenance tasks such as index rebuilds,
+for example, gathering statistics, that kind of thing could be scheduled via the operator. You
+can define everything in the same place so that you don't have to then manually change things and
+implement things later. Okay, so you're now obviously really excited to give this a try and
+see all this magic for yourself. How can you do that? I'll show you how to get started with Pego,
+but as I've said, other operators are available. First of all, beg, borrow or build yourself
+Kubernetes cluster. As I've said, that can be either one that you build yourself, that can be
+in the cloud, that can be managed for you, or it can be vanilla Kubernetes. It can be one of the
+many different things. It could be OpenShift, Tanzu, Rancher, all sorts of different Kubernetes
+platforms available. Next, fork the Postgres operator example's repository, which gives you a
+sample manifest. It will give you Helm charts, customized manifests that help you install and
+configure and deploy your first Postgres cluster using the operator. Okay, so I'm just going to go
+through this step by step. So clone the repo and navigate into it.
+Create a Postgres operator namespace, and if you're lazy like me and don't like to keep typing
+minus n and the name of your namespace, set it as your default namespace. Install the operator using
+the customized file that you'll find in the install default folder.
+Then you'll see that it will create a load of resources for you that are needed for
+managing and managing that database cluster. So the one that we're most interested in is this
+Postgres cluster custom resource definition. That's what's going to let us define our cluster.
+Now, to define our cluster, we're going to just use the example Postgres.yaml that's provided for
+us, why reinvent the wheel. So I've created a copy of that in a Fostum folder, and then I can make
+whatever edits I want to my Postgres.yaml. So the first couple of lines here is just saying that
+I'm creating a Postgres cluster resource, that I'm going to give it a name Fostum just so I
+know which cluster it is, that I want to use Postgres version 16, that I want three replicas. So
+replicas here is in the Kubernetes sense of the word replica. So that means three database pods.
+So I'll have a primary database pod and two standby or replica database pods.
+And then I'm just using the default storage class, leaving all of the defaults there. So I'm just
+going to have a local volume here, but you can specify whichever storage works in your environment.
+You might want cloud storage, network storage, local, you know, whatever you're using.
+And I've just said that I want to have a one gig volume. That might not be hugely
+visible right down at the bottom there. Okay, last few lines of the manifest.
+So the last few lines set up the backup and recovery. So at the moment,
+we've got backups, pgbackrest, it is, it's just pgbackrest.
+I'm just going to configure a single repository called it repo one.
+And again, I'm just choosing all of the default parameters. So I've just got a local
+backup repository. You probably don't want to do that in production. You will probably want some
+kind of sensible place to store your backups, but this is just my little test cluster. So
+a local volume is absolutely fine. You can specify multiple repositories if you want to.
+So you can have a local repository and a cloud repository or a Google cloud repository and
+AWS one or whatever combination of repositories you want.
+Okay, so once I've created my manifest, that's my definition of my cluster.
+I apply that and the operator will set me up a three node high availability post-press cluster.
+So it's now got the Petroni managing that high availability. I've got a service that points
+me to my primary database. I've got all the things that we talked about before.
+So if we have a look at the pods that that's created for us, we can see
+that was my operator itself from when I did the operator install.
+These are my three, oh, sorry, no, those are my three post-press instances.
+I can use a different command if I want to see which is primary and which is stand by.
+It's created my repository and it's taken an initial backup for me. I've also,
+I've not talked about that, but there's also a PG admin pod there as well. So you can use
+PG admin to log in and look at your database and run queries, et cetera.
+So that was, I think it was a 26 line manifest. That's, that was enough to get you up and running
+with high availability, backup and recovery. You can then make all sorts of changes.
+If you tweak that manifest, you can set up backup schedules. You can create that standby
+cluster that we talked about. You can install the monitoring stack. You can implement connection
+pooling with PG bouncer. You can set your different post-press parameters, your patroni parameters.
+You can tell it to run certain SQL queries when it initializes your database, et cetera.
+I forgot other things. You can tell it where to schedule your pods if you want to. I've just
+left everything at the default and let it schedule them wherever they want. I've got a three node
+Kubernetes cluster and I'm just leaving it to do its thing.
+So that was just a really quick kind of, how can I get started? But I really do,
+even if you're not planning on using it in production, it's really good fun. So give it a try,
+kill your pods, delete services and watch it kind of repair itself. It's fun.
+So conclusions. So a post-press operator for Kubernetes really does act like a virtual database
+administrator. We've seen that it knows how to do most database administration tasks. It can automate
+everything from deployment of a high availability cluster to backup and recovery, monitoring,
+upgrades, et cetera. It lets you implement a, I think this is from my marketing team slides,
+it lets you implement a robust, secure, scalable architecture. It combines the strength of post
+-press and Kubernetes so that it keeps your database cluster running smoothly. And more
+importantly to me is it leaves you free to do the strategic, interesting and fun bits of database
+administration. So that is all that I've got to say on the topic of post-press on Kubernetes.
+And before I move to my thank you slide, I just want to do a plug in case today hasn't been enough
+post-press for you. The next community post-press conference in Europe is PG Day Paris on the
+14th of March. And we obviously really hope that as many of you as possible can join us. And just
+for Fostum, we have created a 10% discount code with limited availability. So I think that's
+available just until tomorrow. So very much hope to see you there. And that's me.
+I've put a link to the slides there in case anybody wants to see those. And I think,
+do we have time for questions? We do. So thank you. That was a very comprehensive talk with a lot
+of useful insights. Anyone who, I see a hand there. If you can make sure the next question is
+right at the bottom so that Jimmy has to run back and forth, that'd be great. And can ask you a
+favor. Can you repeat the question please so that it makes it into the video as well? Say you want
+to install an extension that's not by default in post-press, like post-GIS. How would that be handled
+by the post-press operator? Will it be detected when upgrading in such? So this operator does have
+that, sorry, the question was, if you want to install an extension that's not by default,
+something that's not by default in post-press, how would you handle that? So for this particular
+operator, post-GIS is one of the extensions that's available in the images. For others, I don't know,
+but I suspect that that would be available because it's an extremely popular extension. So we tried
+to include the most popular extensions. Otherwise, you can create a layer on top of the container
+images that are provided for you. You can install the extra extensions into that. Some of them will
+let you create your own custom sidecars. So we saw the extra helper pods, so you might be able to
+install certain things into a sidecar as well. You said that if a primary instance goes down,
+then the job of the operator is to assign, for example, replica one is now the new primary. So why
+to rephrase it, why is it, we don't want the operator and the primary instance to run on the
+same worker in the Kubernetes because if that worker is shut down of the electricity,
+there isn't anyone to assign a new primary. Okay, so the question is to do with the operator assigning
+a new primary database and saying that we don't want our two database pods to be on the same
+worker node, is that correct? So actually embedded in the operator code in this case are some anti-affinity
+rules. You've spoken a lot about the advantages. Do you also know some downsides, like for example
+the lower performance on the same hardware or something like that?
+So the question, I've obviously spoken a lot about the advantages but are the disadvantages,
+for example, performance for the same hardware. I haven't done extensive, well I say extensive,
+I haven't done benchmarking, but just anecdotally from what our customers see,
+they're not reporting any significant performance degradation. That's not to say that there isn't
+any, I haven't like I say, I haven't done those tests, but we certainly haven't seen customers saying
+we moved to Kubernetes and it's running more slowly.
+So you said that progress instances, progress pods are being managed as a stateful state,
+but what about pullers? So how many pullers do we need? For example, if I want to expose
+read writes and read-only service to my applications. So do you use a single puller
+for those read writes and read-only requests or you use a separate set of pullers?
+So the question if I've understood correctly is how do we use a single puller or multiple?
+You can configure, it's up to you depending on your actual use case, depending on where your
+connections are coming from, how many connections you've got, how they're being used, etc.
+You can define how many you want.
+There was a very, on Friday for the extra PG day, there was a very interesting presentation at
+by Joe about a problem with G-Lib C and correlations and one of the workarounds was you
+created your own binary. That's going to be a lot more complicated in Kubernetes or is that
+something which your operator supports? I'm just curious how to manage that sort of rare but
+important edge case? I guess that's the kind of situation where, oh sorry, repeat the question.
+So there was a talk on Friday by Joe Conway where he talked about an interesting edge case
+where there was an issue with G-Lib C and the workaround was to recompile the binaries.
+So is that more complicated with the operator? I mean it's for the average user that's going
+to be complicated whether you're running in Kubernetes or not potentially. That's the kind
+of thing where we would probably recreate a container image with that workaround and make
+that available. So certainly if it was for a paying customer, I imagine that's the kind of thing
+that would be done with the images available to the community. I guess at some point that would
+be made available or as I said before you can create your own images so you can base your own
+images on the ones that we provide so you could potentially do it in there. So potentially
+a bit more complicated but it's still the same process. And we have time for last question over
+here. Sorry. I was wondering how backups can be restored after a cluster-wide issue for instance.
+So the question is how can a backup be restored after a cluster-wide issue? So in the manifest
+there's a section where you can say what the source of your cluster should be so you can say that it
+should come from a backup and you can obviously put in your point in time recovery requirements etc.
+in there. Thank you very much.
