@@ -1,0 +1,214 @@
+Good afternoon. Welcome to the DNS Dev Room. Lovely to see a full room once again. And
+I would like to just give the word to our first presenter, Thijs, who will talk about
+consistent hashing and related stuff. Thank you. Good afternoon. I was already mentioning
+like quite a full room for such a niche topic. Anyway, I asked her here because I got too
+many slides, as always. My name is Thijs Freyja, I work for KONG. We company open source gateway.
+One of the things we do is load balancing. And this talks about like how we implement
+consistent hashing in the load balancer, what we run into, or works, what doesn't work.
+So consistent load balancing, like what, why, and how. And then like what does DNS have to do with it.
+The what is actually fairly simple. You take an outgoing connection, you take a property,
+and I'm basing the property, you make sure that every single connection outgoing with that property
+ends up on the same back ends system. Which is fairly, I think from the hash bucket perspective,
+fairly straightforward. A typical for our situation gateway, typical setup, incoming traffic,
+cluster of gateways, and then load balancing towards the back ends, each in one or multiple instances.
+When we do consistent hashing, what we'd like to do is, for example, pick a user ID, and
+then make sure that that user ID as a property ends up on one specific back end server. And
+in this case it would be Harry, John, and Mary would go to instance one, Paul, and Joanne go to instance number two.
+What did I touch?
+Fat finger.
+No. Come on. Yeah, next question. Why? Like I said, it's a bit of a niche topic. It is very specifically
+geared towards cash optimization. Consistent hashing is something that many people know,
+but this is very specifically to, if you do a lot of hashing, you don't want to have cash misses,
+especially when you're scaling systems. And for legacy, we have customers using it for sticky
+sessions, but it's like a bit of a mediocre solution to that.
+So in this case, yeah, as I already explained, the same users go to the same back end, which means that
+the data that a back end application needs to retrieve from a database would only be related
+to those specific individuals. So the cash hits will be higher considering the amount of cash that
+the system has available. Then hashing. Hashing in general is the basic concept of hash buckets.
+You take an input, you throw it into a hashing algorithm. C or C 32 we used before. Now we use
+XX hash fast. It needs to be, have a nice consistent distribution. Then you do a modulo,
+in this case modulo 10, you end up in one of 10 buckets. That's basically how it works.
+So whatever you input, as long as the same input ends up in the same bucket.
+Now let's take this, the 10 buckets that we have and let's
+extend that and say like we have continuum with how in the print the Kitama library,
+which is where this was first implemented, they call it continuum. And we're going to have four
+nodes, each one serving 25% of the traffic of the entire continuum. So everything that we get in
+and we hash into some bucket falls into one of those in the end four nodes. Now if we now scale
+the system, we add a fifth node. Now we see that we have 20% capacity added. So what is that going
+to do with our hashing algorithm? From node A, traffic previously going to node A will now end
+up, 5% will end up on node B. From B 10% will go to node C and so on. The overall consistency
+loss 50%, which means that our backend systems are going to have to fetch a lot of data to catch
+over this 50% because they moved systems. That's the thing that we're trying to prevent.
+So we have 20% capacity added, 50% of the continuum changed.
+Now if you look at what does that mean? At the bottom side we have catch-hate ratio,
+take an HTTP server, 70, 80, 90% HTTP servers can catch that, get there. Then you can see that
+with a 20% consistency loss, which will be the minimum in our case because we add a server,
+20% capacity, so the minimum is always going to be 20%. So if we do that, we have like 50%
+extra capacity temporarily. If we don't use consistent hashing, we have 50% loss and we go to
+more than 120% pretty much on extra capacity, which is quite a big peak that we get on top.
+Now if you lay this out on a ring, and in this case we'll have simplified depiction,
+20 buckets, whereas in reality for each expected backend that you need, you would expect to use
+like 50 to 100 entries at least. So if I would have a four backends, I would use 400 entries on
+this ring. Now if we distribute, if we distribute the five targets, the four targets that we had,
+going to do the same example again, the four targets that we had, then we have two relationships.
+That's the target, the IP port combination, and it's related to one of the positions on the slot,
+one of the slot, different concept, and it's going to be based on weight. Now we have four nodes,
+same weight, so each node gets 25% of the available slots, fairly straightforward.
+Then there's a slot towards the position on the hash bucket, and that's a one-on-one relationship.
+Every slot goes into one bucket, but it's randomized. So if we apply that, this is the way I would get.
+So instead of a continuous ranges of AAAA, BBB, CCC, we get a random layout with those nodes.
+If we now do hashing, basically we see that every hash ends up nicely in its bucket,
+and as a side effect, we'll get if hashing is not available, because the property is not available,
+we can do an easy round robin, good by simply walking the ring, which is a side effect of Yawarun.
+Now if we move into adding the node again, the same thing that we did before,
+we're adding 20% capacity, what we're going to do, we're going to relieve every,
+for the slots that we have assigned, we're going to ask every back end to relieve
+the amount of slots that are no longer to be assigned to them, in this case they were used from 25 to 20%,
+one slot, and we assign them to the new one. Now if we do that, we can see that the distribution
+stays the same, and the hashing principle now works, because we have minimal consistency loss.
+Now instead of having the 50% consistency loss at the start, we now end up with like
+the minimal consistency loss of only exactly the 20% that we added in capacity.
+It also has featured that if we have a simple health checker attached to it,
+it's quite common with load balancers, is that we can actually move on to the next slot,
+and our distribution will not really change. Yes, we'll have an impact on the consistent hashing
+principle, and we'll have catch losses, but due to the way it's random layout,
+we still maintain that the weights are properly distributed, and the traffic is going to be
+distributed about across all your remaining nodes.
+Now, that is like the basic concept of how you do the consistent hashing,
+and how you minimize this hashing loss. Now when it gets really tricky,
+is when you have to do this in a cluster. In a con cluster, the nodes are basically independent,
+so there's no shared state, at least we try to minimize, and we just saw that we had a lot of
+like random stuff in there, distribution layout, etc., and that's what makes it hard.
+So if we have to build a deterministic layout of that ring, we have to make sure that we build
+the exact same ring with the exact same layout on every node in the cluster.
+And that's where it gets hard. So for the random layout, the way we solve this is by
+using the distribution, the random distribution, but not the unpredictable, the unpredictability
+of a random number generator by using a separate random number generator, but with a fixed seed,
+just a constant, so it generates the same thing over and over again on every node,
+because we don't care about it being unique, we only care about the distribution,
+that is randomly distributed on the ring. Tracking changes as nodes are being added and removed,
+we keep a log history. So whenever we add a new node, if a cluster gets expanded,
+we just replay all the changes, so we end up with the exact same state of the cluster,
+of the ring, and make sure that the hashing still functions.
+And then you think we have it covered, and then comes DNS.
+Because initially we had it laid out to do just IP and port, but that's static,
+and in all of our customers' environments, it doesn't work. So we have the Kubernetes
+OpenShift console, and a common denominator there is DNS. So they do source discovery,
+and then exposes through a DNS interface, that's where you get your backhands.
+So the solution we had is that we had to expand our balancer to not just take IP at a result,
+we had to take hostnames. Now we have to resolve them, and then instead of having a single entry
+for a hostname, we could have like 2, 3, 4, 5, depending on what's in the record.
+But that hurts. Because if you look at what some of those discovery tools do,
+they don't set a truncation flag, which means that every node in the cluster is going to get
+a different answer in a different random order. A console, for example, does that, and the core
+of it is that those tools try to do load balancing on an infrastructure level by forcing you to renew
+the DNS records, and then they're going to give you only the information they want you to have.
+So a console is typically quite often we've seen deployment with TTL0 and no truncation flag.
+So you get one record, two records, three records, but not all of them. Once we have a
+truncation flag, we know we can retry, we can do TCP, we get a whole lot of them, and then we can
+check that our balancer stays in sync. Quite often we see that it doesn't happen and the
+balancer goes out of sync, and then we have customers complaining, basically. TTL0 means
+lots of changes and updates. Every change is an update to the balance of the structure,
+which is like really not a good combination. And then of course there's bugs. I was just,
+you were commenting on DNS, it's always DNS. And we actually, we had a discussion yesterday and
+somebody said actually like, DNS is like the RFC is just like the primer, and then the real
+implementation is there are 100 million different limitations out there. That's what DNS pretty
+much is. And you have the cater for all of them. So we have customers that set up DNS to only return
+a single record ever, and an infrastructure team is refusing to change it despite the fact that
+application teams have difficulties with their load balancing. Amazon has Route 53,
+occasionally gives you a TTL0, because my guess is it's a rounding bug when the TTL gets too low
+to return zero, which it shouldn't be doing. Now if you think all of this is hard,
+try filing a bug with Amazon. That's really hard. So in essence, we haven't implemented
+implemented it, but to really properly replay everything, we would need to have some central
+storage where we have the DNS records over time stored as well. So not only the changes in the
+host names, but also at that point in time, how does it resolve what are the entries we're getting?
+Because if I add a new node in my cluster later on, rebuild it, and that node gets four entries in
+the DNS, where the ones that were started earlier got only three, so we'll get the thing is out of sync again.
+Now if you look at the
+overall thing, I don't know where we are in time. Oh, we're in 10 minutes left.
+10 minutes left. I've been hurrying too much.
+So concluding, it is, like I said, it's a niche algorithm and it is good for cache optimizations,
+but it is still, its primary concern is still load balancing. It's distributing load. The
+consistency is only secondary. And for caching, it makes sense because like with a cache, I mean,
+you lose some performance, but you don't lose data. So if you change it, you lose the consistency,
+it just rebuilds it and then you're good to go. Minimize the cache disruptions.
+The trick is with, it does require some contacts as the hash input. On the TCP level, you could have
+like an SNI name maybe or an IP. It's like really rough because it also needs the contacts that you
+need into the hash, needs to have enough cardinality to actually make sure that you're going to hit
+everything in your cluster. So if you have, I don't know, you say you do on a header,
+that either says Android or iOS. That means in your hashing algorithm, you're going to hit only
+two backhands ever. So if you scale and you have five backhands, you're still going to hit only two.
+If you have to be aware of that, that there's enough cardinality. And as before, DNS is be careful.
+Make sure that people set it up correctly. If you have it all in one hand, if you control the whole
+lot of it, you can set whether the truncation flag is set or not, whether it results everything,
+it gives you all the nodes, all the entries. That's good. If you're not, make sure you check with
+your other teams that they actually make sure you get the data to make sure that they're not fighting
+each other. Then there was the comparing algorithms. Like the first two are actually
+like the more generic ones. The way to round around like everybody knows. It's a good distribution.
+It doesn't care about caching. So you hit everything with everything you got.
+These connections are the same, but at least it takes into kind of like long lift connections,
+which not depending on what you're running or what service you're running might make a good
+distinction. Really different. Consistent hashing, cache optimization, and it works wonders under
+the right circumstances. There's a catch to really catch. Least latency, we have that.
+It's also niche, I'd say. I even wrote it. If you have high variance CPU loads,
+so take GraphQL, where you can have simple queries and very big queries, then this makes sense.
+But one thing to be careful of is that you need to have equal network latencies.
+So if you have all your nodes in the same network, your back ends, you have the same network
+latency, then it works. But if you have one close by and another one a couple of hops away
+that has more latency, then the least latency one will actually push the close by ones into starvation.
+Because they have lower latency because of the network, so we're going to push more load,
+and by the time the latency of those systems goes up, you're basically pushing them into
+resource starvation, either CPU memory or whatever, and then they become slower. And that's not an
+efficient way to run those servers, probably. So there's a catch to it.
+And I got it really in time. Questions? Thank you, Dyer.
+Thank you.
+Plenty of questions. You said that some DNS servers do not send and truncate bits.
+Would it be possible to just do TCP? Always? To always do TCP? Yes, that's an option.
+That's an option. If you can configure your client, not all clients can be configured. In our case,
+the client doesn't, we work with OpenResty. OpenResty underlying DNS client doesn't,
+it has a bug that prevents us from using it, actually. It doesn't do retries, which is,
+but that indeed is a good solution to making sure you get the entire, the entire record,
+all the entries. Yeah. I have a related question, which is, how often do you actually see enough
+data in a response to truncation of a content issue? It seems like you get hundreds of address
+port pairs and transfer before you know it. Depends on, depends on DNS implementation and to use
+the eyes of, of, yeah. So how many, how many times do you actually see truncation happening
+in those records? I don't have data. I guess it must have happened or you wouldn't know.
+Yeah. I don't have the data. I know that console does it. Console by default will only report three
+and it's UDP packet size. And I think it is UDP packet size. I don't know what it exactly is,
+but I would assume like four or five maybe and then truncation happens. Depends also depends on
+like name sizes and everything because it has to fit in a single packet. Oh, maybe console just
+arbitrarily truncates. Yes. Not to do with packet size. Yes. But that's, that is because it's a service
+discovery tool and it tries to pull the load balancer rule towards it and force you to only
+hit the nodes that it wants you to hit. Okay. So it has, I think it has for example things like
+data center awareness. So depending on where the, where the request comes from,
+it will give you a different set of answers than in another data center. So you're going to hit
+different backends. Yeah. Sorry, can you repeat the question? For the log synchronization.
+What algorithm are we using for the log synchronization? Which one do you mean across the cluster
+or inside a single balancer?
+Let's go with the balancer. I'll give you answer both. First one on the cluster, we don't have it
+because we, in the end, we have no synchronization over this shared state of this entire balancer.
+We don't share it. The only thing we have is the order in which nodes have been added
+and that's synchronized through a database basically, a control plane. Then inside the
+balancer algorithm itself due to the way the open rescue works, you basically don't need a log on
+this. The one thing is you need to be careful that you do not yield in between operations that
+actually are modifying the data structures. As long as you do that in an atomic operation,
+you're good and you don't need a log. So I answer the question.
+Maybe this, you could share the state of the various nodes in the cluster by just
+sharing the state instead of assuming you get the same input data and computing a state.
+So then you would of course introduce interdependencies because it would guarantee that all nodes
+at least use the same tables. So the question is can you use shared state
+instead of rebuilding it in every cluster separately? Yes, you can. The conflusters
+are basically independent. The data planes are on their own and they do not share state.
+They get their instructions from a control plane. That's it. Yes, there is one, there is the
+alternative option. We haven't implemented it yet. I don't think we will implement this.
+In reality, we see too little cases where we actually see the things go out of sync and cause
+issues. Usually you can tweak it by using a longer TTL so there's going to be less updates
+and you don't need it. So I don't think we will be implementing it in the end.
+Have you considered using rendezvous hashing instead of consistent hashing?
+Have we considered rendezvous hashing instead of consistent hashing? No.
+No. Frankly, I don't know it. I wrote this stuff actually quite some years ago.
+It was updated by a colleague later on. But I will be looking into rendezvous hashing. Thank you.
+Any more questions?
+Check. Matrix. No questions.
+Almost, almost, almost on the minute.
+You

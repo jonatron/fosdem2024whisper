@@ -1,0 +1,1253 @@
+WEBVTT
+
+00:00.000 --> 00:08.600
+Any questions during the talk?
+
+00:09.600 --> 00:12.160
+So a bit about myself.
+
+00:12.160 --> 00:14.480
+I've been working for MariaDB.
+
+00:14.480 --> 00:18.120
+Who here has never heard of MariaDB before?
+
+00:18.960 --> 00:22.720
+Okay. So there's a few people here, no problem.
+
+00:22.720 --> 00:26.360
+So MariaDB is a fork of MySQL,
+
+00:26.360 --> 00:27.800
+which you've probably heard of.
+
+00:27.800 --> 00:32.800
+It is developed by the original authors of MySQL.
+
+00:32.800 --> 00:38.000
+And it is mostly the default MySQL variant in most distributions.
+
+00:38.000 --> 00:42.040
+So you might be using MariaDB and not actually know it.
+
+00:42.040 --> 00:46.840
+I've been developing for MariaDB since 2013.
+
+00:46.840 --> 00:49.640
+I've done various features like roles,
+
+00:49.640 --> 00:52.880
+window functions, things that then got ported to
+
+00:52.880 --> 00:55.680
+MySQL or implemented by MySQL.
+
+00:55.880 --> 01:00.520
+I'm now working on catalogs and also adding MariaDB vector,
+
+01:00.520 --> 01:03.040
+a competitor to PG vector.
+
+01:05.040 --> 01:09.520
+Now, one of the biggest problems you can have in a database
+
+01:09.520 --> 01:13.360
+is that the database is a multi-threaded monster.
+
+01:13.360 --> 01:17.520
+You have many different threads and
+
+01:17.520 --> 01:19.880
+race conditions, if there is a bug,
+
+01:19.880 --> 01:23.240
+happen but they happen very, very rarely.
+
+01:23.640 --> 01:27.640
+And it's almost impossible to try to reproduce that failure.
+
+01:29.360 --> 01:34.240
+So what we usually get is we get core dumps.
+
+01:34.240 --> 01:37.960
+But the problem with core dumps is that they only give you the state at
+
+01:37.960 --> 01:40.360
+the end when everything has already went wrong.
+
+01:40.360 --> 01:42.400
+You don't know where the problem happened.
+
+01:43.680 --> 01:50.800
+So it would be excellent if we could find a way to go back in time.
+
+01:50.800 --> 01:56.560
+And I know there is a follow-up talk about how this thing
+
+01:56.560 --> 01:58.680
+actually works behind the scenes.
+
+01:58.680 --> 02:01.960
+I'm just going to give you a tutorial on how to make use of it,
+
+02:01.960 --> 02:06.080
+because I think this will just revolutionize all your debugging experiences.
+
+02:07.080 --> 02:11.760
+Even simple bugs that are not, let's say,
+
+02:11.760 --> 02:17.080
+race conditions are much easier to debug if you can step back whilst debugging.
+
+02:18.080 --> 02:21.680
+So RR, it's an opus-nose project.
+
+02:21.680 --> 02:24.360
+You can install it, most distributions have it.
+
+02:26.520 --> 02:30.640
+And it's a program that basically records your application,
+
+02:30.640 --> 02:33.440
+the state after each instruction the CPU executes.
+
+02:37.800 --> 02:40.200
+It does come with some caveats, I'll go into that.
+
+02:40.200 --> 02:45.480
+But as long as you have CPU support, it should work.
+
+02:46.480 --> 02:48.760
+Now, to set up, it's pretty simple.
+
+02:48.760 --> 02:52.560
+All you have to do is do echo1 to set this kernel parameter.
+
+02:53.560 --> 02:56.480
+Otherwise, RR will tell you, you need to set this, otherwise I won't work.
+
+02:58.680 --> 03:00.120
+And then you just run the program.
+
+03:00.120 --> 03:02.880
+So instead of gdb, RR, the program.
+
+03:04.520 --> 03:08.080
+The program doesn't stop, it actually just finishes.
+
+03:08.080 --> 03:13.360
+If it's the server, then it will keep running.
+
+03:13.360 --> 03:16.040
+But basically, the execution will be stored somewhere.
+
+03:17.040 --> 03:23.120
+There is a system variable you can change to say where this thing is stored.
+
+03:24.120 --> 03:27.800
+And then if you want to actually debug the program, you do RR replay.
+
+03:29.920 --> 03:32.080
+I'll show you in a demo how easy that is.
+
+03:34.360 --> 03:37.920
+Now, when you do RR replay, you get a gdb prompt.
+
+03:38.920 --> 03:42.880
+With a few extra instructions, like reverse next, reverse step,
+
+03:42.880 --> 03:45.560
+reverse step instruction, continue and finish.
+
+03:48.920 --> 03:53.800
+This is useful, but the thing I find the most useful is actually this being able
+
+03:53.800 --> 03:57.680
+to watch an address that never changes between executions.
+
+03:58.640 --> 04:02.800
+Because especially when you have a very complex code base, it's very hard to
+
+04:02.800 --> 04:05.160
+understand where something changes.
+
+04:05.360 --> 04:10.680
+So you do the first run, you see that this variable is wrong.
+
+04:10.680 --> 04:13.760
+So then you put a watch point on that variable, and then you run again.
+
+04:15.440 --> 04:18.120
+And that's how you figure out exactly where things go wrong.
+
+04:19.280 --> 04:25.120
+It's as simple as that, and it basically takes hours out of debugging.
+
+04:28.920 --> 04:32.760
+Now, a little bit about how my redebate does it.
+
+04:32.760 --> 04:38.040
+Like, I think this is probably a good thing you can try out in your projects.
+
+04:39.560 --> 04:44.200
+So my redebate has a test infrastructure similar to other projects.
+
+04:44.200 --> 04:47.240
+This one is tailored specifically for my redebate.
+
+04:47.240 --> 04:49.200
+It's called my redebate test run.
+
+04:49.200 --> 04:52.280
+What it does is it issues SQL queries to the server and
+
+04:52.280 --> 04:55.080
+compares the expected results with the actual result.
+
+04:55.520 --> 05:00.600
+If usually this works and
+
+05:00.600 --> 05:06.240
+if the results are the same, then the test passes.
+
+05:06.240 --> 05:09.240
+But every now and then, especially in our CI, we get failures.
+
+05:09.240 --> 05:11.720
+And those failures tend to be hard to reproduce.
+
+05:11.720 --> 05:18.440
+So in order to reproduce them, what I personally do is I start to do the testing.
+
+05:19.880 --> 05:23.760
+I start testing, I ask, I want RR recording.
+
+05:23.760 --> 05:28.800
+And then I don't just run the same test, like over and over.
+
+05:28.800 --> 05:31.960
+Now, I start the same test multiple times in parallel,
+
+05:31.960 --> 05:37.280
+just to overload the system as much as possible to try to get things to actually reproduce.
+
+05:37.280 --> 05:43.880
+And usually about after five, six hours, I tend to get a failure.
+
+05:43.880 --> 05:48.720
+With this while loop, the thing will stop the moment I get a failure.
+
+05:48.720 --> 05:51.840
+So then I have the exact trace I need to find my problem.
+
+05:54.760 --> 05:58.760
+Now, the limitation of RR is that it runs in a single threaded model,
+
+05:58.760 --> 06:03.440
+which means that this is how long it takes in milliseconds without RR and with RR.
+
+06:06.000 --> 06:09.640
+And of course, if you don't have platform support, you can't do this.
+
+06:09.640 --> 06:13.960
+It relies on a specific CPU capabilities.
+
+06:15.800 --> 06:19.160
+I've noticed that if you try to get a server in the cloud and try to run this,
+
+06:19.160 --> 06:22.720
+it will complain about something in AMD Zen processors.
+
+06:22.840 --> 06:26.080
+So your experience might vary depending on which iteration you have.
+
+06:30.280 --> 06:35.360
+Now, another problem is that because it's running in single threaded context,
+
+06:35.360 --> 06:39.520
+you don't get the exact same behavior as if you were running without RR.
+
+06:40.760 --> 06:42.280
+And actually, I can show you this.
+
+06:43.600 --> 06:46.320
+So I made a very small program here.
+
+06:47.560 --> 06:48.240
+This should be readable.
+
+06:53.160 --> 06:56.320
+So all this program does is it starts five threads.
+
+06:57.440 --> 06:58.920
+The threads don't have any locking on them.
+
+06:58.920 --> 07:04.080
+There's a number of iterations and they try to increment a counter that's not guarded.
+
+07:04.080 --> 07:05.480
+So obviously, we have a race condition there.
+
+07:05.480 --> 07:07.240
+We just try to increment something without the lock.
+
+07:08.960 --> 07:15.960
+If I were to run this program without RR, I get this number here,
+
+07:17.360 --> 07:20.640
+which is obviously wrong, but if I do try to run it with RR,
+
+07:23.040 --> 07:26.920
+a few times, you will often get this.
+
+07:26.920 --> 07:29.280
+This is the correct value if you actually have the right locking.
+
+07:30.680 --> 07:35.040
+So depending on how your application actually is,
+
+07:36.680 --> 07:40.400
+it's not guaranteed to be able to reproduce every sort of race condition that you have.
+
+07:46.200 --> 07:48.440
+And, okay, that's for the demo.
+
+07:48.440 --> 07:53.600
+And now one more thing that I really like about RR is it helps code discovery.
+
+07:54.480 --> 07:58.600
+Like MariaDB has a code base that's 25 to 30 years old.
+
+07:58.600 --> 08:01.360
+There's functions there that I don't understand what they do,
+
+08:01.360 --> 08:04.000
+but I have some expectations what they should return.
+
+08:05.080 --> 08:09.240
+So what I do is I tend to consider them black boxes and just step over them
+
+08:09.240 --> 08:13.040
+until I see that this thing returns something that I did not expect.
+
+08:13.040 --> 08:16.960
+Then I just step back and I can go into details into the function.
+
+08:16.960 --> 08:20.280
+So it even helps speed up code understanding.
+
+08:23.640 --> 08:26.480
+Okay, this was a brief talk.
+
+08:26.480 --> 08:29.280
+That's what I wanted to share.
+
+08:29.280 --> 08:30.360
+Now, any questions?
+
+08:33.600 --> 08:34.600
+Thank you.
+
+08:39.240 --> 08:41.040
+So I didn't even have time to...
+
+08:41.800 --> 08:48.120
+Please make sure to repeat the question.
+
+08:48.120 --> 08:49.120
+Yeah.
+
+08:51.120 --> 08:52.120
+Yeah, you had a question.
+
+08:52.120 --> 08:55.120
+For your problem of race condition,
+
+08:55.120 --> 09:03.120
+have you tried tools such as trade analyzer or val-green,
+
+09:03.120 --> 09:05.120
+a green slide out?
+
+09:05.200 --> 09:09.200
+So these, for example, you have given, for example,
+
+09:09.200 --> 09:15.200
+would be detected without having to trade off the race condition?
+
+09:15.200 --> 09:16.200
+Yes.
+
+09:17.200 --> 09:18.200
+So I repeat the question.
+
+09:18.200 --> 09:22.200
+The question was, have I tried other analysis tools
+
+09:22.200 --> 09:25.200
+to help detect these sorts of race conditions,
+
+09:25.200 --> 09:30.200
+like val-grind, sanitizers, stuff like that.
+
+09:30.200 --> 09:32.200
+So we have a set of tools we use.
+
+09:32.280 --> 09:33.280
+We use ASAN.
+
+09:33.280 --> 09:36.280
+So we compile with ASAN and run with ASAN.
+
+09:36.280 --> 09:39.280
+We run with val-grind, but val-grind has also the same problem
+
+09:39.280 --> 09:42.280
+that is single-threaded and actually slows down the execution
+
+09:42.280 --> 09:43.280
+even more.
+
+09:44.280 --> 09:47.280
+We compile with MSAN, so memory sanitizer.
+
+09:47.280 --> 09:50.280
+That one is a bit trickier because you have to compile
+
+09:50.280 --> 09:53.280
+system libraries as well for MSAN.
+
+09:53.280 --> 09:56.280
+But all these combined with RR,
+
+09:56.280 --> 10:01.280
+you get to the end the result, which is a bug-free program.
+
+10:02.280 --> 10:05.280
+I think that's the point.
+
+10:05.280 --> 10:06.280
+Yeah.
+
+10:06.280 --> 10:10.280
+You said that you need special, like, CPU features
+
+10:10.280 --> 10:11.280
+that use RR.
+
+10:11.280 --> 10:12.280
+Why is this?
+
+10:12.280 --> 10:14.280
+Does my first question, second thing,
+
+10:14.280 --> 10:17.280
+is, if I recall correctly, it means that it likely won't work
+
+10:17.280 --> 10:18.280
+in the end?
+
+10:21.280 --> 10:22.280
+Okay.
+
+10:22.280 --> 10:24.280
+I don't know the answer to the first question.
+
+10:24.280 --> 10:26.280
+I think that the next talk will actually explain that.
+
+10:26.280 --> 10:27.280
+It's security reasons.
+
+10:27.280 --> 10:28.280
+Okay.
+
+10:28.280 --> 10:30.280
+Security reasons, basically.
+
+10:30.360 --> 10:32.360
+But yeah.
+
+10:32.360 --> 10:33.360
+Okay, go ahead.
+
+10:33.360 --> 10:36.360
+Okay, and like, VM-wise,
+
+10:36.360 --> 10:38.360
+actually, I've never actually had to try in VMs.
+
+10:38.360 --> 10:41.360
+I've only used containers and worked there, so.
+
+10:41.360 --> 10:43.360
+Containers are just processes.
+
+10:43.360 --> 10:44.360
+Yes.
+
+10:44.360 --> 10:47.360
+But for the security reasons, I don't think that's a good answer.
+
+10:47.360 --> 10:51.360
+I mean, maybe let me rephrase the question,
+
+10:51.360 --> 10:54.360
+because I understand that's like the security reasons
+
+10:54.360 --> 10:56.360
+to enable Perf, right?
+
+10:56.360 --> 10:58.360
+But why do you need Perf in order for RR to run?
+
+10:58.360 --> 10:59.360
+Watch my talk.
+
+10:59.440 --> 11:00.440
+Okay.
+
+11:00.440 --> 11:05.440
+How much data does it typically generate?
+
+11:07.440 --> 11:09.440
+I've never actually looked at that,
+
+11:09.440 --> 11:11.440
+but we can check the recording for this one.
+
+11:11.440 --> 11:13.440
+So let's have a look.
+
+11:13.440 --> 11:17.440
+So the question was how much data this recording uses.
+
+11:18.440 --> 11:19.440
+Let's see.
+
+11:19.440 --> 11:21.440
+Demo 22.
+
+11:25.440 --> 11:26.440
+Let's do a DUE.
+
+11:26.520 --> 11:31.520
+So 100 megs for that very quick program.
+
+11:31.520 --> 11:34.520
+And for my AGD, please allow your honor
+
+11:34.520 --> 11:36.520
+to pose a subject.
+
+11:36.520 --> 11:39.520
+Let's see if I have a history of one here.
+
+11:49.520 --> 11:54.520
+And just in case, do you run it by default in your OCI?
+
+11:54.600 --> 11:56.600
+Not with RR.
+
+11:56.600 --> 11:58.600
+So we don't run RR in the CI.
+
+11:58.600 --> 12:01.600
+We use it when the CI detects a problem.
+
+12:01.600 --> 12:03.600
+So let's see this one.
+
+12:05.600 --> 12:07.600
+So this is one test case.
+
+12:07.600 --> 12:09.600
+Okay, one gig.
+
+12:09.600 --> 12:10.600
+Okay.
+
+12:12.600 --> 12:13.600
+Okay.
+
+12:13.600 --> 12:14.600
+One test, one gig.
+
+12:14.600 --> 12:15.600
+Yeah.
+
+12:15.600 --> 12:19.600
+If I'm not mistaken, I think GDB provides the record command
+
+12:19.600 --> 12:20.600
+as well.
+
+12:20.600 --> 12:21.600
+Watch my talk.
+
+12:21.680 --> 12:24.680
+I'm going to go exactly over that.
+
+12:24.680 --> 12:26.680
+The DDB record doesn't work.
+
+12:26.680 --> 12:27.680
+Is that true?
+
+12:27.680 --> 12:28.680
+Watch.
+
+12:28.680 --> 12:29.680
+Watch it.
+
+12:29.680 --> 12:30.680
+Watch it.
+
+12:30.680 --> 12:31.680
+Watch it.
+
+12:31.680 --> 12:32.680
+Watch it.
+
+12:32.680 --> 12:34.680
+My talk is to get you to fix things.
+
+12:34.680 --> 12:35.680
+So.
+
+12:35.680 --> 12:37.680
+Yeah, there's another one.
+
+12:37.680 --> 12:39.680
+There was one there.
+
+12:39.680 --> 12:41.680
+So the part that was on set a moment ago
+
+12:41.680 --> 12:44.680
+about the sanitizers, what about the red sanitizer?
+
+12:48.680 --> 12:49.680
+I...
+
+12:49.760 --> 12:52.760
+So about red sanitizer, I have not...
+
+12:53.760 --> 12:54.760
+It's good.
+
+12:54.760 --> 12:56.760
+So the sanitizer is good.
+
+12:56.760 --> 12:58.760
+You can detect a data race or something like this.
+
+12:58.760 --> 13:00.760
+But the thing is that you might have a crash
+
+13:00.760 --> 13:03.760
+that may be a reason of something else that was intended.
+
+13:03.760 --> 13:06.760
+And then you may want to step back to find out the exact reason.
+
+13:06.760 --> 13:09.760
+And also things like ASAN may not help you,
+
+13:09.760 --> 13:14.760
+because, for example, ASAN is doing this kind of shadow memory
+
+13:14.760 --> 13:18.760
+juggling to be basically detected in correct memory access
+
+13:18.840 --> 13:21.840
+but the thing is that when you have, for example,
+
+13:21.840 --> 13:24.840
+implement your own containers where you handle the capacity
+
+13:24.840 --> 13:28.840
+versus size thing, then the memory out of bound access
+
+13:28.840 --> 13:30.840
+between the capacity and...
+
+13:30.840 --> 13:32.840
+Or sorry, size and capacity won't be detected
+
+13:32.840 --> 13:34.840
+if it's your container and it's not really...
+
+13:34.840 --> 13:37.840
+Like, prepared for ASAN.
+
+13:37.840 --> 13:39.840
+You can poison if you have your own container.
+
+13:39.840 --> 13:41.840
+Yes, you can do that.
+
+13:41.840 --> 13:44.840
+And, for example, there are projects to, for example,
+
+13:44.840 --> 13:47.840
+make this for SDD string or SDDVQ and I'll be in right now.
+
+13:47.920 --> 13:51.920
+So one problem we tend to have is there's actually no data corruption...
+
+13:51.920 --> 13:54.920
+There is data corruption on disk and you need to figure out
+
+13:54.920 --> 13:56.920
+how that got on disk.
+
+13:56.920 --> 13:59.920
+And it's not necessarily a race condition, it's a bug that's
+
+13:59.920 --> 14:03.920
+hidden in the logic and it only happens
+
+14:03.920 --> 14:05.920
+in a certain case of events.
+
+14:05.920 --> 14:08.920
+So usually the crash is an assertion failure somewhere.
+
+14:10.920 --> 14:12.920
+Yeah.
+
+14:12.920 --> 14:15.920
+So in your example, we can see that there's a difference
+
+14:16.000 --> 14:19.000
+of the increments of the content.
+
+14:19.000 --> 14:21.000
+Do you know why it's not with us?
+
+14:21.000 --> 14:24.000
+Is it because of the instrumentation or the latency?
+
+14:24.000 --> 14:26.000
+And then...
+
+14:26.000 --> 14:29.000
+So probably the next talk will help answer that better,
+
+14:29.000 --> 14:32.000
+but I have a theory and at least this is my understanding of it.
+
+14:32.000 --> 14:35.000
+So if it's running in single threaded mode,
+
+14:35.000 --> 14:37.000
+it has to context switch between the threads.
+
+14:37.000 --> 14:40.000
+And it has to decide when that context switch happens.
+
+14:40.000 --> 14:43.000
+It just seems to be significantly more likely
+
+14:43.080 --> 14:46.080
+to switch after the store has happened.
+
+14:46.080 --> 14:48.080
+In which case the number...
+
+14:48.080 --> 14:50.080
+You kind of get to the right one at the end.
+
+14:50.080 --> 14:53.080
+So another way of saying it is serialize this execution?
+
+14:53.080 --> 14:55.080
+Yes, exactly.
+
+14:55.080 --> 14:57.080
+And there is a chaos mode you can enable.
+
+14:57.080 --> 15:00.080
+So rr with dash dash chaos makes it a little bit more
+
+15:00.080 --> 15:03.080
+possible for it to happen, more likely for it to happen.
+
+15:04.080 --> 15:06.080
+Might also not answer that.
+
+15:06.080 --> 15:08.080
+Oh, well that's a good question for you then.
+
+15:08.080 --> 15:10.080
+Yeah.
+
+15:10.160 --> 15:13.160
+Rr is recording process information.
+
+15:13.160 --> 15:16.160
+Like for example, if you're doing it for proc mappings,
+
+15:16.160 --> 15:19.160
+will it actually show up the memory,
+
+15:19.160 --> 15:22.160
+the memory mappings that are on this point in time
+
+15:22.160 --> 15:25.160
+when you are actually stopped on and like reversed?
+
+15:26.160 --> 15:28.160
+And another question,
+
+15:28.160 --> 15:31.160
+does it maybe record additional information,
+
+15:31.160 --> 15:34.160
+like for example, where the file descriptor points?
+
+15:34.160 --> 15:36.160
+Like what was the link on the proc,
+
+15:36.240 --> 15:39.240
+it, fd and the number there?
+
+15:40.240 --> 15:42.240
+Because that would be very useful to have.
+
+15:42.240 --> 15:45.240
+If it's in memory, it should be there.
+
+15:45.240 --> 15:47.240
+I mean, probably it's not memory mapping is there
+
+15:47.240 --> 15:49.240
+because I assume...
+
+15:49.240 --> 15:51.240
+So, yeah.
+
+15:51.240 --> 15:54.240
+In memory stuff, I've not had a problem getting it.
+
+15:54.240 --> 15:56.240
+So it's a very technical question.
+
+15:56.240 --> 15:58.240
+I don't have like the best answer,
+
+15:58.240 --> 16:00.240
+but I don't think there is a problem.
+
+16:03.240 --> 16:05.240
+Yep.
+
+16:05.320 --> 16:08.320
+So, I'm not one of the Rr developers.
+
+16:08.320 --> 16:11.320
+I can't answer that, but like from my understanding,
+
+16:11.320 --> 16:14.320
+I think it's kind of hard to get the CPU to do that.
+
+16:14.320 --> 16:17.320
+You're kind of relying on CPU being able to write stuff to memory.
+
+16:17.320 --> 16:19.320
+So...
+
+16:19.320 --> 16:22.320
+I just have a question.
+
+16:22.320 --> 16:24.320
+Like...
+
+16:24.320 --> 16:26.320
+I don't know if you can answer that.
+
+16:26.320 --> 16:28.320
+I don't know.
+
+16:28.320 --> 16:30.320
+I don't know.
+
+16:30.320 --> 16:32.320
+I don't know.
+
+16:32.400 --> 16:34.400
+Like...
+
+16:34.400 --> 16:37.400
+MariaDB, the releases are...
+
+16:37.400 --> 16:40.400
+How good are we in terms of known bugs,
+
+16:40.400 --> 16:42.400
+race conditions bugs?
+
+16:42.400 --> 16:44.400
+They, you know...
+
+16:46.400 --> 16:49.400
+This is for CI and I don't know if I brought some.
+
+16:49.400 --> 16:53.400
+Just wondering, the release, the MariaDB product,
+
+16:53.400 --> 16:55.400
+is it free of race conditions?
+
+16:55.400 --> 16:57.400
+I'm not sure the quality.
+
+16:57.400 --> 16:59.400
+There is a law...
+
+16:59.400 --> 17:01.400
+I don't know who named it,
+
+17:01.480 --> 17:03.480
+but there is no software free of bugs.
+
+17:03.480 --> 17:05.480
+Yeah, okay.
+
+17:05.480 --> 17:07.480
+But it's free of known race conditions.
+
+17:07.480 --> 17:09.480
+Um, like, there are...
+
+17:09.480 --> 17:11.480
+Like...
+
+17:11.480 --> 17:14.480
+Obviously, we try our best not to ship a buggy product,
+
+17:14.480 --> 17:16.480
+but there are race conditions,
+
+17:16.480 --> 17:18.480
+especially when...
+
+17:18.480 --> 17:21.480
+We've done lots of performance improvements
+
+17:21.480 --> 17:23.480
+for, like, high core count machines,
+
+17:23.480 --> 17:25.480
+like 96-plus cores.
+
+17:25.480 --> 17:27.480
+And that requires some refactoring,
+
+17:27.480 --> 17:30.480
+especially in EnoDB, the storage engine.
+
+17:30.560 --> 17:33.560
+There might still be race conditions there.
+
+17:33.560 --> 17:35.560
+We have had emergency releases
+
+17:35.560 --> 17:38.560
+when we release something and then we realize,
+
+17:38.560 --> 17:40.560
+a day later, we're getting data corruption.
+
+17:40.560 --> 17:43.560
+We need to do an emergency fix.
+
+17:43.560 --> 17:46.560
+But overall, we are pretty confident
+
+17:46.560 --> 17:50.560
+that the CI, since it runs for so many platforms,
+
+17:50.560 --> 17:54.560
+I think we have about 200-ish different combinations.
+
+17:54.560 --> 17:57.560
+If there is a race condition, it tends to show up.
+
+17:57.640 --> 18:03.640
+So is it just x86 or is it cross-spectre?
+
+18:03.640 --> 18:05.640
+The tool works on ARM.
+
+18:05.640 --> 18:09.640
+So I know it has support for M1 plus max.
+
+18:09.640 --> 18:13.640
+Um, yeah.
+
+18:13.640 --> 18:18.640
+So I know x86 and ARM and Apple Silicon kind of works.
+
+18:22.640 --> 18:24.640
+If that's all, then...
+
+18:24.640 --> 18:25.640
+One more?
+
+18:25.640 --> 18:26.640
+Okay, one kind of question.
+
+18:26.720 --> 18:29.720
+So let's say I'm a language developer,
+
+18:29.720 --> 18:32.720
+I'm making my own compiler, I need my own native code.
+
+18:32.720 --> 18:38.720
+Should I be using RR for something other than the default?
+
+18:39.720 --> 18:42.720
+I use RR for...
+
+18:42.720 --> 18:45.720
+Whenever I need a debugger, I use RR instead.
+
+18:45.720 --> 18:46.720
+Okay.
+
+18:46.720 --> 18:47.720
+So...
+
+18:47.720 --> 18:51.720
+Even for logic problems, where you've got like a zero execution code at the end,
+
+18:51.720 --> 18:54.720
+but the logic was flawed and...
+
+18:54.800 --> 18:57.800
+That's the advantage that you can go back in time
+
+18:57.800 --> 19:01.800
+so that you can inspect the value that even if you set the break point too late,
+
+19:01.800 --> 19:03.800
+you can just go back.
+
+19:03.800 --> 19:04.800
+Yeah.
+
+19:04.800 --> 19:09.800
+But one interesting thing is that the program you're debugging is not live,
+
+19:09.800 --> 19:11.800
+it's just being annulated.
+
+19:11.800 --> 19:13.800
+So if you would like to, for instance,
+
+19:13.800 --> 19:16.800
+see what this function would return in this situation or things like that,
+
+19:16.800 --> 19:19.800
+GDB, because it's running GDB in the front,
+
+19:19.880 --> 19:24.880
+GDB cannot just run the functions, tell you why it would happen.
+
+19:24.880 --> 19:26.880
+So there are cases in which you don't want to use RR.
+
+19:26.880 --> 19:28.880
+Yeah, it's a abstract interpretation.
+
+19:28.880 --> 19:29.880
+Yeah.
+
+19:29.880 --> 19:30.880
+It's just...
+
+19:30.880 --> 19:32.880
+It's just emulating the thing.
+
+19:32.880 --> 19:33.880
+Yeah, that's good.
+
+19:33.880 --> 19:34.880
+Thank you very much.
+
+19:34.880 --> 19:36.880
+So does this mean there is no, like,
+
+19:36.880 --> 19:41.880
+inferior running under the hood so you cannot print and call through with an argument?
+
+19:41.880 --> 19:43.880
+Well, let me just say that.
+
+19:43.880 --> 19:45.880
+I thought it wasn't...
+
+19:45.880 --> 19:46.880
+I can try that.
+
+19:46.880 --> 19:47.880
+No, no, no.
+
+19:47.880 --> 19:48.880
+I think it's probably work.
+
+19:48.960 --> 19:55.960
+We can try it because I know some ways to do that would not happen inferior running.
+
+19:55.960 --> 19:56.960
+Yeah.
+
+19:56.960 --> 19:59.960
+But right now I'm not sure what RR does.
+
+19:59.960 --> 20:00.960
+I never...
+
+20:01.960 --> 20:03.960
+Spoilers, I never looked at the RR code.
+
+20:03.960 --> 20:05.960
+I just have a vague idea of how it does that.
+
+20:06.960 --> 20:07.960
+Okay, let's see.
+
+20:07.960 --> 20:08.960
+We can do a...
+
+20:08.960 --> 20:10.960
+So you're saying to call printf, basically?
+
+20:10.960 --> 20:11.960
+No.
+
+20:11.960 --> 20:13.960
+Call any function that is in your program.
+
+20:13.960 --> 20:14.960
+You can call quotes.
+
+20:14.960 --> 20:15.960
+You can call quotes.
+
+20:15.960 --> 20:17.960
+It should be there because you never have GDB out of them.
+
+20:18.040 --> 20:19.040
+So, um...
+
+20:19.040 --> 20:20.040
+Print and then...
+
+20:20.040 --> 20:21.040
+Print and then...
+
+20:21.040 --> 20:22.040
+Puts are...
+
+20:22.040 --> 20:24.040
+Okay, I can probably do this.
+
+20:24.040 --> 20:25.040
+Yeah.
+
+20:26.040 --> 20:27.040
+Okay, no, yeah.
+
+20:27.040 --> 20:28.040
+So...
+
+20:28.040 --> 20:30.040
+So, yeah, so it does have an...
+
+20:30.040 --> 20:32.040
+I'm sorry, that one's incorrect.
+
+20:32.040 --> 20:33.040
+Yeah, it does.
+
+20:33.040 --> 20:34.040
+It did it ten times.
+
+20:34.040 --> 20:35.040
+But your function...
+
+20:35.040 --> 20:36.040
+I can...
+
+20:36.040 --> 20:37.040
+You're gonna have side effects.
+
+20:37.040 --> 20:38.040
+How is this...
+
+20:38.040 --> 20:39.040
+Yeah, so it does not...
+
+20:39.040 --> 20:40.040
+It's correct.
+
+20:41.040 --> 20:44.040
+Sorry, but what happens now if we step back?
+
+20:44.040 --> 20:45.040
+So...
+
+20:45.040 --> 20:46.040
+Two minutes left.
+
+20:46.040 --> 20:47.040
+No.
+
+20:47.120 --> 20:49.120
+Again, my talk.
+
+20:49.120 --> 20:51.120
+I'll touch on this and then I can...
+
+20:51.120 --> 20:52.120
+We...
+
+20:52.120 --> 20:53.120
+We...
+
+20:53.120 --> 20:54.120
+We died.
+
+20:54.120 --> 20:56.120
+So, we talked a little bit.
+
+20:56.120 --> 20:59.120
+I can go into a little bit more detail than I planned in my talk.
+
+20:59.120 --> 21:03.120
+There is a specific point where I say this is how I heard our words.
+
+21:03.120 --> 21:04.120
+I've never looked at it.
+
+21:04.120 --> 21:07.120
+But now I can, like, go a little bit further.
+
+21:07.120 --> 21:09.120
+But, yeah, so this was a talk.
+
+21:09.120 --> 21:13.120
+And in five minutes, I'll start explaining the technical details.
+
+21:13.120 --> 21:14.120
+Right.
+
+21:14.120 --> 21:15.120
+Thank you.
+
+21:15.120 --> 21:16.200
+Thank you.
+

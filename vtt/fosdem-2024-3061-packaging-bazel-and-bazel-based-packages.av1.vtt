@@ -1,0 +1,1214 @@
+WEBVTT
+
+00:00.000 --> 00:12.000
+All right. So we now have on stage Guillaume who is going to talk about, as he mentioned,
+
+00:12.000 --> 00:23.600
+packaging, Basil packages with Basil Software with Nex. Thank you.
+
+00:23.600 --> 00:31.600
+So welcome everyone. I spent some months working on and off on trying to package Basil 7.
+
+00:31.600 --> 00:36.600
+And I figured there are plenty of fun things that happened and nice things to learn from that.
+
+00:36.600 --> 00:43.600
+So I wanted to share with you today. I'm Guillaume Maudoux, a computer scientist.
+
+00:43.600 --> 00:51.600
+I'm like a founder of BIL systems. All of them, well, the one I prefer is the one we don't want to speak about it today.
+
+00:51.600 --> 01:01.600
+I'm working, like for my day job as a consultant in doing Basil and Basil work at Twig.
+
+01:01.600 --> 01:09.600
+You have all my contact info. And yeah, this work was funded by Intuitive Surgical and Twig together.
+
+01:09.600 --> 01:18.600
+So getting Basil 7. Basil 7 was released last year, end of last year, and it took some time to get this into Nex packages,
+
+01:18.600 --> 01:22.600
+even though there is already like a Basil 5, a Basil 6, a Basil 4 in Nex packages,
+
+01:22.600 --> 01:27.600
+and each time you make a copy, reuse, and try to improve, it still takes a lot of time.
+
+01:27.600 --> 01:37.600
+I think there is like a fundamental difficulty in trying to get Basil to work inside Nex because they just don't like each other.
+
+01:37.600 --> 01:42.600
+To be honest, I think Basil tries to do everything and doesn't want to share with anyone else.
+
+01:42.600 --> 01:46.600
+So of course, there is friction when you want to encapsulate it into something else.
+
+01:46.600 --> 01:53.600
+But initially, it looks like they could be quite happy together.
+
+01:53.600 --> 02:02.600
+Basil is like file-based, like make, like CMake, like all of these nice build systems we use for all the packages inside Nex.
+
+02:02.600 --> 02:11.600
+So that should work, and Nex is package-based, so the kind of one works, manages the package, the other one, just a project, should be easy.
+
+02:11.600 --> 02:18.600
+But then it gets a bit worse because of course you cannot get the benefits of Basil.
+
+02:18.600 --> 02:24.600
+Basil wants to do remote caching, remote execution, and all of that is prevented by the Nex sandbox.
+
+02:24.600 --> 02:33.600
+So just like with other build systems, in this case, it's not different, but you see how these things do not work as well as you may expect from Basil.
+
+02:34.600 --> 02:37.600
+Then we have some issues, like a bit more annoying.
+
+02:37.600 --> 02:48.600
+Basil assumes that there is like the file system hierarchy stand out everywhere, and like Nex does not provide that anywhere, so I kind of stuck there.
+
+02:48.600 --> 02:57.600
+Basil loves to include pre-compiled dependencies, and it will happily, and this feature is intended to help all the users that are not using Nex,
+
+02:57.600 --> 03:05.600
+but it's really annoying for us, it downloads dependencies from the Internet, and that's kind of built into Basil.
+
+03:05.600 --> 03:11.600
+So with the sandbox, we break Basil completely and we need to work around that.
+
+03:11.600 --> 03:19.600
+It's really hard to package, so I would like, like these are like four snippets of things that we won't discuss today, and that we have to do to make Basil work.
+
+03:19.600 --> 03:21.600
+We have to patch all of the user bin paths.
+
+03:21.600 --> 03:31.600
+We have to remove some chunks of code that try to access the system state, and that's obviously not possible inside a sandbox, like preventing the system from going to sleep.
+
+03:31.600 --> 03:37.600
+Apparently, Basil has an empty arg when it calls GCC and it crashes.
+
+03:37.600 --> 03:43.600
+I mean, we don't even know if that code is still needed anymore, but like, not so much to do, we didn't try to remove it.
+
+03:43.600 --> 03:45.600
+At some point, at least, that was needed.
+
+03:46.600 --> 03:55.600
+And, yeah, it comes with nested archive, so if you unpack some things so that the patch works and then you have to repack them in the exact same way otherwise everything breaks.
+
+03:55.600 --> 03:58.600
+Lots of fun, but we won't discuss that today.
+
+03:58.600 --> 04:01.600
+I've picked like five issues that are more meaningful, I think.
+
+04:01.600 --> 04:03.600
+There is the Java toolchain.
+
+04:03.600 --> 04:07.600
+That's something that we need to set up properly to be able to build Basil itself.
+
+04:07.600 --> 04:17.600
+And then setting the right path, because if we want to package Basil, we want Basil that works as closely as possible to the vanilla Basil.
+
+04:17.600 --> 04:28.600
+Then we move slowly to building package that uses Basil as a build system, even if it's also the case for Basil, because Basil uses Basil as a build system to build Basil.
+
+04:28.600 --> 04:30.600
+You're still following? Good.
+
+04:31.600 --> 04:36.600
+So we enter the realm of like, fetching dependencies of the build, which is quite tricky.
+
+04:36.600 --> 04:42.600
+And then we will also discuss about like, picking the right Basil version using dot Basil version file.
+
+04:42.600 --> 04:44.600
+And again, the Java toolchain.
+
+04:44.600 --> 04:45.600
+Why not?
+
+04:45.600 --> 04:49.600
+We will see it's so complex that it deserves two points.
+
+04:49.600 --> 04:54.600
+So we start with the Java toolchain.
+
+04:54.600 --> 04:57.600
+Basil hardcodes everything everywhere.
+
+04:57.600 --> 05:01.600
+So here, Basil tries to do something nice for us.
+
+05:01.600 --> 05:04.600
+It will download the single jar binary that's already pre-compiled.
+
+05:04.600 --> 05:06.600
+It's a cc++ application, by the way.
+
+05:06.600 --> 05:09.600
+So of course it doesn't just work like that with Nix.
+
+05:09.600 --> 05:14.600
+And for the Linux and Windows, it will pick the right one for you.
+
+05:14.600 --> 05:18.600
+But there is no way to change that, except like patching the source code.
+
+05:18.600 --> 05:24.600
+We cannot like, from the outside configure the build so that it picks something else.
+
+05:24.600 --> 05:30.600
+In this case, we probably want this one, the one that's built from the cc++ sources with the c compiler,
+
+05:30.600 --> 05:36.600
+because we can do that on Nix and we get the proper binary, but none of these pre-built binaries work.
+
+05:38.600 --> 05:44.600
+So we have to create, and you see this is a patch, so there is no way to do that without like modifying the source code again.
+
+05:44.600 --> 05:53.600
+We create toolchains for Basil that do not contain these like pre-built dependencies.
+
+05:53.600 --> 05:56.600
+To do that, we use a non-pre-built toolchain configuration.
+
+05:56.600 --> 06:02.600
+So that defines somewhere, even though it's not that much tested in the codebase, so we can reuse it.
+
+06:02.600 --> 06:09.600
+And we use the localJRK, meaning we want to use Java from the system and not some pre-built Java,
+
+06:09.600 --> 06:11.600
+because that one also doesn't work.
+
+06:11.600 --> 06:12.600
+Okay.
+
+06:18.600 --> 06:20.600
+Yeah, okay, that's all right.
+
+06:20.600 --> 06:23.600
+So this is like showing the non-pre-built configuration that we use,
+
+06:23.600 --> 06:27.600
+and this thing that we would get otherwise by default, like the remote SDK,
+
+06:27.600 --> 06:31.600
+it's something you download from a remote cache.
+
+06:31.600 --> 06:34.600
+And the single Java one we've seen on the previous slide.
+
+06:35.600 --> 06:39.600
+But that custom toolchain is kind of fragile, because nobody uses it.
+
+06:39.600 --> 06:44.600
+So when I updated, suddenly it was missing one of these entries,
+
+06:44.600 --> 06:48.600
+and we got like a proper binary downloaded from the Internet, and that didn't work.
+
+06:48.600 --> 06:52.600
+So we have to make upstream patches to get it to work.
+
+06:52.600 --> 06:57.600
+Thankfully, that one landed fast enough, so it was like not broken too much.
+
+06:57.600 --> 07:03.600
+It was broken between 7 and 7.1, so no one should ever see that on a proper release.
+
+07:04.600 --> 07:10.600
+Another funny issue we have is setting the right path.
+
+07:10.600 --> 07:16.600
+Initially, it seemed pretty simple, like we have to patch the paths,
+
+07:16.600 --> 07:28.600
+so that's onNixBuildBasal finds all of the common bash scripts that everyone expects to have.
+
+07:28.600 --> 07:32.600
+So we do that, and we do that in a lot of places until it works.
+
+07:32.600 --> 07:39.600
+And in the end, we have something that doesn't really work, like Basal should.
+
+07:39.600 --> 07:42.600
+We've discovered that...
+
+07:42.600 --> 07:48.600
+So this is the behavior of like Vanilla Basal, based on like several options that you can change.
+
+07:48.600 --> 07:52.600
+And if you take Basal with some patch that we have,
+
+07:52.600 --> 07:56.600
+there's something very strange there, like it doesn't set an extra branch,
+
+07:56.600 --> 08:00.600
+so you can end up with the path that's configured differently than what you would expect.
+
+08:00.600 --> 08:05.600
+And you have the same with all the patch, so everything has branches everywhere,
+
+08:05.600 --> 08:10.600
+and it's like, yes, it is not consistent with what you would expect from upstream Basal.
+
+08:10.600 --> 08:17.600
+That's really annoying, because as we discover later, users rely on that fake behavior,
+
+08:17.600 --> 08:20.600
+and then when you try to fix it, they say, hey, you've broken the build.
+
+08:20.600 --> 08:23.600
+Yeah, I think this is the correct way to do it with respect to Basal,
+
+08:23.600 --> 08:29.600
+but I know that we've been using that NixBuild Basal for like three years, and you're used to it.
+
+08:29.600 --> 08:31.600
+So now it changed your build.
+
+08:31.600 --> 08:37.600
+It's really annoying that we are maintaining a fork of Basal to some extent.
+
+08:37.600 --> 08:44.600
+So the first issue we had, we end up with a path that is like literally no such path.
+
+08:44.600 --> 08:47.600
+That thing can only come from Nix.
+
+08:47.600 --> 08:49.600
+We are the one that are coded.
+
+08:49.600 --> 08:55.600
+If Basch from Nix starts without the proper path, it will default to no such path.
+
+08:55.600 --> 09:00.600
+It's kind of similar, like normal Basch will default to user bin, user local bin.
+
+09:00.600 --> 09:05.600
+That makes no sense either, so in both cases, it's a kind of a nice default,
+
+09:05.600 --> 09:12.600
+but doesn't really work with Basal, because Basal expects to have some default Basch tooling there.
+
+09:12.600 --> 09:19.600
+We have a script for that, like if path is like no such path, then we export the path to the default shell utilities.
+
+09:19.600 --> 09:22.600
+It should work, except we have this runtime inputs.
+
+09:22.600 --> 09:24.600
+I had no idea what it did.
+
+09:24.600 --> 09:25.600
+It seemed like good.
+
+09:25.600 --> 09:30.600
+We want all of these dependencies, except this modifies the path to that value.
+
+09:30.600 --> 09:35.600
+And it does it so that it happens that value to the path.
+
+09:35.600 --> 09:38.600
+So we have a no such path, colon, something else.
+
+09:38.600 --> 09:42.600
+It kind of works, but it's also kind of ugly, like why is no such path in there?
+
+09:42.600 --> 09:43.600
+It shouldn't be.
+
+09:43.600 --> 09:44.600
+That's one of these red dots.
+
+09:44.600 --> 09:46.600
+Okay, we move that line.
+
+09:46.600 --> 09:47.600
+Easy enough.
+
+09:47.600 --> 09:50.600
+And then we still have some very strange things.
+
+09:50.600 --> 09:57.600
+Like the path is composed of two parts, the path that Basal sees from the outside,
+
+09:57.600 --> 10:00.600
+and the outcoded string path.
+
+10:00.600 --> 10:02.600
+So some concatenation happens somewhere.
+
+10:02.600 --> 10:09.600
+This is like, this does not happen in the default Basal behavior, right?
+
+10:09.600 --> 10:12.600
+It's only the path there, only the path, only the path.
+
+10:12.600 --> 10:16.600
+So when we should have Basal's path, we see an extra outcoded string.
+
+10:16.600 --> 10:18.600
+Where does it come from?
+
+10:18.600 --> 10:21.600
+Of course, we wrap Basal with that path.
+
+10:21.600 --> 10:26.600
+So this is technically the path that Basal sees, because it has been wrapped.
+
+10:26.600 --> 10:30.600
+But it's not what the user expects, because the user expects to have the same path as the one
+
+10:30.600 --> 10:33.600
+that's ambient when it calls Basal.
+
+10:33.600 --> 10:35.600
+Okay, so we need to remove more and more wrappers.
+
+10:35.600 --> 10:37.600
+These were all useful at some point.
+
+10:37.600 --> 10:38.600
+They fixed some issues.
+
+10:38.600 --> 10:43.600
+Now we have better fixes implemented, but these ones are broken.
+
+10:43.600 --> 10:50.600
+And in the end, we get this very nice graph that does not depend on which Basal binary we are using.
+
+10:50.600 --> 10:55.600
+I mean, it took me some time to read there, so I'm really happy when I see this graph.
+
+10:55.600 --> 11:00.600
+This explains a lot about how Basal decides what is the environment for the actions that you run,
+
+11:00.600 --> 11:02.600
+and we can discuss it later at some point.
+
+11:02.600 --> 11:06.600
+At least, all our Basal binaries are consistent.
+
+11:07.600 --> 11:13.600
+Modular something in the hard-coded version from like Vanilla Basal.
+
+11:13.600 --> 11:23.600
+It's been user-bin-user-local-bin, and we set it to some proper path that contains default bash things.
+
+11:23.600 --> 11:30.600
+So, if streaming Nick support in Basal, that's like kind of...
+
+11:30.600 --> 11:33.600
+Ideally, we would not have to do all of that work.
+
+11:33.600 --> 11:36.600
+It should be way easier to build Basal in Nick's.
+
+11:36.600 --> 11:40.600
+Maybe some of the common stuff we can accept, like patching Shebangs, we know that,
+
+11:40.600 --> 11:43.600
+but having to redefine everything because Nick's is not aware,
+
+11:43.600 --> 11:48.600
+because Basal is not aware that Nick's exists and only thinks about, you know,
+
+11:48.600 --> 11:51.600
+if it's Linux, then probably that binary works for you.
+
+11:51.600 --> 11:53.600
+Give me a way to change that.
+
+11:53.600 --> 11:56.600
+Give me a way to configure that, and Basal does not do it.
+
+11:56.600 --> 12:02.600
+Technically, it's feasible, but it's not really used, at least in the Basal code base.
+
+12:02.600 --> 12:04.600
+There is no way to configure it.
+
+12:04.600 --> 12:09.600
+It's just like Basal knows better than you what you should use to build it.
+
+12:09.600 --> 12:12.600
+And in this case, it's obviously wrong.
+
+12:18.600 --> 12:22.600
+The biggest chunk here is like prefetching build dependencies,
+
+12:22.600 --> 12:25.600
+because that's where, of course, we have to fight with Basal.
+
+12:25.600 --> 12:28.600
+Inside the sandbox, Basal is not allowed to download anything.
+
+12:28.600 --> 12:31.600
+So, we have to download it before Basal kicks in.
+
+12:31.600 --> 12:33.600
+And Basal has to find it.
+
+12:33.600 --> 12:36.600
+So, what we used to do before is like look at the workspace file,
+
+12:36.600 --> 12:39.600
+which defines all of the external dependencies.
+
+12:39.600 --> 12:42.600
+This is kind of looks like Python, right?
+
+12:42.600 --> 12:53.600
+Yeah, it's Python enough that we can execute in an environment that defines HTTP archive.
+
+12:53.600 --> 12:57.600
+And we collect all of the files that we depend on.
+
+12:57.600 --> 13:01.600
+It's not perfect, but it's funny because it's a big hack,
+
+13:01.600 --> 13:07.600
+and sadly, it just doesn't work anymore, because they have changed the format.
+
+13:07.600 --> 13:09.600
+So, now the workspace is empty.
+
+13:09.600 --> 13:11.600
+We have no Python to execute.
+
+13:13.600 --> 13:17.600
+Now, we need to parse some JSON, the log file,
+
+13:17.600 --> 13:20.600
+which is something that really nice that comes to Basal.
+
+13:20.600 --> 13:23.600
+Now we have a proper log file, so we know what we can do with log files in X.
+
+13:23.600 --> 13:25.600
+We can parse it, we can retrieve the information,
+
+13:25.600 --> 13:27.600
+and then make proper NICs derivations of that.
+
+13:27.600 --> 13:30.600
+So, we can parse the log file with JQ.
+
+13:30.600 --> 13:32.600
+It's a bit obscure, but it works.
+
+13:32.600 --> 13:35.600
+Then I wrote it in Python because it seems like it's obvious.
+
+13:35.600 --> 13:37.600
+And then I wrote it in NICs because why not?
+
+13:37.600 --> 13:40.600
+We can parse JSON in NICs and extract everything.
+
+13:40.600 --> 13:45.600
+So, I have this nice script that takes the log file, a JSON file,
+
+13:45.600 --> 13:51.600
+and generates a repository cache, and these are like formats that Basal uses
+
+13:51.600 --> 13:56.600
+to fetch to store things that were downloaded from the Internet.
+
+13:56.600 --> 13:59.600
+And so, we first go there to see if it's already downloaded
+
+13:59.600 --> 14:01.600
+before trying to do the actual download.
+
+14:01.600 --> 14:03.600
+If you did it well, it will not try to download.
+
+14:03.600 --> 14:06.600
+If you do it wrong, of course, it still tries to download and crash.
+
+14:10.600 --> 14:14.600
+It's obviously not that easy because there are only three versions of that log file.
+
+14:14.600 --> 14:18.600
+It's been released like a year ago, but they are making fast iterations.
+
+14:18.600 --> 14:21.600
+Version 4 is there and it's probably going to change everything.
+
+14:21.600 --> 14:24.600
+So, I don't know if we will support all of these versions
+
+14:24.600 --> 14:26.600
+or maybe stick with the latest.
+
+14:26.600 --> 14:28.600
+It's really unclear right now.
+
+14:29.600 --> 14:34.600
+And the format is kind of well-defined, but it's like each rule
+
+14:34.600 --> 14:36.600
+can have its own internal format.
+
+14:36.600 --> 14:40.600
+And sadly, the URLs and the ashes are hidden in that internal format.
+
+14:40.600 --> 14:42.600
+So, we kind of need to support everything that's possible,
+
+14:42.600 --> 14:45.600
+which is obviously not going to work,
+
+14:45.600 --> 14:52.600
+but it seems that all in all, most projects is the same set of commands
+
+14:52.600 --> 14:54.600
+and we are able to do something with it.
+
+14:56.600 --> 14:58.600
+Of course, any failure makes it that we cannot build Bazel
+
+14:58.600 --> 15:00.600
+or that we can't build a package that uses Bazel
+
+15:00.600 --> 15:02.600
+because we are missing dependencies
+
+15:02.600 --> 15:06.600
+and we are back to the nightmare of just trying to download everything locally
+
+15:06.600 --> 15:09.600
+and then make a big blob that we hash and say, hey, take that.
+
+15:09.600 --> 15:11.600
+But it's totally not reproducible.
+
+15:16.600 --> 15:18.600
+Yeah.
+
+15:19.600 --> 15:25.600
+Speaking of dependencies, there was like a nasty issue that came from like the Bazel versions.
+
+15:25.600 --> 15:30.600
+If you look at Nix packages, I mean, we are nice guys.
+
+15:30.600 --> 15:33.600
+We provide Bazel 4, Bazel 5, Bazel 6, it's Bazel 6,
+
+15:33.600 --> 15:37.600
+but it's also the default Bazel, and Bazel 7, right?
+
+15:37.600 --> 15:39.600
+All of them are provided, but no.
+
+15:39.600 --> 15:44.600
+When you build with Bazel, you want 7.0.2 or whatever.
+
+15:45.600 --> 15:47.600
+But Bazel needs exactly that version.
+
+15:47.600 --> 15:49.600
+Why?
+
+15:51.600 --> 15:53.600
+That's how it works.
+
+15:53.600 --> 15:57.600
+But the thing is, it also works really well if you delete that file before building.
+
+16:02.600 --> 16:05.600
+Most of the time, but no.
+
+16:05.600 --> 16:10.600
+Now again, it started failing and it fails for a funny issue.
+
+16:10.600 --> 16:13.600
+Some of your dependencies, they are dependencies of your builds.
+
+16:13.600 --> 16:15.600
+There are things that you need.
+
+16:15.600 --> 16:18.600
+But some of your dependencies, you don't know about them,
+
+16:18.600 --> 16:21.600
+but there are things that Bazel needs because it has built-in rules,
+
+16:21.600 --> 16:24.600
+and these built-in rules have like built-in dependencies.
+
+16:24.600 --> 16:26.600
+And these are also in the log file.
+
+16:26.600 --> 16:30.600
+But if you start building with a different Bazel than the one that was specified
+
+16:30.600 --> 16:32.600
+and that was used to generate the log file,
+
+16:32.600 --> 16:35.600
+then these built-in dependencies are not the ones that Bazel wants.
+
+16:35.600 --> 16:39.600
+And Bazel tries to download it from the Internet and then it crashes.
+
+16:39.600 --> 16:41.600
+So we need to do some magic.
+
+16:41.600 --> 16:45.600
+We need to take some files that are downloaded for the project
+
+16:45.600 --> 16:49.600
+and some files that are downloaded based on the Bazel version.
+
+16:49.600 --> 16:51.600
+We need to merge them together.
+
+16:51.600 --> 16:57.600
+And that creates a folder that Bazel can use to build correctly with a different version.
+
+17:05.600 --> 17:07.600
+I'm really fond of one thing here.
+
+17:07.600 --> 17:11.600
+The fact that you can merge this thing by using Simlink Join,
+
+17:11.600 --> 17:13.600
+it means that the format is not that bad.
+
+17:13.600 --> 17:17.600
+Well, when you reach there, you're like, okay, this is pretty neat.
+
+17:17.600 --> 17:19.600
+I think Nix could learn something from that format too,
+
+17:19.600 --> 17:22.600
+because what they do is something really smart.
+
+17:22.600 --> 17:27.600
+They store like binaries from the Internet under hash,
+
+17:27.600 --> 17:28.600
+just like Nix does.
+
+17:28.600 --> 17:30.600
+Technically, it's like fixed output derivation.
+
+17:30.600 --> 17:33.600
+We download something and we put it in our known hash.
+
+17:33.600 --> 17:36.600
+But with this problem, like where we change the name
+
+17:36.600 --> 17:39.600
+or change something from the input and forget to update the hash,
+
+17:39.600 --> 17:42.600
+then it happily reuses the same hash forever.
+
+17:42.600 --> 17:47.600
+Bazel fixes that by having like an extra file
+
+17:47.600 --> 17:50.600
+that tells where it was downloaded from.
+
+17:50.600 --> 17:54.600
+And so you can pass extra information that will invalidate the cache
+
+17:54.600 --> 17:56.600
+and force a re-download.
+
+17:56.600 --> 17:58.600
+Probably just to check that it's still the same file,
+
+17:58.600 --> 18:00.600
+but if it's not, then at least you'll check.
+
+18:01.600 --> 18:02.600
+I'm not sure how to implement that.
+
+18:02.600 --> 18:05.600
+It may cost a lot if you make like a few changes in Nix,
+
+18:05.600 --> 18:08.600
+but there is some inspiration to take from there, I think.
+
+18:08.600 --> 18:12.600
+Anyway, we are back to the Java toolchain.
+
+18:12.600 --> 18:16.600
+So we have a Java toolchain that can build Bazel,
+
+18:16.600 --> 18:21.600
+but now we want users of Bazel to be able to build Java projects.
+
+18:21.600 --> 18:25.600
+It's kind of the same thing as the null-a-dull,
+
+18:25.600 --> 18:28.600
+because when we build Bazel, we can hard-code everything we want.
+
+18:28.600 --> 18:30.600
+We can even change the source code to make it work.
+
+18:30.600 --> 18:33.600
+When users are using Bazel, we cannot like change.
+
+18:33.600 --> 18:35.600
+We don't want to patch Bazel too much for it.
+
+18:35.600 --> 18:39.600
+We want to make change that work by default,
+
+18:39.600 --> 18:43.600
+but we also want this change to be like revertable,
+
+18:43.600 --> 18:47.600
+so people that don't need it or it doesn't work for them for some reason,
+
+18:47.600 --> 18:52.600
+which happens sometimes, then they need to be able to remove it.
+
+18:53.600 --> 18:57.600
+And to do that, we use another hack, a very nice one, I think.
+
+18:57.600 --> 19:02.600
+Bazel by default, access slash etc slash bazel dot bazel RC.
+
+19:02.600 --> 19:04.600
+There is no redundancy there.
+
+19:05.600 --> 19:13.600
+And we add an indirection, so we patch Bazel
+
+19:13.600 --> 19:19.600
+so that it access first a Bazel RC that is like hard-coded by Nix.
+
+19:19.600 --> 19:24.600
+And that one contains a few settings that Bazel will always rate.
+
+19:24.600 --> 19:29.600
+The thing is, using that technique, we can, I mean,
+
+19:29.600 --> 19:34.600
+we set up some default values, so we force Bazel to use our local,
+
+19:34.600 --> 19:40.600
+non-pribute Java toolchain, the one that we painfully set up.
+
+19:42.600 --> 19:45.600
+That's it, yeah, we force the version of Java to run Bazel,
+
+19:45.600 --> 19:49.600
+and then we try and import the real file.
+
+19:49.600 --> 19:51.600
+This is very transparent.
+
+19:51.600 --> 19:53.600
+There is a small risk that users don't know that this exists
+
+19:53.600 --> 19:55.600
+and don't understand where this option comes from.
+
+19:55.600 --> 19:57.600
+I hope they will know too deep about Bazel.
+
+19:57.600 --> 20:00.600
+But otherwise, each of these options can be overridden
+
+20:00.600 --> 20:04.600
+because these being options, the last one wins.
+
+20:04.600 --> 20:08.600
+Okay, so if you add a new one, like you change Java runtime version
+
+20:08.600 --> 20:12.600
+to remote gdk, your last flag will win.
+
+20:13.600 --> 20:17.600
+Except for one, because why not?
+
+20:17.600 --> 20:21.600
+This one, the first one wins.
+
+20:21.600 --> 20:24.600
+So nobody can override it.
+
+20:24.600 --> 20:28.600
+When it's there, it's like stuck.
+
+20:28.600 --> 20:31.600
+After some discussion, they realized that it was a bit silly,
+
+20:31.600 --> 20:36.600
+and so we agreed on removing the order for these flags too.
+
+20:36.600 --> 20:40.600
+That was also a funny, funny, funny thing.
+
+20:40.600 --> 20:46.600
+So regarding all the things that we do to make people build packages,
+
+20:46.600 --> 20:49.600
+we do it with our Nix build Bazel.
+
+20:49.600 --> 20:51.600
+I don't think there is as much to upstream
+
+20:51.600 --> 20:54.600
+as the things I presented before,
+
+20:54.600 --> 20:57.600
+because these hacks are a bit annoying,
+
+20:57.600 --> 20:59.600
+but they are kind of expected too.
+
+20:59.600 --> 21:01.600
+These are things we do for other build systems.
+
+21:01.600 --> 21:04.600
+Like we build packages, we download the dependencies,
+
+21:04.600 --> 21:07.600
+and then we provide them, and we then have to add some wrappers.
+
+21:07.600 --> 21:09.600
+In Python, we have even more wrappers.
+
+21:09.600 --> 21:11.600
+So I think this is kind of expected,
+
+21:11.600 --> 21:15.600
+even if it's a lot of work, like parse JSON in Nix,
+
+21:15.600 --> 21:18.600
+maybe that wasn't twice, either.
+
+21:18.600 --> 21:25.600
+But I think we've reached a place where it's already kind of easy to use,
+
+21:25.600 --> 21:27.600
+even if not perfect.
+
+21:27.600 --> 21:30.600
+We cannot compile Bazel from real sources.
+
+21:30.600 --> 21:33.600
+We use the generated sources,
+
+21:33.600 --> 21:38.600
+which is not exactly the same thing and differs in a lot of ways.
+
+21:38.600 --> 21:40.600
+It's not fully bootstrapped either,
+
+21:40.600 --> 21:43.600
+so we cannot really yet build Bazel with Bazel,
+
+21:43.600 --> 21:47.600
+meaning that building things with Bazel is still difficult.
+
+21:47.600 --> 21:50.600
+We build Bazel using the bootstrap process,
+
+21:50.600 --> 21:52.600
+which is, again, different, simplified,
+
+21:52.600 --> 21:57.600
+and more guided by the Bazel team.
+
+21:57.600 --> 22:01.600
+So it's not yet perfectly easy to use,
+
+22:01.600 --> 22:04.600
+especially on Nix OS.
+
+22:04.600 --> 22:06.600
+But then at the same time,
+
+22:06.600 --> 22:09.600
+I realize that upstream has some interest in Nix,
+
+22:09.600 --> 22:12.600
+they know we exist, they are willing to add patches.
+
+22:12.600 --> 22:16.600
+If you have a proper reason why we need it and we can argument,
+
+22:16.600 --> 22:19.600
+then they will happily merge it.
+
+22:19.600 --> 22:23.600
+I was also surprised.
+
+22:23.600 --> 22:28.600
+I know I work on very small projects all over Nix packages,
+
+22:28.600 --> 22:31.600
+but on that one, there are reviewers, people making comments,
+
+22:31.600 --> 22:35.600
+people testing my temporary thing, reporting issues.
+
+22:35.600 --> 22:41.600
+It was a really nice community feeling for one of those projects.
+
+22:41.600 --> 22:44.600
+So I think it's really well supported.
+
+22:44.600 --> 22:47.600
+And of course, being Nix, every time we update it,
+
+22:47.600 --> 22:50.600
+we improve it and we keep the receipt.
+
+22:50.600 --> 22:52.600
+And so we can make improvements,
+
+22:52.600 --> 22:58.600
+we can build upon the shoulders of Bazel 4 or 5 things that came before.
+
+22:58.600 --> 23:01.600
+Well, as you've seen, that's all I did,
+
+23:01.600 --> 23:04.600
+and I'm the kind of person that really loves challenges.
+
+23:04.600 --> 23:07.600
+So if you are willing to join, you are welcome.
+
+23:07.600 --> 23:09.600
+And if you have other challenges to share,
+
+23:09.600 --> 23:12.600
+I'm really keen to hear that with you.
+
+23:20.600 --> 23:22.600
+Thank you. Do we have any questions?
+
+23:28.600 --> 23:30.600
+Thank you for the talk.
+
+23:30.600 --> 23:33.600
+You mentioned generated sources versus real sources.
+
+23:33.600 --> 23:36.600
+What are the generated sources of Bazel?
+
+23:39.600 --> 23:42.600
+They do pre-generate some like,
+
+23:42.600 --> 23:46.600
+tarbles, things that are not compiled,
+
+23:46.600 --> 23:49.600
+but provided in the Bazel binary.
+
+23:49.600 --> 23:53.600
+Like all the built-ins, Starlark rules will be there.
+
+23:53.600 --> 23:56.600
+That's like the zip file that I have to unpack and repack.
+
+23:56.600 --> 23:59.600
+That zip file does not exist in the normal sources.
+
+23:59.600 --> 24:02.600
+You don't commit a zip file to...
+
+24:02.600 --> 24:04.600
+And a lot of other things, like they try to help people,
+
+24:04.600 --> 24:08.600
+so they provide binaries.
+
+24:08.600 --> 24:11.600
+So that's with that generated tarble,
+
+24:11.600 --> 24:15.600
+which is huge, like it's like 250 megabytes.
+
+24:15.600 --> 24:18.600
+It contains all of the binary dependencies.
+
+24:18.600 --> 24:20.600
+And a lot of those we don't need,
+
+24:20.600 --> 24:24.600
+but also it makes it really easier to have all of the needed dependencies.
+
+24:24.600 --> 24:26.600
+Because of the acts we do with the Java tool chain,
+
+24:26.600 --> 24:29.600
+we need one more file that's not there.
+
+24:29.600 --> 24:31.600
+That's pretty easy to compile.
+
+24:31.600 --> 24:33.600
+So we don't have to think too much about dependencies
+
+24:33.600 --> 24:36.600
+when we build Bazel with that tarble.
+
+24:38.600 --> 24:41.600
+Okay.
+
+24:48.600 --> 24:52.600
+If someone who enjoys Bazel discovers your work
+
+24:52.600 --> 24:54.600
+and understands it, do you think they will be convinced
+
+24:54.600 --> 24:57.600
+to stop using Bazel and use Nix instead?
+
+24:57.600 --> 25:07.600
+No, I mean, that's not at all the point of this talk, at least.
+
+25:07.600 --> 25:09.600
+I can't say what they will feel.
+
+25:09.600 --> 25:12.600
+Maybe they will discover that Bazel is complex.
+
+25:12.600 --> 25:16.600
+But the reason Bazel is taking off is
+
+25:16.600 --> 25:19.600
+it has all of these optimizations that you want.
+
+25:19.600 --> 25:21.600
+So as someone that deploys Bazel a lot,
+
+25:21.600 --> 25:24.600
+and a lot of companies, they still want it, right?
+
+25:24.600 --> 25:26.600
+You don't want Nix to come and compile for two hours
+
+25:26.600 --> 25:29.600
+because you made one change to one file.
+
+25:29.600 --> 25:33.600
+That's like... For me, these are complementary build systems.
+
+25:33.600 --> 25:37.600
+But ultimately, Bazel was not trying to be a package manager, too,
+
+25:37.600 --> 25:41.600
+because that's the part that's really conflicts between Nix and Bazel.
+
+25:44.600 --> 25:46.600
+May I have another one?
+
+25:46.600 --> 25:48.600
+So from the practical point of view,
+
+25:48.600 --> 25:51.600
+how soon can we have something like
+
+25:51.600 --> 25:56.600
+use Bazel mod lock hook instead of fetch utters
+
+25:56.600 --> 26:00.600
+with nested if else loops for a platform and queue the support?
+
+26:00.600 --> 26:04.600
+And how far are we from being able to say Nix and it tends to flow?
+
+26:06.600 --> 26:08.600
+I can answer the second question easily.
+
+26:08.600 --> 26:10.600
+Like really far.
+
+26:10.600 --> 26:13.600
+But for the first question,
+
+26:13.600 --> 26:16.600
+it's definitely something we could do.
+
+26:16.600 --> 26:19.600
+It's just like I'm amazed by the amount of work I had to do,
+
+26:19.600 --> 26:23.600
+like recompiling Bazel because it's not an incremental process right now.
+
+26:23.600 --> 26:26.600
+It takes like 20 minutes, 30 minutes.
+
+26:26.600 --> 26:28.600
+So each iteration takes that time.
+
+26:28.600 --> 26:32.600
+So we have to focus on making it work, not like trying to make a nice set of hook.
+
+26:32.600 --> 26:35.600
+Ideally, this would work, of course.
+
+26:35.600 --> 26:37.600
+But there is a slight problem also.
+
+26:37.600 --> 26:40.600
+It's like you need these things before evaluation.
+
+26:40.600 --> 26:42.600
+So it's not just a hook, right?
+
+26:42.600 --> 26:45.600
+Because the hook cannot download the files.
+
+26:45.600 --> 26:48.600
+To do something like that, then you would need recursive Nix
+
+26:48.600 --> 26:51.600
+or some way of Nix inside Nix to be able to do that.
+
+26:51.600 --> 26:55.600
+So right now I have implemented it with import from derivation
+
+26:55.600 --> 26:58.600
+for like making it simple to use.
+
+26:58.600 --> 27:01.600
+And in some cases I just like download the log file, add it to the sources
+
+27:01.600 --> 27:03.600
+and use that directly.
+
+27:03.600 --> 27:06.600
+So I don't have to have an import from derivation at all.
+
+27:06.600 --> 27:09.600
+Can we just commit the log file of the hook on graph?
+
+27:09.600 --> 27:11.600
+Yeah, we can do that.
+
+27:11.600 --> 27:12.600
+It's just huge.
+
+27:12.600 --> 27:14.600
+So what I do is I take JQ,
+
+27:14.600 --> 27:16.600
+remove a lot of the things that are not needed,
+
+27:16.600 --> 27:18.600
+and it's still a log file.
+
+27:18.600 --> 27:21.600
+All right, let's have a round of applause for Guillain.
+
+27:25.600 --> 27:28.600
+Thank you.
+

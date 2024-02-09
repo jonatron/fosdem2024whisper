@@ -1,0 +1,1412 @@
+WEBVTT
+
+00:00.000 --> 00:15.000
+Welcome to our next talk. Using your laptop TPM as a secure key store. How are we there
+
+00:15.000 --> 00:20.000
+that? From James Potomly, welcome. Have a fun. Thank you.
+
+00:20.000 --> 00:31.000
+Thank you very much. So I have been working with TPMs for quite a long time, but my history
+
+00:31.000 --> 00:39.000
+goes back way, way before that. I mostly began life as a kernel developer in Linux. A long,
+
+00:39.000 --> 00:48.000
+long time ago, I got into open source as business advocacy at least over a decade ago. I think
+
+00:48.000 --> 00:53.000
+my history with Linux kernel actually began before some of you were born now because we're all
+
+00:53.000 --> 00:59.000
+getting on a bit. I've been a kernel developer ever since, well I've been a kernel maintainer
+
+00:59.000 --> 01:05.000
+ever since 2002, this because he subsystem. I also think whether other architectures like
+
+01:05.000 --> 01:09.000
+PA risk have done a bit of arm, obviously we're forced to do risk five because it's a new
+
+01:09.000 --> 01:15.000
+trendy thing. I've been doing containers for a long, long time. I should probably be in the
+
+01:15.000 --> 01:21.000
+container dev room, but I have to be here, here to talk to you. And I'm what's called a
+
+01:21.000 --> 01:29.000
+reluctant TPM coder. The reason I'm a reluctant TPM coder is because I got into the TPM primarily
+
+01:29.000 --> 01:35.000
+because of my interest in actually using it as a security device to store keys. And part of the
+
+01:36.000 --> 01:45.000
+reason I got into that is because in the early days of Linux, we had a break in at kernel.org and
+
+01:45.000 --> 01:51.000
+everybody was forced to actually use more security around the SSH keys we used to push the kernel
+
+01:51.000 --> 01:57.000
+tree. And part of this was they gave us a Yubi key. And you know, these are these nice key dongles
+
+01:57.000 --> 02:02.000
+you plug in. And that Yubi key just did one key. And I was sort of like, well, but I don't have
+
+02:02.000 --> 02:07.000
+just one key. I've got my signing key and I've got my SSH key. And I actually use a couple more sub
+
+02:07.000 --> 02:13.000
+keys. And you know, I've got these keys for this. And so by the time I'd actually put all of my keys
+
+02:13.000 --> 02:19.000
+onto these Yubi key dongles, you've got about a fistful of them. And if you were here, I used to get
+
+02:19.000 --> 02:26.000
+Ted Cho to stand up and show me his Yubi key fistful for Google because he's got many, many more than
+
+02:26.000 --> 02:33.000
+I have. He's got about 20, which is pretty much useless. So what I was trying to do was to use the TPM
+
+02:33.000 --> 02:39.000
+of my laptop to replace all of these keys and yet still have exactly the same security as you would
+
+02:39.000 --> 02:45.000
+with a hardware dongle. The reason for Eluctant is because TPMs are really nasty things to program.
+
+02:45.000 --> 02:52.000
+This is why they actually haven't penetrated very well throughout the ecosystem. And the other point
+
+02:52.000 --> 02:59.000
+is you will actually not find a non-relectant TPM programmer. Pretty much everybody who stands up and gives you a
+
+02:59.000 --> 03:06.000
+talk about the TPM will always say they got into it for some other reason. Nobody loves the TPM is the
+
+03:06.000 --> 03:13.000
+moralfulness. Here's some more details about me because I've been blogging about this for a long time.
+
+03:13.000 --> 03:19.000
+So you can go to my blog site and there are tons of articles about the TPM. I'm afraid my blog is a bit
+
+03:19.000 --> 03:25.000
+stream of consciousness. The articles are in order of what I got interested in yesterday. And that means that
+
+03:25.000 --> 03:31.000
+there's a lot of stuff that isn't TPM on the blog. But I've usually got it tagged and labeled so you should be able
+
+03:31.000 --> 03:39.000
+to find the TPM stuff you're interested in. Thanks to FOSDAM, we all do matrix stuff now. So that's my matrix
+
+03:39.000 --> 03:46.000
+login. It's on my own server, so I run most of my own things. And you can get my GPG key. I'm not going to put up a
+
+03:46.000 --> 03:53.000
+key fingerprint because you get it over Dain instead. So Dain is this security protocol that goes over DNSSEC
+
+03:53.000 --> 04:02.000
+straight to my domain and actually pulls the GPG key directly from there. It's one of the ways you can actually
+
+04:02.000 --> 04:09.000
+replace the key distribution network of GPG. Of course another one is Web Key Distribution and all sorts of other
+
+04:09.000 --> 04:16.000
+things. But this command is actually the one you use to get my key and it's the one I was just training Lieness on
+
+04:16.000 --> 04:24.000
+about a week ago when he was wittering about the fact that my key expires quite often. So let's get started with
+
+04:24.000 --> 04:33.000
+YTPM, so security and trust. Everybody needs help protecting secrets. So I gave you my story of why I got interested
+
+04:33.000 --> 04:41.000
+in it. It was essentially protect secrets. Everybody has this need. And usually in computing terms, your secret is
+
+04:41.000 --> 04:49.000
+associated with an asymmetric key of some sort. For most people in this room, I bet you it's probably an RSA key. It's probably
+
+04:49.000 --> 04:58.000
+your GPG long-lived certification key. For more modern people, you're moving to elliptic curve keys. The reason for this is
+
+04:58.000 --> 05:07.000
+basically bits of security. So quantum computers, assuming we can't run Shor's algorithm, which just allows them to factor
+
+05:07.000 --> 05:15.000
+RSA and of course elliptic curves, if they come along, there's another algorithm called Grover's algorithm which dramatically reduces
+
+05:15.000 --> 05:22.000
+the amount of time it will take to do a brute force attack on a key. And so NEST and most government agencies are
+
+05:22.000 --> 05:30.000
+recommending we double the number of security bits in our keys. So if you have an RSA 2024 key, you've got about 112 bits of
+
+05:30.000 --> 05:38.000
+security. Most of my keys are elliptic curve, they're P256. I've got about 128 bits of security. But the minimum
+
+05:38.000 --> 05:47.000
+recommendation is going to be 256, and we're all going to have to upgrade to that. 256 bits of security in RSA equates to about
+
+05:48.000 --> 05:57.000
+15,000 and something or other in terms of bits that you need for an RSA key. Effectively, it's an RSA 16K key. These keys are way too
+
+05:57.000 --> 06:07.000
+wieldy to actually be useful in practice, and so everybody is going to be forced to use elliptic curve keys shortly. And obviously, if these
+
+06:07.000 --> 06:16.000
+keys get stolen, the user can be impersonated. And the current state of the art is all of these key dongles, as I said. And I think we should
+
+06:16.000 --> 06:26.000
+do better than this. That statement about them carrying one key is no longer entirely true. Some of the more decent UB key ones can
+
+06:26.000 --> 06:35.000
+now carry up to three keys, but it's still way too small a number. And the good thing about a TPM is that the key does not have to be
+
+06:35.000 --> 06:42.000
+stored in the hardware. So TPM hardware actually has a small storage space as well you could use. But one of the things you can do with
+
+06:42.000 --> 06:51.000
+the TPM is actually load the key from the file into the TPM. So effectively, you can have thousands and thousands of keys on the same TPM.
+
+06:51.000 --> 07:00.000
+In fact, it just scales as far as your file system storage does. The other good thing about TPM keys is that automatically two factor. So let's
+
+07:00.000 --> 07:10.000
+conduct a little experiment about two factor authentication. Who uses USB keys in this room? Keep your hand up if you use a pin or a password
+
+07:10.000 --> 07:22.000
+with that USB key. That's actually pretty good. So about 20% of the hands went down. So the point is, even if you have a USB key and you
+
+07:22.000 --> 07:30.000
+don't use a pin or password, you're not two factor. Two factor requires something you know, which is the password, and something you have,
+
+07:30.000 --> 07:38.000
+which would be the key. So with the TPM, it's the authority for the key, which is what I proved. It's a passphrase I used to prove to the TPM.
+
+07:38.000 --> 07:48.000
+I'm the owner of the key, and something which I have, which is of course access to the TPM. So for TPM basics, effectively the TPM is a separate
+
+07:48.000 --> 07:59.000
+security module that's present in pretty much all laptops. This is an Infineon mobile TPM. The TPM is that little chip there. Sorry, my battery is
+
+07:59.000 --> 08:08.000
+running down on this. So I think I've got one shot out of the laser pointer, so I won't use it yet. But the big thing on the top is actually the LPC
+
+08:08.000 --> 08:18.000
+bus connector. So as you can see, the chip is tiny. The major component of this is actually connection to the bus. They've been ubiquitous for a while now.
+
+08:18.000 --> 08:28.000
+So they've been present in laptops for at least the last 20 years. Originally at TPM 1.2, but TPM 2.0 is going through the ecosystem.
+
+08:28.000 --> 08:37.000
+The reason why everybody should have a TPM 2.0, and if you only have a TPM 1.2, you shouldn't be using it, is for agile cryptography.
+
+08:37.000 --> 08:55.000
+TPM 1.2, the specification is so old that the only hash it can do for signing is Char-1, which has been deprecated for quite a long time. So if you see Char-1 in any key signing process, most people will tell you not to use that and not to use that signature.
+
+08:55.000 --> 09:10.000
+And this basically means that TPM 1.2 is obsolete. The good thing about TPM 2.0 is it has agile cryptography, although it's not as agile as you think. If I give you a list of all the algorithms my current TPM can do, it's basically four.
+
+09:10.000 --> 09:25.000
+It can do RSA 2K, it can do NIST P256 elliptic curve, it can do the burrito and airing curve, and I was hoping to say it could do P384, but I actually checked it just before the talk and it can't. So my laptop in fact can only do three algorithms.
+
+09:26.000 --> 09:47.000
+The actual functions that a TPM can do are many that vary than one run way beyond key storage. So shielded key handling is the big one that I'm talking about today, but it can also do something called measurement. If you've heard of measured boot, that's a function that a TPM does, and that was actually the original function that a TPM was invented to perform.
+
+09:48.000 --> 10:11.000
+It can also do something called data sealing. Data sealing means that you put a blob of data into the TPM and it only releases it back to you under certain circumstances. Effectively we use this for symmetric keys. So your disk encryption key on your laptop for instance would be stored as a sealed key blob that would be released to the kernel when everything goes right.
+
+10:11.000 --> 10:16.000
+And I'll actually be talking about that in the TPM and kernel session tomorrow.
+
+10:16.000 --> 10:26.000
+And then the final function a TPM does is attestation. If you're doing things like measurements, you need to prove to somebody else what the measurements you collected actually were.
+
+10:26.000 --> 10:38.000
+And so the TPM is capable of forming a signature over a set of measurements that can be verified back to this TPM and is therefore used as proof to somebody else that what you say is correct.
+
+10:38.000 --> 10:45.000
+But obviously today I'm only talking about shielded key handling. So none of the other three functions of the TPM will be covered.
+
+10:47.000 --> 10:58.000
+So keys inside the TPM are stored in hierarchies, which means they have a theoretical hierarchy with a root key at the top and then they have other keys descending off the root key.
+
+10:58.000 --> 11:06.000
+You can actually have intermediate keys in this hierarchy. The only reason it's called a hierarchy is because of the way the TPM works.
+
+11:06.000 --> 11:14.000
+It encrypts the key file that you get back from a TPM to a symmetric key that's stored in the hierarchy.
+
+11:14.000 --> 11:17.000
+The top key of the hierarchy is always called the primary.
+
+11:18.000 --> 11:26.000
+TPM 2 has four hierarchies, which basically mean four primary keys, but there's the platform hierarchy is never used.
+
+11:26.000 --> 11:31.000
+It belongs to the film I guys and they don't use it. The endorsement hierarchy is used for attestation.
+
+11:31.000 --> 11:38.000
+The storage hierarchy is where we put our keys and the null hierarchy is also pretty much never used because it's volatile.
+
+11:38.000 --> 11:44.000
+The null key changes every time you reboot your TPM and that means that you don't have a permanent key.
+
+11:44.000 --> 11:47.000
+You can actually encrypt to it because it changes every time.
+
+11:47.000 --> 11:53.000
+So a key file from a null hierarchy on one reboot would encrypt differently from the key file on the next reboot.
+
+11:53.000 --> 11:57.000
+So effectively we only use the storage hierarchy for keys.
+
+11:57.000 --> 12:06.000
+Like I said, TPM 1.2 was char and RSA and is therefore deprecated.
+
+12:06.000 --> 12:16.000
+TPM 2 can do RSA, char 256, char 512 is actually present on most of them, and it can do elliptic curve algorithms, which is really useful.
+
+12:17.000 --> 12:31.000
+TPM 1.2 has this agile cryptography because instead of actually storing keys in its internal structure, it stores 128 bit number called a seed.
+
+12:31.000 --> 12:39.000
+And from this seed it actually uses a key derivation function to get from the seed to whatever key you want.
+
+12:39.000 --> 12:44.000
+This sounds really good and it is because the seed is just a random number.
+
+12:44.000 --> 12:49.000
+Every time you initialize a TPM, which you can do, it will choose a new set of random numbers.
+
+12:49.000 --> 12:59.000
+So the storage seed is stored as this 128 bit number and from it you derive either an RSA key or elliptic curve key or whatever else you want.
+
+12:59.000 --> 13:10.000
+The key derivation algorithm ensures the same seed as long as you have the same number, it always comes back with the same public-private key pair or the same symmetric key, which is useful.
+
+13:11.000 --> 13:18.000
+But the problem is that the key derivation function for things like RSA involves finding prime numbers.
+
+13:18.000 --> 13:25.000
+So there is a special key derivation function that means you always find the same prime numbers, but you still have to conduct a prime search.
+
+13:25.000 --> 13:32.000
+The problem for a TPM is it is a very slow processing engine and that means it takes a long time to do prime searches.
+
+13:33.000 --> 13:38.000
+So creating a key from a seed on a TPM2 can take a long time.
+
+13:38.000 --> 13:49.000
+So this is my old laptop. It takes 43 seconds to actually do a prime search and construct the correct RSA 2048 primary from its seed.
+
+13:49.000 --> 13:58.000
+My new laptop is actually using an Intel firmware TPM, which is supposed to operate on the CPU, and it still takes 7 seconds to actually derive an RSA key.
+
+13:58.000 --> 14:03.000
+So the reason I use elliptic curve keys is just because they are much, much faster.
+
+14:03.000 --> 14:12.000
+An elliptic curve key derivation to a TPM is pretty much a linear-like operation. It doesn't involve finding primes.
+
+14:15.000 --> 14:20.000
+And the storage seed can be changed in a TPM. There is a special command to do that.
+
+14:21.000 --> 14:31.000
+And the reason it's useful is because if you're storing all of your keys in your TPM as key files and you want to shred every key that you ever own at once,
+
+14:31.000 --> 14:38.000
+all you have to do is change the primary seed because that changes the encryption key that is used to save and restore the keys.
+
+14:38.000 --> 14:41.000
+All your old keys will no longer restore into this TPM.
+
+14:41.000 --> 14:50.000
+So effectively your old keys become shredded, which is a useful thing to do if you're giving up your laptop or airport security wants to do something strange with it.
+
+14:57.000 --> 15:08.000
+So once you take a key that, say you create a key for GPG and you transfer it to a TPM key, that transfer is one way.
+
+15:08.000 --> 15:11.000
+You will never get that key back again from the TPM.
+
+15:11.000 --> 15:19.000
+So if you're using this for identity keys, you have to be careful because your identity keys tend to live a lot longer than your laptops.
+
+15:19.000 --> 15:27.000
+If you're an average developer like me, you'll tend to go through a new laptop once every, you know, I'd like to say two or three years.
+
+15:27.000 --> 15:30.000
+In fact, it's pretty expensive, so it's probably every five years.
+
+15:30.000 --> 15:36.000
+But my GPG key has been with me for the last 15 years and I would expect to keep it a lot longer than that.
+
+15:36.000 --> 15:40.000
+So my GPG key will outlive the TPM in this laptop.
+
+15:40.000 --> 15:45.000
+So the one thing I can't do is transfer the key irrevocably to the laptop.
+
+15:45.000 --> 15:54.000
+So what I usually do is I generate all my identity keys in a sort of vault, put them on a secure hard drive, lock it in the drawer on my desktop.
+
+15:54.000 --> 16:05.000
+Every time I get a new laptop, I convert the keys to TPM format for that laptop and then thereafter the unconverted keys just stay on my locked drawer.
+
+16:05.000 --> 16:11.000
+And the laptop travels with me with the keys in, but you can't get hold of them because they're TPM keys.
+
+16:11.000 --> 16:14.000
+And this never extractive property is really useful.
+
+16:14.000 --> 16:17.000
+Even the manufacturer of a TPM can't extract the key.
+
+16:17.000 --> 16:25.000
+There is a theoretical process you can go through where you decap a TPM, you pop its top off, and if I can get at the seeds within,
+
+16:25.000 --> 16:31.000
+I can actually derive the encryption key for the key files from them, and that would allow me to get the keys.
+
+16:31.000 --> 16:35.000
+But there is no programmatic way of doing this in the TPM.
+
+16:35.000 --> 16:42.000
+So the stated play of this is that unfortunately the TPM is really, really hard to use in program.
+
+16:42.000 --> 16:52.000
+So the way we try and enable these key systems for everybody to use is we try and actually enable them in the crypto systems.
+
+16:52.000 --> 16:58.000
+The TPM actually has a slight disagreement over the library standard you should use to program it.
+
+16:58.000 --> 17:05.000
+This is all technical, none of you need to know about this, but there are two implementations, one from Intel and one from IBM,
+
+17:05.000 --> 17:12.000
+conforming to two completely separate specifications that are both legitimately published by the TCG for no readily apparent reason,
+
+17:12.000 --> 17:15.000
+and therefore look completely different to program.
+
+17:15.000 --> 17:18.000
+And God knows why this is.
+
+17:18.000 --> 17:24.000
+But the key to enabling TPMs for key storage is just to make it simple.
+
+17:24.000 --> 17:29.000
+And that means that it needs really to be an integral part of the cryptography system that you use.
+
+17:29.000 --> 17:36.000
+So GPG, if you use it, needs to, as an integral part of GPG, just use TPMs.
+
+17:36.000 --> 17:43.000
+Open SSL, if that's your crypto system, needs as an integral part of that to use TPMs.
+
+17:43.000 --> 17:51.000
+And that's where everything would stay, except now there's a new added wrinkle in TPM security.
+
+17:51.000 --> 17:57.000
+So the TPM is usually attached to the bus, a bus in my laptop.
+
+17:57.000 --> 18:03.000
+For most Intel laptops, it's attached to something called the LPC bus, the low pin count bus.
+
+18:03.000 --> 18:07.000
+And this bus, unfortunately, is actually pretty easy to snoop.
+
+18:07.000 --> 18:18.000
+And if you can snoop the bus and you can snoop TPM transactions on it, I can actually intercept all of the commands that are flowing over the TPM.
+
+18:18.000 --> 18:25.000
+So for instance, if I'm wrapping my private key, the private key material has to go over this bus to the TPM, somebody could intercept it.
+
+18:25.000 --> 18:34.000
+If I'm not using HMAC-based passwords, the password goes in the clear over this bus, the authority for the key, you could intercept it.
+
+18:34.000 --> 18:39.000
+And there is actually an existing attack that does this, it's called TPM Genie.
+
+18:39.000 --> 18:47.000
+The guys at the National Security Lab in Canada actually constructed a dongle that you can easily attach to a laptop without actually really opening it up.
+
+18:47.000 --> 18:51.000
+And just extract all of the TPM traffic.
+
+18:51.000 --> 19:01.000
+There is also a theory that you can actually program another device on the LPC bus, like keyboard or the mouse, simply to reflect the commands back and also do the snooping for you.
+
+19:01.000 --> 19:06.000
+So there is a theory that this TPM Genie attack could also be a remote infiltration attack.
+
+19:06.000 --> 19:09.000
+It doesn't have to be an evil made local attack.
+
+19:09.000 --> 19:19.000
+But the upshot is, nobody uses a TPM nowadays without actually running security on the bus itself, the TPM talks to the laptop on.
+
+19:19.000 --> 19:22.000
+So all data and transit now has to be encrypted.
+
+19:22.000 --> 19:30.000
+And this makes TPMs go from sort of complicated to use to being excruciating extremely complicated to use.
+
+19:30.000 --> 19:40.000
+Because now you have to use something called a TPM session, which effectively is sort of like an ECDH encryption stream between the application and you.
+
+19:40.000 --> 19:44.000
+And you in the room do not want to know how to do this.
+
+19:44.000 --> 19:51.000
+I've actually written this code from scratch for the Linux kernel because right at the moment the Linux kernel doesn't do this.
+
+19:51.000 --> 19:53.000
+And at some point we're going to get a problem because of this.
+
+19:53.000 --> 19:55.000
+So we need to be doing this encryption.
+
+19:55.000 --> 19:57.000
+It really is horrible code.
+
+19:57.000 --> 20:00.000
+Nobody in there should actually have to do this.
+
+20:00.000 --> 20:03.000
+This is why all TPM coders are reluctant coders.
+
+20:03.000 --> 20:07.000
+So I do this so you don't have to.
+
+20:07.000 --> 20:14.000
+And for added sophistication, these sessions once we have them can actually be used to implement key policy.
+
+20:14.000 --> 20:21.000
+Key policy is useful because it can say things like, unless you booted this exact kernel version, do not release this key.
+
+20:21.000 --> 20:24.000
+Do not sign anything with this GPG key.
+
+20:24.000 --> 20:26.000
+Do not use this key.
+
+20:26.000 --> 20:30.000
+So key policy is something that I'll come on to a bit later.
+
+20:30.000 --> 20:33.000
+But sessions make using a TPM way more complicated.
+
+20:33.000 --> 20:42.000
+It's all complexity you hopefully don't need to know anything about because the more complex and difficult it is, the more reluctant everybody is to use it.
+
+20:42.000 --> 20:46.000
+So let's get on to crypto system enabling.
+
+20:46.000 --> 20:50.000
+Existing crypto systems mostly use password protected keys.
+
+20:50.000 --> 20:59.000
+You've all seen them in open SSH and GPG that if you cap the key file, the private key file, it's usually just a password encrypted key of some sort.
+
+20:59.000 --> 21:00.000
+Easy.
+
+21:00.000 --> 21:04.000
+TPM keys also require something called an authority.
+
+21:04.000 --> 21:07.000
+I mean, you can actually tell TPM not to use an authority.
+
+21:07.000 --> 21:11.000
+You can just use it without effectively non too factor like a lot of USB keys.
+
+21:11.000 --> 21:15.000
+But for the best use case, you've actually got a key authority.
+
+21:15.000 --> 21:19.000
+And it's basically a secret you just proved to the TPM, you know.
+
+21:19.000 --> 21:24.000
+If you do it over an HMAC session, you do an HMAC proof.
+
+21:24.000 --> 21:27.000
+It's effectively a challenge proof that you know the password.
+
+21:27.000 --> 21:31.000
+Password itself doesn't flow over the bus in the clear.
+
+21:31.000 --> 21:38.000
+And the key files contain a TPM key blobs and the password can just be used as the key authority.
+
+21:38.000 --> 21:40.000
+This is all very easy.
+
+21:40.000 --> 21:44.000
+The problem is the key file format needs standardizing.
+
+21:44.000 --> 21:46.000
+We have loads of crypto systems.
+
+21:46.000 --> 21:51.000
+One of the early successes of cryptography is that pretty much everybody uses the open SSL key format,
+
+21:51.000 --> 21:56.000
+which if you've seen it, it's that PEM file format, which is really useful.
+
+21:56.000 --> 22:00.000
+So in order to get interoperability in the TPM ecosystem,
+
+22:00.000 --> 22:07.000
+I've actually had to spend a long time trying to force people to standardize on one particular way of using TPM keys,
+
+22:07.000 --> 22:09.000
+one way of writing them.
+
+22:09.000 --> 22:15.000
+And pretty much over the last seven years, everybody has actually agreed to do this.
+
+22:15.000 --> 22:19.000
+Well, an IBM who can't agree on anything over the TPM have agreed to do this.
+
+22:19.000 --> 22:26.000
+And so we actually have, oh, well, apart from system D, who's a late comer to the TPM consumer of space,
+
+22:26.000 --> 22:29.000
+everything else uses a standard key format.
+
+22:29.000 --> 22:32.000
+And that key format is currently standardized on my website,
+
+22:32.000 --> 22:40.000
+but ultimately I'm hoping to make it an RFC so that it will just be part of the industry.
+
+22:40.000 --> 22:46.000
+And so then, as long as the crypto system recognizes the key file, everything should just work.
+
+22:46.000 --> 22:51.000
+You can use a TPM based key file in exactly the same place as you just used a private key file.
+
+22:51.000 --> 22:53.000
+Everything should just work through the TPM.
+
+22:53.000 --> 22:58.000
+All your cryptography operations become naturally secure, which is useful property.
+
+22:58.000 --> 23:00.000
+And you don't need to know anything about the TPM.
+
+23:00.000 --> 23:07.000
+All you need to do is know how to do a one time conversion of your key, and that's it.
+
+23:08.000 --> 23:11.000
+And obviously you need some discipline around key backup.
+
+23:11.000 --> 23:18.000
+As I said, if you convert your key and remove the original, you have no way of separating that key from that laptop.
+
+23:18.000 --> 23:23.000
+Now, lots of keys are ephemeral, so perhaps that's the way you should use some of your keys.
+
+23:23.000 --> 23:27.000
+But some keys represent your identity and should survive the laptop.
+
+23:27.000 --> 23:31.000
+So you need to be careful knowing which key is which and how you should use it.
+
+23:31.000 --> 23:33.000
+So some discipline around this.
+
+23:33.000 --> 23:34.000
+The advantages are easy.
+
+23:34.000 --> 23:36.000
+You only need to trust the TPM.
+
+23:36.000 --> 23:40.000
+TPMs have been manufactured by a lot of countries all over the world.
+
+23:40.000 --> 23:42.000
+Israel is now a current one.
+
+23:42.000 --> 23:49.000
+There have been allegations the NSA put a back door in it, but currently, if you remember two talks ago,
+
+23:49.000 --> 23:51.000
+the guy was talking about reproducible bills.
+
+23:51.000 --> 23:58.000
+We actually now have a standard software model for a TPM that manufacturers are supposed to provably conform to.
+
+23:58.000 --> 24:02.000
+So we should have proof that there are no back doors on behalf of the NSA.
+
+24:02.000 --> 24:05.000
+Of course, they could be listening on the bus or something.
+
+24:05.000 --> 24:10.000
+And the great thing is, even if you take away my private key file,
+
+24:10.000 --> 24:14.000
+you can't extract the key from it without being in possession of my laptop.
+
+24:14.000 --> 24:17.000
+Everybody when I used to make this statement said, prove it.
+
+24:17.000 --> 24:21.000
+So there is an SSH private key.
+
+24:21.000 --> 24:25.000
+I've helpfully removed the password from it, so it has no password.
+
+24:25.000 --> 24:27.000
+It's my TPM key.
+
+24:27.000 --> 24:31.000
+If you actually scan that QR code, you will get the private key.
+
+24:31.000 --> 24:34.000
+And anybody can actually see this.
+
+24:34.000 --> 24:39.000
+You can't do this with an ordinary private key because I'd be giving away with my secrets.
+
+24:39.000 --> 24:42.000
+But I can do this with a TPM key.
+
+24:42.000 --> 24:49.000
+And just as a precaution for those of you figured out that this key would be usable if you got hold of the laptop that produced it,
+
+24:49.000 --> 24:52.000
+it wasn't produced by this laptop sitting on the desk.
+
+24:52.000 --> 24:54.000
+It was produced by a laptop sitting back home.
+
+24:54.000 --> 24:57.000
+So don't mug me late at night to try and get this.
+
+24:57.000 --> 25:01.000
+But this is the SSH key that I use for logging into kernel.org.
+
+25:01.000 --> 25:11.000
+And I'm now just publishing the secret part of that key so confident and I that the TPM will protect those secrets.
+
+25:11.000 --> 25:16.000
+So apart from conversion to TPM format, there is no change to the workflow.
+
+25:16.000 --> 25:23.000
+So this is hopefully what makes it simple for all of you to actually use TPM keys in your everyday life.
+
+25:23.000 --> 25:29.000
+The disadvantages are, as I said, the key is tied to a physical TPM, which is part of your laptop.
+
+25:29.000 --> 25:33.000
+When your laptop is retired or dies, that key is no longer accessible.
+
+25:33.000 --> 25:37.000
+You can no longer use it.
+
+25:37.000 --> 25:43.000
+The keys all need to be reconverted or duplicated, therefore, when you change laptop, if it's a long-lived key.
+
+25:43.000 --> 25:47.000
+And the TPM is slow. It can't process hundreds of keys.
+
+25:47.000 --> 25:52.000
+This is the reason why the TPM has a key ceiling operation,
+
+25:52.000 --> 25:58.000
+because TPM is way too slow to use for symmetric encryption like disk encryption.
+
+25:58.000 --> 26:03.000
+So the way you use disk encryption with a TPM is the key is actually sealed to the TPM.
+
+26:03.000 --> 26:09.000
+But if the TPM agrees and you provide the right password and all the policy satisfies,
+
+26:09.000 --> 26:12.000
+it will actually release that key into the kernel, into the open,
+
+26:12.000 --> 26:17.000
+where it can then actually be used by the main CPU for symmetric cryptography.
+
+26:17.000 --> 26:23.000
+But for asymmetric keys for elliptic curve and RSA, the TPM itself is doing the key operations.
+
+26:23.000 --> 26:27.000
+The private part of the key is never actually revealed.
+
+26:27.000 --> 26:32.000
+So the current status is that for open SSL1,
+
+26:32.000 --> 26:37.000
+the only way of using external crypto systems was something called an open SSL engine.
+
+26:37.000 --> 26:42.000
+And fortunately, we now have two of these for the TPM.
+
+26:42.000 --> 26:46.000
+So this is one I wrote, the top one, the open SSL2 TPM engine.
+
+26:46.000 --> 26:51.000
+This is one Intel guys wrote to go with the Intel TSS, which is the TPM2 TSS engine.
+
+26:51.000 --> 26:56.000
+Both of those are fairly good and fully functional as open SSL engines.
+
+26:57.000 --> 27:02.000
+For open SSL3, there is a problem in that they are trying to deprecate engines.
+
+27:02.000 --> 27:05.000
+Now, right at the moment, we're on open SSL...
+
+27:05.000 --> 27:10.000
+So when open SSL3 was coming up, they promised us point blank
+
+27:10.000 --> 27:14.000
+that if we hadn't converted our engines, they wouldn't work with open SSL3 full stop.
+
+27:14.000 --> 27:18.000
+They admitted when open SSL3.0 was released, this was a lie.
+
+27:18.000 --> 27:22.000
+And so open SSL3.0 still works with engines.
+
+27:22.000 --> 27:27.000
+They've just released open SSL3.1, which amazingly enough still works with engines.
+
+27:27.000 --> 27:33.000
+So the reason for this is because open SSL themselves internally uses engines
+
+27:33.000 --> 27:36.000
+and they're having a bit of difficulty deprecating their internal engines,
+
+27:36.000 --> 27:39.000
+and obviously they can't pull engine support until they can do that.
+
+27:39.000 --> 27:42.000
+So the engines will continue to work for a while.
+
+27:42.000 --> 27:47.000
+But there is a new mechanism, and it's by new, I mean this was excruciatingly
+
+27:47.000 --> 27:50.000
+and completely different from engine code.
+
+27:50.000 --> 27:55.000
+So I actually had to rewrite the entirety of the engine code to work with the provider.
+
+27:55.000 --> 27:58.000
+And then I did a little blog post about it, so if you're in the same position
+
+27:58.000 --> 28:03.000
+and have to convert an engine to a provider, I've got a detailed description of how to do it.
+
+28:03.000 --> 28:06.000
+It's not something I would wish on anybody, but it's finally been done.
+
+28:06.000 --> 28:11.000
+And we do have, even though it only says open SSLTPM2 engine
+
+28:11.000 --> 28:13.000
+because that's the name I chose for the project,
+
+28:13.000 --> 28:15.000
+before I knew it would have to become provider.
+
+28:15.000 --> 28:21.000
+So it's actually the same code that was in the previous engine is the core code is still there.
+
+28:21.000 --> 28:25.000
+I just separated it up, and I did a provider wrapper around it
+
+28:25.000 --> 28:30.000
+because the TPM code goes through a lot of tests and has to be provably correct.
+
+28:30.000 --> 28:34.000
+The last thing I wanted to do was rewrite all TPM code as well.
+
+28:34.000 --> 28:40.000
+My TPM system comes with Create TPM2 key.
+
+28:40.000 --> 28:44.000
+The Intel one comes with a Create key as well, but I've forgotten what it's called.
+
+28:44.000 --> 28:49.000
+This can also be used to convert ordinary keys to TPM-based keys,
+
+28:49.000 --> 28:54.000
+so it can be used to wrap effectively keys for the TPM.
+
+28:54.000 --> 28:56.000
+Elliptic curve issues.
+
+28:56.000 --> 29:02.000
+So TPM enabling works just fine, but the way that elliptic curves were programmed in the TPM,
+
+29:02.000 --> 29:05.000
+they didn't actually do the generic parameterized curves.
+
+29:05.000 --> 29:08.000
+They did specific named curves.
+
+29:08.000 --> 29:14.000
+This means that the only way you get to use elliptic curves with the TPM is if the curve is known to the TPM.
+
+29:14.000 --> 29:18.000
+And in fact, there are only really three mandated...
+
+29:18.000 --> 29:24.000
+Well, there's technically four because there's a Chinese curve called the SM something or other
+
+29:24.000 --> 29:27.000
+that's also mandated in the TPM, but nobody trusts the Chinese.
+
+29:27.000 --> 29:34.000
+So realistically, it's the NIST curves, and the Burrito-Nerring curve, the BN curve, is not something you should use.
+
+29:34.000 --> 29:38.000
+It was invented for direct anonymous attestation.
+
+29:38.000 --> 29:42.000
+It doesn't have as good security properties as the NIST curves,
+
+29:42.000 --> 29:47.000
+so realistically, you're down to only one elliptic curve you can actually use with the TPM.
+
+29:47.000 --> 29:53.000
+And the algorithms supports only ECDSA and ECDH,
+
+29:53.000 --> 29:59.000
+and this will be important because if you create a new GPG key, chances are it's told you
+
+29:59.000 --> 30:04.000
+to use a Bernstein 25519 curve, which is not part of the TPM,
+
+30:04.000 --> 30:09.000
+and it's actually not on the TCG radar for a very unfortunate reason.
+
+30:09.000 --> 30:16.000
+The 25519 is an Edwards curve, and Bernstein decided that the Edwards curve would have separate signature
+
+30:16.000 --> 30:21.000
+and separate Diffie-Hellman algorithms, and that means that the algorithms themselves,
+
+30:21.000 --> 30:28.000
+if for all agile cryptography in the TPM, are not present, which is a bit unfortunate.
+
+30:28.000 --> 30:34.000
+So don't wait, don't hold your breath waiting for 25519 to become a TPM standard curve.
+
+30:34.000 --> 30:36.000
+Chances are it's not going to be.
+
+30:36.000 --> 30:42.000
+If you want to use the TPM with elliptic curves, you're going to have to embrace the NIST curves.
+
+30:44.000 --> 30:50.000
+The other problem when I said all this is simple is actually an open SSL complexity.
+
+30:50.000 --> 30:55.000
+Open SSL has a special API to load engine key files.
+
+30:55.000 --> 31:00.000
+If you don't have this in your program, it won't load engine key files.
+
+31:00.000 --> 31:07.000
+And the problem was that pretty much no consumers of open SSL code, you know, open SSH, open VPN,
+
+31:07.000 --> 31:12.000
+all of the ones that are based on open SSL had this API sitting in there.
+
+31:12.000 --> 31:18.000
+So I can present a TPM key file all I like to these programs, they won't recognize it,
+
+31:18.000 --> 31:20.000
+because they're not using the correct load routine.
+
+31:21.000 --> 31:28.000
+This annoyingly stupid problem has been fixed in open SSL 3, but it was basically a complete drag on the ecosystem
+
+31:28.000 --> 31:34.000
+for a long time because it's the barrier to TPM enabling is not the fact that I've written the engine,
+
+31:34.000 --> 31:39.000
+because that didn't take me very long, it's the fact that pretty much no code out there actually knows how to use
+
+31:39.000 --> 31:43.000
+an engine with a key file because of this API.
+
+31:43.000 --> 31:46.000
+Because the open SSL consumers always forget this.
+
+31:46.000 --> 31:52.000
+Open SSL is sort of like an API explosion, which I mean, so the fewer APIs you have to know,
+
+31:52.000 --> 31:57.000
+the easier you find it program, which is why everybody always forgets the engine APIs.
+
+31:57.000 --> 32:05.000
+But it is only a couple of extra lines in the code, so I have actually successfully enabled it in things like open VPN.
+
+32:05.000 --> 32:12.000
+It's actually been using, so what it does is it just, for no good reason, when you go to the open SSL command line,
+
+32:12.000 --> 32:17.000
+you have to name the key type. You've seen the inform DER, inform PAM.
+
+32:17.000 --> 32:20.000
+There's also actually an inform engine for everything else.
+
+32:20.000 --> 32:23.000
+But nobody in their right mind would program that.
+
+32:23.000 --> 32:28.000
+All you do is you try the DER loader first, then you try the PAM loader, and then you should try the engine loader.
+
+32:28.000 --> 32:33.000
+But everybody forgets to try the engine loader after the DER and the PAM loader.
+
+32:33.000 --> 32:38.000
+So I put the code into open VPN, and it's been in there since 2.5.
+
+32:38.000 --> 32:44.000
+Unfortunately, we had a dispute over the licensing, so it got removed again in 2.67.
+
+32:44.000 --> 32:51.000
+This was over a statement about Apache and open SSL being compatible at the binary level.
+
+32:51.000 --> 32:57.000
+You don't need to go into it, but these things happen even to the best intentioned people, unfortunately.
+
+32:57.000 --> 33:04.000
+The good news is that if you compile open VPN with open SSL 3, it just works, because all of this is fixed in open SSL 3.
+
+33:04.000 --> 33:17.000
+So hopefully, open SSL 3 will also rescue me from trying to enable engine loading in all of the other open SSL consumer programs that I want to use this with.
+
+33:17.000 --> 33:22.000
+Open SSH was converted to use engine keys. I have a patch for it.
+
+33:22.000 --> 33:32.000
+But because Libre SSL does not use engines, the open SSH people seem to be philosophically opposed to anything to do with engine keys.
+
+33:32.000 --> 33:41.000
+And there's another wrinkle for open SSH. The problem is the way open SSH feeds keys into the agent is actually done by the primes.
+
+33:41.000 --> 33:48.000
+And as you know, for a TPM key, it won't release the primes to you. You can only use the engine key through the TPM.
+
+33:48.000 --> 33:51.000
+You can't see what the source prime numbers are.
+
+33:51.000 --> 33:58.000
+So the way that the SSH communicates with its agent is actually incompatible with the way engine keys work.
+
+33:58.000 --> 34:06.000
+Compatibility is easy. Making it compatible is easy. There's just an engine extension to open SSH which says, I'm not going to use primes.
+
+34:06.000 --> 34:11.000
+I'm just going to tell you where the key file is located. Agent, pick up the key file, don't use the primes.
+
+34:11.000 --> 34:15.000
+Which was, I mean, it was about a 20 line patch. It's fairly easy.
+
+34:15.000 --> 34:19.000
+But like I said, open SSH philosophically opposed to this.
+
+34:19.000 --> 34:24.000
+So I still have to patch open SSH to get all of my open SSH keys to work.
+
+34:25.000 --> 34:35.000
+For open SSL 3, this problem is mostly fixed because the file provider now understands how to load keys from any other provider.
+
+34:35.000 --> 34:39.000
+It will actually query all the providers and say, do you recognize this key?
+
+34:39.000 --> 34:43.000
+And if one of them says yes, it will load the key successfully, which is really useful.
+
+34:43.000 --> 34:49.000
+It gets me out of all the engine stuff. Doesn't solve the open SSH problem because it's trying to pass in prime.
+
+34:49.000 --> 34:55.000
+So in an unpatched open SSH, you will still get an error because it can't extract primes from the key.
+
+34:55.000 --> 34:57.000
+Unfortunately.
+
+34:58.000 --> 35:03.000
+So you don't need separate key loading routines. Everything should just work. This is brilliant.
+
+35:07.000 --> 35:10.000
+The one real success story I have is GNU PG.
+
+35:10.000 --> 35:19.000
+So it actually, way, way back in 2018, I had a conversation at FOSDAM with Werner Almsberger, who does GPG.
+
+35:19.000 --> 35:26.000
+And we agreed that we, I would code the GPG to use TPM keys and he would take the code.
+
+35:26.000 --> 35:31.000
+And it was, again, it was another problem because GPG doesn't use any known crypto system.
+
+35:31.000 --> 35:37.000
+It uses G-crypt, which is a very unusual cryptography library that I also wouldn't want to wish on anybody.
+
+35:37.000 --> 35:44.000
+But I was keen to get GPG supporting TPM keys because I use it on my laptop as well.
+
+35:44.000 --> 35:50.000
+So since version 2.3, it has supported them and version 2.3 is pretty old. It's a few revisions back.
+
+35:50.000 --> 35:55.000
+The main problem is that very few, even the bleeding edge distributions have this.
+
+35:55.000 --> 35:58.000
+Debbie and, Debbie in testing is still on 2240.
+
+35:58.000 --> 36:04.000
+I think Fedora is just about moving to open SSH to GPG 2.4.
+
+36:04.000 --> 36:13.000
+Fortunately, OpenSUSA, which is the distribution I'm currently running, has been using GPG 2.3 and then 2.4 for the past few years.
+
+36:13.000 --> 36:18.000
+So that's why I don't have the problem that you would have if you tried to use this.
+
+36:18.000 --> 36:25.000
+And key conversion is very easy. You just do GPG edit key, my key. You switch to the private key.
+
+36:25.000 --> 36:28.000
+You select the private key and you type key to TPM.
+
+36:29.000 --> 36:32.000
+Remember, this command is irreversible.
+
+36:32.000 --> 36:40.000
+Once, and it's not like the standard GPG thing is when you exit, it will ask you, do you really want to do this?
+
+36:40.000 --> 36:44.000
+Each TPM is instantaneous. It will do it immediately.
+
+36:44.000 --> 36:49.000
+So if you don't have a backup of your GPG keys, you've lost them because it will delete the old key file.
+
+36:49.000 --> 36:54.000
+So just be aware of that. But other than that, it's all fairly seamless.
+
+36:54.000 --> 37:03.000
+And other TPM supporting utilities are things like GNU TLS actually got it from OpenConnect, OpenConnect's for Cisco VPNs,
+
+37:03.000 --> 37:09.000
+SB sign tools is for secure boot, EFI tools is another secure boot thing.
+
+37:09.000 --> 37:23.000
+Oh, PKCS11 export is the way I'm hoping finally to get OpenSSH to do this because there's a guy from Red Hat called Jacob Yellen who's actually doing PKCS11 support in OpenSSH.
+
+37:23.000 --> 37:33.000
+And so the PKCS11 export is actually just a program that takes an OpenSSH key and exports it as a PKCS11 key,
+
+37:33.000 --> 37:37.000
+but it knows how to do it with any engine key or any provider key.
+
+37:37.000 --> 37:45.000
+So I can use this to actually export my OpenSSL keys as PKCS11 keys.
+
+37:45.000 --> 37:54.000
+It's also useful if you have Firefox because Firefox resolutely refuses to understand the basic OpenSSL key format.
+
+37:54.000 --> 38:01.000
+It insists you have to use the Netscape system key format, which nobody uses, but it also understands PKCS11.
+
+38:01.000 --> 38:08.000
+So this is the way I also use client certificate keys with Firefox as well.
+
+38:08.000 --> 38:18.000
+TPM key policies. So since TPM 2.0, it's actually supported a rich policy language based on things like PCR values,
+
+38:18.000 --> 38:28.000
+which are measured boot parameters, what have you, object secrets, it includes ands and aurs, which means you can build elaborate policy chains.
+
+38:28.000 --> 38:31.000
+So with TPM 1.2, the policy was a single statement.
+
+38:31.000 --> 38:40.000
+With TPM 2.0, the policy can be a chain of statements, and that can be this and this and this or this and this and this and this or this and so on and so forth.
+
+38:40.000 --> 38:44.000
+So you can build a very, very rich policy around how this key should be used.
+
+38:44.000 --> 38:49.000
+I wouldn't advise you to because it's sort of difficult to use, but you can do it.
+
+38:49.000 --> 38:53.000
+And policy is described to the key by a single hash value.
+
+38:53.000 --> 38:57.000
+So the way you construct policy is you use a session register.
+
+38:57.000 --> 39:07.000
+You have to execute all the policy statements in sequence, and if you've done it correctly, the hash value in that register matches the one in the key file and everything just works.
+
+39:07.000 --> 39:13.000
+The problem is that if you look at a key file, the policy is just a single hash.
+
+39:13.000 --> 39:17.000
+You can't go from the hash to the statements that were used to create the policy.
+
+39:17.000 --> 39:26.000
+So one of the things you have to do, one of the things the key file format does for you, is it actually stores all of the policy statements in a way that actually allow you to reconstruct the policy.
+
+39:27.000 --> 39:32.000
+So as long as you're using the standard key file format, the policy will always follow your keys.
+
+39:32.000 --> 39:44.000
+And the reason you need to do this is because if you forget which policy goes with which key, you suddenly get a combinatoric explosion of trying to figure out all the policies sort of I have lying around.
+
+39:44.000 --> 39:49.000
+Do they match this hash? How long is it actually going to take me to get up to this hash and match it?
+
+39:50.000 --> 39:54.000
+Yeah, I have to know how to execute the statements.
+
+39:54.000 --> 40:00.000
+And like I said, standardizing the file format meant that we could standardize the way the policy is presented.
+
+40:00.000 --> 40:04.000
+So all you have to know how to do now is to construct the policy.
+
+40:04.000 --> 40:08.000
+You don't need to know the mechanics of how it's done on the back end. We'll just do it for you.
+
+40:10.000 --> 40:15.000
+One of the useful things about policy is that as you saw, policy was a hash.
+
+40:15.000 --> 40:19.000
+If that hash is tied to the key, it can't be changed once the key is created.
+
+40:19.000 --> 40:24.000
+But the TPM has quite a few mechanisms that allow you to add policy after the fact.
+
+40:24.000 --> 40:28.000
+And the most standard mechanism for doing this is something called policy signing.
+
+40:28.000 --> 40:39.000
+So the usual way that the TPM works is that and policy is constructed just by a hash extension, which is the same way TPM's work, TPM PCR's work.
+
+40:39.000 --> 40:48.000
+So you put a hash in there, you put it side by side with the original value that was in the register, you hash it again, that becomes the new value, and you keep building up like this.
+
+40:48.000 --> 40:57.000
+If the TPM sees a signed policy statement, it will actually throw that hash value away and start using the one from the signed policy,
+
+40:57.000 --> 41:06.000
+which effectively means you can use policy signing to replace any policy on the key, which is interesting and useful.
+
+41:06.000 --> 41:09.000
+And it means the key can be updated if you change PCR values.
+
+41:09.000 --> 41:19.000
+So now, if you boot a standard Linux kernel, it will actually hash the command line, the initial RAM disk, and the kernel all into PCR9.
+
+41:19.000 --> 41:30.000
+And this means that I can lock my key to only unlocking, not only if it's the kernel version I know, but it has to be booted with the correct initial RAM disk and the correct command line,
+
+41:30.000 --> 41:38.000
+which is another really useful feature, and if I upgrade my kernel, the PCR values will change, but I can calculate what they should be.
+
+41:38.000 --> 41:42.000
+I just add another signed policy to the key that says use this.
+
+41:42.000 --> 41:48.000
+And I can also delete signed policies from the key, but beware, deleting a signed policy does not revoke the policy.
+
+41:48.000 --> 41:57.000
+If somebody else comes across the old policy, they can still use it, signature will still match. It just removes it from the key.
+
+41:57.000 --> 42:04.000
+And all statements, and indeed signed policy statements, are all processed effectively as fragment chains.
+
+42:04.000 --> 42:11.000
+And the same mechanism can actually be used to execute multiple signed policies, and it will keep trying until one fits.
+
+42:11.000 --> 42:18.000
+At this particular time, I was going to try and do a demo. I think I have two minutes left.
+
+42:28.000 --> 42:32.000
+Well, let's see if we can do that. Come here.
+
+42:50.000 --> 42:53.000
+Actually, let's make that bigger.
+
+42:57.000 --> 43:09.000
+So everybody can just about see that.
+
+43:09.000 --> 43:16.000
+First of all, I should just edit the key.
+
+43:16.000 --> 43:35.000
+So this is my GPG secret key. If you go up here, what you see is that a lot of my non-revoked or expired keys are actually TPM protected.
+
+43:35.000 --> 43:43.000
+So I'm using all of my GPG keys in my TPM, which is a very useful property.
+
+43:47.000 --> 43:53.000
+Let's see. I've got about two minutes left. So let's just...
+
+44:03.000 --> 44:10.000
+So what I've done is I've just moved my actual key directory out of the way, and I'm just going to create a new key.
+
+44:11.000 --> 44:16.000
+So this is the way you generate keys quickly.
+
+44:27.000 --> 44:34.000
+And this P256 is the way you tell it to. The very secure passphrase I'm going to use is test.
+
+44:34.000 --> 44:38.000
+Yep. So this is...
+
+44:41.000 --> 44:43.000
+Oh, for God's sake.
+
+44:45.000 --> 44:52.000
+Okay, let's not do a demo. Let's just go straight on to questions. I already showed you I had TPM keys.
+
+44:52.000 --> 44:57.000
+So five minutes left. Any questions?
+
+45:08.000 --> 45:13.000
+Hi. It's not so much a question. It's more a comment, because you put system.
+
+45:13.000 --> 45:19.000
+We're not using any non-standard format that we came up with. We're just using
+
+45:19.000 --> 45:26.000
+civilization that the Intel stack suggests us to use. So we didn't really add anything on top of that.
+
+45:26.000 --> 45:32.000
+So, I mean, your specification, great. We have no problem at all. We're supporting this, but it's also very, very new.
+
+45:32.000 --> 45:40.000
+And it doesn't even support the stuff that we need. Like we, for example, use policy authorize.nv, which allows you to store policy hash in an nv index.
+
+45:40.000 --> 45:49.000
+It's what we built everything on. And if your spec can't color that yet, then it's also not really in the position yet to be used for this kind of stuff.
+
+45:49.000 --> 45:56.000
+But in general, I'm not opposed at all. Like you seem to insinuating that we did our own thing and didn't want to play balls, anyone else.
+
+45:56.000 --> 46:03.000
+That's just garbage. You totally find supporting anything that people can agree on. This is not an area you want to be pioneers in.
+
+46:03.000 --> 46:13.000
+We want that some people do the work for us and then we just move to that. That's entirely fine. But yeah, make sure, though, that the functionality that people need,
+
+46:13.000 --> 46:19.000
+in this case, like for system-y stuff, that at least, like, looking through the spec, I just did that on my phone.
+
+46:19.000 --> 46:25.000
+Maybe I've missed something, but it just doesn't cover the stuff that we need, which is policy authorize.nv, for example.
+
+46:25.000 --> 46:35.000
+But actually, it only covers everything other than the exceptional commands. Policy authorize.nv is an actually exceptional command, so it's already technically covered by the spec that's there.
+
+46:35.000 --> 46:41.000
+Signed policy is an exception command. So this is technical to do with the way the spec works.
+
+46:41.000 --> 46:48.000
+Well, you have to, like, it's the same thing as the assigned stuff because you just store it in the nv. But anyway, this is very technical.
+
+46:48.000 --> 47:01.000
+Like, looking through the spec, it's just not covering. All I'm saying is, you know, we're not the problem. Like, we're fine with supporting anything, but maybe putting our stuff on the slides, not the West Wing, to start getting the discussion going.
+
+47:01.000 --> 47:11.000
+No, just use the point there. I thought I had everything standardized on this key format and system D came along and wasn't. That was all the sliders there to do.
+
+47:11.000 --> 47:22.000
+There's no real difficulty transferring keys from one format to another. And also, the standard is ASN1. I know there are a lot of people who hate ASN1 want to use JSON instead.
+
+47:22.000 --> 47:35.000
+We use TPM2B stuff that the Intel stack gives us. But again, if you add it to the Intel stack, we're happy to use it. We just consume the APIs as a provider.
+
+47:35.000 --> 47:42.000
+We do not see our position in a role in innovating that. We just want to use libraries that work for us. And if the libraries don't support it, they don't.
+
+47:42.000 --> 47:49.000
+So it's already in the Intel stack. The Intel engine stack generates keys of this format.
+
+47:49.000 --> 47:51.000
+And which layer is that?
+
+47:51.000 --> 48:05.000
+I think it's the create TPM. It's not a TSS layer. It's the actual Intel rotor TPM engine that was on the slides. That TPM engine also uses this key format because it's designed to be used for open-source.
+
+48:05.000 --> 48:12.000
+We did it in the library, right? Like in the TSS library. The key conversion sits outside.
+
+48:12.000 --> 48:18.000
+I would like to invite you to get together in a deaf room place.
+
+48:26.000 --> 48:28.000
+Thank you.
+
+48:30.000 --> 48:32.000
+Hi.
+
+48:33.000 --> 48:56.000
+We still, okay. So thank you for the talk. My question was, since the policies are only treated as hashes, does it mean that you could eventually, regardless of practicality, find another policy set that produces the same result and use an alternative policy set to update access to the key?
+
+48:57.000 --> 49:11.000
+So the question was, could I get two policies that produce the same hash? The actual question you're asking me is, can I induce a hash collision with SHA256? And the answer to that is no.
+
+49:11.000 --> 49:26.000
+And the reason that two policies can't produce the same hash is because they've been very careful to actually use the input values that go into the hash that mean if the policy is different, the value in the statement is different, so the hash value always has to be different.
+
+49:26.000 --> 49:35.000
+So the chances of getting a policy hash collision are exactly the same as they would be if getting a SHA256 hash collision or whatever hash you use.
+
+49:41.000 --> 49:51.000
+Is there any reason to use, if you're on Linux, to use either IBM or Intel Stack versus just in kernel TPM resource manager?
+
+49:51.000 --> 50:05.000
+So if you're a consumer and you're not programming with TPM, there is no reason whatsoever to prefer one stack or the other. They all work equally well. There are no security problems with either of them.
+
+50:05.000 --> 50:18.000
+When correctly programmed, they will set up sessions and do everything right. Intel does have one problem in that the Intel code also has an engine sitting in it, but that engine doesn't actually use TPM security.
+
+50:18.000 --> 50:25.000
+So that's the one piece of the Intel stack that's wrong, but the IBM stack doesn't include an engine. I mean my engine is separate from the IBM stack.
+
+50:25.000 --> 50:37.000
+Well, resource management just works. So you're leading to the problem where the Intel TSS encourages people to contact safe sessions, right? This is the problem.
+
+50:37.000 --> 50:46.000
+And the kernel resource manager doesn't expect people to do that, so it doesn't do a technical operation called regapping, right?
+
+50:46.000 --> 50:55.000
+The reason it doesn't do it is because I wrote that resource manager and I never had a reason to use it for regapping, so it just doesn't do it.
+
+50:55.000 --> 51:04.000
+I've already told the Intel people that if they want to use it like this, the kernel would be perfectly happy to accept patches to do de-gapping, and they're fairly easy to write.
+
+51:04.000 --> 51:11.000
+There is actually, and we're getting onto kernel stuff, a point at which the kernel itself may need to do de-gapping.
+
+51:11.000 --> 51:17.000
+One of the things that we're looking at is trying to use a permanent session within the kernel for certain key operations.
+
+51:17.000 --> 51:23.000
+If we do that, that session will be context saved, then we will have to do de-gapping and everything will just work.
+
+51:23.000 --> 51:29.000
+The problem is that the kernel coding is just in time. I'm the person doing it, and I haven't got around to it yet.
+
+51:29.000 --> 51:37.000
+So if you want to use the Intel TSS with saved sessions, then you need to use the ABMRD resource manager.
+
+51:37.000 --> 51:42.000
+If you want to use saved sessions, everything just works.
+
+51:42.000 --> 51:45.000
+Many, many thanks for the great talk.
+

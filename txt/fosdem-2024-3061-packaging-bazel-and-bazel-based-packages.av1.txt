@@ -1,0 +1,404 @@
+All right. So we now have on stage Guillaume who is going to talk about, as he mentioned,
+packaging, Basil packages with Basil Software with Nex. Thank you.
+So welcome everyone. I spent some months working on and off on trying to package Basil 7.
+And I figured there are plenty of fun things that happened and nice things to learn from that.
+So I wanted to share with you today. I'm Guillaume Maudoux, a computer scientist.
+I'm like a founder of BIL systems. All of them, well, the one I prefer is the one we don't want to speak about it today.
+I'm working, like for my day job as a consultant in doing Basil and Basil work at Twig.
+You have all my contact info. And yeah, this work was funded by Intuitive Surgical and Twig together.
+So getting Basil 7. Basil 7 was released last year, end of last year, and it took some time to get this into Nex packages,
+even though there is already like a Basil 5, a Basil 6, a Basil 4 in Nex packages,
+and each time you make a copy, reuse, and try to improve, it still takes a lot of time.
+I think there is like a fundamental difficulty in trying to get Basil to work inside Nex because they just don't like each other.
+To be honest, I think Basil tries to do everything and doesn't want to share with anyone else.
+So of course, there is friction when you want to encapsulate it into something else.
+But initially, it looks like they could be quite happy together.
+Basil is like file-based, like make, like CMake, like all of these nice build systems we use for all the packages inside Nex.
+So that should work, and Nex is package-based, so the kind of one works, manages the package, the other one, just a project, should be easy.
+But then it gets a bit worse because of course you cannot get the benefits of Basil.
+Basil wants to do remote caching, remote execution, and all of that is prevented by the Nex sandbox.
+So just like with other build systems, in this case, it's not different, but you see how these things do not work as well as you may expect from Basil.
+Then we have some issues, like a bit more annoying.
+Basil assumes that there is like the file system hierarchy stand out everywhere, and like Nex does not provide that anywhere, so I kind of stuck there.
+Basil loves to include pre-compiled dependencies, and it will happily, and this feature is intended to help all the users that are not using Nex,
+but it's really annoying for us, it downloads dependencies from the Internet, and that's kind of built into Basil.
+So with the sandbox, we break Basil completely and we need to work around that.
+It's really hard to package, so I would like, like these are like four snippets of things that we won't discuss today, and that we have to do to make Basil work.
+We have to patch all of the user bin paths.
+We have to remove some chunks of code that try to access the system state, and that's obviously not possible inside a sandbox, like preventing the system from going to sleep.
+Apparently, Basil has an empty arg when it calls GCC and it crashes.
+I mean, we don't even know if that code is still needed anymore, but like, not so much to do, we didn't try to remove it.
+At some point, at least, that was needed.
+And, yeah, it comes with nested archive, so if you unpack some things so that the patch works and then you have to repack them in the exact same way otherwise everything breaks.
+Lots of fun, but we won't discuss that today.
+I've picked like five issues that are more meaningful, I think.
+There is the Java toolchain.
+That's something that we need to set up properly to be able to build Basil itself.
+And then setting the right path, because if we want to package Basil, we want Basil that works as closely as possible to the vanilla Basil.
+Then we move slowly to building package that uses Basil as a build system, even if it's also the case for Basil, because Basil uses Basil as a build system to build Basil.
+You're still following? Good.
+So we enter the realm of like, fetching dependencies of the build, which is quite tricky.
+And then we will also discuss about like, picking the right Basil version using dot Basil version file.
+And again, the Java toolchain.
+Why not?
+We will see it's so complex that it deserves two points.
+So we start with the Java toolchain.
+Basil hardcodes everything everywhere.
+So here, Basil tries to do something nice for us.
+It will download the single jar binary that's already pre-compiled.
+It's a cc++ application, by the way.
+So of course it doesn't just work like that with Nix.
+And for the Linux and Windows, it will pick the right one for you.
+But there is no way to change that, except like patching the source code.
+We cannot like, from the outside configure the build so that it picks something else.
+In this case, we probably want this one, the one that's built from the cc++ sources with the c compiler,
+because we can do that on Nix and we get the proper binary, but none of these pre-built binaries work.
+So we have to create, and you see this is a patch, so there is no way to do that without like modifying the source code again.
+We create toolchains for Basil that do not contain these like pre-built dependencies.
+To do that, we use a non-pre-built toolchain configuration.
+So that defines somewhere, even though it's not that much tested in the codebase, so we can reuse it.
+And we use the localJRK, meaning we want to use Java from the system and not some pre-built Java,
+because that one also doesn't work.
+Okay.
+Yeah, okay, that's all right.
+So this is like showing the non-pre-built configuration that we use,
+and this thing that we would get otherwise by default, like the remote SDK,
+it's something you download from a remote cache.
+And the single Java one we've seen on the previous slide.
+But that custom toolchain is kind of fragile, because nobody uses it.
+So when I updated, suddenly it was missing one of these entries,
+and we got like a proper binary downloaded from the Internet, and that didn't work.
+So we have to make upstream patches to get it to work.
+Thankfully, that one landed fast enough, so it was like not broken too much.
+It was broken between 7 and 7.1, so no one should ever see that on a proper release.
+Another funny issue we have is setting the right path.
+Initially, it seemed pretty simple, like we have to patch the paths,
+so that's onNixBuildBasal finds all of the common bash scripts that everyone expects to have.
+So we do that, and we do that in a lot of places until it works.
+And in the end, we have something that doesn't really work, like Basal should.
+We've discovered that...
+So this is the behavior of like Vanilla Basal, based on like several options that you can change.
+And if you take Basal with some patch that we have,
+there's something very strange there, like it doesn't set an extra branch,
+so you can end up with the path that's configured differently than what you would expect.
+And you have the same with all the patch, so everything has branches everywhere,
+and it's like, yes, it is not consistent with what you would expect from upstream Basal.
+That's really annoying, because as we discover later, users rely on that fake behavior,
+and then when you try to fix it, they say, hey, you've broken the build.
+Yeah, I think this is the correct way to do it with respect to Basal,
+but I know that we've been using that NixBuild Basal for like three years, and you're used to it.
+So now it changed your build.
+It's really annoying that we are maintaining a fork of Basal to some extent.
+So the first issue we had, we end up with a path that is like literally no such path.
+That thing can only come from Nix.
+We are the one that are coded.
+If Basch from Nix starts without the proper path, it will default to no such path.
+It's kind of similar, like normal Basch will default to user bin, user local bin.
+That makes no sense either, so in both cases, it's a kind of a nice default,
+but doesn't really work with Basal, because Basal expects to have some default Basch tooling there.
+We have a script for that, like if path is like no such path, then we export the path to the default shell utilities.
+It should work, except we have this runtime inputs.
+I had no idea what it did.
+It seemed like good.
+We want all of these dependencies, except this modifies the path to that value.
+And it does it so that it happens that value to the path.
+So we have a no such path, colon, something else.
+It kind of works, but it's also kind of ugly, like why is no such path in there?
+It shouldn't be.
+That's one of these red dots.
+Okay, we move that line.
+Easy enough.
+And then we still have some very strange things.
+Like the path is composed of two parts, the path that Basal sees from the outside,
+and the outcoded string path.
+So some concatenation happens somewhere.
+This is like, this does not happen in the default Basal behavior, right?
+It's only the path there, only the path, only the path.
+So when we should have Basal's path, we see an extra outcoded string.
+Where does it come from?
+Of course, we wrap Basal with that path.
+So this is technically the path that Basal sees, because it has been wrapped.
+But it's not what the user expects, because the user expects to have the same path as the one
+that's ambient when it calls Basal.
+Okay, so we need to remove more and more wrappers.
+These were all useful at some point.
+They fixed some issues.
+Now we have better fixes implemented, but these ones are broken.
+And in the end, we get this very nice graph that does not depend on which Basal binary we are using.
+I mean, it took me some time to read there, so I'm really happy when I see this graph.
+This explains a lot about how Basal decides what is the environment for the actions that you run,
+and we can discuss it later at some point.
+At least, all our Basal binaries are consistent.
+Modular something in the hard-coded version from like Vanilla Basal.
+It's been user-bin-user-local-bin, and we set it to some proper path that contains default bash things.
+So, if streaming Nick support in Basal, that's like kind of...
+Ideally, we would not have to do all of that work.
+It should be way easier to build Basal in Nick's.
+Maybe some of the common stuff we can accept, like patching Shebangs, we know that,
+but having to redefine everything because Nick's is not aware,
+because Basal is not aware that Nick's exists and only thinks about, you know,
+if it's Linux, then probably that binary works for you.
+Give me a way to change that.
+Give me a way to configure that, and Basal does not do it.
+Technically, it's feasible, but it's not really used, at least in the Basal code base.
+There is no way to configure it.
+It's just like Basal knows better than you what you should use to build it.
+And in this case, it's obviously wrong.
+The biggest chunk here is like prefetching build dependencies,
+because that's where, of course, we have to fight with Basal.
+Inside the sandbox, Basal is not allowed to download anything.
+So, we have to download it before Basal kicks in.
+And Basal has to find it.
+So, what we used to do before is like look at the workspace file,
+which defines all of the external dependencies.
+This is kind of looks like Python, right?
+Yeah, it's Python enough that we can execute in an environment that defines HTTP archive.
+And we collect all of the files that we depend on.
+It's not perfect, but it's funny because it's a big hack,
+and sadly, it just doesn't work anymore, because they have changed the format.
+So, now the workspace is empty.
+We have no Python to execute.
+Now, we need to parse some JSON, the log file,
+which is something that really nice that comes to Basal.
+Now we have a proper log file, so we know what we can do with log files in X.
+We can parse it, we can retrieve the information,
+and then make proper NICs derivations of that.
+So, we can parse the log file with JQ.
+It's a bit obscure, but it works.
+Then I wrote it in Python because it seems like it's obvious.
+And then I wrote it in NICs because why not?
+We can parse JSON in NICs and extract everything.
+So, I have this nice script that takes the log file, a JSON file,
+and generates a repository cache, and these are like formats that Basal uses
+to fetch to store things that were downloaded from the Internet.
+And so, we first go there to see if it's already downloaded
+before trying to do the actual download.
+If you did it well, it will not try to download.
+If you do it wrong, of course, it still tries to download and crash.
+It's obviously not that easy because there are only three versions of that log file.
+It's been released like a year ago, but they are making fast iterations.
+Version 4 is there and it's probably going to change everything.
+So, I don't know if we will support all of these versions
+or maybe stick with the latest.
+It's really unclear right now.
+And the format is kind of well-defined, but it's like each rule
+can have its own internal format.
+And sadly, the URLs and the ashes are hidden in that internal format.
+So, we kind of need to support everything that's possible,
+which is obviously not going to work,
+but it seems that all in all, most projects is the same set of commands
+and we are able to do something with it.
+Of course, any failure makes it that we cannot build Bazel
+or that we can't build a package that uses Bazel
+because we are missing dependencies
+and we are back to the nightmare of just trying to download everything locally
+and then make a big blob that we hash and say, hey, take that.
+But it's totally not reproducible.
+Yeah.
+Speaking of dependencies, there was like a nasty issue that came from like the Bazel versions.
+If you look at Nix packages, I mean, we are nice guys.
+We provide Bazel 4, Bazel 5, Bazel 6, it's Bazel 6,
+but it's also the default Bazel, and Bazel 7, right?
+All of them are provided, but no.
+When you build with Bazel, you want 7.0.2 or whatever.
+But Bazel needs exactly that version.
+Why?
+That's how it works.
+But the thing is, it also works really well if you delete that file before building.
+Most of the time, but no.
+Now again, it started failing and it fails for a funny issue.
+Some of your dependencies, they are dependencies of your builds.
+There are things that you need.
+But some of your dependencies, you don't know about them,
+but there are things that Bazel needs because it has built-in rules,
+and these built-in rules have like built-in dependencies.
+And these are also in the log file.
+But if you start building with a different Bazel than the one that was specified
+and that was used to generate the log file,
+then these built-in dependencies are not the ones that Bazel wants.
+And Bazel tries to download it from the Internet and then it crashes.
+So we need to do some magic.
+We need to take some files that are downloaded for the project
+and some files that are downloaded based on the Bazel version.
+We need to merge them together.
+And that creates a folder that Bazel can use to build correctly with a different version.
+I'm really fond of one thing here.
+The fact that you can merge this thing by using Simlink Join,
+it means that the format is not that bad.
+Well, when you reach there, you're like, okay, this is pretty neat.
+I think Nix could learn something from that format too,
+because what they do is something really smart.
+They store like binaries from the Internet under hash,
+just like Nix does.
+Technically, it's like fixed output derivation.
+We download something and we put it in our known hash.
+But with this problem, like where we change the name
+or change something from the input and forget to update the hash,
+then it happily reuses the same hash forever.
+Bazel fixes that by having like an extra file
+that tells where it was downloaded from.
+And so you can pass extra information that will invalidate the cache
+and force a re-download.
+Probably just to check that it's still the same file,
+but if it's not, then at least you'll check.
+I'm not sure how to implement that.
+It may cost a lot if you make like a few changes in Nix,
+but there is some inspiration to take from there, I think.
+Anyway, we are back to the Java toolchain.
+So we have a Java toolchain that can build Bazel,
+but now we want users of Bazel to be able to build Java projects.
+It's kind of the same thing as the null-a-dull,
+because when we build Bazel, we can hard-code everything we want.
+We can even change the source code to make it work.
+When users are using Bazel, we cannot like change.
+We don't want to patch Bazel too much for it.
+We want to make change that work by default,
+but we also want this change to be like revertable,
+so people that don't need it or it doesn't work for them for some reason,
+which happens sometimes, then they need to be able to remove it.
+And to do that, we use another hack, a very nice one, I think.
+Bazel by default, access slash etc slash bazel dot bazel RC.
+There is no redundancy there.
+And we add an indirection, so we patch Bazel
+so that it access first a Bazel RC that is like hard-coded by Nix.
+And that one contains a few settings that Bazel will always rate.
+The thing is, using that technique, we can, I mean,
+we set up some default values, so we force Bazel to use our local,
+non-pribute Java toolchain, the one that we painfully set up.
+That's it, yeah, we force the version of Java to run Bazel,
+and then we try and import the real file.
+This is very transparent.
+There is a small risk that users don't know that this exists
+and don't understand where this option comes from.
+I hope they will know too deep about Bazel.
+But otherwise, each of these options can be overridden
+because these being options, the last one wins.
+Okay, so if you add a new one, like you change Java runtime version
+to remote gdk, your last flag will win.
+Except for one, because why not?
+This one, the first one wins.
+So nobody can override it.
+When it's there, it's like stuck.
+After some discussion, they realized that it was a bit silly,
+and so we agreed on removing the order for these flags too.
+That was also a funny, funny, funny thing.
+So regarding all the things that we do to make people build packages,
+we do it with our Nix build Bazel.
+I don't think there is as much to upstream
+as the things I presented before,
+because these hacks are a bit annoying,
+but they are kind of expected too.
+These are things we do for other build systems.
+Like we build packages, we download the dependencies,
+and then we provide them, and we then have to add some wrappers.
+In Python, we have even more wrappers.
+So I think this is kind of expected,
+even if it's a lot of work, like parse JSON in Nix,
+maybe that wasn't twice, either.
+But I think we've reached a place where it's already kind of easy to use,
+even if not perfect.
+We cannot compile Bazel from real sources.
+We use the generated sources,
+which is not exactly the same thing and differs in a lot of ways.
+It's not fully bootstrapped either,
+so we cannot really yet build Bazel with Bazel,
+meaning that building things with Bazel is still difficult.
+We build Bazel using the bootstrap process,
+which is, again, different, simplified,
+and more guided by the Bazel team.
+So it's not yet perfectly easy to use,
+especially on Nix OS.
+But then at the same time,
+I realize that upstream has some interest in Nix,
+they know we exist, they are willing to add patches.
+If you have a proper reason why we need it and we can argument,
+then they will happily merge it.
+I was also surprised.
+I know I work on very small projects all over Nix packages,
+but on that one, there are reviewers, people making comments,
+people testing my temporary thing, reporting issues.
+It was a really nice community feeling for one of those projects.
+So I think it's really well supported.
+And of course, being Nix, every time we update it,
+we improve it and we keep the receipt.
+And so we can make improvements,
+we can build upon the shoulders of Bazel 4 or 5 things that came before.
+Well, as you've seen, that's all I did,
+and I'm the kind of person that really loves challenges.
+So if you are willing to join, you are welcome.
+And if you have other challenges to share,
+I'm really keen to hear that with you.
+Thank you. Do we have any questions?
+Thank you for the talk.
+You mentioned generated sources versus real sources.
+What are the generated sources of Bazel?
+They do pre-generate some like,
+tarbles, things that are not compiled,
+but provided in the Bazel binary.
+Like all the built-ins, Starlark rules will be there.
+That's like the zip file that I have to unpack and repack.
+That zip file does not exist in the normal sources.
+You don't commit a zip file to...
+And a lot of other things, like they try to help people,
+so they provide binaries.
+So that's with that generated tarble,
+which is huge, like it's like 250 megabytes.
+It contains all of the binary dependencies.
+And a lot of those we don't need,
+but also it makes it really easier to have all of the needed dependencies.
+Because of the acts we do with the Java tool chain,
+we need one more file that's not there.
+That's pretty easy to compile.
+So we don't have to think too much about dependencies
+when we build Bazel with that tarble.
+Okay.
+If someone who enjoys Bazel discovers your work
+and understands it, do you think they will be convinced
+to stop using Bazel and use Nix instead?
+No, I mean, that's not at all the point of this talk, at least.
+I can't say what they will feel.
+Maybe they will discover that Bazel is complex.
+But the reason Bazel is taking off is
+it has all of these optimizations that you want.
+So as someone that deploys Bazel a lot,
+and a lot of companies, they still want it, right?
+You don't want Nix to come and compile for two hours
+because you made one change to one file.
+That's like... For me, these are complementary build systems.
+But ultimately, Bazel was not trying to be a package manager, too,
+because that's the part that's really conflicts between Nix and Bazel.
+May I have another one?
+So from the practical point of view,
+how soon can we have something like
+use Bazel mod lock hook instead of fetch utters
+with nested if else loops for a platform and queue the support?
+And how far are we from being able to say Nix and it tends to flow?
+I can answer the second question easily.
+Like really far.
+But for the first question,
+it's definitely something we could do.
+It's just like I'm amazed by the amount of work I had to do,
+like recompiling Bazel because it's not an incremental process right now.
+It takes like 20 minutes, 30 minutes.
+So each iteration takes that time.
+So we have to focus on making it work, not like trying to make a nice set of hook.
+Ideally, this would work, of course.
+But there is a slight problem also.
+It's like you need these things before evaluation.
+So it's not just a hook, right?
+Because the hook cannot download the files.
+To do something like that, then you would need recursive Nix
+or some way of Nix inside Nix to be able to do that.
+So right now I have implemented it with import from derivation
+for like making it simple to use.
+And in some cases I just like download the log file, add it to the sources
+and use that directly.
+So I don't have to have an import from derivation at all.
+Can we just commit the log file of the hook on graph?
+Yeah, we can do that.
+It's just huge.
+So what I do is I take JQ,
+remove a lot of the things that are not needed,
+and it's still a log file.
+All right, let's have a round of applause for Guillain.
+Thank you.

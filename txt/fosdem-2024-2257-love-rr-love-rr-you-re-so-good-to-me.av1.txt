@@ -1,0 +1,417 @@
+Any questions during the talk?
+So a bit about myself.
+I've been working for MariaDB.
+Who here has never heard of MariaDB before?
+Okay. So there's a few people here, no problem.
+So MariaDB is a fork of MySQL,
+which you've probably heard of.
+It is developed by the original authors of MySQL.
+And it is mostly the default MySQL variant in most distributions.
+So you might be using MariaDB and not actually know it.
+I've been developing for MariaDB since 2013.
+I've done various features like roles,
+window functions, things that then got ported to
+MySQL or implemented by MySQL.
+I'm now working on catalogs and also adding MariaDB vector,
+a competitor to PG vector.
+Now, one of the biggest problems you can have in a database
+is that the database is a multi-threaded monster.
+You have many different threads and
+race conditions, if there is a bug,
+happen but they happen very, very rarely.
+And it's almost impossible to try to reproduce that failure.
+So what we usually get is we get core dumps.
+But the problem with core dumps is that they only give you the state at
+the end when everything has already went wrong.
+You don't know where the problem happened.
+So it would be excellent if we could find a way to go back in time.
+And I know there is a follow-up talk about how this thing
+actually works behind the scenes.
+I'm just going to give you a tutorial on how to make use of it,
+because I think this will just revolutionize all your debugging experiences.
+Even simple bugs that are not, let's say,
+race conditions are much easier to debug if you can step back whilst debugging.
+So RR, it's an opus-nose project.
+You can install it, most distributions have it.
+And it's a program that basically records your application,
+the state after each instruction the CPU executes.
+It does come with some caveats, I'll go into that.
+But as long as you have CPU support, it should work.
+Now, to set up, it's pretty simple.
+All you have to do is do echo1 to set this kernel parameter.
+Otherwise, RR will tell you, you need to set this, otherwise I won't work.
+And then you just run the program.
+So instead of gdb, RR, the program.
+The program doesn't stop, it actually just finishes.
+If it's the server, then it will keep running.
+But basically, the execution will be stored somewhere.
+There is a system variable you can change to say where this thing is stored.
+And then if you want to actually debug the program, you do RR replay.
+I'll show you in a demo how easy that is.
+Now, when you do RR replay, you get a gdb prompt.
+With a few extra instructions, like reverse next, reverse step,
+reverse step instruction, continue and finish.
+This is useful, but the thing I find the most useful is actually this being able
+to watch an address that never changes between executions.
+Because especially when you have a very complex code base, it's very hard to
+understand where something changes.
+So you do the first run, you see that this variable is wrong.
+So then you put a watch point on that variable, and then you run again.
+And that's how you figure out exactly where things go wrong.
+It's as simple as that, and it basically takes hours out of debugging.
+Now, a little bit about how my redebate does it.
+Like, I think this is probably a good thing you can try out in your projects.
+So my redebate has a test infrastructure similar to other projects.
+This one is tailored specifically for my redebate.
+It's called my redebate test run.
+What it does is it issues SQL queries to the server and
+compares the expected results with the actual result.
+If usually this works and
+if the results are the same, then the test passes.
+But every now and then, especially in our CI, we get failures.
+And those failures tend to be hard to reproduce.
+So in order to reproduce them, what I personally do is I start to do the testing.
+I start testing, I ask, I want RR recording.
+And then I don't just run the same test, like over and over.
+Now, I start the same test multiple times in parallel,
+just to overload the system as much as possible to try to get things to actually reproduce.
+And usually about after five, six hours, I tend to get a failure.
+With this while loop, the thing will stop the moment I get a failure.
+So then I have the exact trace I need to find my problem.
+Now, the limitation of RR is that it runs in a single threaded model,
+which means that this is how long it takes in milliseconds without RR and with RR.
+And of course, if you don't have platform support, you can't do this.
+It relies on a specific CPU capabilities.
+I've noticed that if you try to get a server in the cloud and try to run this,
+it will complain about something in AMD Zen processors.
+So your experience might vary depending on which iteration you have.
+Now, another problem is that because it's running in single threaded context,
+you don't get the exact same behavior as if you were running without RR.
+And actually, I can show you this.
+So I made a very small program here.
+This should be readable.
+So all this program does is it starts five threads.
+The threads don't have any locking on them.
+There's a number of iterations and they try to increment a counter that's not guarded.
+So obviously, we have a race condition there.
+We just try to increment something without the lock.
+If I were to run this program without RR, I get this number here,
+which is obviously wrong, but if I do try to run it with RR,
+a few times, you will often get this.
+This is the correct value if you actually have the right locking.
+So depending on how your application actually is,
+it's not guaranteed to be able to reproduce every sort of race condition that you have.
+And, okay, that's for the demo.
+And now one more thing that I really like about RR is it helps code discovery.
+Like MariaDB has a code base that's 25 to 30 years old.
+There's functions there that I don't understand what they do,
+but I have some expectations what they should return.
+So what I do is I tend to consider them black boxes and just step over them
+until I see that this thing returns something that I did not expect.
+Then I just step back and I can go into details into the function.
+So it even helps speed up code understanding.
+Okay, this was a brief talk.
+That's what I wanted to share.
+Now, any questions?
+Thank you.
+So I didn't even have time to...
+Please make sure to repeat the question.
+Yeah.
+Yeah, you had a question.
+For your problem of race condition,
+have you tried tools such as trade analyzer or val-green,
+a green slide out?
+So these, for example, you have given, for example,
+would be detected without having to trade off the race condition?
+Yes.
+So I repeat the question.
+The question was, have I tried other analysis tools
+to help detect these sorts of race conditions,
+like val-grind, sanitizers, stuff like that.
+So we have a set of tools we use.
+We use ASAN.
+So we compile with ASAN and run with ASAN.
+We run with val-grind, but val-grind has also the same problem
+that is single-threaded and actually slows down the execution
+even more.
+We compile with MSAN, so memory sanitizer.
+That one is a bit trickier because you have to compile
+system libraries as well for MSAN.
+But all these combined with RR,
+you get to the end the result, which is a bug-free program.
+I think that's the point.
+Yeah.
+You said that you need special, like, CPU features
+that use RR.
+Why is this?
+Does my first question, second thing,
+is, if I recall correctly, it means that it likely won't work
+in the end?
+Okay.
+I don't know the answer to the first question.
+I think that the next talk will actually explain that.
+It's security reasons.
+Okay.
+Security reasons, basically.
+But yeah.
+Okay, go ahead.
+Okay, and like, VM-wise,
+actually, I've never actually had to try in VMs.
+I've only used containers and worked there, so.
+Containers are just processes.
+Yes.
+But for the security reasons, I don't think that's a good answer.
+I mean, maybe let me rephrase the question,
+because I understand that's like the security reasons
+to enable Perf, right?
+But why do you need Perf in order for RR to run?
+Watch my talk.
+Okay.
+How much data does it typically generate?
+I've never actually looked at that,
+but we can check the recording for this one.
+So let's have a look.
+So the question was how much data this recording uses.
+Let's see.
+Demo 22.
+Let's do a DUE.
+So 100 megs for that very quick program.
+And for my AGD, please allow your honor
+to pose a subject.
+Let's see if I have a history of one here.
+And just in case, do you run it by default in your OCI?
+Not with RR.
+So we don't run RR in the CI.
+We use it when the CI detects a problem.
+So let's see this one.
+So this is one test case.
+Okay, one gig.
+Okay.
+Okay.
+One test, one gig.
+Yeah.
+If I'm not mistaken, I think GDB provides the record command
+as well.
+Watch my talk.
+I'm going to go exactly over that.
+The DDB record doesn't work.
+Is that true?
+Watch.
+Watch it.
+Watch it.
+Watch it.
+Watch it.
+My talk is to get you to fix things.
+So.
+Yeah, there's another one.
+There was one there.
+So the part that was on set a moment ago
+about the sanitizers, what about the red sanitizer?
+I...
+So about red sanitizer, I have not...
+It's good.
+So the sanitizer is good.
+You can detect a data race or something like this.
+But the thing is that you might have a crash
+that may be a reason of something else that was intended.
+And then you may want to step back to find out the exact reason.
+And also things like ASAN may not help you,
+because, for example, ASAN is doing this kind of shadow memory
+juggling to be basically detected in correct memory access
+but the thing is that when you have, for example,
+implement your own containers where you handle the capacity
+versus size thing, then the memory out of bound access
+between the capacity and...
+Or sorry, size and capacity won't be detected
+if it's your container and it's not really...
+Like, prepared for ASAN.
+You can poison if you have your own container.
+Yes, you can do that.
+And, for example, there are projects to, for example,
+make this for SDD string or SDDVQ and I'll be in right now.
+So one problem we tend to have is there's actually no data corruption...
+There is data corruption on disk and you need to figure out
+how that got on disk.
+And it's not necessarily a race condition, it's a bug that's
+hidden in the logic and it only happens
+in a certain case of events.
+So usually the crash is an assertion failure somewhere.
+Yeah.
+So in your example, we can see that there's a difference
+of the increments of the content.
+Do you know why it's not with us?
+Is it because of the instrumentation or the latency?
+And then...
+So probably the next talk will help answer that better,
+but I have a theory and at least this is my understanding of it.
+So if it's running in single threaded mode,
+it has to context switch between the threads.
+And it has to decide when that context switch happens.
+It just seems to be significantly more likely
+to switch after the store has happened.
+In which case the number...
+You kind of get to the right one at the end.
+So another way of saying it is serialize this execution?
+Yes, exactly.
+And there is a chaos mode you can enable.
+So rr with dash dash chaos makes it a little bit more
+possible for it to happen, more likely for it to happen.
+Might also not answer that.
+Oh, well that's a good question for you then.
+Yeah.
+Rr is recording process information.
+Like for example, if you're doing it for proc mappings,
+will it actually show up the memory,
+the memory mappings that are on this point in time
+when you are actually stopped on and like reversed?
+And another question,
+does it maybe record additional information,
+like for example, where the file descriptor points?
+Like what was the link on the proc,
+it, fd and the number there?
+Because that would be very useful to have.
+If it's in memory, it should be there.
+I mean, probably it's not memory mapping is there
+because I assume...
+So, yeah.
+In memory stuff, I've not had a problem getting it.
+So it's a very technical question.
+I don't have like the best answer,
+but I don't think there is a problem.
+Yep.
+So, I'm not one of the Rr developers.
+I can't answer that, but like from my understanding,
+I think it's kind of hard to get the CPU to do that.
+You're kind of relying on CPU being able to write stuff to memory.
+So...
+I just have a question.
+Like...
+I don't know if you can answer that.
+I don't know.
+I don't know.
+I don't know.
+Like...
+MariaDB, the releases are...
+How good are we in terms of known bugs,
+race conditions bugs?
+They, you know...
+This is for CI and I don't know if I brought some.
+Just wondering, the release, the MariaDB product,
+is it free of race conditions?
+I'm not sure the quality.
+There is a law...
+I don't know who named it,
+but there is no software free of bugs.
+Yeah, okay.
+But it's free of known race conditions.
+Um, like, there are...
+Like...
+Obviously, we try our best not to ship a buggy product,
+but there are race conditions,
+especially when...
+We've done lots of performance improvements
+for, like, high core count machines,
+like 96-plus cores.
+And that requires some refactoring,
+especially in EnoDB, the storage engine.
+There might still be race conditions there.
+We have had emergency releases
+when we release something and then we realize,
+a day later, we're getting data corruption.
+We need to do an emergency fix.
+But overall, we are pretty confident
+that the CI, since it runs for so many platforms,
+I think we have about 200-ish different combinations.
+If there is a race condition, it tends to show up.
+So is it just x86 or is it cross-spectre?
+The tool works on ARM.
+So I know it has support for M1 plus max.
+Um, yeah.
+So I know x86 and ARM and Apple Silicon kind of works.
+If that's all, then...
+One more?
+Okay, one kind of question.
+So let's say I'm a language developer,
+I'm making my own compiler, I need my own native code.
+Should I be using RR for something other than the default?
+I use RR for...
+Whenever I need a debugger, I use RR instead.
+Okay.
+So...
+Even for logic problems, where you've got like a zero execution code at the end,
+but the logic was flawed and...
+That's the advantage that you can go back in time
+so that you can inspect the value that even if you set the break point too late,
+you can just go back.
+Yeah.
+But one interesting thing is that the program you're debugging is not live,
+it's just being annulated.
+So if you would like to, for instance,
+see what this function would return in this situation or things like that,
+GDB, because it's running GDB in the front,
+GDB cannot just run the functions, tell you why it would happen.
+So there are cases in which you don't want to use RR.
+Yeah, it's a abstract interpretation.
+Yeah.
+It's just...
+It's just emulating the thing.
+Yeah, that's good.
+Thank you very much.
+So does this mean there is no, like,
+inferior running under the hood so you cannot print and call through with an argument?
+Well, let me just say that.
+I thought it wasn't...
+I can try that.
+No, no, no.
+I think it's probably work.
+We can try it because I know some ways to do that would not happen inferior running.
+Yeah.
+But right now I'm not sure what RR does.
+I never...
+Spoilers, I never looked at the RR code.
+I just have a vague idea of how it does that.
+Okay, let's see.
+We can do a...
+So you're saying to call printf, basically?
+No.
+Call any function that is in your program.
+You can call quotes.
+You can call quotes.
+It should be there because you never have GDB out of them.
+So, um...
+Print and then...
+Print and then...
+Puts are...
+Okay, I can probably do this.
+Yeah.
+Okay, no, yeah.
+So...
+So, yeah, so it does have an...
+I'm sorry, that one's incorrect.
+Yeah, it does.
+It did it ten times.
+But your function...
+I can...
+You're gonna have side effects.
+How is this...
+Yeah, so it does not...
+It's correct.
+Sorry, but what happens now if we step back?
+So...
+Two minutes left.
+No.
+Again, my talk.
+I'll touch on this and then I can...
+We...
+We...
+We died.
+So, we talked a little bit.
+I can go into a little bit more detail than I planned in my talk.
+There is a specific point where I say this is how I heard our words.
+I've never looked at it.
+But now I can, like, go a little bit further.
+But, yeah, so this was a talk.
+And in five minutes, I'll start explaining the technical details.
+Right.
+Thank you.
+Thank you.

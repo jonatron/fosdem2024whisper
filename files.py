@@ -27,6 +27,10 @@ files = \
     "title": "Outreachy: 1000 interns\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3723-fosdem-2024-highlights.av1.webm",
+    "title": "FOSDEM 2024 Highlights\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3024-closing-fosdem-2024.av1.webm",
     "title": "Closing FOSDEM 2024\n"
   },
@@ -37,6 +41,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3683-the-regulators-are-coming-one-year-on.av1.webm",
     "title": "The Regulators Are Coming: One Year On\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3163-copyleft-and-the-gpl-finding-the-path-forward-to-defend-our-software-right-to-repair.av1.webm",
+    "title": "Copyleft and the GPL: Finding the Path Forward to Defend our Software Right to Repair\n"
   },
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3209-how-open-source-projects-approach-functional-safety.av1.webm",
@@ -67,6 +75,10 @@ files = \
     "title": "Alexandria3k: Researching the world's knowledge on your laptop\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2415-how-to-build-an-open-source-school-cloud-for-5-million-users.av1.webm",
+    "title": "How to Build an Open Source School Cloud for 5 Million Users\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2716-firefox-power-profiling-a-powerful-visualization-of-web-sustainability.av1.webm",
     "title": "Firefox power profiling: a powerful visualization of web sustainability\n"
   },
@@ -93,6 +105,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-3370-an-engineer-s-guide-to-linux-kernel-upgrades.av1.webm",
     "title": "An engineer's guide to Linux Kernel upgrades\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-2452-using-your-laptop-tpm-as-a-secure-key-store-are-we-there-yet-.av1.webm",
+    "title": "Using your Laptop TPM as a Secure Key Store: Are we there yet?\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-2092-the-d-programming-language-for-modern-open-source-development.av1.webm",
@@ -147,6 +163,14 @@ files = \
     "title": "Testing Containers with Python and pytest\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3249-gnucobol-the-free-industrial-ready-alternative-for-cobol-.av1.webm",
+    "title": "GnuCOBOL, the Free Industrial-ready Alternative for COBOL!\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-2023-ensuring-longevity-strategies-for-sustainable-floss-projects-.av1.webm",
+    "title": "Ensuring Longevity: Strategies for Sustainable FLOSS Projects.\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-2848-documenting-and-fixing-non-reproducible-builds-due-to-configuration-options.av1.webm",
     "title": "Documenting and Fixing Non-Reproducible Builds due to Configuration Options\n"
   },
@@ -175,8 +199,16 @@ files = \
     "title": "Compiler Options Hardening for C and C++\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-2523-mind-the-gap-building-a-cultural-commitment-to-documentation-maintenance.av1.webm",
+    "title": "Mind the gap: Building a cultural commitment to documentation maintenance\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-2231-a-lazy-developer-s-approach-to-building-real-time-web-applications.av1.webm",
     "title": "A Lazy Developer’s Approach to Building Real-Time Web Applications\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3610-unpack-phabricator-welcome-phorge-forking-the-opinionated-open-source-project-manager.av1.webm",
+    "title": "Unpack Phabricator, Welcome Phorge - Forking the Opinionated Open Source Project Manager\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3615-0-a-d-game-vulkan-api.av1.webm",
@@ -197,6 +229,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3390-introducing-the-open-podcast-api.av1.webm",
     "title": "Introducing the Open Podcast API\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3154-project-websites-that-don-t-suck.av1.webm",
+    "title": "Project websites that don't suck\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-2043-foss-for-docs.av1.webm",
@@ -245,6 +281,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3754-dynamic-explainability-through-dynamic-causal-modeling.av1.webm",
     "title": "Dynamic Explainability through Dynamic Causal Modeling\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2106-ai-for-developers-treating-open-source-ai-as-a-function.av1.webm",
+    "title": "AI for Developers: Treating Open Source AI as a Function\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2424-using-haystack-to-build-custom-functionality-for-llm-applications.av1.webm",
@@ -403,12 +443,20 @@ files = \
     "title": "Increasing Trust and Preserving Privacy: Advancing Remote Attestation\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2161-diy-private-container-registry.av1.webm",
+    "title": "DIY Private Container Registry\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-1855-forensic-container-checkpointing-and-analysis.av1.webm",
     "title": "Forensic container checkpointing and analysis\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2988-introducing-incus.av1.webm",
     "title": "Introducing Incus\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-1904-kubernetes-operators-expanding-automation-in-containerized-applications.av1.webm",
+    "title": "Kubernetes Operators: Expanding Automation in Containerized Applications\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3063-using-chroots-in-a-single-linux-container-as-an-alternative-to-docker-compose.av1.webm",
@@ -443,6 +491,10 @@ files = \
     "title": "Debug your stage-1 systemd with GDB and the NixOS test framework\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2257-love-rr-love-rr-you-re-so-good-to-me.av1.webm",
+    "title": "Love rr, Love rr, you're so good to me\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-1857-help-us-improve-time-manipulation-with-gdb.av1.webm",
     "title": "Help us improve time manipulation with GDB\n"
   },
@@ -461,6 +513,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2556-poke-all-the-microcontrollers-.av1.webm",
     "title": "Poke all the microcontrollers!\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2020-verrou-a-valgrind-tool-dedicated-to-floating-point-error-diagnosis.av1.webm",
+    "title": "Verrou : a valgrind tool dedicated to floating point error diagnosis\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2255-yet-another-event-sourcing-library.av1.webm",
@@ -539,6 +595,10 @@ files = \
     "title": "Homebrew's Evolution\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-1936-writing-a-consistent-hashing-loadbalancer-for-the-kong-api-gateway-ketama-principle-.av1.webm",
+    "title": "Writing a consistent-hashing Loadbalancer for the Kong API gateway (ketama principle)\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-3056-dns-for-i2p-distributed-network-without-central-authority.av1.webm",
     "title": "DNS for I2P: Distributed Network without Central Authority\n"
   },
@@ -577,6 +637,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3136-embedded-security-2023.av1.webm",
     "title": "Embedded Security 2023\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3013-a-fully-open-source-stack-for-mipi-cameras.av1.webm",
+    "title": "A fully open source stack for MIPI cameras\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-2103-enioka-scan-say-no-to-vendor-lock-in-for-your-barcode-scanners.av1.webm",
@@ -871,6 +935,10 @@ files = \
     "title": "Zeroing and the semantic gap between host and guest\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2460-a-beginner-s-guide-to-backports.av1.webm",
+    "title": "A beginner's guide to Backports\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2336-cryostat-jfr-in-the-cloud.av1.webm",
     "title": "Cryostat: JFR in the cloud\n"
   },
@@ -913,6 +981,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1813-you-re-already-running-my-code-in-production-my-simple-journey-to-becoming-a-go-contributor-.av1.webm",
     "title": "You're already running my code in production: My simple journey to becoming a Go contributor.\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2575-single-binary-full-stack-provisioning.av1.webm",
+    "title": "Single binary, full-stack provisioning\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2055-efficient-integration-testing-in-go-a-case-study-on-dapr.av1.webm",
@@ -1047,6 +1119,10 @@ files = \
     "title": "SpiceDB: mature, open source ReBAC\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2801-agama-low-code-web-identity-orchestration.av1.webm",
+    "title": "Agama: Low-Code Web Identity Orchestration\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2170-improving-infrastructure-security-through-access-auditing.av1.webm",
     "title": "Improving Infrastructure Security Through Access Auditing\n"
   },
@@ -1107,6 +1183,10 @@ files = \
     "title": "POSIX identities out of OAuth2 identity providers: how to redesign SSSD and Samba?\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2617-calc-with-calculang-a-language-for-calculations.av1.webm",
+    "title": "calc with calculang, a language for calculations\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2722-your-web-app-is-taking-up-too-much-ram-let-s-fix-it-.av1.webm",
     "title": "Your web app is taking up too much RAM. Let's fix it!\n"
   },
@@ -1119,6 +1199,10 @@ files = \
     "title": "Codebase Conquest: How Nx Turbocharged Our React Workflow\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-1713-web-performance-leveraging-qwik-to-meet-google-s-core-web-vitals.av1.webm",
+    "title": "Web Performance: Leveraging Qwik to Meet Google's Core Web Vitals\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2319-can-we-simplify-charting-libraries-.av1.webm",
     "title": "Can we simplify charting libraries?\n"
   },
@@ -1129,6 +1213,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2832-messageformat-the-future-of-i18n-on-the-web.av1.webm",
     "title": "MessageFormat: The future of i18n on the web\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2288-cryptography-against-ai-deepfake-resistant-webrtc-videocalls.av1.webm",
+    "title": "Cryptography against AI: Deepfake resistant WebRTC videocalls\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2649-all-things-astro.av1.webm",
@@ -1155,6 +1243,10 @@ files = \
     "title": "Linux Matchmaking: Helping devices and drivers find each other\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2985-the-case-for-a-virtual-rust-stateless-codec-driver.av1.webm",
+    "title": "The case for a virtual Rust stateless codec driver\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2123-from-kernel-api-to-desktop-integration-how-do-we-integrate-battery-charge-limiting-in-the-desktop.av1.webm",
     "title": "From Kernel API to Desktop Integration, how do we integrate battery charge limiting in the desktop\n"
   },
@@ -1175,8 +1267,20 @@ files = \
     "title": "Packet, where are you?: Track in the stack with pwru\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3664-welcome-to-the-legal-and-policy-issues-devroom.av1.webm",
+    "title": "Welcome to the Legal and Policy Issues Devroom\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3113-rhel-and-centos-and-the-growth-of-openwashing-in-foss.av1.webm",
+    "title": "RHEL and CentOS and the growth of openwashing in FOSS\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-2595-figuring-out-trademark-policy-on-the-fly.av1.webm",
     "title": "Figuring out trademark policy on the fly\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-2229-gpl-s-termination-under-german-law.av1.webm",
+    "title": "GPL’s Termination under German Law\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3401-the-new-swiss-open-source-law-public-money-public-code-by-default.av1.webm",
@@ -1241,6 +1345,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3227-using-the-nova-microhypervisor-for-trusted-computing-at-scale.av1.webm",
     "title": "Using the NOVA Microhypervisor for Trusted Computing at Scale\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3459-unikernels-are-here-building-running-and-deploying-application-unikernels-with-one-command.av1.webm",
+    "title": "Unikernels Are Here: Building, Running and Deploying Application Unikernels With One Command\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-1960-is-toro-unikernel-faster-for-mpi-.av1.webm",
@@ -1395,6 +1503,14 @@ files = \
     "title": "iputils project introduction\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2306-orchestrating-change-automating-gant-network-migration.av1.webm",
+    "title": "Orchestrating Change: Automating GÉANT Network Migration\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-3337-flying-higher-hardware-offloading-with-bird.av1.webm",
+    "title": "Flying higher: hardware offloading with BIRD\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2388-zeekjs-javascript-support-in-zeek.av1.webm",
     "title": "ZeekJS: JavaScript support in Zeek\n"
   },
@@ -1413,6 +1529,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-3062-i-want-my-own-cellular-network-having-fun-with-lte-networks-and-open5gs-.av1.webm",
     "title": "I want my own cellular network! Having fun with LTE networks and Open5Gs.\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3061-packaging-bazel-and-bazel-based-packages.av1.webm",
+    "title": "Packaging Bazel and Bazel-based packages\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-1983-remediating-thousands-of-untracked-security-vulnerabilities-in-nixpkgs.av1.webm",
@@ -1489,6 +1609,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-3022-sharing-parametric-models-as-web-apps-with-replicad.av1.webm",
     "title": "Sharing parametric models as web apps with replicad\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-3196-testing-in-a-box-streamlining-embedded-systems-testing.av1.webm",
+    "title": "Testing in a Box: Streamlining Embedded Systems Testing\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3079-webassembly-webcomponents-and-media-filters-all-at-once-a-proposal-to-open-the-web-to-variety-of-formats.av1.webm",
@@ -1597,6 +1721,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-2405-best-practices-for-research-in-open-source-ecosystems.av1.webm",
     "title": "Best practices for research in open source ecosystems\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3447-phaidra-a-repository-where-research-data-goes-to-live-not-to-die-.av1.webm",
+    "title": "PHAIDRA - A Repository Where Research Data Goes to Live (Not to Die).\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3109-updating-open-data-standards.av1.webm",
@@ -1783,6 +1911,14 @@ files = \
     "title": "Legislation Editing Open Software (LEOS) - an innovative open-source solution for drafting legislation​\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3286-from-excel-to-grist-the-example-of-a-massive-transition-towards-open-source-software-and-contribution-by-a-french-government-agency.av1.webm",
+    "title": "From Excel to Grist: the example of a massive transition towards open-source software and contribution by a French government agency\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2462-gno-land-improve-your-understanding-of-our-world.av1.webm",
+    "title": "Gno.land: Improve Your Understanding of Our World\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-1706-trubudget-a-dpg-to-support-the-project-workflow-in-international-multi-stakeholder-environments.av1.webm",
     "title": "TruBudget - a DPG to support the project workflow in international multi-stakeholder environments\n"
   },
@@ -1791,12 +1927,20 @@ files = \
     "title": "Moodle: Empowering educators to improve our world\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2252-fiscal-sponsorship-for-and-foss-projects.av1.webm",
+    "title": "Fiscal sponsorship for / and FOSS projects\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3312-what-can-digital-open-source-projects-do-to-reduce-our-environmental-footprint.av1.webm",
     "title": "What can digital open source projects do to reduce our environmental footprint\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3755-open-terms-archive.av1.webm",
     "title": "Open Terms Archive\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3756-openfisca.av1.webm",
+    "title": "OpenFisca\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2243-developing-in-public-open-source-tech-education.av1.webm",
@@ -1951,8 +2095,16 @@ files = \
     "title": "The best `case` scenario\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2273-a-front-end-journey-back-to-rails.av1.webm",
+    "title": "A front-end journey back to Rails\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2182-besides-web-a-worker-story-.av1.webm",
     "title": "Besides Web: a Worker story.\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-1729-the-world-of-passkeys.av1.webm",
+    "title": "The world of Passkeys\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2473-backtracie-and-the-quest-for-prettier-ruby-backtraces.av1.webm",
@@ -2015,6 +2167,18 @@ files = \
     "title": "SPDX 3.0 - a migration journey\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3276-foss-for-foss-dejacode-is-your-new-foss-control-center-for-sboms.av1.webm",
+    "title": "FOSS for FOSS: DejaCode is your new FOSS control center for SBOMs\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3622-panel-discussion-software-naming.av1.webm",
+    "title": "Panel discussion: Software Naming\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3180-protobom-the-universal-i-o-layer-of-sbom.av1.webm",
+    "title": "Protobom: The Universal I/O Layer of SBOM\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2920-know-your-ingredients-security-starts-with-the-sbom.av1.webm",
     "title": "Know Your Ingredients: Security Starts With the SBOM\n"
   },
@@ -2059,6 +2223,10 @@ files = \
     "title": "Using GPU for real-time SDR Signal processing\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-1662-trx-control-modern-software-to-control-amateur-radio-transceivers-and-other-hamradio-hardware.av1.webm",
+    "title": "trx-control - modern software to control amateur radio transceivers and other hamradio hardware\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-2050-covert-ground-based-synthetic-aperture-radar-using-a-wifi-emitter-and-sdr-receiver.av1.webm",
     "title": "Covert Ground Based Synthetic Aperture RADAR using a WiFi emitter and SDR receiver\n"
   },
@@ -2095,6 +2263,14 @@ files = \
     "title": "srsRAN Project Update\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2147/fosdem-2024-2114-sidloc-spacecraft-identification-and-localization-system.av1.webm",
+    "title": "SIDLOC: Spacecraft Identification and Localization system\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-2037-hopsfs-fuse-mount.av1.webm",
+    "title": "HopsFS FUSE Mount\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-1959-boosting-cephfs-security-in-kubernetes-rook-s-intelligent-network-fencing-for-uninterrupted-data-flow-and-workload-harmony-.av1.webm",
     "title": "Boosting CephFS Security in Kubernetes: Rook's Intelligent Network Fencing for Uninterrupted Data Flow and Workload Harmony!\n"
   },
@@ -2115,12 +2291,20 @@ files = \
     "title": "SMB for Linux with SMB3 POSIX extensions\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-2036-exploring-samba-on-various-file-systems-bridging-ideas-and-enthusiasts-together.av1.webm",
+    "title": "Exploring Samba on various File Systems: Bridging ideas and enthusiasts together\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-3009-advances-in-garage-the-low-tech-storage-platform-for-geo-distributed-clusters.av1.webm",
     "title": "Advances in Garage, the low-tech storage platform for geo-distributed clusters\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-3416-microceph-get-ceph-up-and-running-in-minutes.av1.webm",
     "title": "MicroCeph: Get Ceph Up and Running in Minutes\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-3006-container-storage-interface-addons-extending-csi-specification-to-provide-advanced-storage-operations.av1.webm",
+    "title": "Container Storage Interface Addons: Extending CSI specification to provide advanced storage operations\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-1671-welcome-to-testing-and-continuous-delivery-devroom.av1.webm",
@@ -2223,6 +2407,10 @@ files = \
     "title": "Open Source DocOps\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-2320-taming-abstraction.av1.webm",
+    "title": "Taming Abstraction\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-1815-easily-going-beyond-markdown-with-material-for-mkdocs.av1.webm",
     "title": "Easily Going Beyond MarkDown with Material for MkDocs\n"
   },
@@ -2245,6 +2433,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-1759-a-universal-data-model-for-localizable-messages.av1.webm",
     "title": "A universal data model for localizable messages\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-3236-happy-translating-it-is-possible-to-overcome-the-language-barrier-in-open-source-.av1.webm",
+    "title": "Happy translating! It is possible to overcome the language barrier in Open Source!\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-1906-lessons-learnt-as-a-translation-contributor-the-past-4-years.av1.webm",

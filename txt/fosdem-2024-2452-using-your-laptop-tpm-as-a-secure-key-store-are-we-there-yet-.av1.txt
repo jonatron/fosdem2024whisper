@@ -1,0 +1,470 @@
+Welcome to our next talk. Using your laptop TPM as a secure key store. How are we there
+that? From James Potomly, welcome. Have a fun. Thank you.
+Thank you very much. So I have been working with TPMs for quite a long time, but my history
+goes back way, way before that. I mostly began life as a kernel developer in Linux. A long,
+long time ago, I got into open source as business advocacy at least over a decade ago. I think
+my history with Linux kernel actually began before some of you were born now because we're all
+getting on a bit. I've been a kernel developer ever since, well I've been a kernel maintainer
+ever since 2002, this because he subsystem. I also think whether other architectures like
+PA risk have done a bit of arm, obviously we're forced to do risk five because it's a new
+trendy thing. I've been doing containers for a long, long time. I should probably be in the
+container dev room, but I have to be here, here to talk to you. And I'm what's called a
+reluctant TPM coder. The reason I'm a reluctant TPM coder is because I got into the TPM primarily
+because of my interest in actually using it as a security device to store keys. And part of the
+reason I got into that is because in the early days of Linux, we had a break in at kernel.org and
+everybody was forced to actually use more security around the SSH keys we used to push the kernel
+tree. And part of this was they gave us a Yubi key. And you know, these are these nice key dongles
+you plug in. And that Yubi key just did one key. And I was sort of like, well, but I don't have
+just one key. I've got my signing key and I've got my SSH key. And I actually use a couple more sub
+keys. And you know, I've got these keys for this. And so by the time I'd actually put all of my keys
+onto these Yubi key dongles, you've got about a fistful of them. And if you were here, I used to get
+Ted Cho to stand up and show me his Yubi key fistful for Google because he's got many, many more than
+I have. He's got about 20, which is pretty much useless. So what I was trying to do was to use the TPM
+of my laptop to replace all of these keys and yet still have exactly the same security as you would
+with a hardware dongle. The reason for Eluctant is because TPMs are really nasty things to program.
+This is why they actually haven't penetrated very well throughout the ecosystem. And the other point
+is you will actually not find a non-relectant TPM programmer. Pretty much everybody who stands up and gives you a
+talk about the TPM will always say they got into it for some other reason. Nobody loves the TPM is the
+moralfulness. Here's some more details about me because I've been blogging about this for a long time.
+So you can go to my blog site and there are tons of articles about the TPM. I'm afraid my blog is a bit
+stream of consciousness. The articles are in order of what I got interested in yesterday. And that means that
+there's a lot of stuff that isn't TPM on the blog. But I've usually got it tagged and labeled so you should be able
+to find the TPM stuff you're interested in. Thanks to FOSDAM, we all do matrix stuff now. So that's my matrix
+login. It's on my own server, so I run most of my own things. And you can get my GPG key. I'm not going to put up a
+key fingerprint because you get it over Dain instead. So Dain is this security protocol that goes over DNSSEC
+straight to my domain and actually pulls the GPG key directly from there. It's one of the ways you can actually
+replace the key distribution network of GPG. Of course another one is Web Key Distribution and all sorts of other
+things. But this command is actually the one you use to get my key and it's the one I was just training Lieness on
+about a week ago when he was wittering about the fact that my key expires quite often. So let's get started with
+YTPM, so security and trust. Everybody needs help protecting secrets. So I gave you my story of why I got interested
+in it. It was essentially protect secrets. Everybody has this need. And usually in computing terms, your secret is
+associated with an asymmetric key of some sort. For most people in this room, I bet you it's probably an RSA key. It's probably
+your GPG long-lived certification key. For more modern people, you're moving to elliptic curve keys. The reason for this is
+basically bits of security. So quantum computers, assuming we can't run Shor's algorithm, which just allows them to factor
+RSA and of course elliptic curves, if they come along, there's another algorithm called Grover's algorithm which dramatically reduces
+the amount of time it will take to do a brute force attack on a key. And so NEST and most government agencies are
+recommending we double the number of security bits in our keys. So if you have an RSA 2024 key, you've got about 112 bits of
+security. Most of my keys are elliptic curve, they're P256. I've got about 128 bits of security. But the minimum
+recommendation is going to be 256, and we're all going to have to upgrade to that. 256 bits of security in RSA equates to about
+15,000 and something or other in terms of bits that you need for an RSA key. Effectively, it's an RSA 16K key. These keys are way too
+wieldy to actually be useful in practice, and so everybody is going to be forced to use elliptic curve keys shortly. And obviously, if these
+keys get stolen, the user can be impersonated. And the current state of the art is all of these key dongles, as I said. And I think we should
+do better than this. That statement about them carrying one key is no longer entirely true. Some of the more decent UB key ones can
+now carry up to three keys, but it's still way too small a number. And the good thing about a TPM is that the key does not have to be
+stored in the hardware. So TPM hardware actually has a small storage space as well you could use. But one of the things you can do with
+the TPM is actually load the key from the file into the TPM. So effectively, you can have thousands and thousands of keys on the same TPM.
+In fact, it just scales as far as your file system storage does. The other good thing about TPM keys is that automatically two factor. So let's
+conduct a little experiment about two factor authentication. Who uses USB keys in this room? Keep your hand up if you use a pin or a password
+with that USB key. That's actually pretty good. So about 20% of the hands went down. So the point is, even if you have a USB key and you
+don't use a pin or password, you're not two factor. Two factor requires something you know, which is the password, and something you have,
+which would be the key. So with the TPM, it's the authority for the key, which is what I proved. It's a passphrase I used to prove to the TPM.
+I'm the owner of the key, and something which I have, which is of course access to the TPM. So for TPM basics, effectively the TPM is a separate
+security module that's present in pretty much all laptops. This is an Infineon mobile TPM. The TPM is that little chip there. Sorry, my battery is
+running down on this. So I think I've got one shot out of the laser pointer, so I won't use it yet. But the big thing on the top is actually the LPC
+bus connector. So as you can see, the chip is tiny. The major component of this is actually connection to the bus. They've been ubiquitous for a while now.
+So they've been present in laptops for at least the last 20 years. Originally at TPM 1.2, but TPM 2.0 is going through the ecosystem.
+The reason why everybody should have a TPM 2.0, and if you only have a TPM 1.2, you shouldn't be using it, is for agile cryptography.
+TPM 1.2, the specification is so old that the only hash it can do for signing is Char-1, which has been deprecated for quite a long time. So if you see Char-1 in any key signing process, most people will tell you not to use that and not to use that signature.
+And this basically means that TPM 1.2 is obsolete. The good thing about TPM 2.0 is it has agile cryptography, although it's not as agile as you think. If I give you a list of all the algorithms my current TPM can do, it's basically four.
+It can do RSA 2K, it can do NIST P256 elliptic curve, it can do the burrito and airing curve, and I was hoping to say it could do P384, but I actually checked it just before the talk and it can't. So my laptop in fact can only do three algorithms.
+The actual functions that a TPM can do are many that vary than one run way beyond key storage. So shielded key handling is the big one that I'm talking about today, but it can also do something called measurement. If you've heard of measured boot, that's a function that a TPM does, and that was actually the original function that a TPM was invented to perform.
+It can also do something called data sealing. Data sealing means that you put a blob of data into the TPM and it only releases it back to you under certain circumstances. Effectively we use this for symmetric keys. So your disk encryption key on your laptop for instance would be stored as a sealed key blob that would be released to the kernel when everything goes right.
+And I'll actually be talking about that in the TPM and kernel session tomorrow.
+And then the final function a TPM does is attestation. If you're doing things like measurements, you need to prove to somebody else what the measurements you collected actually were.
+And so the TPM is capable of forming a signature over a set of measurements that can be verified back to this TPM and is therefore used as proof to somebody else that what you say is correct.
+But obviously today I'm only talking about shielded key handling. So none of the other three functions of the TPM will be covered.
+So keys inside the TPM are stored in hierarchies, which means they have a theoretical hierarchy with a root key at the top and then they have other keys descending off the root key.
+You can actually have intermediate keys in this hierarchy. The only reason it's called a hierarchy is because of the way the TPM works.
+It encrypts the key file that you get back from a TPM to a symmetric key that's stored in the hierarchy.
+The top key of the hierarchy is always called the primary.
+TPM 2 has four hierarchies, which basically mean four primary keys, but there's the platform hierarchy is never used.
+It belongs to the film I guys and they don't use it. The endorsement hierarchy is used for attestation.
+The storage hierarchy is where we put our keys and the null hierarchy is also pretty much never used because it's volatile.
+The null key changes every time you reboot your TPM and that means that you don't have a permanent key.
+You can actually encrypt to it because it changes every time.
+So a key file from a null hierarchy on one reboot would encrypt differently from the key file on the next reboot.
+So effectively we only use the storage hierarchy for keys.
+Like I said, TPM 1.2 was char and RSA and is therefore deprecated.
+TPM 2 can do RSA, char 256, char 512 is actually present on most of them, and it can do elliptic curve algorithms, which is really useful.
+TPM 1.2 has this agile cryptography because instead of actually storing keys in its internal structure, it stores 128 bit number called a seed.
+And from this seed it actually uses a key derivation function to get from the seed to whatever key you want.
+This sounds really good and it is because the seed is just a random number.
+Every time you initialize a TPM, which you can do, it will choose a new set of random numbers.
+So the storage seed is stored as this 128 bit number and from it you derive either an RSA key or elliptic curve key or whatever else you want.
+The key derivation algorithm ensures the same seed as long as you have the same number, it always comes back with the same public-private key pair or the same symmetric key, which is useful.
+But the problem is that the key derivation function for things like RSA involves finding prime numbers.
+So there is a special key derivation function that means you always find the same prime numbers, but you still have to conduct a prime search.
+The problem for a TPM is it is a very slow processing engine and that means it takes a long time to do prime searches.
+So creating a key from a seed on a TPM2 can take a long time.
+So this is my old laptop. It takes 43 seconds to actually do a prime search and construct the correct RSA 2048 primary from its seed.
+My new laptop is actually using an Intel firmware TPM, which is supposed to operate on the CPU, and it still takes 7 seconds to actually derive an RSA key.
+So the reason I use elliptic curve keys is just because they are much, much faster.
+An elliptic curve key derivation to a TPM is pretty much a linear-like operation. It doesn't involve finding primes.
+And the storage seed can be changed in a TPM. There is a special command to do that.
+And the reason it's useful is because if you're storing all of your keys in your TPM as key files and you want to shred every key that you ever own at once,
+all you have to do is change the primary seed because that changes the encryption key that is used to save and restore the keys.
+All your old keys will no longer restore into this TPM.
+So effectively your old keys become shredded, which is a useful thing to do if you're giving up your laptop or airport security wants to do something strange with it.
+So once you take a key that, say you create a key for GPG and you transfer it to a TPM key, that transfer is one way.
+You will never get that key back again from the TPM.
+So if you're using this for identity keys, you have to be careful because your identity keys tend to live a lot longer than your laptops.
+If you're an average developer like me, you'll tend to go through a new laptop once every, you know, I'd like to say two or three years.
+In fact, it's pretty expensive, so it's probably every five years.
+But my GPG key has been with me for the last 15 years and I would expect to keep it a lot longer than that.
+So my GPG key will outlive the TPM in this laptop.
+So the one thing I can't do is transfer the key irrevocably to the laptop.
+So what I usually do is I generate all my identity keys in a sort of vault, put them on a secure hard drive, lock it in the drawer on my desktop.
+Every time I get a new laptop, I convert the keys to TPM format for that laptop and then thereafter the unconverted keys just stay on my locked drawer.
+And the laptop travels with me with the keys in, but you can't get hold of them because they're TPM keys.
+And this never extractive property is really useful.
+Even the manufacturer of a TPM can't extract the key.
+There is a theoretical process you can go through where you decap a TPM, you pop its top off, and if I can get at the seeds within,
+I can actually derive the encryption key for the key files from them, and that would allow me to get the keys.
+But there is no programmatic way of doing this in the TPM.
+So the stated play of this is that unfortunately the TPM is really, really hard to use in program.
+So the way we try and enable these key systems for everybody to use is we try and actually enable them in the crypto systems.
+The TPM actually has a slight disagreement over the library standard you should use to program it.
+This is all technical, none of you need to know about this, but there are two implementations, one from Intel and one from IBM,
+conforming to two completely separate specifications that are both legitimately published by the TCG for no readily apparent reason,
+and therefore look completely different to program.
+And God knows why this is.
+But the key to enabling TPMs for key storage is just to make it simple.
+And that means that it needs really to be an integral part of the cryptography system that you use.
+So GPG, if you use it, needs to, as an integral part of GPG, just use TPMs.
+Open SSL, if that's your crypto system, needs as an integral part of that to use TPMs.
+And that's where everything would stay, except now there's a new added wrinkle in TPM security.
+So the TPM is usually attached to the bus, a bus in my laptop.
+For most Intel laptops, it's attached to something called the LPC bus, the low pin count bus.
+And this bus, unfortunately, is actually pretty easy to snoop.
+And if you can snoop the bus and you can snoop TPM transactions on it, I can actually intercept all of the commands that are flowing over the TPM.
+So for instance, if I'm wrapping my private key, the private key material has to go over this bus to the TPM, somebody could intercept it.
+If I'm not using HMAC-based passwords, the password goes in the clear over this bus, the authority for the key, you could intercept it.
+And there is actually an existing attack that does this, it's called TPM Genie.
+The guys at the National Security Lab in Canada actually constructed a dongle that you can easily attach to a laptop without actually really opening it up.
+And just extract all of the TPM traffic.
+There is also a theory that you can actually program another device on the LPC bus, like keyboard or the mouse, simply to reflect the commands back and also do the snooping for you.
+So there is a theory that this TPM Genie attack could also be a remote infiltration attack.
+It doesn't have to be an evil made local attack.
+But the upshot is, nobody uses a TPM nowadays without actually running security on the bus itself, the TPM talks to the laptop on.
+So all data and transit now has to be encrypted.
+And this makes TPMs go from sort of complicated to use to being excruciating extremely complicated to use.
+Because now you have to use something called a TPM session, which effectively is sort of like an ECDH encryption stream between the application and you.
+And you in the room do not want to know how to do this.
+I've actually written this code from scratch for the Linux kernel because right at the moment the Linux kernel doesn't do this.
+And at some point we're going to get a problem because of this.
+So we need to be doing this encryption.
+It really is horrible code.
+Nobody in there should actually have to do this.
+This is why all TPM coders are reluctant coders.
+So I do this so you don't have to.
+And for added sophistication, these sessions once we have them can actually be used to implement key policy.
+Key policy is useful because it can say things like, unless you booted this exact kernel version, do not release this key.
+Do not sign anything with this GPG key.
+Do not use this key.
+So key policy is something that I'll come on to a bit later.
+But sessions make using a TPM way more complicated.
+It's all complexity you hopefully don't need to know anything about because the more complex and difficult it is, the more reluctant everybody is to use it.
+So let's get on to crypto system enabling.
+Existing crypto systems mostly use password protected keys.
+You've all seen them in open SSH and GPG that if you cap the key file, the private key file, it's usually just a password encrypted key of some sort.
+Easy.
+TPM keys also require something called an authority.
+I mean, you can actually tell TPM not to use an authority.
+You can just use it without effectively non too factor like a lot of USB keys.
+But for the best use case, you've actually got a key authority.
+And it's basically a secret you just proved to the TPM, you know.
+If you do it over an HMAC session, you do an HMAC proof.
+It's effectively a challenge proof that you know the password.
+Password itself doesn't flow over the bus in the clear.
+And the key files contain a TPM key blobs and the password can just be used as the key authority.
+This is all very easy.
+The problem is the key file format needs standardizing.
+We have loads of crypto systems.
+One of the early successes of cryptography is that pretty much everybody uses the open SSL key format,
+which if you've seen it, it's that PEM file format, which is really useful.
+So in order to get interoperability in the TPM ecosystem,
+I've actually had to spend a long time trying to force people to standardize on one particular way of using TPM keys,
+one way of writing them.
+And pretty much over the last seven years, everybody has actually agreed to do this.
+Well, an IBM who can't agree on anything over the TPM have agreed to do this.
+And so we actually have, oh, well, apart from system D, who's a late comer to the TPM consumer of space,
+everything else uses a standard key format.
+And that key format is currently standardized on my website,
+but ultimately I'm hoping to make it an RFC so that it will just be part of the industry.
+And so then, as long as the crypto system recognizes the key file, everything should just work.
+You can use a TPM based key file in exactly the same place as you just used a private key file.
+Everything should just work through the TPM.
+All your cryptography operations become naturally secure, which is useful property.
+And you don't need to know anything about the TPM.
+All you need to do is know how to do a one time conversion of your key, and that's it.
+And obviously you need some discipline around key backup.
+As I said, if you convert your key and remove the original, you have no way of separating that key from that laptop.
+Now, lots of keys are ephemeral, so perhaps that's the way you should use some of your keys.
+But some keys represent your identity and should survive the laptop.
+So you need to be careful knowing which key is which and how you should use it.
+So some discipline around this.
+The advantages are easy.
+You only need to trust the TPM.
+TPMs have been manufactured by a lot of countries all over the world.
+Israel is now a current one.
+There have been allegations the NSA put a back door in it, but currently, if you remember two talks ago,
+the guy was talking about reproducible bills.
+We actually now have a standard software model for a TPM that manufacturers are supposed to provably conform to.
+So we should have proof that there are no back doors on behalf of the NSA.
+Of course, they could be listening on the bus or something.
+And the great thing is, even if you take away my private key file,
+you can't extract the key from it without being in possession of my laptop.
+Everybody when I used to make this statement said, prove it.
+So there is an SSH private key.
+I've helpfully removed the password from it, so it has no password.
+It's my TPM key.
+If you actually scan that QR code, you will get the private key.
+And anybody can actually see this.
+You can't do this with an ordinary private key because I'd be giving away with my secrets.
+But I can do this with a TPM key.
+And just as a precaution for those of you figured out that this key would be usable if you got hold of the laptop that produced it,
+it wasn't produced by this laptop sitting on the desk.
+It was produced by a laptop sitting back home.
+So don't mug me late at night to try and get this.
+But this is the SSH key that I use for logging into kernel.org.
+And I'm now just publishing the secret part of that key so confident and I that the TPM will protect those secrets.
+So apart from conversion to TPM format, there is no change to the workflow.
+So this is hopefully what makes it simple for all of you to actually use TPM keys in your everyday life.
+The disadvantages are, as I said, the key is tied to a physical TPM, which is part of your laptop.
+When your laptop is retired or dies, that key is no longer accessible.
+You can no longer use it.
+The keys all need to be reconverted or duplicated, therefore, when you change laptop, if it's a long-lived key.
+And the TPM is slow. It can't process hundreds of keys.
+This is the reason why the TPM has a key ceiling operation,
+because TPM is way too slow to use for symmetric encryption like disk encryption.
+So the way you use disk encryption with a TPM is the key is actually sealed to the TPM.
+But if the TPM agrees and you provide the right password and all the policy satisfies,
+it will actually release that key into the kernel, into the open,
+where it can then actually be used by the main CPU for symmetric cryptography.
+But for asymmetric keys for elliptic curve and RSA, the TPM itself is doing the key operations.
+The private part of the key is never actually revealed.
+So the current status is that for open SSL1,
+the only way of using external crypto systems was something called an open SSL engine.
+And fortunately, we now have two of these for the TPM.
+So this is one I wrote, the top one, the open SSL2 TPM engine.
+This is one Intel guys wrote to go with the Intel TSS, which is the TPM2 TSS engine.
+Both of those are fairly good and fully functional as open SSL engines.
+For open SSL3, there is a problem in that they are trying to deprecate engines.
+Now, right at the moment, we're on open SSL...
+So when open SSL3 was coming up, they promised us point blank
+that if we hadn't converted our engines, they wouldn't work with open SSL3 full stop.
+They admitted when open SSL3.0 was released, this was a lie.
+And so open SSL3.0 still works with engines.
+They've just released open SSL3.1, which amazingly enough still works with engines.
+So the reason for this is because open SSL themselves internally uses engines
+and they're having a bit of difficulty deprecating their internal engines,
+and obviously they can't pull engine support until they can do that.
+So the engines will continue to work for a while.
+But there is a new mechanism, and it's by new, I mean this was excruciatingly
+and completely different from engine code.
+So I actually had to rewrite the entirety of the engine code to work with the provider.
+And then I did a little blog post about it, so if you're in the same position
+and have to convert an engine to a provider, I've got a detailed description of how to do it.
+It's not something I would wish on anybody, but it's finally been done.
+And we do have, even though it only says open SSLTPM2 engine
+because that's the name I chose for the project,
+before I knew it would have to become provider.
+So it's actually the same code that was in the previous engine is the core code is still there.
+I just separated it up, and I did a provider wrapper around it
+because the TPM code goes through a lot of tests and has to be provably correct.
+The last thing I wanted to do was rewrite all TPM code as well.
+My TPM system comes with Create TPM2 key.
+The Intel one comes with a Create key as well, but I've forgotten what it's called.
+This can also be used to convert ordinary keys to TPM-based keys,
+so it can be used to wrap effectively keys for the TPM.
+Elliptic curve issues.
+So TPM enabling works just fine, but the way that elliptic curves were programmed in the TPM,
+they didn't actually do the generic parameterized curves.
+They did specific named curves.
+This means that the only way you get to use elliptic curves with the TPM is if the curve is known to the TPM.
+And in fact, there are only really three mandated...
+Well, there's technically four because there's a Chinese curve called the SM something or other
+that's also mandated in the TPM, but nobody trusts the Chinese.
+So realistically, it's the NIST curves, and the Burrito-Nerring curve, the BN curve, is not something you should use.
+It was invented for direct anonymous attestation.
+It doesn't have as good security properties as the NIST curves,
+so realistically, you're down to only one elliptic curve you can actually use with the TPM.
+And the algorithms supports only ECDSA and ECDH,
+and this will be important because if you create a new GPG key, chances are it's told you
+to use a Bernstein 25519 curve, which is not part of the TPM,
+and it's actually not on the TCG radar for a very unfortunate reason.
+The 25519 is an Edwards curve, and Bernstein decided that the Edwards curve would have separate signature
+and separate Diffie-Hellman algorithms, and that means that the algorithms themselves,
+if for all agile cryptography in the TPM, are not present, which is a bit unfortunate.
+So don't wait, don't hold your breath waiting for 25519 to become a TPM standard curve.
+Chances are it's not going to be.
+If you want to use the TPM with elliptic curves, you're going to have to embrace the NIST curves.
+The other problem when I said all this is simple is actually an open SSL complexity.
+Open SSL has a special API to load engine key files.
+If you don't have this in your program, it won't load engine key files.
+And the problem was that pretty much no consumers of open SSL code, you know, open SSH, open VPN,
+all of the ones that are based on open SSL had this API sitting in there.
+So I can present a TPM key file all I like to these programs, they won't recognize it,
+because they're not using the correct load routine.
+This annoyingly stupid problem has been fixed in open SSL 3, but it was basically a complete drag on the ecosystem
+for a long time because it's the barrier to TPM enabling is not the fact that I've written the engine,
+because that didn't take me very long, it's the fact that pretty much no code out there actually knows how to use
+an engine with a key file because of this API.
+Because the open SSL consumers always forget this.
+Open SSL is sort of like an API explosion, which I mean, so the fewer APIs you have to know,
+the easier you find it program, which is why everybody always forgets the engine APIs.
+But it is only a couple of extra lines in the code, so I have actually successfully enabled it in things like open VPN.
+It's actually been using, so what it does is it just, for no good reason, when you go to the open SSL command line,
+you have to name the key type. You've seen the inform DER, inform PAM.
+There's also actually an inform engine for everything else.
+But nobody in their right mind would program that.
+All you do is you try the DER loader first, then you try the PAM loader, and then you should try the engine loader.
+But everybody forgets to try the engine loader after the DER and the PAM loader.
+So I put the code into open VPN, and it's been in there since 2.5.
+Unfortunately, we had a dispute over the licensing, so it got removed again in 2.67.
+This was over a statement about Apache and open SSL being compatible at the binary level.
+You don't need to go into it, but these things happen even to the best intentioned people, unfortunately.
+The good news is that if you compile open VPN with open SSL 3, it just works, because all of this is fixed in open SSL 3.
+So hopefully, open SSL 3 will also rescue me from trying to enable engine loading in all of the other open SSL consumer programs that I want to use this with.
+Open SSH was converted to use engine keys. I have a patch for it.
+But because Libre SSL does not use engines, the open SSH people seem to be philosophically opposed to anything to do with engine keys.
+And there's another wrinkle for open SSH. The problem is the way open SSH feeds keys into the agent is actually done by the primes.
+And as you know, for a TPM key, it won't release the primes to you. You can only use the engine key through the TPM.
+You can't see what the source prime numbers are.
+So the way that the SSH communicates with its agent is actually incompatible with the way engine keys work.
+Compatibility is easy. Making it compatible is easy. There's just an engine extension to open SSH which says, I'm not going to use primes.
+I'm just going to tell you where the key file is located. Agent, pick up the key file, don't use the primes.
+Which was, I mean, it was about a 20 line patch. It's fairly easy.
+But like I said, open SSH philosophically opposed to this.
+So I still have to patch open SSH to get all of my open SSH keys to work.
+For open SSL 3, this problem is mostly fixed because the file provider now understands how to load keys from any other provider.
+It will actually query all the providers and say, do you recognize this key?
+And if one of them says yes, it will load the key successfully, which is really useful.
+It gets me out of all the engine stuff. Doesn't solve the open SSH problem because it's trying to pass in prime.
+So in an unpatched open SSH, you will still get an error because it can't extract primes from the key.
+Unfortunately.
+So you don't need separate key loading routines. Everything should just work. This is brilliant.
+The one real success story I have is GNU PG.
+So it actually, way, way back in 2018, I had a conversation at FOSDAM with Werner Almsberger, who does GPG.
+And we agreed that we, I would code the GPG to use TPM keys and he would take the code.
+And it was, again, it was another problem because GPG doesn't use any known crypto system.
+It uses G-crypt, which is a very unusual cryptography library that I also wouldn't want to wish on anybody.
+But I was keen to get GPG supporting TPM keys because I use it on my laptop as well.
+So since version 2.3, it has supported them and version 2.3 is pretty old. It's a few revisions back.
+The main problem is that very few, even the bleeding edge distributions have this.
+Debbie and, Debbie in testing is still on 2240.
+I think Fedora is just about moving to open SSH to GPG 2.4.
+Fortunately, OpenSUSA, which is the distribution I'm currently running, has been using GPG 2.3 and then 2.4 for the past few years.
+So that's why I don't have the problem that you would have if you tried to use this.
+And key conversion is very easy. You just do GPG edit key, my key. You switch to the private key.
+You select the private key and you type key to TPM.
+Remember, this command is irreversible.
+Once, and it's not like the standard GPG thing is when you exit, it will ask you, do you really want to do this?
+Each TPM is instantaneous. It will do it immediately.
+So if you don't have a backup of your GPG keys, you've lost them because it will delete the old key file.
+So just be aware of that. But other than that, it's all fairly seamless.
+And other TPM supporting utilities are things like GNU TLS actually got it from OpenConnect, OpenConnect's for Cisco VPNs,
+SB sign tools is for secure boot, EFI tools is another secure boot thing.
+Oh, PKCS11 export is the way I'm hoping finally to get OpenSSH to do this because there's a guy from Red Hat called Jacob Yellen who's actually doing PKCS11 support in OpenSSH.
+And so the PKCS11 export is actually just a program that takes an OpenSSH key and exports it as a PKCS11 key,
+but it knows how to do it with any engine key or any provider key.
+So I can use this to actually export my OpenSSL keys as PKCS11 keys.
+It's also useful if you have Firefox because Firefox resolutely refuses to understand the basic OpenSSL key format.
+It insists you have to use the Netscape system key format, which nobody uses, but it also understands PKCS11.
+So this is the way I also use client certificate keys with Firefox as well.
+TPM key policies. So since TPM 2.0, it's actually supported a rich policy language based on things like PCR values,
+which are measured boot parameters, what have you, object secrets, it includes ands and aurs, which means you can build elaborate policy chains.
+So with TPM 1.2, the policy was a single statement.
+With TPM 2.0, the policy can be a chain of statements, and that can be this and this and this or this and this and this and this or this and so on and so forth.
+So you can build a very, very rich policy around how this key should be used.
+I wouldn't advise you to because it's sort of difficult to use, but you can do it.
+And policy is described to the key by a single hash value.
+So the way you construct policy is you use a session register.
+You have to execute all the policy statements in sequence, and if you've done it correctly, the hash value in that register matches the one in the key file and everything just works.
+The problem is that if you look at a key file, the policy is just a single hash.
+You can't go from the hash to the statements that were used to create the policy.
+So one of the things you have to do, one of the things the key file format does for you, is it actually stores all of the policy statements in a way that actually allow you to reconstruct the policy.
+So as long as you're using the standard key file format, the policy will always follow your keys.
+And the reason you need to do this is because if you forget which policy goes with which key, you suddenly get a combinatoric explosion of trying to figure out all the policies sort of I have lying around.
+Do they match this hash? How long is it actually going to take me to get up to this hash and match it?
+Yeah, I have to know how to execute the statements.
+And like I said, standardizing the file format meant that we could standardize the way the policy is presented.
+So all you have to know how to do now is to construct the policy.
+You don't need to know the mechanics of how it's done on the back end. We'll just do it for you.
+One of the useful things about policy is that as you saw, policy was a hash.
+If that hash is tied to the key, it can't be changed once the key is created.
+But the TPM has quite a few mechanisms that allow you to add policy after the fact.
+And the most standard mechanism for doing this is something called policy signing.
+So the usual way that the TPM works is that and policy is constructed just by a hash extension, which is the same way TPM's work, TPM PCR's work.
+So you put a hash in there, you put it side by side with the original value that was in the register, you hash it again, that becomes the new value, and you keep building up like this.
+If the TPM sees a signed policy statement, it will actually throw that hash value away and start using the one from the signed policy,
+which effectively means you can use policy signing to replace any policy on the key, which is interesting and useful.
+And it means the key can be updated if you change PCR values.
+So now, if you boot a standard Linux kernel, it will actually hash the command line, the initial RAM disk, and the kernel all into PCR9.
+And this means that I can lock my key to only unlocking, not only if it's the kernel version I know, but it has to be booted with the correct initial RAM disk and the correct command line,
+which is another really useful feature, and if I upgrade my kernel, the PCR values will change, but I can calculate what they should be.
+I just add another signed policy to the key that says use this.
+And I can also delete signed policies from the key, but beware, deleting a signed policy does not revoke the policy.
+If somebody else comes across the old policy, they can still use it, signature will still match. It just removes it from the key.
+And all statements, and indeed signed policy statements, are all processed effectively as fragment chains.
+And the same mechanism can actually be used to execute multiple signed policies, and it will keep trying until one fits.
+At this particular time, I was going to try and do a demo. I think I have two minutes left.
+Well, let's see if we can do that. Come here.
+Actually, let's make that bigger.
+So everybody can just about see that.
+First of all, I should just edit the key.
+So this is my GPG secret key. If you go up here, what you see is that a lot of my non-revoked or expired keys are actually TPM protected.
+So I'm using all of my GPG keys in my TPM, which is a very useful property.
+Let's see. I've got about two minutes left. So let's just...
+So what I've done is I've just moved my actual key directory out of the way, and I'm just going to create a new key.
+So this is the way you generate keys quickly.
+And this P256 is the way you tell it to. The very secure passphrase I'm going to use is test.
+Yep. So this is...
+Oh, for God's sake.
+Okay, let's not do a demo. Let's just go straight on to questions. I already showed you I had TPM keys.
+So five minutes left. Any questions?
+Hi. It's not so much a question. It's more a comment, because you put system.
+We're not using any non-standard format that we came up with. We're just using
+civilization that the Intel stack suggests us to use. So we didn't really add anything on top of that.
+So, I mean, your specification, great. We have no problem at all. We're supporting this, but it's also very, very new.
+And it doesn't even support the stuff that we need. Like we, for example, use policy authorize.nv, which allows you to store policy hash in an nv index.
+It's what we built everything on. And if your spec can't color that yet, then it's also not really in the position yet to be used for this kind of stuff.
+But in general, I'm not opposed at all. Like you seem to insinuating that we did our own thing and didn't want to play balls, anyone else.
+That's just garbage. You totally find supporting anything that people can agree on. This is not an area you want to be pioneers in.
+We want that some people do the work for us and then we just move to that. That's entirely fine. But yeah, make sure, though, that the functionality that people need,
+in this case, like for system-y stuff, that at least, like, looking through the spec, I just did that on my phone.
+Maybe I've missed something, but it just doesn't cover the stuff that we need, which is policy authorize.nv, for example.
+But actually, it only covers everything other than the exceptional commands. Policy authorize.nv is an actually exceptional command, so it's already technically covered by the spec that's there.
+Signed policy is an exception command. So this is technical to do with the way the spec works.
+Well, you have to, like, it's the same thing as the assigned stuff because you just store it in the nv. But anyway, this is very technical.
+Like, looking through the spec, it's just not covering. All I'm saying is, you know, we're not the problem. Like, we're fine with supporting anything, but maybe putting our stuff on the slides, not the West Wing, to start getting the discussion going.
+No, just use the point there. I thought I had everything standardized on this key format and system D came along and wasn't. That was all the sliders there to do.
+There's no real difficulty transferring keys from one format to another. And also, the standard is ASN1. I know there are a lot of people who hate ASN1 want to use JSON instead.
+We use TPM2B stuff that the Intel stack gives us. But again, if you add it to the Intel stack, we're happy to use it. We just consume the APIs as a provider.
+We do not see our position in a role in innovating that. We just want to use libraries that work for us. And if the libraries don't support it, they don't.
+So it's already in the Intel stack. The Intel engine stack generates keys of this format.
+And which layer is that?
+I think it's the create TPM. It's not a TSS layer. It's the actual Intel rotor TPM engine that was on the slides. That TPM engine also uses this key format because it's designed to be used for open-source.
+We did it in the library, right? Like in the TSS library. The key conversion sits outside.
+I would like to invite you to get together in a deaf room place.
+Thank you.
+Hi.
+We still, okay. So thank you for the talk. My question was, since the policies are only treated as hashes, does it mean that you could eventually, regardless of practicality, find another policy set that produces the same result and use an alternative policy set to update access to the key?
+So the question was, could I get two policies that produce the same hash? The actual question you're asking me is, can I induce a hash collision with SHA256? And the answer to that is no.
+And the reason that two policies can't produce the same hash is because they've been very careful to actually use the input values that go into the hash that mean if the policy is different, the value in the statement is different, so the hash value always has to be different.
+So the chances of getting a policy hash collision are exactly the same as they would be if getting a SHA256 hash collision or whatever hash you use.
+Is there any reason to use, if you're on Linux, to use either IBM or Intel Stack versus just in kernel TPM resource manager?
+So if you're a consumer and you're not programming with TPM, there is no reason whatsoever to prefer one stack or the other. They all work equally well. There are no security problems with either of them.
+When correctly programmed, they will set up sessions and do everything right. Intel does have one problem in that the Intel code also has an engine sitting in it, but that engine doesn't actually use TPM security.
+So that's the one piece of the Intel stack that's wrong, but the IBM stack doesn't include an engine. I mean my engine is separate from the IBM stack.
+Well, resource management just works. So you're leading to the problem where the Intel TSS encourages people to contact safe sessions, right? This is the problem.
+And the kernel resource manager doesn't expect people to do that, so it doesn't do a technical operation called regapping, right?
+The reason it doesn't do it is because I wrote that resource manager and I never had a reason to use it for regapping, so it just doesn't do it.
+I've already told the Intel people that if they want to use it like this, the kernel would be perfectly happy to accept patches to do de-gapping, and they're fairly easy to write.
+There is actually, and we're getting onto kernel stuff, a point at which the kernel itself may need to do de-gapping.
+One of the things that we're looking at is trying to use a permanent session within the kernel for certain key operations.
+If we do that, that session will be context saved, then we will have to do de-gapping and everything will just work.
+The problem is that the kernel coding is just in time. I'm the person doing it, and I haven't got around to it yet.
+So if you want to use the Intel TSS with saved sessions, then you need to use the ABMRD resource manager.
+If you want to use saved sessions, everything just works.
+Many, many thanks for the great talk.

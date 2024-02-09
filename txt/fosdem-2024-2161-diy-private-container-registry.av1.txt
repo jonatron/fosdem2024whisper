@@ -1,0 +1,149 @@
+So, welcome everyone. Thank you for joining my presentation. It's my pleasure to open
+the containers, the room this year at FOSDEM. I've just realized that the title may be
+a little bit misleading. I'm not going to talk about building a container registry.
+I'm not clever enough for that. I'm going to talk about making it private though, so
+if that's why you are here, feel free to stick around. My name is Marc Chagy-Cozard. I'm
+don't bother trying to pronounce my last name, just call me Marc. I'm the head of open source,
+the company called OpenMeter. We do usage-based metering. We don't do anything about container
+registries. This is just a talk I had in the queue for a while. Let me actually tell you a
+story. This is going to be a story over a long period of time and a couple of different companies
+I've worked at. It's going to be about distributing images to people, developers, different deployment
+environments, design partners, whatever you want to call them. We accumulated a number of
+requirements over time. Again, different companies have different requirements, but often when
+you want to share container images that are not open with design partners or customers,
+you have specific requirements like you want to be able to share those container images so
+people can deploy it in their target environments. They can pull it to their development machines
+and use it for development, or they want to run services in their CI. You want to be able to
+distribute these images often in a way that you don't want everyone to pull those images. You want
+specific people and environments to access those images. You need flexible authentication and
+authorization solutions to do that. Obviously, you also want to minimize the operational burden.
+You don't want to run your own storage necessarily. You want to use some sort of object store,
+and you don't really want to think about things like monitoring or backups.
+So what do people usually do these days when they need a cloud native solution?
+Any ideas?
+Well, you go to the CNCF landscape and try to find an existing solution. If you go to the CNCF
+landscape, you're going to see that there are a bunch of container registry solutions already
+available. These solutions can largely be categorized or put into four categories. One of them
+is the cloud hosted registries. Most cloud providers have their own hosted registries these
+days, which is easy to use. There is a second category, which is called peer-to-peer. I call
+them peer-to-peer registries. They are mostly about distributing images within a deployment
+environment. Those are not really for distributing images with other people. There are all-in-one
+solutions we're going to talk about, and there are plain old registries that you can run in your
+own environments. Now, obviously, and again, this is a story we had our own requirements at a company
+called Bonsai Cloud to distribute images, private images with a bunch of customers, and we started
+with cloud hosted registries. They are easy to set up. There is no operational cost, basically,
+but it does require for customers and people who want to pull your images to register a cloud
+provider account. You have to set up IAM and a bunch of other stuff. Surprisingly, this is
+something I learned. Companies who don't have an account for a specific cloud provider are not
+really eager to register one if they don't use that specific cloud provider. Cloud hosted
+registries may not always be the answer if you have customers
+who don't have accounts for those cloud registries. Now, again, some time went by and new requirements
+came in. Obviously, one of them was the no cloud provider registration, and the other one was
+more flexible authorization. Obviously, there are many different artifact stores out there
+with a wide range of project. We use it for a long time. I believe it's still in use,
+where we introduced it. And it gives you a bunch of different tools for distributing OCI artifacts.
+It gives you robust authorization solutions. It gives you things like image replication,
+so you don't actually have to push your images to the hardware. If you just want to use it as a
+distribution strategy, you can replicate your images from your existing solution or
+your existing registry. And that's what we did, actually. We replicated the images we wanted to
+distribute across clients from our existing registry. And again, hardware has tons of more
+features. And basically, what we did is we built a layer on top of the so-called feature robot
+accounts. It's basically a service account feature in hardware that you can use for service to
+service authentication. And we built a layer on top of that to distribute credentials to customers
+so they can authenticate with hardware. Now, the thing with hardware is it's a great solution.
+We loved it. We did find a few issues with it, though. So first of all, the group-based access
+control, it has, it's only for users, not for robot accounts. So we had to manually set up the
+authorization for each robot account every time, which means if we need to update those
+authorization policies, we have to update all of those robot accounts, which was a bit weird.
+The other issue we met was creating robot accounts for multiple projects,
+hardware structures, everything into projects. Basically, it's a namespacing feature
+and creating cross-project robot accounts requires using the admin credential, which is a single
+admin user with a password, which was a bit of an issue for us. But overall,
+hardware is a great solution, maybe a bit overly complex if you just want to use it for just
+distributing images. But it's great. But obviously, new requirements came in,
+like building a sub-serve portal for users. Obviously, we could have allowed them into
+hardware, but since we used robot accounts, that wasn't really an option. And again,
+as actual customers started to use these products, we need the closer integration with
+sales and licensing systems. So this is where we started to think about maybe building our own solution.
+But before I talk about the solution that we came up with, I need to talk a little bit about
+how container registries work. How many of you are familiar with OCI? I guess, fair bit, all right.
+So I'm not going to talk a lot about what OCI is. But basically, OCI has three
+specifications. That's relevant in this space. The distribution, which is the registry API,
+basically the image and the runtime. And the interesting part here is the distribution
+specification, because that's how you pull images from a registry, basically. That's what defines
+the API for pulling images. And the problem is that there is no built-in support for
+authentication and authorization in that interface. The distribution specification is
+basically just an HTTP interface. So technically, you could use basic OCI if you wanted to,
+if the client that you use to pull images supports it. And actually, I think the
+Docker registry OCI actually uses or allows using basic OCI, but again, it depends on the client.
+And there is no authorization built into the distribution specification at all.
+So that's the operation. That's how the Docker CLI works, basically. When you do
+Docker login or pull or push, that's what the Docker CLI does these days. Whenever you try to
+pull or push into a registry with authentication. So that's how authentication works in Docker.
+Again, this is not a formal specification. It's just something that Docker did. It's great.
+It works, but it's not a formal specification. Not yet anyway. So let's try to put this all
+together and see how we can build our own private container registry. So first of all,
+we need a container registry. And as I said, I'm not going to talk about building
+a next-year registry. Fortunately, we do have a couple of options. We have the SoCo distribution
+project. I always found this is a bit weird name. Like, what does it mean? Distribution. I mean,
+I understand it's about image distribution, but anyway, it's basically the reference
+Docker registry implementation. And the other project is Zod. Both of them are CSEO projects.
+The distribution project is basically, again, as I said, is the reference Docker registry
+implementation. Most providers use it under the Docker Hub, GitHub's container registry
+Harbor uses it under the hood. So it's basically the reference implementation for container
+registries. And I think they are working on a version three these days. I don't know if it's
+out yet or not, but there is a new version coming. The other project is called Zod. It's a new
+project. I think it focuses purely on the OCI distribution specification. So it doesn't really
+have support or backward, compatible support for the older Docker registry API. The registry
+authentication was actually broken for a long time. And fortunately, a couple of days ago,
+a week ago, they fixed it. So it should work with the registry of specification now.
+And the third project that I built, it's basically a proof of concept project, actually,
+but it's a registry authentication library and a service. This is the service that implements
+the authorization service component. If you remember the diagram before, this is how you can
+build your own authentication and authorization solution for your own registry. Again, it's a
+library so you can build your own service with it. And it's also a service comes with a couple
+of defaults and helpful configuration. You can check it out on GitHub if you want to.
+Now, couple of caveats with the registry specification. As I said, it's not actually
+a formal specification. There are several gaps in it, edge cases that are not covered.
+Properly, different clients and different services may implement the specification differently.
+There are also competing and not fully compatible specifications. I believe this is the biggest
+issue with it today. Charmism has its own similar specification which is incompatible.
+And this is actually the reason why the Zalt implementation was broken, because they used
+the Charmism oath specification, which is a version of the Docker token oath specification.
+And that's why it was broken. So hopefully, this is going to be solved by the OCI
+specification. So this is going to be the fourth, I believe the fourth OCI specification.
+There's a new formal working group. I believe they formed in August last year. So there's
+the new working group trying to solve all these issues and try to come up with a consistent
+solution for both authentication and authorization. So it becomes easier to build these kind of
+services. And it becomes easier for different clients and different registry implementations
+to work together. So hopefully, that's going to solve all those issues. And well, that's all I
+had for today. I'm happy to answer any questions you have. Or I can do a big demonstration of the
+port word service if you are interested. I'm up for both. Sorry, if you want to ask questions,
+there is a microphone here. All right, let's see the demo.
+Just give me a moment. All right. So
+all right. Can you see my console? I don't know if it's visible from the back.
+All right, cool. So this is a demo for port word, which I mentioned is an authorization service
+implementation. Thank you. As you can see, there are a couple other services here. One is called
+Docker. This is the distribution registry. The other one is Zot. The example works with Zot as
+well. And there is a fourth service here, which is called Kerbos. This is one of the included
+authorization solutions in the default port word service implementation. You can use Kerbos to
+define authorization policies for your container registry repositories. This is just the basic
+default policy that allows different types of users, like admin users, developers, and customers,
+to do different kinds of things. Obviously admins can do everything. I don't know. Users can push
+to their own namespaces. But the idea is, I don't really want to talk too much about Kerbos,
+but you can use Kerbos to define these policies. And it's integrated into the Docker of
+authorization specification through port word. Port word has its own configuration. I'm going to
+show that quickly as well. You don't have to parse this hash. I'm going to tell you its password
+just to make it easier. This is a very simple configuration here with a few static users.
+A couple configuration parameters for issuing tokens. And you can see the authorizer is
+configured as Kerbos here. There are a bunch of other authorizers that you can use. You can
+build your own, as I mentioned, port word is a library and a service, so you can integrate your
+own authorization solutions fairly easily. Now let's see if this thing actually works.
+So everything is running. Let's see if I can log in to the service. By the way, this is on GitHub.
+If you go to the Kickstarter on GitHub, you can try this out yourself.
+Yeah, go ahead.
+I'm sorry, I can't hear you and there is a microphone here.
+What type of authentication are supported? Is it only password based or do we use the
+default authentication? Yeah, it's only password based. That's the only thing that the Docker
+specification allows. But as far as I know, the OCI working group is trying to add more types of
+authentication allowed.

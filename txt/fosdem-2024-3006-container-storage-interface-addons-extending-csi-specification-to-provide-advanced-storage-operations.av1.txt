@@ -1,0 +1,132 @@
+Let's welcome Rakhiv and enjoy it.
+How do you?
+Thanks guys.
+So, hi all.
+Today I'll be presenting a talk on container storage interface add-ons, in short CSI add-ons.
+We'll be talking on how it extends CSI specification to provide some advanced storage operations.
+I'm Rakhiv, I work at IBM, I'm the maintainer of CESI and CSI add-ons and core contributor at Rook.
+You can ping me up if you have any doubts later on.
+So, in short, first we'll go through what are containers and container orchestration,
+increase storage drivers and come to CSI specification and what is CSI.
+Then the deployment, next we'll continue with introduction to CSI and some of its Fung operation which we currently support.
+First, let's start with container.
+So, for containers we usually whenever we are building code or a software we just build it into an executable and we use that.
+But executable needs, it has dependencies which I used to be present in the OS to run.
+So, to get rid of that we built containers, which has all the dependencies packed in and you can run it almost anywhere.
+So, that is a container and we later on came up with how to manage it and scale it up, deploy and stop.
+So, there we have container orchestration which usually just automates the deployment, manages it, scales it, upgrades the versions, etc.
+And we have a few platforms that are very popular to do it.
+Kubernetes, Docker swarm, Apache and Nomad.
+This is for container and container orchestration.
+So, containers were you and container orchestration were started with being stateless in mind.
+That is they can go down at any point and come up back again.
+So, there was not a very need for persistent storage there but then they realized this kind of model actually fits perfectly for other applications.
+And then came in the need for persistent storage in such a platform.
+So, like we have this separate container orchestration platforms like Kubernetes, MeSOS and there's also storage systems like providers like CES,
+Longhorn and Gluster.
+But so the main problem was like how do they integrate with the Kubernetes platforms, Kubernetes MeSOS.
+At the beginning there were increased storage drivers that is like code for each storage systems within the container orchestration platforms.
+So, like Gluster would have its code in MeSOS and Kubernetes and Nomad separately.
+But likewise with Ceph but that was not scalable because it had a few advantages like we have the code if there was a bug found like if there was a Ceph bug found in Kubernetes.
+They had to wait till next Kubernetes release to fix it.
+So, it was very hard for them to scale and like develop independently.
+So, there it led to the development of CSI like people from different container orchestration platforms came together and they wanted to bring in a single interface, container storage interface,
+which would allow like the storage platforms to build just one plugin so that they could just write one implementation and it runs on all the platforms.
+So, yeah this CSI specification mainly that's where it started it just specifies APIs to create, delete, mount and mount volumes plus snapshots and storage vendors just needed to develop one single CSI driver to and it will run on all other platforms.
+A usual CSI deployment has two things like a provisional deployment and a node plugin demensate.
+Provisional mainly handles the creation, deletion, snapshots and resize of volumes.
+So, like all these requests of create, delete, resize and snapshot comes from like a Kubernetes entity or a site car or a like a MeSOS or Nomad.
+The CSI driver in this case just handles this request is just a API call for it and then node plugin demensate mainly handles just mounting and unmounting one volume.
+So, you have one usually a provisional deployment consists of two containers like two pods right a pod is just a bunch of containers running together.
+So, you have like two but one is active at a time like with the leader election.
+So, if one goes down other one will become active but node plugin demensate is something that runs per node for each node you will need to mount and unmount volumes.
+Let's go ahead.
+So, this is how it usually looks.
+It's basically in Kubernetes.
+So, you have nodes there and Kubernetes service with API control manager and snapshot controller.
+So, this is a proper CSI driver provisional pod.
+So, you have four containers running one of it the CSI plugin is the actual CSI driver that is the code written by the storage vendor and all of the other site cars basically are written for Kubernetes to like interact with this plugin.
+So, similarly these four functions of these four containers will be handled differently under container orchestration platform and then similarly we have node plugin demensate so that it can mount volumes onto the node separately.
+Let's move ahead.
+So, here comes CSI add-ons.
+So, like sometimes just the basic operations of creation deletion snapshot mounting unmounting is not sufficient because like CSI driver becomes like a pathway of interaction between the user operation going on in a container platform and the storage system.
+So, you can kind of extend it to handle more scenarios that led to the formation of CSI add-ons.
+So, one of the why we were starting this project the main problem was like reclaiming space.
+The question was to run FS stream on a file system mounted on a RBD device like the crux is that when you delete a file in a file system the file system doesn't immediately release that space back to the block.
+It is done later on.
+So, like there will be a storage consumption discrepancy between the file system and the block device.
+So, if you run FS stream it basically releases the storage and admin can see exactly how much is consumed.
+So, that was one of the starting points of how this project came on to be.
+So, we again we have to keep it in the same way as the CSI specification.
+We have three things.
+First is the specification provides the API's.
+So, currently we have four services.
+One is identity that is definitely required.
+It basically allows the CSI driver to advertise and register itself with the CSI add-ons controller.
+And then there is three different abilities which we support currently and which I will discuss about later on.
+And the main one CSI add-ons controller this will watch and respond to custom resources.
+Custom resources are something in Kubernetes where which allows users to have configs and tell the controller what to do.
+So, it is Kubernetes specific but it is a way of giving instruction to the CSI add-ons on what needs to be done.
+The controller then connects to the sidecar and then the sidecar in turn forwards the request to the CSI driver finally.
+So, sidecar also like kind of advertises itself that it is available and allows the controller to connect to the CSI driver.
+So, the new deployment with CSI add-ons kind of looks like this.
+So, similarly how we had multiple sidecars from Kubernetes we have one more sidecar here and here and we have the controller.
+So, this is the new request flow how it works.
+So, coming to the first operation reclaim space is just a configuration giving us the volume details and tell a just so.
+There is two kinds of thing in reclaim space.
+So, one is online operation and offline operation.
+Basically being CSI add-ons we do not tell the CSI driver what it needs to do.
+We just forward the request and it the storage vendor will implement what it needs to be when they receive the request.
+So, currently for online operation at CFCSI we do FS-trim on the file system more volumes specifically.
+Other volume more like block mode we do not do anything we just return success.
+And for offline if it is a arbiter volume we do RBD specify it basically punches out zeros like not save continuous zero zeroes in the block device to save memory.
+So, it is up to the storage vendor to decide what operation needs to be done in the back end.
+So, since the operation is reclaim space we need to do something regarding the storage consumption.
+So, next one is network fans this came a bit later on but it is also pretty prominent to one.
+So, this allows the user or admin or some kind of automation to tell the storage system that this range of IP or IP ranges.
+CIDR needs to be block listed and the clients in this range of IP should not be able to communicate with the storage cluster.
+So, this plays a critical role in two scenarios one is the first one metro disaster recovery.
+So, it is like you have two clusters which has applications of workloads running accessing a single storage cluster outside.
+But let us say the cluster A goes down.
+So, then we will just fence it off so that it does not read or write from the cluster and there is no data corruption in the storage cluster.
+And only B will still be able to access it.
+So, we basically if a cluster A has a goes down we just block it and let B still have access to the cluster or other way around depending on the scenario.
+And then one more is node loss you can have just one of the nodes going down that time we can just block list one of the nodes.
+Next we have volume replication.
+So, here again CSI add-ons enables additional operations between the user and the storage system.
+So, volume replication is one of those where we are just forward instructions between the user and the storage system.
+Here we are basically telling the CSI driver to enable replication for a certain image.
+And while image I mean like volume between one two clusters.
+So, here we are setting up replication between cluster primary and secondary and letting the storage system know which state the image needs to be in.
+So, primary will be primary state and secondary state primary the image will be active and in use.
+If the primary cluster goes down we can activate the secondary.
+So, there will be CSI drivers and CSI add-ons on both the clusters and user will need to like push this state at two primary when the cluster goes down.
+So, then it will take over all the operations.
+So, most currently the operation supported like promote, demote and resync.
+So, this has become a pretty critical part in disaster recovery.
+And the main consumer of this is Sraman right now which works with OCM open cluster management to handle disaster recovery scenarios with multiple clusters.
+And this will soon be also supporting volume snapshots.
+So, that you can have version snapshots sync between two clusters and then like you it's automatically backup like better than backup.
+So, SEPH only sync the diffs between two images.
+So, you can have snapshot one taken today and snapshot two taken today.
+Only the diffs between those two will actually go into the second cluster.
+And if you lose the first cluster can just restore the second snapshot on the secondary cluster and you start using it.
+That's one more scenario that's coming soon.
+So, future roadmap will soon have maybe rotation of encryption keys.
+This is a bit complicated to implement because we need to make sure the encrypted keys are not lost in the process.
+So, that is one of the scenarios and next is volume group application.
+The volume application which I talked about earlier just was meant for one of the volumes.
+Here we will have it specified as a group.
+So, we can replicate a whole bunch of volumes together instead of just one because most of the time applications may be using multiple volumes or like applications may be using multiple volumes.
+So, like when we when a bunch of applications is running together they may have dependencies on the each other.
+So, it implies that data and the volumes also may be dependent on each other.
+The third one is repairing corrupted file system.
+Like the CSI driver is the one who mounts the volumes and take care of it.
+So, it will have kind of good knowledge on how a file system can be repaired.
+And so, we may introduce our resource to actually kind of implement this.
+This is the end of the future roadmap.
+These are few references.
+So, do we have any questions?
+Okay.
+Then thanks for listening.
+Thanks so much.

@@ -1,0 +1,377 @@
+We're almost ready for our next talk.
+So if we could all quiet down a little beforehand, it would be great.
+Hey.
+Okay.
+It's about Rust.
+Shouldn't you all be excited?
+Okay.
+Daniel is going to talk about the case for a virtual Rust stateless codec driver.
+Daniel?
+Okay.
+Can you guys hear me?
+Is the microphone working?
+For those of you who don't know me, which I assume is going to be the majority, my name
+is Daniel Omeda.
+I worked for Collabra for three years, mainly doing codec stuff, the interface between just
+the streamer and the kernel.
+And as I've recently been working on doing decoders and Rust in user space, so now I'm
+fighting really hard to bring this to the kernel.
+And I'm halfway being hated by a lot of people just kidding.
+So yes, I'm here today to talk about the case for a virtual Rust stateless codec driver.
+I want everybody in the audience to really take a look at the title because we're going
+to go piece by piece every word that you guys see here.
+We're going to talk a little bit more about it.
+So I'm going to start with saying what a codec is and why we need codecs.
+Then I'm going to talk about hardware acceleration and codecs and why should we need that.
+After that, since now we have hardware, I'm going to talk about codec drivers because now
+we have hardware to drive.
+So how do drivers work?
+Now that we have a driver, we need a way to talk to the driver.
+I'm going to be speaking about the two major APIs in Vigil for Linux for you to be speaking
+to these drivers, the stateless and the stateful API.
+And after that, I'm going to talk about what is a virtual driver in this context and about
+Vizal, which is a virtual driver I wrote.
+And then lastly, I'm going to tie all of that back into Rust and hopefully why we need
+Rust in this particular context.
+So without much further ado, let's get started.
+And the first thing I want to talk, as I said, is about codecs.
+What are codecs?
+Basically codecs, they are a way for you to compress video data because without codecs
+you couldn't have video in the morning age.
+So if you have a 4K stream, for instance, and you do the math like 3, 840 times 2160 times
+3 bytes per pixel times 24 frames per second times two hours for a movie, this is going
+to be very huge.
+So in order for this to be even possible nowadays, you have to have a way to compress that.
+But thankfully, all video signals, they're full of exploitable redundancies that that's
+how video codecs work.
+They basically exploit these redundancies to shrink the amount of data that you have,
+therefore making, you know, storing videos on your computer or streaming videos through
+the internet and a lot of other user cases, even possible today.
+Usually this process is lossy, right?
+So you can have lossless compression, but usually you lose a little bit of data.
+But the objective is to arrive at a possible approximation such that you don't notice that
+you've lost a whole lot of detail, hopefully, but you've shrink the size of your image by
+a large amount.
+And for a given bit rate and power envelope, meaning for a given size of resulting file,
+the resulting file size, and for a given amount of heat that you're going to be generating
+or power that you're going to be consuming from the device.
+All right, so we want things to be fast and hopefully cool, right?
+Because nobody likes to be sitting on a laptop, does a scorching hot, or you don't really
+want to be using a whole lot of power, or, and you want things to be fast.
+So what's the solution for this?
+Is to have a hardware accelerator, for instance.
+So hardware accelerators tend to be more power efficient and faster, and it frees up the main CPU.
+So that your main CPU can basically hopefully do other stuff.
+But they're usually less flexible because you usually only get what you synthesize into
+hardware most of the time, right?
+And you're not going to be synthesizing all the profiles for all the codecs.
+You're only going to be synthesizing a small subset, and well, you kind of, this makes it a little bit less
+flexible than doing CPU encoding or decoding.
+And there is another key aspect of this.
+Now that you have hardware, you have hardware to drive.
+So now you need a driver, and you need an API to communicate with this driver.
+So you have now yet another piece that you have to have that you didn't need to have with a pure software
+slash CPU approach.
+And to understand these drivers, we first have to have a brief look at what is inside a bitstream.
+Let's say you're watching something on YouTube, or you've downloaded some video file on your PC.
+What exactly is in there?
+So basically we have two blocks in there.
+The most important thing actually is the data to decode, right?
+That's obviously the most important piece.
+So the data to decode, the actual compressed data takes the most amount of space, but that's not everything
+that's inside there.
+We also have a small block called the metadata block.
+And what exactly is the metadata block?
+It's data that's not going to be actually decoded per se, but it's very fundamental
+because it controls the decoding process.
+So it's data that the decoder will be consuming in real time in ingesting that metadata to actually,
+in real time, decide how is the decoding process is going to look like for each and every frame.
+So as I was saying, this metadata controls the decoding process.
+It may dictate to the decoder how the decoder is going to decode a particular frame,
+in which case it will only apply for that particular frame.
+Or it can apply to multiple frames, depending on the kind of metadata we're speaking about.
+So in frame-packed decoders you have things like PPS and SPS and VPS,
+which are metadata that stays for multiple frames.
+Or you can have metadata that's only for a single slice,
+which is only going to apply for that particular slice and that particular frame.
+And you also have the slice and or tile data,
+which is the data that you're going to be hopefully decompressing.
+So far so good, I imagine.
+So how can we talk to these devices?
+Because if you recall, now we have hardware to drive, so now we need to talk to the device somehow.
+In Vita-Felonics, we basically have two different types of APIs
+that you can use in order to talk to the codec.
+One of them is the Stagefool API.
+I like to think of the Stagefool API as a black box.
+So you just send in this data to the device.
+The device will do its magic, quote-unquote,
+and it will keep track of the metadata by itself.
+You don't need to do much.
+You're just sending the data and bam, hopefully you get decoded data back.
+Very interesting.
+If the Stagefool interface is a black box,
+I like to think of the stateless API as a clean slate,
+meaning for each and every frame,
+you in the user space have to extract that data
+and then send that data together with the compressed data to the driver.
+And then the driver will use this metadata that you have just parsed and send
+with the compressed data and it will decompress the data.
+So if the Stagefool API is a black box, the stateless API is a clean slate.
+For each and every frame, you have to submit data that will tell the device how to operate
+and then the device will basically forget about it
+and then on the next frame, you have to submit the new metadata
+and the new compressed data for the device to decode and so on and so forth.
+It doesn't really keep the state of the metadata within the device, hence the name, Stateless.
+I assume so far so good.
+So now we're going to be talking about virtual drivers.
+I'm going to talk about the virtual driver which I have written called Vizel.
+And Vizel is basically, as I said, a virtual stateless driver that just pretends it's decoding data.
+And why would a driver that just pretends that it's decoding data be useful,
+most people may be asking, well, it's useful as a developer aid, right?
+To help developers who are working on this particular niche to either develop new implementations
+or use your broken implementation.
+Let's say you found a bug, you can use Vizel to dump some debug data to help you fix the bug
+because Vizel is a driver that instead of decoding video,
+just dumps a bunch of data, useful debug data through debug.fs, through ftrace,
+and through the Viti for Linux task-patter generator.
+And what is Vizel good for, as I said, is good to help you to develop a new user land application.
+Usually you have a working application, then you use that, you trace the working application
+and use the trace provided by Vizel to develop a new one, that's one use case,
+helps you fix bugs, helps you test your user space when you don't have hardware available.
+So if you don't have hardware that can decode a particular codec,
+you can still use Vizel to test the just trimmer code, to test the FF impact code,
+to test the Chromium code, so on and so forth.
+And you can use Vizel for prototyping.
+So first of all, let's do a quick recap over here.
+I explained a little bit what codecs are, why we may need hardware acceleration.
+I said that when you use hardware acceleration, you're now going to have a driver,
+and to talk to this driver, you have two APIs, and now I said that we have in the media subsystem
+some virtual drivers, one of which is a virtual stateless codec driver.
+What is the problem?
+Well, the problem is this.
+Can you guys read this?
+It's readable in the slides, I think.
+So what is this?
+This is what you find when you open up a codec specification.
+I think that this is for AV1, which is the state of the art codec.
+And this is how you parse this thing.
+This is how you extract the data from the bitstream to send the data to a stateless codec,
+because as I said, a stateless codec needs the metadata to decode each and every single frame.
+So in user space, you have to go through everything in here and start parsing.
+And right from the outset, I see a few issues over here.
+So we are reading, on the second column, there's F, and in parentheses, there's a particular number.
+That's the number of bits that you're going to be reading for that particular syntax.
+Now, what happens if you have a bug?
+If you were to read, for instance, there's a type over there that says show existing frame,
+and you have to read a single bit from the bitstream in order to get the value for this.
+Let's say that instead of reading, say, one or two, you're at false, because you had a bug, whatever.
+So now that branch, so show existing frame, is not taken, because you had a bug in your implementation.
+And if that branch is not taken, now you're out of sync with the entire thing.
+So now you're going to be reading like, instead of reading frame to show map IDX, which would be the next field,
+you're now reading frame type.
+Let's say that you were to read all that stuff and eventually read that return over there, but you didn't,
+because you missed this branch, because you read that thing over there wrongly for whatever bug.
+So now, instead of returning, you're reading everything, thereby reading over the memory that you had in the first place.
+If you had that return over there, you would have only a given amount of memory, but you missed it, because you had a bug.
+And now you're reading more stuff, thereby reading after the end of the memory.
+This is a crash at the best of scenarios.
+At worst, it's, you know, you can corrupt stuff, this can go very badly.
+So this is very tricky, and this is very indented.
+You can see that whenever you see a pair of parentheses, this is like yet another syntax element that will have its own way to be parsed,
+and it can have if statements and for loops and etc.
+It can have other things with parentheses, which means yet more indentation basically.
+So this can get very hairy, very tricky, very fast.
+And you have pages and pages of this.
+I'm pretty sure they have at least 20 pages of this stuff to parse, just to send that to the driver.
+So this can get very complicated, and not only can this be very complex, but we're also reading the indexes for arrays,
+and we're also reading a few loop variables directly from the bitstream.
+So if we go back a little bit, let me see if I can find it from here.
+Yeah, so frame to show map IDX, well, you're reading that from the bitstream,
+and you're using that to index into another B of memory, which is the ref frame type array.
+And if you read that index wrong, now you're indexing into an array with the wrong index,
+and as we all know, see here, I assume, we know that this can be very broken, very fast.
+So yes, this is very hairy.
+So here is my pitch.
+Here is my pitch to use Rust.
+We're handling a whole lot of metadata performance, as I said.
+A whole bunch of data that we're getting from user space, and although we do do some vetting of that in the kernel,
+there's some functions in the kernel aimed at potentially detecting invalid input from user space.
+They're not, you know, that foolproof, and the attack surface here is so huge
+that no amount of ad-hoc in kernel validation would ever catch all the possible ways
+in which this can blow in your face.
+This metadata thing is very structured and very complex.
+The media fields can change based on the value of other fields.
+As I said, if you read true, then go here, otherwise take the other branch.
+This can get very complicated as well.
+And you also have to maybe juggle between multiple versions of the same metadata.
+For instance, in HVC, you can have multiple instances of a VPS or a PPS or a SPS,
+which you have parsed previously, but of which only one is active.
+So you have to juggle between multiple of these, and only one is active at a time.
+So there's plenty of pitchfaults that you can sort of shoot yourself in the face when doing this.
+And the problem is exacerbated in real drivers, because as you will recall,
+so far we have been talking about vise all about virtual drivers.
+And if that thing crashes, it's bad, but it's not the end of the world, although it's very bad.
+But in a real driver, you may use this broken metadata that you're sending to the driver
+and use this broken metadata to program the device.
+So now you may be changing the decoding process of the device and who knows which ways.
+You can hang the device at best or corrupt the state of the system at worst,
+and you may even have to reboot the system.
+It has happened to me multiple times that I had some bugs somewhere,
+and I had to reboot the machine in order to, because the device was stuck, basically.
+So I assume by now we have, you guys can see that we have value in having rust here,
+because most of what I have spoken about is check that compile time when you have rust.
+So when you have rust, you have memory safety.
+If you basically, all the issues I was talking about, about accessing invalid memory,
+by default are prevented and rust at compile time.
+You have just fixed yourself a bunch of different classes of bugs for free,
+just by switching the language.
+And I was speaking about virtual drivers all this time and about Vizel in particular,
+which is a virtual driver for testing codec drivers and codec user space,
+because I think virtual drivers are the perfect candidates to experiment,
+and Vizel in particular is a perfect candidate to be rewritten and rust.
+And we can make that even simpler, because Vizel has a bunch of F trace code and debug Fs code,
+and we don't need any of that.
+We can strip away basically all these things for now and just have a virtual driver that boots
+and that can pretend that it's decoding data without dumping debug data to user space.
+We don't need that in the first version of a rust driver in Vidafilinix.
+And I think the most important part of my pitch is if we make a virtual driver in rust
+and we make it work and we prove to everybody that this thing is working,
+it's not much more work to get a driver for real hardware,
+because then only the parts that touch as the real hardware,
+like getting the MAs and getting the interrupts working and blah, blah, blah,
+these pieces of the kernel, they're basically being worked by everybody else,
+because everybody else who's interacting with hardware have the same issues to fix.
+So they're also working on this.
+So if we fix the, if we come up with a Vidafilinix to specific bits,
+maybe in six months or one year, the situation of rust in the kernel will be more advanced.
+Therefore, we will have more abstractions for more areas of the kernel.
+Therefore, it will be easier to write a driver for real hardware.
+We'll have the Vidafilinix bits and we can hopefully profit from the work
+that other people have done in other areas of the kernel.
+So I have been trying to do this for six months or one year, I think.
+I have sent to the main list a simple Vidafilinix to driver.
+And what we have in this driver so far, we have the abstractions for a few of the Vidafilinix to data types.
+You have a very thin VB2 abstraction for mutual can spawn a queue to share memory,
+share buffers between users based on the driver.
+We have abstractions for some of the Vidafilinix to Ioc tools, not all of them.
+We have the necessary code to get the driver to probe because believe it or not,
+it's actually complicated to get a rust driver to probe in the kernel.
+There's a proc macro going on in the background, blah, blah, blah.
+So we also have the code to get the driver to probe, which is in and of itself is an achievement, I think.
+And we have a simple module.
+And what does the simple module does?
+It basically boots, I mean, I'm sorry, it probes.
+And whenever a NIOcto is called by user space, it just brings,
+hey, this Ioc tool has been called.
+I am able to process this Ioc tool in Rust.
+I'm able to translate all the arguments into Rust and basically returns.
+It just brings something to make sure that this Ioc tool translation layer between C and Rust is working.
+And from this, we can start to add functionality to the driver so that when it actually processes the Ioc tools,
+it stores states and actually carries out what the Ioc tool is supposed to do.
+And what do we need in order to get this thing going?
+We need support in Rust for referral to control so that we can send the metadata to the driver.
+We need support for some media controller bits so that we can have referral to requests,
+which is a way to tie this metadata to a particular frame.
+So we need Rust support for this in order to get stateless codecs to work in Rust.
+We need M2M support for device run and friends, which is just a framework
+who's scheduling the decode jobs in the kernel and deciding when a job should run in the hardware.
+And we need more Ioc tool support because we only have support for a few Ioc tools
+and a real driver needs much more.
+And most importantly, we're still waiting for the green lights from the maintainers.
+I have been talking to a whole lot of maintainers.
+I've been to the media summit.
+Some of the maintainers I think are in this room or not.
+I don't see them, but anyways, I got some feedback from them.
+And I think this summarizes it.
+In visual Linux, nowadays, the state of the subsystem is that the subsystem is a little bit overwhelmed.
+There's a bunch of patches being submitted.
+There's not enough people to review.
+And basically, people are overwhelmed and nobody really has the time to have yet another language in the subsystem,
+which I understand this is a completely valid thing to say.
+So there's not enough reviewers, not enough maintainers.
+Some C frameworks like the media controller have some longstanding problems which nobody has fixed yet.
+So one of the feedbacks I got was like, hey, maybe these issues should be fixed in C
+before we add yet another language, which is some valid feedback. I agree.
+There's a huge fear of breaking C code, which is impossible.
+Just by how this works, you're never modifying the C code.
+So this can never broke whatever C code is already in the kernel. I promise.
+And the other issue is who is going to maintain this layer,
+because one of the feedbacks I got was like, hey, if I change something in the C layer
+and just break the Rust code, who's responsible for keeping these two things in sync
+and fixing the Rust code, which again is a very valid argument to have.
+But we use Collabra. We want to unblock this effort, which is why we have been investing in the media subsystem.
+We're investing in CI and we're trying to change a little bit how maintainership in the Vifrel2 community works.
+We're trying to get it more like DRM where you have multiple commuters and where you can share the workload.
+So we are doing what we can in order to alleviate some of the issues so that we can proceed with this effort,
+which is why we're proposing this virtual driver, because we think that this is a good candidate for experimentation.
+This is not the scheduler or memory management or anything, which if you break that,
+you've broken the entire kernel, this is just a virtual driver.
+If it's broken, it's not going to be a huge deal.
+So summary here, say the drivers, they take a whole bunch of intrested data from user space.
+This can get hairy. This can let you shoot yourself in the foot very easily.
+So the attack surface is enormous and Rust is a perfect candidate to fix that at compile time, we think.
+And the Vizel virtual driver is a brand candidate to experiment and Rust and to be rewritten and Rust in our humble opinion,
+or in my humble opinion.
+And this is what I had to say to you guys today and hopefully this was interesting for you.
+Questions?
+Yes, sir.
+Hi, thank you for the talk.
+So I have very rough understanding of Rust, but I would like to get more idea how Rust would protect us from part of the issues that you described.
+So I understand how it protects us from accessing past the size of the array,
+but in case when you have the metadata, it changes because of the previous values that you are passing, right?
+How Rust would protect us from misinterpreting that new piece of data?
+Well, if you get metadata that's broken and this broken metadata leads you to access another part of memory which is invalid,
+that just panics basically.
+So it's not like, and see you can dereference any value you want, but in Rust you basically can't you panic.
+And then you compare that with the user space Rust implementation to also make sure that you're getting sanitized data.
+So basically the only thing that, the only protection that we get is that we will not access array that is out of bounds basically.
+Because...
+We can actually handle cleaning these access.
+Okay, so tell me more.
+We can have a clean exit to that bad access.
+Okay, so what's the benefit? I mean you can always define a C function, right?
+That will check the size of the array, how much data is there left and never access the buffer directly just through that function.
+That will always check if you are not out of bounds.
+You can.
+So then...
+It's a human factor.
+Yeah.
+You're forgetting the human factor.
+Of course, yes.
+So you can...
+The amount of work that is there to add the whole Rust bindings, I'm not saying it's bad, right?
+I'm just trying to weigh in the, adding a single function that you can use to access the metadata, the buffer that you have made the data in, and porting the whole thing to Rust.
+I can give you another example which is like error handling in Rust for instance is much better.
+So while in C if you get something, a wrong metadata, you may fail, and then you may have a bunch of go-tos that you have to go back in the exact reverse order, blah, blah, blah.
+And Rust, that's free.
+The compiler just wires up the calls from you in the right order always.
+So you can never forget to clean up after you're done if you have an error, you know?
+And you can say, well, you can just define your go-tos in the right way and be careful.
+Yes, C is just fine, hence why we have drivers in C working.
+But as humans we can forget, you know?
+So it's just a way to, you know, kind of close in on the human error factor, I'd say.
+Any more questions?
+Questions?
+Yeah, I was wondering, if you were theoretically to transpile your Rust to C, would that be acceptable then?
+To transpile to C?
+Yeah.
+I'm not aware of any way to transpile Rust to C, but you can have a C API for Rust.
+Somewhat easily.
+So you can define a header file and you can ask this, the Rust compiler, to provide you with C linkage, C-A-B-I.
+So that you can have a C API for your Rust code in the kernel even.
+The idea was that your code is being rejected because it's Rust and not C.
+I'm sorry?
+You said earlier in your slide that the maintainers reject your code because it's written in Rust.
+Yeah.
+But if you wrote Rust and transpiled to C and submitted the C result, would that make them happy?
+Yes, that's not really how it works.
+You can have a C API to your Rust code where you're not transpiling it and sending C code only.
+It's just not how the process works, you know?
+So you're not speaking the same thing.
+You're speaking about transpiling.
+But I'm speaking of having native Rust code and offering as well a C API to that Rust code.
+And I am not aware of any way for you to transpile Rust directly into C.
+And only send the C code as you're proposing.
+Okay, I think we're out of time.
+I think so.
+Thanks so much for your talk.

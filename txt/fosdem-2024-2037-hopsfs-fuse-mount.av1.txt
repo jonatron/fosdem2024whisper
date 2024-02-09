@@ -1,0 +1,303 @@
+Good morning everyone. Thank you all for joining the first session of today. You're at the
+software defined storage dev room. We'll have storage talks throughout the day until I think
+seven tonight. Fabio is here to start with his first talk. Enjoy. Thank you very much.
+Thank you.
+Yeah, welcome everybody. I'm Fabio. My colleague Salman was supposed to be as well. Unfortunately,
+he couldn't make it, which is really a pity because he's the guy who actually built most of
+this stuff. So yeah, but now you've got me. So yeah. Well, I'm going to talk about Observice
+a few months, what it is and what we built it and how we use it essentially.
+Before doing that, I just want to give you a little bit of a context on what is Observice in
+general and what it is used. I cannot have a feeling that not a lot of people know about it.
+So Observice is effectively a patchy HFS compliant distributed file system. So the code base was
+forked out of the patchy HFS and we made a couple of different changes over the course of the years.
+Some significant, some less significant, but ultimately there is mostly an architectural
+change and also some security differences between what is a patchy HFS and Observice.
+Ultimately, the APIs are the same. So the clients are compatible. So if you look at the
+actual implementation architecture of Observice, you can actually recognize some of the
+processes, some of the entities that you can also find in a patchy HFS. The difference is that
+the behave is slightly different. So in HFS and Observice you have the name notes. Those are
+responsible for interacting with the clients knowing the state of the file system, responding
+to the clients, giving access to the files and so on. The difference between what is a patchy HFS
+and Observice is that Observice, we took the metadata information, so the structural file
+system directories where the blocks are located, permissions and so on, and we moved it outside
+the memory of the of the name note process into the into what we call RONDB, which is essentially
+a distributed in-memory database that was forked out of MySQL and DB cluster.
+Specifically, MySQL and DB cluster, MySQL and DB cluster, if you're not familiar, is not a cluster
+of MySQL, but it's actually a different storage layer as well. So it's basically a distributed
+in-memory layer that basically stores the processed data, and you can do like really nice things.
+You can do like scaled up and down online. You can do upgrades and stuff like this,
+and it's in memory, so it's extremely fast. So moving this metadata information from the
+actual names on to the database allows us to basically have effectively stateless
+name-node dumps of S. So we can have as many as we want. We can take them down. We can
+stuff new ones, allows us to basically be way more flexible in terms of operations,
+in terms of management of the entire file system. On the bottom part, we have to say
+data management layer. Here we have process like the data nodes, right? It's the same concept in
+HFS. Data nodes are responsible for receiving streams of data from clients and storing them
+in local file system, and then give it back essentially, right? To deal with that kind of
+processes. Here we actually made some notifications, some architectural changes, in a sense that
+depending on where you deploy OpsFS, depending on whether you're deploying on-prem or in the
+cloud, you can actually decide to store the actual blocks on normal disks, like on the machines,
+but you can actually store them also on the cloud object stores. So you can store them on
+S3, you can store them on GCS, you can store them on Azure, Block Storage, and so on. So the data
+nodes themselves also become stateless essentially, right? And in this case, they act, they have two
+roles. They have a role of basically, yeah, not breaking the protocol essentially of the
+HFS protocol client, and also interacting as a cache, right? So every time you write something
+and then this is flushed down to the storage layer, so to the object stores, but it's also
+cached into the data node process themselves, so that if the clients keep writing and reading
+the same files, then obviously you don't have to go to the object stores, improving performance quite
+a lot. And while the last changes we made around security, and we're going to talk about a little
+bit later, but essentially that's OpsFL in a nutshell. Where it is used? Well, OpsFL is
+used as part of the broader platform which is called OpsWorx. OpsWorx is essentially a data
+platform for machine learning. It allows you to basically provide a bunch of different things
+which probably you're not interested in, to basically manage what we call features in machine
+learning. So essentially, you take a bunch of data for a bunch of different data sources, you
+extract signals to train a model on, and then you're basically storing those signals because
+the feature engineering process, the signal extraction process is quite compute intensive,
+so you want to store them and reuse them across multiple models and so on. And we have a dual
+system architecture, we have offline data for more like training new models and doing like
+batch inference, and then we have some online data for doing real-time operations. The OpsFL
+part is actually this, it's powering the offline feature store part, which is basically saying
+store all the data, historical data across many, many years across more models that is being used
+for training additional models and so on. Now, the problem that we're facing and the reason we
+started working on the on the on the on the fuels process then for OpsFS is the following.
+So the entire platform, the OpsFL feature store platform stands basically in between two different
+worlds, should we say, right? So on the other side we have like more traditional data engineering
+world where we have like application like Spark, Flink, maybe Beam and so on, which they have been
+built from day one essentially, supporting the OpsFS, like the HFS API, supporting the OpsFS
+API as well, right? So you can plug it in and they work essentially, right? On the other side,
+on the consumer side of the platform, well you have the entire data science world, right? And
+that's mostly basically built on top of Python libraries and you know, like they have been built
+relying on the fact that it is a log of our system and they don't necessarily interact with these
+different systems, whether it's Apache CFS, but also they don't maybe interact even with like
+object store or stuff like this, right? They only maybe read data from a local fast system, right?
+So we can actually have, if you take the libraries on the left, so if you take the libraries that
+are, let's say, data science library and generally the science processes, we can actually have, you
+know, two separate scenarios, right? We have a scenario where the libraries actually support
+what's called like Liby HFS. Liby HFS is essentially a wrapper for the, it's a JNI wrapper for the
+clients for the fast system and that allows us basically to actually interact with the fast system
+from a bunch of different libraries like PyArrow, Pandas and a bunch more actually do support
+reading from the, reading from HFS or OpsFS through the Liby HFS library. The problem is
+that even this scenario still requires access to a JVM, right? And in a world of their science where,
+you know, people do, like used to do like pip install a library and that then looks like a bunch of,
+like zip file and extracting on your local laptop, you know, configuring the JVM, bringing down the
+JVM, bringing down the OpsFS clients or HFS clients, it's quite, it's quite cumbersome, right?
+So that, that's kind of, it works but it's not the ideal case scenario, right? The other kind of
+libraries or tools that are essentially in the other campus, say, are tools that do not support
+Liby HFS at all. So one of the functionalities that you have in OpsFORX is basically, well,
+I want to clone a Git repository in OpsFORX so that we can actually run it and, you know, you can't
+just run Git on top of HFS or OpsFS, right? So there isn't really like a nice solution there.
+And so we started working on implementing a FuseFile system for OpsFS and we actually built it on top
+of some of the existing work that is open source and it's out there. All the work that we built on
+top is also open source. So the libraries and the entire application is written in Go. So that obviously
+removes the need for the JVM and it's built on basically three different projects. The first one
+is the FuseLibratesOff, so implemented interface for the FuseFile system. The second one is the
+OpsFS Go client, which is actually built on the HFS project from Collymark, which essentially
+implements the entire protocol for communicating with the HFS or OpsFS but using Go, right? So you
+can actually interact with the file system without the need of the JVM and then basically bring everything
+together in the OpsFS Go mount project, which is actually a forked from a project that Microsoft
+stopped working on, the HFS mount project. By the time we forked and started working on it,
+it was pretty much a POC. I think it was only allowing like read operation or something
+and then some on the team kind of expanded really nicely to be able to support much more.
+Now, the implementation of this solution actually has a bunch of different challenges
+and there are two essentially group of challenges, right? One is the API difference, what is the
+API that OpsFS and HFS actually provide and what the API that, you know, the POSIX API that
+are required by tools like Git and so on. And then the second one is the different,
+complete different security model, right? So we're going to look at how we bridge the gap between the
+two in the implementation essentially, right? So the first part is HFS is append only, right? So
+when you create a file, you cannot go in the middle of the file and add additional content,
+right? You can only append things to the file, right? And so this doesn't work if you open
+Veeam and you, you know, editing stuff around, then you can't actually just, you know,
+like write directly to HFS OpsFS. As I said, it doesn't support random writes,
+it does not support multiple writers. So when you open a file for write, you actually get the
+list on the file and you have the only one that can actually write there, right? And nobody else
+can actually write, which is not the behavior that you expect on, yeah, like from the POSIX API.
+The other aspect is the block size is quite huge. So that's like, you know, the blocks on
+OpsFS and HFS are configurable. You can make it as small as possible, but like the default
+behavior is to be quite big. It's like 6428 megabytes. Because the axis button and the
+write buttons make it that, it's much more performant to do that. And then we're going to talk
+about the security model in a second, right? So how does, how does the system work, right?
+So we have two scenarios, essentially. We have read scenario, read only mode, or like read and
+write scenario. For the read only mode, it's actually quite trivial. What basically happens
+actually, I can show you this diagram. I don't know if you can actually see from the back.
+But essentially what happens is that the process actually talks to the OpsFS
+fuse mount and asks, I want to read this file. Because the API from HFS and OpsFS allow you
+to basically, you know, do six and read and stuff like this. They are compatible. We can just forward
+the request to the remote storage essentially, right? So you open a file, you open a file,
+you read a set amount of bytes from a set amount of position. That is mapped to operations directly
+in OpsFS. So that's, yeah, pretty, pretty, pretty trivial to implement.
+The writing scenario is a little bit more complicated for the reasons I was mentioning earlier.
+So at the i level, what happens is that the remote file gets copied on the local file system.
+And we write it in a staging area. And so the processes like the Linux processes are actually
+going to write to these, to these like staging replica of the file. And then when either the
+file is flushed or the file is closed, then we actually upload the file back into the remote
+storage. So it looks like a little bit like this. You open the file and we open the file.
+You actually get back, you don't get, we don't download the file immediately, even if you ask for
+writing and open the file in writing. And the most, like, the reason is people are lazy essentially,
+right? In the sense of like when they open a file, like you say, you want to check out,
+you want to look at the file, you know, you might have opened Vim and open a file. And then at that
+point, you know, you don't want to write anything, but you have opened it, read and write. Because
+file and obfuscation are generally pretty large, we don't want to, you know, keep downloading
+random files for absolute, you know, reason, right? So what basically happens is that we delayed
+download the file until the first write comes in. When the first write comes in, the write is
+intercepted. And we basically, the first thing we do is basically download the file into the,
+into the, into the staging area. Well, from there, we can actually do the operations, right?
+Now, all the operations that happen, like all the read operation, all the writes operation,
+do not go to the, to the, to the remote storage anymore, but they actually act on the local
+version of the file. And, you know, this allows us to basically, you know, write random stuff at
+a random point in time, so random place in the, in the file, allows us to basically have multiple
+writers writing files, multiple readers and so on. So they all write as it was, like a local,
+a local file essentially, which, which it is, right? What happens is at some point, someone
+was going to call a sync or, you know, call a sync and then close the file. And what's going to
+happen is that when the sync happens, then the file is then back uploaded into the, into the
+remote storage, right? And that basically allows us to, yeah, add the file in, in OpsFS. When the
+last client, the last write client actually closes file, then we can actually remove the file from
+the staging directory, right? So if you have like five different clients working on it, and then,
+you know, one removes it, then we can let the last one closes it, then we can remove the, the,
+the file from the, from the, from the staging, from the staging directory.
+Now, the last part, the last difference in terms of like,
+compatibility between what the, what the, what the, you know, OpsFS and HFS API are, and the local
+file system are. Can I take a question a little bit later? Okay. That's fine. Okay, thanks.
+Yeah, so in, in that regard is, yeah, so the way this security works on, on OpsFS is slightly
+different than if you're familiar with HFS. You might be familiar with Kerberos. In Opsfs, we
+don't use Kerberos, we use certificates. So every user in the platform gets a certificate or actually
+gets more than the one, but it doesn't matter. Essentially, in the certificate itself, you know,
+we have the information about who the user is, and every time the user needs to do an operation
+with the, with the, with the file system and any other service in Opsfs, present a certificate,
+and the certificate is obviously verified based on the chain of trust that is established within
+Opsfs deployment. So this basically what happens at the high level, right? So every time the Opsfs
+fuse mount needs to talk to the, to the Opsfs remote storage, it has to present a certificate
+essentially. And this is something that we, we control in the way that we actually use the
+Opsfs fuse mount in, in Opsfs works. When we set up the mount point, we actually, you know,
+make sure that the mount point is set up with the certificates for that specific user so that,
+you know, if I, if I need access to a specific directory from a Python library, Opsfs set up
+the mount point and, and provide provision the certificate for, for, for my user so that someone
+else cannot, cannot necessarily use the same mount point and the same, and the same, and the same
+certificates. So this is controlled at the application level, not the, not necessarily the storage layer.
+All the operations that happen on this side, while the authenticated based on the certificate,
+the problem happens from, let's say, the Opsfs fuse mount to the, to the user side, to the,
+to the, let's say, Linux processes essentially, right? So what happens here is the following,
+so there is a, there is a mapping going on between the users in Opsfs and the user on the machine,
+right? The problem we, like the problem we had, the problem that, like this setup has is that you
+end up having a lot of users on Opsfs, right? My, our deployments might have, like, you know,
+5,000 users all on the same deployment that, you know, results in way more groups than, than
+than 5,000. And so we cannot spend time and create them all the users, all the, all the, all the groups
+in, on the, on the machines. So the way we actually, the way we actually work in this situation is that
+when the Opsfs application needs access to, to, to, to, to, to mount point, a provision that mount
+point, it also makes sure it doesn't mount the entire file system, it mounts a specific sub-directory,
+and when it mounts a specific sub-directory before mounting it, it provisions the users
+that are within, that, that, their own files within that specific, the specific sub-directory.
+And the way it knows that is because in Opsfs, directories have a specific meaning,
+they are organized in a specific way, and so Opsfs application knows which users are,
+have access to specific sub-directory. So before actually, you know, mounting the, the file system,
+we actually provision all the user, provision all the groups, and then what basically
+Opsfs mount does is that, well, you know, a file here is owned by user Fabio, so there is a,
+there is a user on the machine, user Fabio with a specific UID, so the user ID of that file is going
+to be the, the same essentially. And again, the, the provision of the user is controlled by the,
+by the Opsfs application when they, when they, when it, when it's, it's necessary essentially.
+Now, there are a couple of, I would say, unsupported capabilities and things that we plan to address
+in the futures, more like limitations essentially. One thing I have supported at the moment are
+links, both out and soft links. Opsfs has supported for soft links in the background,
+but we never really used them in Opsfs, so we didn't have support here in Opsfs mount either.
+The challenge we have is around the users of these caches. Yeah, so essentially, you know, if you,
+if you're working with a, with a local file system, the kernel, you know, there's a pretty aggressive,
+you know, caching of the data and so on. The problem we have is that Opsfs is a multi-tent
+platform, so we have multiple users working on the potential of the same files, and so caching the
+files becomes a little bit problematic because if you have two users working on the same file,
+then like the different mount points are not going to be able to talk to each other, say, A, there is
+something that's changed here, and you need to reflect that in your cache. So at the moment,
+the caches are kind of disabled, but we're working on, on, on, on some solution to be able to get
+notifications and, and, and figure out that files have changed, right? And the reason,
+the reason they don't know is because there's different mount points, because each mount point
+is not certificate for that specific user, right? So the users are not sharing the same mount point,
+so changes, one user making changes is going to talk to a different mount point, and the user making,
+making changes essentially. The other thing that happens, if you, if you, if we go back to the
+right operation, when we upload the file, we upload the entire file. So there is no concept of,
+you know, uploading a specific block. The, the, the HFS API and the OPSF API does not allow you to
+basically say, you know, I know that, like a specific block has changed, I'm going to just replace
+that specific block, right? So the, this, this operation, if you're working with very, very
+hard files, then, then might become a problem. For the use cases that we use OPSFS mount within the
+OPSF platform, this is not a problem. Users are working with, like, small Python applications,
+or like generally speaking, smaller files, or when they are dealing with bigger files, they are
+dealing more, in more like a, in a, in a read process, not necessarily in a, in a writing,
+yeah, not going to end up writing a parquet file in beam, like several gigabytes of parquet files.
+So that's kind of it. That's kind of where we, where we stand.
+If you have any questions, that's, that's, you know, I can take them now. And thank you very much.
+Do you and practice have problems with applications ignoring the return value of close?
+The return value of close. No, so the question is, if we have problems with
+applications ignoring the return value of close, not at the moment, no. We had,
+with the way we use OPSFS mount is basically, we, we, we, we, we mount inside of containers,
+for instance, when you're doing, if you're running Jupyter notebooks, or if you're running
+great applications on, and we shut down the entire process, usually shut down the entire
+container, essentially. Right? So we, when, when, you know, the files gets closed and everything
+gets closed, um, shut down the entire mount point, essentially. That's because, not necessarily because
+it's necessary, but that's because usually, that's the use, like user experience and that people
+have in general. But you can't guarantee that the upload actually worked. You can't guarantee,
+come again, sorry. The last step. What happens if the upload file fails? If the upload file fails,
+try again, and then eventually, yeah, it's a simple, we give up, yeah.
+Yeah.
+So it seems that the retro machines that try to write open for writing and write through the same
+file independently, so obviously one of them wins and takes a lease and does download the file
+modification and upload. Yeah. What happens with other machines, or what does the process that
+tries to open the file for writing at the same time and write to each and so on?
+In this case, the last right wins. Like that's the problem that we have here, right? It's basically
+saying if we have, like multiple machines mounted in the same directory, they can't, like, and we're
+writing on the same file. I, the mount point doesn't, doesn't know that, like, you are changing the
+same, like my mount point doesn't know that you're changing the same file. So we upload the file,
+and then you upload the file as well, and your, your, your right space is essentially wins, essentially.
+And then, can we get?
+No, nobody's waiting for another one. But I'm like, you end up in like, in, you end up in a
+weird situation where I might not be able to see immediately your changes, and so I might be able
+to, I might re-resave my file and re-re-reprove my file, so then your changes get, get, get
+covered written again. So it becomes a little bit, a bit, a little bit like this. Yeah.
+Yeah.
+Yeah.
+Sorry.
+Uh, good question. Uh, in general, yes. Um, you might, like, you might not have, like, the security
+part of the, we didn't implement the CalBros part of the, the security part. So if, if you have a
+secure cluster, then you're probably not going to be able to, to use it. Or, yeah, you, you implement
+the CalBros part. Yeah. Yeah. It was a question in the back.
+No, there, there, there is, there are processes, yeah, so, yeah, thank you. Uh, the, the question is,
+uh, whether or not there are processes sharing the file. Uh, there are processes sharing the file,
+but you have, the problem is that you have multiple users writing on, on the same file,
+on different processes that do not know about each other.
+Yeah.
+It's also, you know, it's like the, the, the, the different mount points are, uh, that the,
+the question was about the directory metadata. It's also, it's like it's independent with the,
+it's independent with each other.
+They don't share mount points, no. Yeah. So if you create a file, um, then, yeah, but if you, if you
+do a less operation, then we go back to the, to the file system and that is, is, is reflected.
+But so, but they're not necessarily relying on the mount point, relying the obfuscates mount,
+going back to the, to the, to the, to the remote storage to get the new directory structure and so on.
+Yeah.
+Um, with this, uh, stage file writing,
+yeah.
+I mentioned that improves read performance for the client too, right? When it's actually a downloaded
+local file and it, do people use that? Like do they do a little write and then just get quick
+downloads?
+It, it, it does. Um, it does. That's, that's one of the, all that, like that's one of the other,
+that's one of the other reasons we kind of, the question, sorry, yeah, sorry.
+Uh, the, the question is around the, um, read performance when you're reading a file that you
+have, like, uh, like stored locally in the stage directory. Um, it does. Um, we don't have a specific
+number, um, but I have like some, like user experience with that. Um, when you have, um,
+when you have files that are on, on the remote storage, uh, even if they are, like, especially if
+you have smaller files, um, like maybe like a Jupyter notebook, this JSON file, like,
+you know, maybe a megabyte maximum or something, um, then it's the, the, the override of going
+and fetching it every time. It's, it's quite significant. If you have it locally, it's, it's,
+it's much more, uh, you can see it much more reactive.
+Yeah, there was a.
+I thought you said, uh, you, you delete the station file as soon as you close it.
+Yes.
+No, but if you, if you, if you, if you, if you have it open, uh, when you, when you keep writing it,
+then you, when you read it, you're not going to the, to the remote storage, you're reading from the,
+from the local, um, from the local, uh, yeah, from the local, from the local staging directory.
+Right. So if you, the only, the only, the only, the only time is, is if you're reading, if you're
+doing some read only operations, essentially, then at that point we don't download it, uh, mostly
+because, uh, in general, they'll be working with like pretty large files. And so the downloading
+process might, might not be necessary, right? Because if you open, let's say a parquet file,
+what happens is that you go at the end of the file, you just read the footer to figure out the schema,
+figure out where you, you need to go. And if maybe it's like a four gigabytes parquet file,
+you don't want to download four gigabytes to read that maybe a couple megabytes of metadata, essentially.
+Yeah.
+One more.
+Thank you very much.
+Thank you.
