@@ -1,0 +1,151 @@
+All right.
+Well, hello everyone.
+Hope you all can hear me okay.
+My name is Forrest Burt.
+I'm a Solutions Architect at CIQ.
+I've worked with HPC for a few years now.
+I was a student sysadmin at a university over in the states
+for a while before joining CIQ a few years ago.
+So I've been there for about two and a half years.
+I've used Singularity since about 20,
+well, AppTainer nowadays,
+but I've been familiar with kind of the Singularity container ecosystem
+since about 2019 or so when I was originally deploying it
+at Darbuysi State.
+So I've been a big user of kind of the Singularity AppTainer ecosystem
+for a long time,
+and I've got a few updates to share with you guys
+about what's going on with it.
+A couple of years ago, let's see here we go,
+I gave a talk a couple of years ago at Fosdome 2022
+that kind of went over what was going on
+with AppTainer around that time
+and kind of how things were switching up.
+The long and the short of that story is in late 2021,
+the Singularity project, the open source side of it,
+decided that they had kind of felt they were reaching a mature phase
+with their technology.
+They decided that they wanted to maybe kind of move themselves
+into the Linux Foundation so that they could be managed under that
+and cross-pollinate easier with some of the projects from over there.
+The vote to do this was unanimous in favor,
+and so they moved over into the Linux Foundation,
+this open source side of Singularity,
+and in order to change or in order to,
+the Linux Foundation could get a trademark on the name,
+they had to change the name from Singularity to AppTainer.
+So that's how we got to this.
+Over the past few years, since the rebasing as well on version 1.1,
+we've done a few different things
+that have been kind of interesting that I'm here to discuss.
+First off, we've started leveraging the username space.
+As of kernel 5.10, we have username spaces,
+which give us those consumable UID mappings.
+So we're taking advantage of that to do some of the stuff
+that we used to need, set UID binaries and stuff like that for.
+We've got new recommendations that I'm going to go really briefly into
+about containerized MPI and how we're doing that these days,
+and then I've got a little bit of information about the OROS protocol
+and how that is increasing compatibility between AppTainer and OCI registries.
+So first off, as we know, we have username spaces.
+These are name spaces that we can create that allow us to do UID mappings.
+So you can take your 1001, map that to zero, something like that.
+This is useful for a number of things in AppTainer
+and allows us to essentially do most of what we needed to do beforehand
+with these set UID binaries, just now using these username spaces.
+So this gives us the ability to do all of our file system mounting using Fuse.
+This gives us the ability to do, for example, like with this,
+this standard pattern and singularity in AppTainer
+that we're needing to be able to go into a container.
+As you can see, in this case, creating a file under my user
+and then being able to shell into this container using fake root,
+get immediately mapped to root, see that that file we created is now shown as root,
+create another file and then be able to come out of that
+and still have that file we created while mapped in the container as root,
+still under our user that we were outside the container.
+This is important so we can do things like DNF and stuff like that during container builds.
+So, for example, when we want to do a build, in this case,
+we need to be able to run DNF, stuff like that.
+Whereas beforehand, this type of thing, if we wanted to do root build,
+you had to do add the fake root options, stuff like that.
+Nowadays, that's all just implied and, like I said,
+all these things that we used to use these suede binaries for
+are all now being done using username spaces.
+So that changes up a little bit of how AppTainer works on a security level.
+One thing to note...
+One thing to note is that some of the...
+because I'm sure you guys have seen some of the other security holes that come around with username spaces,
+but one thing to note is that because users can now do unprivileged installs,
+which there's a helper script out of the show site to do that,
+because users can now do unprivileged installs of their container...
+of their AppTainer software in their own, basically, environments,
+that renders some of the system-wide controls around this stuff, like the ECL and Valid.
+So you do have to kind of watch out for that and disable username spaces
+if you don't want your users to be able to tinker around with installing their own AppTainer
+and doing that type of thing.
+New recommendations for MPI jobs.
+As we know, usually when we want to do MPI, we're doing something like this,
+MPIexec sending these MPI...
+or setting up these MPI processes via SSH out on these compute nodes,
+wiring them up via MPI.
+When we do this with AppTainer,
+this doesn't quite work the exact same way,
+because if we try to do it this way,
+if we try to run, basically, MPIexec inside one of these containers on our host node,
+we end up getting out via SSH to these compute nodes
+and within the containerized environments that we're trying to spawn on these compute nodes,
+we...
+essentially, because of how these containers are namespaced,
+we can no longer figure out where exactly this calling program was out on its host node.
+So that doesn't quite work.
+So normally, when we want to use AppTainer via MPI,
+we have to MPIexec the AppTainer process itself,
+and then that wires everything up correctly.
+This can cause problems because that's a little brittle.
+You then have to match the MPI on the host, the MPI in the container,
+or you have to bind in the MPI from the host in the container.
+That creates very brittle containers that are very linked to a version of MPI.
+So one big thing that we've been looking at kind of in the community
+and at CIQ over the past little bit, especially my colleague Jonathan Anderson,
+has been using the PMI libraries to create more compatibility between these.
+So instead of having to have exactly the same version of MPI between this container,
+between the host, or even having to have MPI on your host at all,
+you just compile your slurm or something like that with this PMI2 support,
+compile your MPI in each one of these containers with PMI2 support,
+and you can leverage this PMI2 library to wire up all this communication,
+rather than having to do this more standard model that we're familiar with.
+There's a lot more to this.
+There's a lot of information you can go look at.
+We've done some webinars or some blog posts that kind of have some performance benchmarks, stuff like that.
+So there's a lot you can go look at here.
+The last thing that I have to say, well, fabric adapters,
+you can do this basically same thing with fabric adapters.
+If you just switch out your user driver or your basically user space drivers
+that you're using to communicate with those K-mods that are communicating with that fabric adapter, with libfabric,
+that provides a very similar kind of compatibility layer between a lot of the fabric adapters,
+like what we see that we've done with PMI2 there.
+So essentially, we can do this similar, like I said, kind of genericizing this build
+rather than having to link, in this case, down to a K-mod version,
+and ultimately ending up originally with a container that is very linked to a specific kernel version.
+In this case, we can, like I said, just use libfabric and have a lot more compatibility there.
+One other big thing is O-RAS, OCI Registries as Storage.
+Docker as a database or the Docker Hub as a database is no longer cool.
+So we've come up with ways to kind of formalize that concept of storing generic arbitrary artifacts inside of an OCI registry.
+So what we're doing these days, basically, because of this protocol,
+a lot of the OCI Registries have gone and implemented this.
+It allows you to store app tainer, sifts, helm charts, things like that, all within these OCI Registries.
+And so with that, I'm sure we're all very familiar with app tainer.
+You can pull images, do verification via PGP to eliminate a whole host of different potential security problems.
+You can also inspect files to ensure that they have their sign correctly.
+You can make sure that when you actually go to build a container from somewhere that you're pulling it out from, say, pushed up to even like an OCI registry at this point,
+you can check these key fingerprints versus what's uploaded out on sites like openpgp.org to ensure that what you're getting from this registry is what's actually showing up on your machine.
+So that's one of the big advantages of app tainer is that you can do this type of signing.
+And like I said, this used to be kind of a little bit more limiting because you weren't able to really store these in the same type of registries as everyone else is using.
+But nowadays, you know, you go to AWS, Azure, GCP, Oracle, most of the major clouds, all of their artifact registries support not only storing Docker containers,
+but these sifts alongside them. And you can, like I said, pull them down, get the exact same type of just these workflows that you would expect where if the fingerprints don't match,
+the container won't build that type of thing. One thing to also note, if you're thinking, well, what if you're upstream containers that you're actually building these, you know, your base images from are contaminated?
+One thing that you can do is also build from your basically the flat or basically the mirrors themselves.
+Using something like this allows you to pull directly from like, for example, Rocky Linux's mirrors build a container out of that. So you're not relying on anyone else's containers that they've uploaded.
+So that's all I have. Like I said, we have seen how username spaces have replaced all the setUid type stuff. We've seen how we kind of have new ways that we can utilize these more generic libraries and MPI so we're not creating as brittle containers.
+And then we've seen how O-ROS allows us to integrate these SIF containers with OCI registries. So I have a lot of links in here. I have more links right here that you can look at if you're interested in getting involved.
+And thank you all for your attention and for continuing to use Optaner.

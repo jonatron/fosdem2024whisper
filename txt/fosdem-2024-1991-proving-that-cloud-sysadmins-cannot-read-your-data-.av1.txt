@@ -1,0 +1,796 @@
+So now we are on time, so let me start.
+So hi, I'm Christophe D'Aditon.
+I'm a senior principal software engineer working for Red Hat
+on confidential computing.
+My GitHub is C3D, so you have more about me on C3D.github.io,
+or you can scan the QR code here.
+And today's talk is about proving that cloud CCD means
+cannot read your data, and it's about confidential computing.
+The very unfortunate thing is that there is a confidential computing
+track right now in the ACE building,
+and so the folks who can say that what I say is bogus
+are all in the other room.
+So you have to trust me.
+It's too bad. It doesn't start well.
+Here's the agenda for today.
+The key topics we are going to cover is we are going to talk
+about confidential computing in general, give a quick overview,
+and see the various use cases for it.
+We are going to see how to build actual trust by starting from a root of trust
+and discuss what is attestation and what it proves.
+We're going to see why it matters to do measurements to build confidence,
+how to securely hand over secrets to your work,
+but more importantly, I'm going to try to convince that it's not really good
+to have a safe like this if you leave the door open.
+It's not as trivial as it sounds.
+There are more details in a series of blogs that is in this QR code,
+so you can scan that if you want to see more about this topic
+with links and so on.
+So what is confidential computing?
+Who has heard the term and knows something about it in this audience?
+Okay, so roughly 10%.
+So confidential computing is about protecting data in use.
+Confidentiality is the essence of being trusted.
+And the problem statement is quite simply,
+why should the infrastructure see your data at all?
+The software today typically runs on hardware that you do not own.
+It's not yours, like, for instance, a cloud provider.
+So that hardware owns the resources like the CPU, the memory, the disks,
+the networking cards and so on.
+And on top of it, you can run things like containers, for instance,
+and the carve out resources from this host.
+Now the tricky thing is that the classical sandboxing technologies
+that we all rely on for containers are preventing container escapes.
+They are designed to protect the Linux kernel from being overwritten
+by your workload in the container.
+They do nothing to protect the other way.
+And that means that a sysadmin on a machine can simply dump memory,
+can look at the other filesystem or the containers, and all that stuff.
+So that's not really good.
+And that's one of the reasons why there are so many difficulties
+to bring some kind of workload, like when you have multiple tenants
+or very sensitive data, to the cloud.
+It's difficult, for instance, to bring medical applications to the cloud.
+So we have solved that problem to some extent with data at rest on disks,
+with disk encryption, and data in transit, like networking.
+We know how to do that.
+So for this kind of data, the host essentially has no clue what's going on
+if you encrypt the data on the disk.
+A host that means cannot actually access the data because it doesn't have a key.
+In a non-confinancial computing architecture, on the other hand,
+that's not true for anything that is in the guest memory.
+So if you have your program that runs,
+it's fairly easy for the host to spy on what you're doing there.
+So let's do a quick demo about that to see how we can access secrets from the host
+simply by dumping guest memory.
+So what I'm going to do here is I'm...
+Uh-oh.
+Ah, okay.
+So...
+Give me one second.
+Okay.
+Okay, it fits now.
+So, uh, what you...
+So, by the way, you saw how I designed my slides.
+Uh, so what we are doing here is we are creating a VM
+from the fellow authority in age with four CPUs and four gigs of memory,
+and then we're booting that and setting it up with Cloud Units.
+And I log in as root, and then I type my password,
+and Cloud Units has put the root password for me,
+but also has set up authorized keys from my public keys.
+So what this means is I can SSH into the guest,
+and then I can simply...
+And I can SSH as root as well.
+So that's what KCLI does for me.
+Now, what I'm checking here with this dMSH is that I'm not running with ACV,
+so no memory encryption here.
+And what I'm going to do now is to watch a really good program, a C program, you know.
+That's typically commercial code.
+It looks like this, right?
+And there is some secret stuff in it,
+and I'm going to compile it, and you know the usual motto.
+If it compiles, you can deploy it.
+Okay, there are some warnings. We don't care.
+We just copy it to the guest, and then we run that on our guest.
+So what I expect from this program is to show a message, really secret stuff.
+It doesn't do exactly what I expected.
+There might be a slight bug in my code, but that's fine.
+I have the secret message.
+So now I go to the host, and because there is a really nice host, this admin,
+he knows how to use the QMU monitor test VM.
+He's another...
+It's not in the same class as the guy who wrote the C code, by the way.
+And so now he's dumping the guest memory with various arguments,
+and what this says essentially is I'm going to dump to a file
+that will contain all of my guest memory at once.
+So I dump my guest memory like this, and I'm going to speed up a little
+because...
+Where is the plus key here?
+So... oops.
+So what I see here is I open the file with Emacs,
+and I can find my secret stuff inside.
+That's the message that was shown on the console,
+and I also see what was in the source code, and you see they don't match.
+So that's the bug that I had in my source code.
+I'll have to investigate that later.
+But the point is all that stuff is clearly visible to my host admin,
+and so is my password.
+The strong password that I put on the command line initially
+is also quite visible in the dump.
+So that's not acceptable, right?
+So we need to do something about it.
+So the proposed solution by Intel, EMG, and everyone,
+I'm going to talk about them later, is to encrypt the memory.
+Hello, hello.
+Ah, okay.
+I must have pushed on the mute button.
+So the encrypted memory is stored...
+So it stores ciphertext, and it's completely transparent to the guest,
+and that means...
+Now, the encryption is not very strong.
+If you look carefully in the green box, you might be able to decipher it.
+And it's the same thing.
+The encryption that is used for these technologies is not the strongest we have,
+with the latest data in the world.
+And there is another aspect that is important,
+is that you need to make sure that the host cannot corrupt or poison the data,
+so you can, for instance, make sure that the host cannot change the value of the registers,
+and that you cannot inject introps that would cause the guest to do malicious things.
+Another aspect that I'm going to cover a bit more in details later
+is something called attestation.
+And the idea of attestation is proving
+that you know what you're running
+and where you're running it.
+So what are the technologies used for that?
+It's really a long evolution
+because it's a rather complicated problem.
+And we are now in that state that is best described
+by this quote from Andrew Tannenbaum.
+The good thing about standard
+is that there are so many to choose from.
+We're going to see that this is really true here.
+The vendor landscape
+is made of really different approaches.
+So you have AMD, for instance,
+that uses secure encrypted visualization.
+And I'm going to talk more about it later.
+But it was not really good.
+So there were further generations after that.
+And SCVES adds state encryption.
+So the state encryption I was telling you about
+was not in the first generation.
+That came as an afterthought.
+And SNP, secure nested pages, adds integrity production.
+And so you can see here the chart
+comparing the various generations of SCV from AMD.
+Intel has something called trusted domain extensions.
+It takes a different approach.
+And I'm going to explain why in a minute.
+And then IBM has something called secure execution,
+which is like all IBM technologies on virtualization
+is based mostly on firmware
+and really a combination of firmware and hardware support.
+PAR has something called protected execution facility.
+ARM has something called confidential computing architecture.
+Trusted zone, you may have heard of these things.
+Now, all these technologies share one thing in common
+is that nowadays the modern ones all rely on virtualization.
+But they all work differently.
+And so that means that when you actually go into the details,
+you run into a variety of problems.
+So let's start with SCV.
+SCV was really the initial implementation.
+So it was flat and this actually gave a relatively bad rep
+to the technology as a whole.
+It's based on an external processor,
+which is currently as far as we know an ARM core.
+And that does the work of encrypting the encrypting memory
+and this kind of things and doing the computations
+to prove that the memory is encrypted.
+So the hardware encryption itself is done
+by the memory controller through hardware.
+And this is built on top of virtualization.
+They also have a process-based approach called SME.
+So as I said, it's realized on the separate processors
+and the initial implementation only allows something called
+pre-attestations, which I'm going to demonstrate in a moment.
+So as I said, there were various vulnerabilities.
+Some of them in the firmware upgrade path
+that gave it a relatively bad reputation.
+So there was a cleanup crew that came after that
+to try to fix that with encrypted state and security pages.
+ES protects the CPU state,
+but doesn't change the attestation model.
+S&P protects against malicious base mapping.
+And you can now get your attestation.
+And again, I'm going to explain that in a moment
+exactly how this works.
+You can do that from within the gas
+which gives you way more flexibility.
+They also had a concept called VMPL,
+which is VM privilege levels,
+which lets us do very interesting things
+where you have some pieces of software
+that neither the guest nor the host can touch.
+So that's very interesting.
+That enables, for instance,
+product services like virtual TPMs
+where you know the source code,
+but you can't know the secrets
+either from the host or the guest.
+Intel TDX takes a very different approach.
+They started with something called SGX,
+so that's the Intel equivalent of SME,
+so secure software-guided extensions
+and that's to create secure enclaves
+and that encrypts at the process level.
+TDX, like SCV, is based on virtualization,
+but they don't choose a separate processor.
+Instead, it's a new separate CPU mode
+called secure arbitration mode, or CIM.
+And that means you have various binaries
+that use CIM call to cross over
+and do the computations in a secure way.
+The attestation is performed typically by a secure coating
+enclave that is another process on the side
+which neither the host nor your guest can access.
+So we are now in this brave, new secure world
+where we are entirely protected and nobody can harm us.
+So what happened there?
+So that's the point when you edit live.
+So that leads us to another interesting quote
+which is that history tends to repeat itself,
+but each time we make the same mistake,
+the price goes up.
+So what we have with memory encryption
+is really not a complete solution.
+And let's think like Sherlock Holmes
+and try to decide what do we really want to prove.
+Well, we're using a very simple solution
+that we really want to prove.
+Well, we're using the cloud.
+As everyone knows, that really means it's a computer you don't own.
+So how do you, on a computer you don't own,
+check that memory is transparently encrypted?
+That's weird, right? How do you get that?
+It's like from inside the matrix
+you want to know that you're inside the matrix.
+How do you prove that?
+Another problem is what is the software in that box?
+How do you prove that it's the software,
+that the software is any good?
+So it turns out that when I looked for a picture saying
+is the stuff in the box any good, I got that,
+so I found this funny.
+Are there some well hidden insecurities inside your setup
+that you did not see?
+So attestation is the process we put in place
+to prove such properties,
+provided you trust some specific part of the system.
+So we are going to see that by running a confidential VM.
+I'm going to use the first generation
+to outline all the steps one at a time,
+and I'm going to run it in the worst possible way as we will see.
+So I'm going to start a VM,
+and I start it in post-state,
+and that allows me to do the measurements on my initial memory
+to check that I have the right content.
+I do that with version download second for that gives me this
+SCV measurement, and then I pass that to a binary,
+in that case I will use virt.punu.scvvalidate.
+That is going to take all this design,
+put the version numbers and all that stuff,
+let's get that quickly,
+and that essentially gives me a way to check.
+So we have also this tic and tech,
+I'm going to explain how you get this tic and tech files in a moment,
+but what matters here is that you run this complicated command line here,
+and it tells you, hey, that's good, totally trustworthy, right?
+You're really happy with that,
+so after you have seen this message,
+you can resume, check the console, and see how your VM boots.
+And the boot of the VM is essentially the same as before,
+except that when you log in now,
+we are going to, let me skip a bit to save time,
+we check that we have SCV.
+So now if I do the same experiment as before,
+and I run my binary in my system,
+so let me again move forward a bit quickly there,
+because it's really the same thing.
+So I skip forward a bit,
+and now I do this same command as before,
+and if I grab the secret, I don't get it.
+Huh!
+That's not what I expected.
+Why do I see secret in there?
+Huh, that's such.
+So my trustworthy max, let me look inside and see what happens.
+Ah, so it's not the same secret.
+I just, my grip was a bit too simple.
+What I'm saying is simply some pieces of binary
+that happen to have the word secret in it.
+Okay, so finally something happened,
+and apparently some projection was in place,
+but it's still weird that we have all this stuff,
+and why is my root password still there?
+Wait, that doesn't work.
+What did I do wrong here?
+So any idea what's wrong here?
+That's where the folks who are in the other room
+would tell me, hey, where did you do that?
+So when I saw that the first time I actually double checked,
+is a CD actually active?
+So when you have a moment like this, it's like, huh?
+By the way, I really love that picture.
+I don't know how you got the car to do that.
+But it's really, you know, Houston, we have a problem.
+For me, it was time to tell the boss.
+You know that stuff?
+Well, okay, maybe we are going to talk a bit less time today
+because I see the data that I actually don't see.
+So my boss replied, isn't like the whole punchline?
+Yeah, there is something wrong here.
+So if I look at my binary,
+I see that the message is actually here, really secret stuff,
+and by the way, the bug is because it's written by a Python programmer,
+so it puts a plus to concatenate strings.
+In case you did not know, that was the problem.
+So if we look for secret stuff, we don't see it anymore.
+But we still see this strong fast world being inserted in the system.
+The reason for that, and by the way, the reason I was puzzled
+is that I had done the demo like 15 times before and never saw the problem.
+And then one day I was in a rush, I decided to accelerate things
+and use something called KCLI, which is based on cloud limits,
+and so there is a step in the process that is not encrypted.
+Just changing the tools led me to actually do something wrong
+without realizing it.
+So that's what I was talking about when I said,
+don't leave the safe open.
+Make sure your disks are encrypted in every step of the process.
+Otherwise, you're dead.
+What did we prove here?
+First of all, that confidential computing is only as strong as the weakest link in your chain.
+But now we are back to the question from before.
+How can we own a system that we don't own?
+There is a paradox here.
+So in order to explain that to you,
+I need to introduce you to a bit of terminology,
+and I will ask you to try really hard not to remember it.
+So let's start with ARK, that's AMG root key.
+Then you have ASK, that's the AMG ACV key.
+Then you have CEC, that's the tip endorsement key.
+Then you have OCA, that's the owner's certificate authority.
+Then you have PEC, that's the platform endorsement key.
+Then the PDH is the platform Diffie-Hellman key.
+The tick that we saw in the tick file earlier is the transport integrated key.
+The tech is the transport encryption key.
+And all that green stuff is TLA's.
+I am now supposed to know, but still don't care about at all.
+And in case you wonder, SOF stands for show of factor,
+which I think is really high at AMG when they invented all these acronyms.
+So, resistance is futile, you have to assimilate these things,
+or they will assimilate you.
+The good news is that we got so tired of this
+that we have a whole page on the Continental Container's project.
+We have a weekly page just with the acronyms we need on a daily basis.
+I added one yesterday actually preparing this talk.
+So, in order to take over the host,
+we are going to add our own OCA, PEC and PDH,
+and I hope you know what that means, to endorse the host as our own.
+And it's a technique that is color-coded known as I Licked It, Therefore It's Mine.
+So, how do we do that?
+We use a tool called SCV-CTL, CEPCAROL,
+and I'm going to reset the platform and do a verify,
+and the verify checks this chain, and when it's green,
+it means essentially that all the things sign each other correctly.
+And if I do that twice in a row, you see that I get the same results.
+So, I get the same platform Diffie-Hellman, and the same owner,
+so the third authority.
+Now, if I do a reset, then I'm going to get different results for the last three.
+The three at the bottom are from AMG, the three at the top belong to me.
+So, that's how I take ownership of this machine by essentially installing an OCA.
+This one is self-signed, it shows with a little circle here,
+but you can import it from outside if you want, if you want to be more secure.
+And it's a good idea to do so.
+Okay, what about the next step, which is now I want to own the guests.
+I sort of said I trust this host to that extent, to that cryptographic extent,
+that I put some keys in it, but now I want to really own the guests.
+And that's a bit more complicated, and again, I'm going to do it the wrong way intentionally,
+just to show all the magic that goes behind the scene when you look at this stuff.
+So, you have this launch security, I'm doing it with Libert here,
+and the launch security section, uh-oh.
+Yeah, so, to fill up the whole security section, you need to do the self-coded export.
+You export the PDA as a platform, if you're a Hellman.
+Then you can verify it, and it's as if you have verified the host itself.
+Now you need to create a session for this specific VM, and I'm going to name it TestVM.
+I'm going to put in it some policy flags that you can see on the screen,
+and you don't really need to care, but you can control, for instance,
+if debugging is enabled in the VM, and these kind of things.
+And that generates four files, the TestVM-Galage, Tech, Take, and Session.
+And that's what I'm going to use to describe my VM later.
+So, fast forward a little, and I edit this, I change the numbers in it,
+and I insert from the files that I just generated.
+And then that means that I'm going to have a virtual machine
+that can identify itself precisely with numbers that I generated.
+So normally you don't do that on the same machine, you would do that separately.
+Once I have done that, I can start my VM again in pause mode,
+and do the same verification that I did before,
+but you're going to let me skip forward a bit because it's the same thing.
+The important part is that the measurement changed.
+The measurement does include all the keys that you have put in the system,
+so that's how you know that it's a measurement of stuff you own.
+And the QMU-SVV Validate does check this measurement against the whole chain
+and make sure that this is somewhat solid.
+Or did we actually prove that?
+What did we really prove? What do we really measure?
+We're trusting a computer output message, so for all we know,
+the source code looks like this, right?
+So we need to...
+That's one scenario where having free software really matters.
+You really want to know that the binary that you're using to do that,
+you compile it yourself and it's actually doing what you expect.
+That's a problem actually because in the class today,
+some of the key components that are part of the root of trust are not open source at the moment.
+By the way, so we have this collective called the Continental Computing Consortium
+and that tries to bring together all these big companies to do the magic
+of agreeing on standards and so on.
+And CCC was the worst acronym they could pick because there are like 37 CCCs on Wikipedia,
+including the Kars Computer Club.
+So what we did is we injected our own OCA in the system,
+so we essentially marked the system that way and remember the O stands for owners.
+We are now the owner of something.
+We have a certificate of ownership of some kind.
+But what do we really own?
+In reality, it's more like something like this differential machine from Babaj.
+In the sense that we only have a tool that lets the other side prove their identity by computations.
+We expect the computation to give a result we can check.
+So it's really similar to what we do when we do two-factor authentication.
+One thing we prove is that the VM is encrypted using AMD signature.
+It's slightly stronger than Word 26.
+And we have also proven that the content of the VM is what we expect with the initial crypto hash.
+So we essentially are measuring from the start of how the VM is being built.
+So how do we make containers confidential in that space?
+How can we prove that we run the right container in age
+and that it's running in the right trusted environment?
+So this is a diagram of something called KALAC containers that runs containers in little virtual machines.
+And in order for this to be adapted for new...
+Did I lose the sound again? Hello? Yeah.
+In order to adapt that to the new environment, we need to change a few components that are marked in red here.
+Those need to be aware that we want to do some confidential computing with it.
+We also need to encrypt our disks.
+So that's the part on the top right here.
+And we need to have something on the side that will do the verification, that we call the relying party.
+And a relying party from a high level point of view consists in two parts.
+A key broker that delivers secrets and an attestation service that will do a crypto exchange to validate your attestation results.
+So on this diagram now we have three categories of colors.
+We have the trusted platform, which is in red.
+Trusted here means simply that it's ready to do some crypto computations on your behalf.
+It doesn't mean that it holds trusted data.
+All the data that it knows is encrypted.
+The host manages and offers resources used to run the containers like before.
+So that includes CPUs, memory, I.O. That doesn't change.
+But that's all it does.
+To it now, it is because a bag of bytes and a memory page is exactly the same thing, a bag of encrypted bytes.
+It doesn't know how to read the content.
+And the tenant is the new part, is the new aspect of this whole scheme.
+It's the part in green.
+It's confidential in the sense that everything in it is normally not decipherable by the host.
+And even when it's running on the host.
+And some part of it, as you see the relying party, might be in the cloud, might be on premise, might be elsewhere.
+So this is a new security model for Linux.
+Well, the host's admin is now considered hostile.
+And that pretty changes the threat model.
+So I saw here a page that was relatively recent.
+Is it me or is it Fudgy on the screen, right?
+Anyway, so I read for you, it's dated September 9.
+And what is interesting is that it's cosigned by folks from AMD and Intel.
+So they finally agreed on how to describe the memory model and the threat model in a way that everyone would agree on.
+One of the things that you need in order for this scheme to work is to say in platform we trust,
+the platform you run on has to do the work correctly.
+If, for instance, the AMD root key is leaked somewhere, the whole scheme falls apart.
+But the big change is that we no longer trust the host user named Root.
+And that's a good thing.
+On the host, Root has other parts and we just want to get that guy, that bad person, out of the equation.
+So that means the trusted platform needs to provide new services to qualify what is running and to make sure that it's actually running what you want.
+That in that sense that it's a trusted platform.
+So it's really only a tool to be trust that attacks can come from the host and hypervisor.
+And I was discussing in the hallways just minutes ago about how we can try to change that to make sure that the attacks won't come that way.
+But for the moment at least, that means that from the guest point of view, the host platform, the host hypervisor, might be trying to attack you.
+And that's really bad.
+So that's a question that Greg Cage is asking here.
+I'm sorry if this is fuzzy on the screen.
+So what do you actually trust here?
+Do you trust your CPU to do the computations?
+Do you trust external devices?
+Do virtual devices?
+Can you trust them?
+And so on.
+This leads to rather serious resistance on their part.
+Greg Cage there says, good luck with that.
+That was like two months ago.
+Well, when you reach a point where a key maintainer tells you, ah, good luck with this project.
+That's not necessarily a good sign.
+So we are thinking about other ways to do things that don't take as much effort on the kernel part.
+But at least there is one thing that we can do correctly.
+And that's the measurements of the initial state.
+That part we can somewhat trust.
+There is this pre attestation where you measure, the hypervisor essentially measures the initial state of the VM in post state.
+So that's the VM in post state is why it's right out.
+There is post attestation where you start the VM, but you can still assess the initial state that it booted from.
+And so you can send that, the guest can then query the platform security processor or the trustee enclave to say,
+please give me the measurement that you did when I started.
+And that measurement will be delivered almost directly by this additional security component.
+And we can go further.
+We can decide, for instance, to attest the containers themselves.
+It doesn't make much sense in practice because the containers, there is also independent effort to make container images encrypted to preserve the integrity and so on.
+So we don't really need to attest more than that.
+Attesting the bottom part is sufficient for our use case and that's how containers work for now.
+Another quick bit of terminology for the next steps is to understand that in the attestation you have values players
+and you have a verifier that does all the job but gets its input from things that belong to you in green.
+So like the reference value provider and the verifier owner.
+And for instance, you have a separation between the policies to appraise the evidence and the endorsement which is I take over this particular hardware.
+The attestor then can submit some evidence.
+So the attestor is in red.
+It's the trusted platform that does it.
+So it does the crypto measurements and you know that it's the platform doing the crypto measurements.
+And then the verifier can transmit that to the relying party.
+And the relying party can appraise the attestation results.
+So how does this work in practice?
+So you do a cryptographic measurement of the values bits you care about.
+From that, you get essentially something that is a proof of identity.
+It's like an ID card.
+And if everything goes well, you get some secrets in return.
+Because it's a challenge response process, you say that's why you need the attestation service.
+You have the attestation service.
+Something I'm going to show that in a further slide.
+But you know that it's fresh.
+It's happening now.
+And because it's dynamic and it's done on the side, this means you can revoke something that you accepted before.
+You can say, I discovered a zero-day exploit in this particular stack.
+I no longer want to run it.
+So I just revoke access to this and it can't boot anymore.
+So attestation is a proof of the configuration of a system, including the fact that it's running with encryption on.
+And including the fact that it's running a stack that I trust.
+It proves properties.
+Remote attestation decouples the evidence from the verification, just like you decouple a lock from the keys.
+So that's very important.
+There are two models, a passport model where you present the evidence, like a passport that says,
+these government guarantees that you are indeed Christophe de Dinsen.
+Or you can have a background check model, which is similar to putting your finger in a biometric device.
+It's not proving that I'm Christophe de Dinsen.
+It's proving that I have the right finger.
+So how do we... Does that actually prove something to you as a user?
+It's a proof by blocking forward progress.
+What happens is that...
+So first of all, because it's a one-time challenge, as I said, it proves the freshness of what you did.
+It proves that it's happening right now.
+The response contains a cryptographic proof.
+And it's basically as strong as the cryptography that uses it, of that form identity, memory encryption, and so on.
+It also proves the endorsement, because part of the encryption that is made includes your own certificates and keys.
+And it measures the initial guess of the stack, so you know you have a hash of what's running inside.
+If the proof fails, the secrets do not get delivered.
+So what happens is that the guess cannot decrypt its own disk volumes, and it cannot decrypt its container images.
+So basically, it's stuck there, and it's random harmless.
+So in order to build trust, you go step-by-step like this.
+You need to know exactly what you prove, what are the guarantees that you offer that way.
+And what confidential computing really cares about is confidentiality, right?
+So that means that what we really care about is we don't want to leak any data that is considered confidential.
+We don't want it to be leaked, we don't want it to be tampered with.
+We do not protect against crashes.
+Actually, a crash is a good outcome if you detect a correction, for instance.
+The best thing you can do is crush the guests.
+We do not protect disks or network data.
+That has to be done on the side as I showed earlier.
+It does not offer any guarantee of service, and because it's hardware-based, real-time cryptography,
+you can still properly mount some attacks if you know exactly what's running inside.
+It's also highly implementation dependent.
+But online is there is no automatic security.
+So to build things, we start with hardware.
+You may remember that from the TPM days.
+Once upon a time, we invented the hardware TPM,
+and there was a very good talk by James Bottomley yesterday about how to use that on your laptop.
+So what happens there is you have this stack where each step merges and launches something
+and stores, records the results in your log in the TPM.
+And that's the log or hash of the log that is going to tell you,
+I'm at this point in the boot and it's valid.
+And you can do things like, for instance, having keys that can only be unlocked in BIOS Phase 2.
+And once the TPM goes beyond that, its registers have changed,
+and it can no longer detect the same key that was used as part of the boot.
+So the operating system cannot see the key that was used by the BIOS to detect the disk.
+So that's what we call a chain of trust.
+Each step depends on the steps before.
+So I offer you something I call the remit pipeline.
+It's a simplified, in some sense, simplistic model for this kind of trust chain.
+Where you have R that stands for root of trust,
+E stands for endorsement,
+and for measurements,
+I for identity,
+T for trust, how you build policies,
+how you build trust from the elements you had before,
+and S for secrets.
+And you go from root of trust to secrets following these steps.
+So we are going to see that with various examples.
+For instance, that's the remit pipeline for the secure boot system.
+That's for selling a property where you start with a root of trust that's the notary,
+and you end up handing the keys.
+That's the same thing with historical money.
+You have gold or silver or the root of trust.
+Then the government gives value to them that is measured in dollars,
+and the number of dollars is the identity of a given transaction.
+Handing over the cash is how you establish the trust.
+I received this from you,
+and in exchange you deliver secrets, in that case,
+goods or food or something like that.
+So you see that the system is relatively easy to follow.
+So attestation flow unlocks by giving secrets as a cryptographic challenge.
+I explained that earlier, so I'm going to go very quickly,
+but the point here is that it's really a crypto challenge that doesn't prove.
+And that's how you get your response sent to the attestor.
+So now we are getting close to the time that is allotted.
+I have a few other things that I can show,
+but there are demos that we can switch to questions,
+and I can have slides showing some additional demos
+for various use cases of confidential computing.
+Because we have virtual machines, virtual functions, orchestration,
+that's confidential containers and things like that.
+We can have the whole entry level with confidential clusters,
+and so I'm going to simply show the various use cases
+and take questions at the same time.
+No questions? Oh, yeah.
+There is a question over there.
+So companies are, in some cases, allowed to run their own stack on so-called raw machines being rented out,
+where they get to do everything.
+And the attack against them is the BMC could have installed lowest level software
+that can't be replaced and there's no way to know about it.
+So does this address that or not?
+Yeah, so the question is, let me rephrase a little,
+the question is about sub-platform items like a BMC that have special powers.
+James, bottom line, I think, or someone else mentioned yesterday
+that everyone in this room is probably running a copy of Minix without knowing it,
+as soon as you're running a relatively recent Intel Core.
+Because there is a copy of Minix in the management processor.
+So it's the same idea this has, a lot of power and can do a lot of harm.
+This is the... the ARM core in a CV system is exactly in this class as well.
+It can do a lot of harm and the various failures that were detected
+were precisely by uploading a bad firmware in this ARM core.
+So the attacks do exist.
+To the best of my knowledge, the attacks that exist so far
+mostly require some privileged access to the machine
+because the BMC itself normally has privileges, but you're correct.
+This is an ACTAC vector that may exist.
+What I'm showing here, by the way, is RAIL 9.3 running on Azure with encrypted.
+It's just to show you that it's much simpler than when I did it manually.
+So you just click, click, click, click, and it deploys the VM for you.
+But of course you have to trust Azure to manage your secrets.
+And when they say, for instance, that they don't keep the private key,
+it's a website saying I don't keep the private key.
+Any other questions?
+What is the performance penalty on running the encryption?
+So the question is what is the performance penalty on running with encryption?
+It's not where you think.
+You might think that running with memory encryption makes memory accesses slower.
+And in practice, that's not really the case
+because we already have levels upon levels upon levels of cache
+and that the actual performance is re-dominated by the cache.
+I think that in the worst cases you can probably detect a 10% change, but that's about it.
+The real problem, though, when you run in the cloud, is that you're encrypting your memory,
+which means that the Linux kernel you have in memory is encrypted.
+So it varies from one VM to the next.
+So you cannot share it across VMs with the traditional techniques.
+But if you're running containers, you don't want to run your content,
+to keep your container images on the host either, right?
+So today when you run 10 containers, booting NGINX 10 times,
+you got one image of NGINX that gets downloaded once.
+If you want to have a secure NGINX, then you are going to download an encrypted image of NGINX
+that is going to be stored on an encrypted disk that is per VM.
+And so you're going to download it 10 times, store it 10 times.
+And the memory, so it's 10 times more.
+And so that's where the real cost of this thing is.
+And to be frank, it's not impossible that that might be one of the big reasons
+for pushing this by hardware vendors
+because you really need Mithia hardware for the same thing.
+There's...
+In answer to performance, what is the cost of trusting something that shouldn't have been trusted?
+Yes.
+Okay, but more to the point.
+The only solution I see, and I do see a solution,
+is that you have to run encrypted secure, boot whatever, at the factory,
+track that boot image, the session key for that thing,
+through its lifetime of deployments, such that you know that that never got overwritten
+any other time farther down the chain.
+So it's a different eco structure for the industry.
+So I think that I understood your comment by saying that
+you really need to do something that is short lived
+at the factory when you build these chips,
+you put them into an encrypted mode there at the chip,
+you know, with all the out of station, at a low level,
+and track that through all deployments.
+Oh, I see.
+And then run on that so that when you're presented with it with a thing you claim is secure,
+you actually have to add a station from the factory all the way to where you go to use it
+in order to believe and trust that.
+Yes, so I think the point is really that we need to check the quality of the encryption being used
+to store memory, et cetera.
+Now, on that front, the good news is that some of these technologies were invented with
+another motivation in mind.
+I don't know if you remember mem restors and stuff like that.
+There was a time where we thought that we could have all memory,
+essentially the RAM being persistent like on old HP calculators,
+where you switch off the machine and the RAM stays there.
+And of course that has a real problem.
+It makes a number of things faster, but that has a problem that if you take out the chip,
+the data is in there.
+So you want to encrypt all accesses to memory in order to avoid that.
+So because of that, the encryption technologies that have been used have been carefully thought out
+and have been tested with this method of taking the chip out and trying to reverse attack it.
+So that part, you know, you can never say never,
+but that's probably not the weakest link in the system.
+I think there was a question on the other side as well.
+Yes.
+How feasible is it to encrypt a certain process and leave other processes encrypted?
+So the question is how feasible is it to leave one process unencrypted while other processes are encrypted?
+And that's the first generation technologies that I was talking about.
+SME and SGX work exactly like this.
+Now the problem with these technologies is that it's very hard to support fork,
+because fork in Linux is you have two processes that have the same address space at least initially.
+And when you fork, do you want the other process to have the same address space ID or a different one?
+Most of the cases where you care for sharing memory, you want to have the same address space,
+but when you do a fork exact, maybe you don't want.
+So in order to solve that problem, Intel, for instance, implemented something that they call a libOS,
+and that's an OS you run inside a process that simulates all this fork and all this nice,
+essentially simulates all the Linux system calls from within a process with simulated process inside a process
+and knowing when to fork an actual process on the outside.
+That's one of the reasons why SGX did not really take off is that you had to rethink your application a lot in order to fit that model.
+First of all, thank you so much for a great presentation.
+I actually have double question.
+One, if it would be possible to share the slides, maybe somewhere because I don't see them on the description.
+And second is if we can use this with the cloud providers, like for example, the ETS and other clouds, if it's possible.
+So I understood the first part. Can you repeat the second part? I did not understand the second part.
+So first was about the slides. And second question was if we can use confidential containers with the providers like AWS ETS
+and other cloud Kubernetes providers.
+So the first question is about sharing the slides.
+If you don't mind, I prefer sharing the blog because it's probably better reading, but the slides will be shared.
+This presentation is made with software that I developed called Tower 3D, which is my biggest failure in the open source world
+because it's 500,000 lines of code. I cannot compile it anymore and there is a single user and that's me.
+So that means I cannot really help you run this presentation yourself.
+What I do is I share the source code and I share snapshots of the screen and I share a video of it.
+So that's how you... And you'll have the first-time replay because also we call everything.
+On the second question, which now I forgot.
+What is it?
+So the question was if we can run this level of confidentiality, like the encryption and everything,
+so confidential containers on the cloud, like for example using ETS from AWS.
+Yes, so the second question was about running confidential containers in the cloud.
+At the moment, not really.
+So, confidential containers at the moment is, I think we're completing release 0.8, if I'm memory serves me right.
+But so it's still not completely deployable.
+And quite frankly, one of the aspects that concerns me the most from a usability point of view,
+I'm working on it at the moment with a team of researchers at IBM,
+is that in order for this to be secured, there are so many APIs that go through the host to the QBLAD and so on,
+that we need to rewrite an alternate control plane path for these.
+The current solution, if you use confidential containers today, they close down all the insecure APIs.
+That's the default policy.
+And so when you close down something like getting the logs or doing your QBLAD is exactly inside a container,
+you lose a lot of functionality.
+We are trying to restore that in a safe way, but you imagine that it's complicated
+because that means you have to have a completely parallel control plane that doesn't run on the same host.
+That's not completely true though.
+And so I am late.
+Thank you very much.
+If there are further questions, I don't know, maybe you can recompile his slides to find his email address,
+or you can talk to him somewhere in the hallway.
+What's your email address on the slides? I don't remember.
+No, I did not give my email address. I gave my GitHub account.
+My email address is...
+Well, the easiest one I think is cc3d at redhat.com.
+Or cddd.
+Yeah, so first slide, c3d.github.io is...
+And from there you can...
+My name is not like...
+There are not many hash collisions on it, so you can find me easily.
+So, ask him any questions.
+Thank you very much.
+Let's hope this gets implemented because it will improve security very much.
+As a token of appreciation, we have some chocolates.
+Thank you.
+Thank you very much.
+Thank you.

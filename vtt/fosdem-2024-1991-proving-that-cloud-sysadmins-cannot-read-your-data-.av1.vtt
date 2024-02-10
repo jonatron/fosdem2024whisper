@@ -1,0 +1,2390 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+So now we are on time, so let me start.
+
+00:07.000 --> 00:10.000
+So hi, I'm Christophe D'Aditon.
+
+00:10.000 --> 00:14.000
+I'm a senior principal software engineer working for Red Hat
+
+00:14.000 --> 00:17.000
+on confidential computing.
+
+00:17.000 --> 00:22.000
+My GitHub is C3D, so you have more about me on C3D.github.io,
+
+00:22.000 --> 00:25.000
+or you can scan the QR code here.
+
+00:25.000 --> 00:29.000
+And today's talk is about proving that cloud CCD means
+
+00:29.000 --> 00:33.000
+cannot read your data, and it's about confidential computing.
+
+00:33.000 --> 00:36.000
+The very unfortunate thing is that there is a confidential computing
+
+00:36.000 --> 00:40.000
+track right now in the ACE building,
+
+00:40.000 --> 00:43.000
+and so the folks who can say that what I say is bogus
+
+00:43.000 --> 00:45.000
+are all in the other room.
+
+00:45.000 --> 00:47.000
+So you have to trust me.
+
+00:47.000 --> 00:50.000
+It's too bad. It doesn't start well.
+
+00:50.000 --> 00:52.000
+Here's the agenda for today.
+
+00:52.000 --> 00:55.000
+The key topics we are going to cover is we are going to talk
+
+00:55.000 --> 00:59.000
+about confidential computing in general, give a quick overview,
+
+00:59.000 --> 01:02.000
+and see the various use cases for it.
+
+01:02.000 --> 01:07.000
+We are going to see how to build actual trust by starting from a root of trust
+
+01:07.000 --> 01:11.000
+and discuss what is attestation and what it proves.
+
+01:11.000 --> 01:16.000
+We're going to see why it matters to do measurements to build confidence,
+
+01:16.000 --> 01:21.000
+how to securely hand over secrets to your work,
+
+01:21.000 --> 01:26.000
+but more importantly, I'm going to try to convince that it's not really good
+
+01:26.000 --> 01:30.000
+to have a safe like this if you leave the door open.
+
+01:30.000 --> 01:33.000
+It's not as trivial as it sounds.
+
+01:33.000 --> 01:38.000
+There are more details in a series of blogs that is in this QR code,
+
+01:38.000 --> 01:43.000
+so you can scan that if you want to see more about this topic
+
+01:43.000 --> 01:46.000
+with links and so on.
+
+01:46.000 --> 01:51.000
+So what is confidential computing?
+
+01:51.000 --> 01:56.000
+Who has heard the term and knows something about it in this audience?
+
+01:56.000 --> 01:59.000
+Okay, so roughly 10%.
+
+01:59.000 --> 02:03.000
+So confidential computing is about protecting data in use.
+
+02:03.000 --> 02:08.000
+Confidentiality is the essence of being trusted.
+
+02:08.000 --> 02:11.000
+And the problem statement is quite simply,
+
+02:11.000 --> 02:16.000
+why should the infrastructure see your data at all?
+
+02:16.000 --> 02:20.000
+The software today typically runs on hardware that you do not own.
+
+02:20.000 --> 02:24.000
+It's not yours, like, for instance, a cloud provider.
+
+02:24.000 --> 02:30.000
+So that hardware owns the resources like the CPU, the memory, the disks,
+
+02:30.000 --> 02:32.000
+the networking cards and so on.
+
+02:32.000 --> 02:36.000
+And on top of it, you can run things like containers, for instance,
+
+02:36.000 --> 02:39.000
+and the carve out resources from this host.
+
+02:39.000 --> 02:43.000
+Now the tricky thing is that the classical sandboxing technologies
+
+02:43.000 --> 02:48.000
+that we all rely on for containers are preventing container escapes.
+
+02:48.000 --> 02:51.000
+They are designed to protect the Linux kernel from being overwritten
+
+02:51.000 --> 02:54.000
+by your workload in the container.
+
+02:54.000 --> 02:56.000
+They do nothing to protect the other way.
+
+02:56.000 --> 03:01.000
+And that means that a sysadmin on a machine can simply dump memory,
+
+03:01.000 --> 03:05.000
+can look at the other filesystem or the containers, and all that stuff.
+
+03:05.000 --> 03:08.000
+So that's not really good.
+
+03:08.000 --> 03:11.000
+And that's one of the reasons why there are so many difficulties
+
+03:11.000 --> 03:14.000
+to bring some kind of workload, like when you have multiple tenants
+
+03:14.000 --> 03:17.000
+or very sensitive data, to the cloud.
+
+03:17.000 --> 03:22.000
+It's difficult, for instance, to bring medical applications to the cloud.
+
+03:22.000 --> 03:28.000
+So we have solved that problem to some extent with data at rest on disks,
+
+03:28.000 --> 03:33.000
+with disk encryption, and data in transit, like networking.
+
+03:33.000 --> 03:35.000
+We know how to do that.
+
+03:35.000 --> 03:40.000
+So for this kind of data, the host essentially has no clue what's going on
+
+03:40.000 --> 03:43.000
+if you encrypt the data on the disk.
+
+03:43.000 --> 03:48.000
+A host that means cannot actually access the data because it doesn't have a key.
+
+03:48.000 --> 03:51.000
+In a non-confinancial computing architecture, on the other hand,
+
+03:51.000 --> 03:56.000
+that's not true for anything that is in the guest memory.
+
+03:56.000 --> 04:00.000
+So if you have your program that runs,
+
+04:00.000 --> 04:05.000
+it's fairly easy for the host to spy on what you're doing there.
+
+04:05.000 --> 04:10.000
+So let's do a quick demo about that to see how we can access secrets from the host
+
+04:10.000 --> 04:13.000
+simply by dumping guest memory.
+
+04:15.000 --> 04:18.000
+So what I'm going to do here is I'm...
+
+04:18.000 --> 04:20.000
+Uh-oh.
+
+04:20.000 --> 04:21.000
+Ah, okay.
+
+04:21.000 --> 04:23.000
+So...
+
+04:23.000 --> 04:25.000
+Give me one second.
+
+04:30.000 --> 04:32.000
+Okay.
+
+04:41.000 --> 04:43.000
+Okay, it fits now.
+
+04:43.000 --> 04:46.000
+So, uh, what you...
+
+04:46.000 --> 04:49.000
+So, by the way, you saw how I designed my slides.
+
+04:49.000 --> 04:55.000
+Uh, so what we are doing here is we are creating a VM
+
+04:55.000 --> 04:59.000
+from the fellow authority in age with four CPUs and four gigs of memory,
+
+04:59.000 --> 05:04.000
+and then we're booting that and setting it up with Cloud Units.
+
+05:04.000 --> 05:09.000
+And I log in as root, and then I type my password,
+
+05:09.000 --> 05:14.000
+and Cloud Units has put the root password for me,
+
+05:14.000 --> 05:22.000
+but also has set up authorized keys from my public keys.
+
+05:22.000 --> 05:26.000
+So what this means is I can SSH into the guest,
+
+05:26.000 --> 05:29.000
+and then I can simply...
+
+05:29.000 --> 05:31.000
+And I can SSH as root as well.
+
+05:31.000 --> 05:33.000
+So that's what KCLI does for me.
+
+05:33.000 --> 05:38.000
+Now, what I'm checking here with this dMSH is that I'm not running with ACV,
+
+05:38.000 --> 05:40.000
+so no memory encryption here.
+
+05:40.000 --> 05:45.000
+And what I'm going to do now is to watch a really good program, a C program, you know.
+
+05:45.000 --> 05:47.000
+That's typically commercial code.
+
+05:47.000 --> 05:49.000
+It looks like this, right?
+
+05:49.000 --> 05:52.000
+And there is some secret stuff in it,
+
+05:52.000 --> 05:56.000
+and I'm going to compile it, and you know the usual motto.
+
+05:56.000 --> 05:58.000
+If it compiles, you can deploy it.
+
+05:58.000 --> 06:00.000
+Okay, there are some warnings. We don't care.
+
+06:00.000 --> 06:06.000
+We just copy it to the guest, and then we run that on our guest.
+
+06:06.000 --> 06:13.000
+So what I expect from this program is to show a message, really secret stuff.
+
+06:13.000 --> 06:15.000
+It doesn't do exactly what I expected.
+
+06:15.000 --> 06:18.000
+There might be a slight bug in my code, but that's fine.
+
+06:18.000 --> 06:20.000
+I have the secret message.
+
+06:20.000 --> 06:25.000
+So now I go to the host, and because there is a really nice host, this admin,
+
+06:25.000 --> 06:28.000
+he knows how to use the QMU monitor test VM.
+
+06:28.000 --> 06:30.000
+He's another...
+
+06:30.000 --> 06:33.000
+It's not in the same class as the guy who wrote the C code, by the way.
+
+06:33.000 --> 06:37.000
+And so now he's dumping the guest memory with various arguments,
+
+06:37.000 --> 06:43.000
+and what this says essentially is I'm going to dump to a file
+
+06:43.000 --> 06:49.000
+that will contain all of my guest memory at once.
+
+06:49.000 --> 06:53.000
+So I dump my guest memory like this, and I'm going to speed up a little
+
+06:53.000 --> 06:56.000
+because...
+
+06:56.000 --> 06:58.000
+Where is the plus key here?
+
+06:58.000 --> 07:00.000
+So... oops.
+
+07:00.000 --> 07:04.000
+So what I see here is I open the file with Emacs,
+
+07:04.000 --> 07:08.000
+and I can find my secret stuff inside.
+
+07:08.000 --> 07:10.000
+That's the message that was shown on the console,
+
+07:10.000 --> 07:14.000
+and I also see what was in the source code, and you see they don't match.
+
+07:14.000 --> 07:16.000
+So that's the bug that I had in my source code.
+
+07:16.000 --> 07:18.000
+I'll have to investigate that later.
+
+07:18.000 --> 07:23.000
+But the point is all that stuff is clearly visible to my host admin,
+
+07:23.000 --> 07:25.000
+and so is my password.
+
+07:25.000 --> 07:27.000
+The strong password that I put on the command line initially
+
+07:27.000 --> 07:30.000
+is also quite visible in the dump.
+
+07:30.000 --> 07:32.000
+So that's not acceptable, right?
+
+07:32.000 --> 07:35.000
+So we need to do something about it.
+
+07:35.000 --> 07:38.000
+So the proposed solution by Intel, EMG, and everyone,
+
+07:38.000 --> 07:41.000
+I'm going to talk about them later, is to encrypt the memory.
+
+07:49.000 --> 07:51.000
+Hello, hello.
+
+07:51.000 --> 07:53.000
+Ah, okay.
+
+07:53.000 --> 07:55.000
+I must have pushed on the mute button.
+
+07:55.000 --> 07:58.000
+So the encrypted memory is stored...
+
+07:58.000 --> 08:02.000
+So it stores ciphertext, and it's completely transparent to the guest,
+
+08:02.000 --> 08:04.000
+and that means...
+
+08:04.000 --> 08:06.000
+Now, the encryption is not very strong.
+
+08:06.000 --> 08:10.000
+If you look carefully in the green box, you might be able to decipher it.
+
+08:10.000 --> 08:12.000
+And it's the same thing.
+
+08:12.000 --> 08:15.000
+The encryption that is used for these technologies is not the strongest we have,
+
+08:15.000 --> 08:17.000
+with the latest data in the world.
+
+08:17.000 --> 08:22.000
+And there is another aspect that is important,
+
+08:22.000 --> 08:26.000
+is that you need to make sure that the host cannot corrupt or poison the data,
+
+08:26.000 --> 08:31.000
+so you can, for instance, make sure that the host cannot change the value of the registers,
+
+08:31.000 --> 08:39.000
+and that you cannot inject introps that would cause the guest to do malicious things.
+
+08:41.000 --> 08:44.000
+Another aspect that I'm going to cover a bit more in details later
+
+08:44.000 --> 08:45.800
+is something called attestation.
+
+08:45.800 --> 08:47.900
+And the idea of attestation is proving
+
+08:47.900 --> 08:49.400
+that you know what you're running
+
+08:49.400 --> 08:51.900
+and where you're running it.
+
+08:51.900 --> 08:55.200
+So what are the technologies used for that?
+
+08:55.200 --> 08:56.900
+It's really a long evolution
+
+08:56.900 --> 08:59.100
+because it's a rather complicated problem.
+
+08:59.100 --> 09:01.900
+And we are now in that state that is best described
+
+09:01.900 --> 09:04.100
+by this quote from Andrew Tannenbaum.
+
+09:04.100 --> 09:05.900
+The good thing about standard
+
+09:05.900 --> 09:08.300
+is that there are so many to choose from.
+
+09:08.300 --> 09:10.700
+We're going to see that this is really true here.
+
+09:10.700 --> 09:12.800
+The vendor landscape
+
+09:12.800 --> 09:14.500
+is made of really different approaches.
+
+09:14.500 --> 09:16.300
+So you have AMD, for instance,
+
+09:16.300 --> 09:19.200
+that uses secure encrypted visualization.
+
+09:19.200 --> 09:22.000
+And I'm going to talk more about it later.
+
+09:22.000 --> 09:24.300
+But it was not really good.
+
+09:24.300 --> 09:26.700
+So there were further generations after that.
+
+09:26.700 --> 09:30.300
+And SCVES adds state encryption.
+
+09:30.300 --> 09:32.100
+So the state encryption I was telling you about
+
+09:32.100 --> 09:34.000
+was not in the first generation.
+
+09:34.000 --> 09:36.800
+That came as an afterthought.
+
+09:36.800 --> 09:40.700
+And SNP, secure nested pages, adds integrity production.
+
+09:40.700 --> 09:42.600
+And so you can see here the chart
+
+09:42.600 --> 09:47.300
+comparing the various generations of SCV from AMD.
+
+09:47.300 --> 09:50.100
+Intel has something called trusted domain extensions.
+
+09:50.100 --> 09:51.200
+It takes a different approach.
+
+09:51.200 --> 09:53.900
+And I'm going to explain why in a minute.
+
+09:53.900 --> 09:57.400
+And then IBM has something called secure execution,
+
+09:57.400 --> 10:00.600
+which is like all IBM technologies on virtualization
+
+10:00.600 --> 10:02.700
+is based mostly on firmware
+
+10:02.700 --> 10:07.100
+and really a combination of firmware and hardware support.
+
+10:07.100 --> 10:10.100
+PAR has something called protected execution facility.
+
+10:10.100 --> 10:14.400
+ARM has something called confidential computing architecture.
+
+10:14.400 --> 10:16.900
+Trusted zone, you may have heard of these things.
+
+10:16.900 --> 10:19.400
+Now, all these technologies share one thing in common
+
+10:19.400 --> 10:24.900
+is that nowadays the modern ones all rely on virtualization.
+
+10:24.900 --> 10:27.600
+But they all work differently.
+
+10:27.600 --> 10:32.800
+And so that means that when you actually go into the details,
+
+10:32.800 --> 10:35.300
+you run into a variety of problems.
+
+10:35.300 --> 10:36.700
+So let's start with SCV.
+
+10:36.700 --> 10:39.400
+SCV was really the initial implementation.
+
+10:39.400 --> 10:43.300
+So it was flat and this actually gave a relatively bad rep
+
+10:43.300 --> 10:45.800
+to the technology as a whole.
+
+10:45.800 --> 10:47.600
+It's based on an external processor,
+
+10:47.600 --> 10:51.000
+which is currently as far as we know an ARM core.
+
+10:51.000 --> 10:54.000
+And that does the work of encrypting the encrypting memory
+
+10:54.000 --> 10:56.300
+and this kind of things and doing the computations
+
+10:56.300 --> 10:59.300
+to prove that the memory is encrypted.
+
+10:59.300 --> 11:01.500
+So the hardware encryption itself is done
+
+11:01.500 --> 11:03.900
+by the memory controller through hardware.
+
+11:03.900 --> 11:06.000
+And this is built on top of virtualization.
+
+11:06.000 --> 11:10.100
+They also have a process-based approach called SME.
+
+11:10.100 --> 11:12.700
+So as I said, it's realized on the separate processors
+
+11:12.700 --> 11:15.500
+and the initial implementation only allows something called
+
+11:15.500 --> 11:19.000
+pre-attestations, which I'm going to demonstrate in a moment.
+
+11:19.000 --> 11:21.700
+So as I said, there were various vulnerabilities.
+
+11:21.700 --> 11:25.400
+Some of them in the firmware upgrade path
+
+11:25.400 --> 11:29.200
+that gave it a relatively bad reputation.
+
+11:29.200 --> 11:31.900
+So there was a cleanup crew that came after that
+
+11:31.900 --> 11:35.600
+to try to fix that with encrypted state and security pages.
+
+11:35.700 --> 11:37.700
+ES protects the CPU state,
+
+11:37.700 --> 11:39.700
+but doesn't change the attestation model.
+
+11:39.700 --> 11:43.100
+S&P protects against malicious base mapping.
+
+11:43.100 --> 11:45.500
+And you can now get your attestation.
+
+11:45.500 --> 11:47.500
+And again, I'm going to explain that in a moment
+
+11:47.500 --> 11:49.000
+exactly how this works.
+
+11:49.000 --> 11:50.400
+You can do that from within the gas
+
+11:50.400 --> 11:53.400
+which gives you way more flexibility.
+
+11:53.400 --> 11:56.000
+They also had a concept called VMPL,
+
+11:56.000 --> 11:57.600
+which is VM privilege levels,
+
+11:57.600 --> 11:59.600
+which lets us do very interesting things
+
+11:59.600 --> 12:03.100
+where you have some pieces of software
+
+12:03.100 --> 12:05.500
+that neither the guest nor the host can touch.
+
+12:05.500 --> 12:07.400
+So that's very interesting.
+
+12:07.400 --> 12:08.400
+That enables, for instance,
+
+12:08.400 --> 12:10.800
+product services like virtual TPMs
+
+12:10.800 --> 12:12.200
+where you know the source code,
+
+12:12.200 --> 12:13.600
+but you can't know the secrets
+
+12:13.600 --> 12:16.500
+either from the host or the guest.
+
+12:16.500 --> 12:19.800
+Intel TDX takes a very different approach.
+
+12:19.800 --> 12:21.300
+They started with something called SGX,
+
+12:21.300 --> 12:24.100
+so that's the Intel equivalent of SME,
+
+12:24.100 --> 12:26.500
+so secure software-guided extensions
+
+12:26.500 --> 12:28.600
+and that's to create secure enclaves
+
+12:28.600 --> 12:31.000
+and that encrypts at the process level.
+
+12:31.000 --> 12:34.400
+TDX, like SCV, is based on virtualization,
+
+12:34.400 --> 12:36.400
+but they don't choose a separate processor.
+
+12:36.400 --> 12:39.300
+Instead, it's a new separate CPU mode
+
+12:39.300 --> 12:42.200
+called secure arbitration mode, or CIM.
+
+12:42.200 --> 12:44.600
+And that means you have various binaries
+
+12:44.600 --> 12:47.300
+that use CIM call to cross over
+
+12:47.300 --> 12:51.900
+and do the computations in a secure way.
+
+12:51.900 --> 12:54.900
+The attestation is performed typically by a secure coating
+
+12:54.900 --> 12:57.600
+enclave that is another process on the side
+
+12:57.600 --> 13:01.600
+which neither the host nor your guest can access.
+
+13:01.600 --> 13:04.300
+So we are now in this brave, new secure world
+
+13:04.800 --> 13:09.800
+where we are entirely protected and nobody can harm us.
+
+13:09.800 --> 13:12.800
+So what happened there?
+
+13:19.800 --> 13:24.800
+So that's the point when you edit live.
+
+13:34.800 --> 13:37.800
+So that leads us to another interesting quote
+
+13:37.800 --> 13:41.800
+which is that history tends to repeat itself,
+
+13:41.800 --> 13:43.800
+but each time we make the same mistake,
+
+13:43.800 --> 13:45.800
+the price goes up.
+
+13:45.800 --> 13:49.800
+So what we have with memory encryption
+
+13:49.800 --> 13:51.800
+is really not a complete solution.
+
+13:51.800 --> 13:54.800
+And let's think like Sherlock Holmes
+
+13:54.800 --> 13:57.800
+and try to decide what do we really want to prove.
+
+13:57.800 --> 14:00.800
+Well, we're using a very simple solution
+
+14:00.800 --> 14:02.800
+that we really want to prove.
+
+14:02.800 --> 14:04.800
+Well, we're using the cloud.
+
+14:04.800 --> 14:09.800
+As everyone knows, that really means it's a computer you don't own.
+
+14:09.800 --> 14:13.800
+So how do you, on a computer you don't own,
+
+14:13.800 --> 14:17.800
+check that memory is transparently encrypted?
+
+14:17.800 --> 14:19.800
+That's weird, right? How do you get that?
+
+14:19.800 --> 14:21.800
+It's like from inside the matrix
+
+14:21.800 --> 14:23.800
+you want to know that you're inside the matrix.
+
+14:23.800 --> 14:25.800
+How do you prove that?
+
+14:25.800 --> 14:28.800
+Another problem is what is the software in that box?
+
+14:28.800 --> 14:30.800
+How do you prove that it's the software,
+
+14:30.800 --> 14:32.800
+that the software is any good?
+
+14:32.800 --> 14:36.800
+So it turns out that when I looked for a picture saying
+
+14:36.800 --> 14:38.800
+is the stuff in the box any good, I got that,
+
+14:38.800 --> 14:40.800
+so I found this funny.
+
+14:40.800 --> 14:46.800
+Are there some well hidden insecurities inside your setup
+
+14:46.800 --> 14:48.800
+that you did not see?
+
+14:50.800 --> 14:53.800
+So attestation is the process we put in place
+
+14:53.800 --> 14:55.800
+to prove such properties,
+
+14:55.800 --> 14:59.800
+provided you trust some specific part of the system.
+
+14:59.800 --> 15:02.800
+So we are going to see that by running a confidential VM.
+
+15:02.800 --> 15:04.800
+I'm going to use the first generation
+
+15:04.800 --> 15:07.800
+to outline all the steps one at a time,
+
+15:07.800 --> 15:11.800
+and I'm going to run it in the worst possible way as we will see.
+
+15:11.800 --> 15:14.800
+So I'm going to start a VM,
+
+15:14.800 --> 15:16.800
+and I start it in post-state,
+
+15:16.800 --> 15:20.800
+and that allows me to do the measurements on my initial memory
+
+15:20.800 --> 15:22.800
+to check that I have the right content.
+
+15:22.800 --> 15:26.800
+I do that with version download second for that gives me this
+
+15:26.800 --> 15:29.800
+SCV measurement, and then I pass that to a binary,
+
+15:29.800 --> 15:33.800
+in that case I will use virt.punu.scvvalidate.
+
+15:33.800 --> 15:36.800
+That is going to take all this design,
+
+15:36.800 --> 15:38.800
+put the version numbers and all that stuff,
+
+15:38.800 --> 15:40.800
+let's get that quickly,
+
+15:40.800 --> 15:44.800
+and that essentially gives me a way to check.
+
+15:44.800 --> 15:46.800
+So we have also this tic and tech,
+
+15:46.800 --> 15:50.800
+I'm going to explain how you get this tic and tech files in a moment,
+
+15:50.800 --> 15:54.800
+but what matters here is that you run this complicated command line here,
+
+15:54.800 --> 15:59.800
+and it tells you, hey, that's good, totally trustworthy, right?
+
+15:59.800 --> 16:01.800
+You're really happy with that,
+
+16:01.800 --> 16:03.800
+so after you have seen this message,
+
+16:03.800 --> 16:08.800
+you can resume, check the console, and see how your VM boots.
+
+16:08.800 --> 16:11.800
+And the boot of the VM is essentially the same as before,
+
+16:11.800 --> 16:14.800
+except that when you log in now,
+
+16:14.800 --> 16:18.800
+we are going to, let me skip a bit to save time,
+
+16:18.800 --> 16:20.800
+we check that we have SCV.
+
+16:20.800 --> 16:23.800
+So now if I do the same experiment as before,
+
+16:23.800 --> 16:26.800
+and I run my binary in my system,
+
+16:26.800 --> 16:30.800
+so let me again move forward a bit quickly there,
+
+16:30.800 --> 16:33.800
+because it's really the same thing.
+
+16:33.800 --> 16:36.800
+So I skip forward a bit,
+
+16:36.800 --> 16:41.800
+and now I do this same command as before,
+
+16:41.800 --> 16:45.800
+and if I grab the secret, I don't get it.
+
+16:48.800 --> 16:50.800
+Huh!
+
+16:50.800 --> 16:53.800
+That's not what I expected.
+
+16:53.800 --> 16:55.800
+Why do I see secret in there?
+
+16:55.800 --> 16:57.800
+Huh, that's such.
+
+16:57.800 --> 17:02.800
+So my trustworthy max, let me look inside and see what happens.
+
+17:07.800 --> 17:09.800
+Ah, so it's not the same secret.
+
+17:09.800 --> 17:11.800
+I just, my grip was a bit too simple.
+
+17:11.800 --> 17:13.800
+What I'm saying is simply some pieces of binary
+
+17:13.800 --> 17:17.800
+that happen to have the word secret in it.
+
+17:17.800 --> 17:19.800
+Okay, so finally something happened,
+
+17:19.800 --> 17:23.800
+and apparently some projection was in place,
+
+17:23.800 --> 17:25.800
+but it's still weird that we have all this stuff,
+
+17:25.800 --> 17:27.800
+and why is my root password still there?
+
+17:27.800 --> 17:29.800
+Wait, that doesn't work.
+
+17:29.800 --> 17:31.800
+What did I do wrong here?
+
+17:31.800 --> 17:35.800
+So any idea what's wrong here?
+
+17:35.800 --> 17:38.800
+That's where the folks who are in the other room
+
+17:38.800 --> 17:41.800
+would tell me, hey, where did you do that?
+
+17:41.800 --> 17:44.800
+So when I saw that the first time I actually double checked,
+
+17:44.800 --> 17:47.800
+is a CD actually active?
+
+17:47.800 --> 17:51.800
+So when you have a moment like this, it's like, huh?
+
+17:51.800 --> 17:53.800
+By the way, I really love that picture.
+
+17:53.800 --> 17:57.800
+I don't know how you got the car to do that.
+
+17:57.800 --> 18:02.800
+But it's really, you know, Houston, we have a problem.
+
+18:02.800 --> 18:05.800
+For me, it was time to tell the boss.
+
+18:05.800 --> 18:07.800
+You know that stuff?
+
+18:07.800 --> 18:11.800
+Well, okay, maybe we are going to talk a bit less time today
+
+18:11.800 --> 18:15.800
+because I see the data that I actually don't see.
+
+18:15.800 --> 18:21.800
+So my boss replied, isn't like the whole punchline?
+
+18:21.800 --> 18:24.800
+Yeah, there is something wrong here.
+
+18:24.800 --> 18:28.800
+So if I look at my binary,
+
+18:28.800 --> 18:31.800
+I see that the message is actually here, really secret stuff,
+
+18:31.800 --> 18:34.800
+and by the way, the bug is because it's written by a Python programmer,
+
+18:34.800 --> 18:37.800
+so it puts a plus to concatenate strings.
+
+18:38.800 --> 18:42.800
+In case you did not know, that was the problem.
+
+18:42.800 --> 18:47.800
+So if we look for secret stuff, we don't see it anymore.
+
+18:47.800 --> 18:53.800
+But we still see this strong fast world being inserted in the system.
+
+18:53.800 --> 18:57.800
+The reason for that, and by the way, the reason I was puzzled
+
+18:57.800 --> 19:02.800
+is that I had done the demo like 15 times before and never saw the problem.
+
+19:02.800 --> 19:07.800
+And then one day I was in a rush, I decided to accelerate things
+
+19:07.800 --> 19:13.800
+and use something called KCLI, which is based on cloud limits,
+
+19:13.800 --> 19:16.800
+and so there is a step in the process that is not encrypted.
+
+19:16.800 --> 19:20.800
+Just changing the tools led me to actually do something wrong
+
+19:20.800 --> 19:22.800
+without realizing it.
+
+19:22.800 --> 19:25.800
+So that's what I was talking about when I said,
+
+19:25.800 --> 19:27.800
+don't leave the safe open.
+
+19:27.800 --> 19:30.800
+Make sure your disks are encrypted in every step of the process.
+
+19:30.800 --> 19:33.800
+Otherwise, you're dead.
+
+19:33.800 --> 19:36.800
+What did we prove here?
+
+19:36.800 --> 19:43.800
+First of all, that confidential computing is only as strong as the weakest link in your chain.
+
+19:43.800 --> 19:47.800
+But now we are back to the question from before.
+
+19:47.800 --> 19:51.800
+How can we own a system that we don't own?
+
+19:51.800 --> 19:53.800
+There is a paradox here.
+
+19:53.800 --> 19:57.800
+So in order to explain that to you,
+
+19:57.800 --> 20:00.800
+I need to introduce you to a bit of terminology,
+
+20:00.800 --> 20:04.800
+and I will ask you to try really hard not to remember it.
+
+20:04.800 --> 20:08.800
+So let's start with ARK, that's AMG root key.
+
+20:08.800 --> 20:12.800
+Then you have ASK, that's the AMG ACV key.
+
+20:12.800 --> 20:16.800
+Then you have CEC, that's the tip endorsement key.
+
+20:16.800 --> 20:20.800
+Then you have OCA, that's the owner's certificate authority.
+
+20:20.800 --> 20:24.800
+Then you have PEC, that's the platform endorsement key.
+
+20:24.800 --> 20:27.800
+Then the PDH is the platform Diffie-Hellman key.
+
+20:27.800 --> 20:31.800
+The tick that we saw in the tick file earlier is the transport integrated key.
+
+20:31.800 --> 20:34.800
+The tech is the transport encryption key.
+
+20:34.800 --> 20:37.800
+And all that green stuff is TLA's.
+
+20:37.800 --> 20:42.800
+I am now supposed to know, but still don't care about at all.
+
+20:42.800 --> 20:45.800
+And in case you wonder, SOF stands for show of factor,
+
+20:45.800 --> 20:50.800
+which I think is really high at AMG when they invented all these acronyms.
+
+20:50.800 --> 20:54.800
+So, resistance is futile, you have to assimilate these things,
+
+20:54.800 --> 20:57.800
+or they will assimilate you.
+
+20:57.800 --> 20:59.800
+The good news is that we got so tired of this
+
+20:59.800 --> 21:03.800
+that we have a whole page on the Continental Container's project.
+
+21:03.800 --> 21:07.800
+We have a weekly page just with the acronyms we need on a daily basis.
+
+21:07.800 --> 21:10.800
+I added one yesterday actually preparing this talk.
+
+21:10.800 --> 21:14.800
+So, in order to take over the host,
+
+21:14.800 --> 21:17.800
+we are going to add our own OCA, PEC and PDH,
+
+21:17.800 --> 21:22.800
+and I hope you know what that means, to endorse the host as our own.
+
+21:22.800 --> 21:28.800
+And it's a technique that is color-coded known as I Licked It, Therefore It's Mine.
+
+21:28.800 --> 21:30.800
+So, how do we do that?
+
+21:30.800 --> 21:34.800
+We use a tool called SCV-CTL, CEPCAROL,
+
+21:34.800 --> 21:38.800
+and I'm going to reset the platform and do a verify,
+
+21:38.800 --> 21:41.800
+and the verify checks this chain, and when it's green,
+
+21:41.800 --> 21:44.800
+it means essentially that all the things sign each other correctly.
+
+21:44.800 --> 21:48.800
+And if I do that twice in a row, you see that I get the same results.
+
+21:48.800 --> 21:53.800
+So, I get the same platform Diffie-Hellman, and the same owner,
+
+21:53.800 --> 21:55.800
+so the third authority.
+
+21:55.800 --> 22:01.800
+Now, if I do a reset, then I'm going to get different results for the last three.
+
+22:01.800 --> 22:07.800
+The three at the bottom are from AMG, the three at the top belong to me.
+
+22:07.800 --> 22:13.800
+So, that's how I take ownership of this machine by essentially installing an OCA.
+
+22:13.800 --> 22:16.800
+This one is self-signed, it shows with a little circle here,
+
+22:16.800 --> 22:20.800
+but you can import it from outside if you want, if you want to be more secure.
+
+22:20.800 --> 22:22.800
+And it's a good idea to do so.
+
+22:22.800 --> 22:26.800
+Okay, what about the next step, which is now I want to own the guests.
+
+22:26.800 --> 22:31.800
+I sort of said I trust this host to that extent, to that cryptographic extent,
+
+22:31.800 --> 22:35.800
+that I put some keys in it, but now I want to really own the guests.
+
+22:35.800 --> 22:40.800
+And that's a bit more complicated, and again, I'm going to do it the wrong way intentionally,
+
+22:40.800 --> 22:46.800
+just to show all the magic that goes behind the scene when you look at this stuff.
+
+22:46.800 --> 22:50.800
+So, you have this launch security, I'm doing it with Libert here,
+
+22:50.800 --> 22:53.800
+and the launch security section, uh-oh.
+
+22:53.800 --> 22:59.800
+Yeah, so, to fill up the whole security section, you need to do the self-coded export.
+
+22:59.800 --> 23:02.800
+You export the PDA as a platform, if you're a Hellman.
+
+23:02.800 --> 23:08.800
+Then you can verify it, and it's as if you have verified the host itself.
+
+23:08.800 --> 23:13.800
+Now you need to create a session for this specific VM, and I'm going to name it TestVM.
+
+23:13.800 --> 23:17.800
+I'm going to put in it some policy flags that you can see on the screen,
+
+23:17.800 --> 23:20.800
+and you don't really need to care, but you can control, for instance,
+
+23:20.800 --> 23:23.800
+if debugging is enabled in the VM, and these kind of things.
+
+23:23.800 --> 23:31.800
+And that generates four files, the TestVM-Galage, Tech, Take, and Session.
+
+23:31.800 --> 23:35.800
+And that's what I'm going to use to describe my VM later.
+
+23:35.800 --> 23:41.800
+So, fast forward a little, and I edit this, I change the numbers in it,
+
+23:41.800 --> 23:45.800
+and I insert from the files that I just generated.
+
+23:45.800 --> 23:49.800
+And then that means that I'm going to have a virtual machine
+
+23:49.800 --> 23:54.800
+that can identify itself precisely with numbers that I generated.
+
+23:54.800 --> 24:00.800
+So normally you don't do that on the same machine, you would do that separately.
+
+24:00.800 --> 24:09.800
+Once I have done that, I can start my VM again in pause mode,
+
+24:09.800 --> 24:13.800
+and do the same verification that I did before,
+
+24:13.800 --> 24:16.800
+but you're going to let me skip forward a bit because it's the same thing.
+
+24:16.800 --> 24:20.800
+The important part is that the measurement changed.
+
+24:20.800 --> 24:24.800
+The measurement does include all the keys that you have put in the system,
+
+24:24.800 --> 24:29.800
+so that's how you know that it's a measurement of stuff you own.
+
+24:29.800 --> 24:34.800
+And the QMU-SVV Validate does check this measurement against the whole chain
+
+24:34.800 --> 24:38.800
+and make sure that this is somewhat solid.
+
+24:38.800 --> 24:41.800
+Or did we actually prove that?
+
+24:41.800 --> 24:45.800
+What did we really prove? What do we really measure?
+
+24:45.800 --> 24:49.800
+We're trusting a computer output message, so for all we know,
+
+24:49.800 --> 24:52.800
+the source code looks like this, right?
+
+24:53.800 --> 24:55.800
+So we need to...
+
+24:55.800 --> 25:00.800
+That's one scenario where having free software really matters.
+
+25:00.800 --> 25:04.800
+You really want to know that the binary that you're using to do that,
+
+25:04.800 --> 25:09.800
+you compile it yourself and it's actually doing what you expect.
+
+25:09.800 --> 25:12.800
+That's a problem actually because in the class today,
+
+25:12.800 --> 25:17.800
+some of the key components that are part of the root of trust are not open source at the moment.
+
+25:17.800 --> 25:24.800
+By the way, so we have this collective called the Continental Computing Consortium
+
+25:24.800 --> 25:31.800
+and that tries to bring together all these big companies to do the magic
+
+25:31.800 --> 25:34.800
+of agreeing on standards and so on.
+
+25:34.800 --> 25:40.800
+And CCC was the worst acronym they could pick because there are like 37 CCCs on Wikipedia,
+
+25:40.800 --> 25:43.800
+including the Kars Computer Club.
+
+25:43.800 --> 25:47.800
+So what we did is we injected our own OCA in the system,
+
+25:47.800 --> 25:53.800
+so we essentially marked the system that way and remember the O stands for owners.
+
+25:53.800 --> 25:56.800
+We are now the owner of something.
+
+25:56.800 --> 26:00.800
+We have a certificate of ownership of some kind.
+
+26:00.800 --> 26:02.800
+But what do we really own?
+
+26:02.800 --> 26:06.800
+In reality, it's more like something like this differential machine from Babaj.
+
+26:06.800 --> 26:12.800
+In the sense that we only have a tool that lets the other side prove their identity by computations.
+
+26:12.800 --> 26:15.800
+We expect the computation to give a result we can check.
+
+26:15.800 --> 26:20.800
+So it's really similar to what we do when we do two-factor authentication.
+
+26:20.800 --> 26:25.800
+One thing we prove is that the VM is encrypted using AMD signature.
+
+26:25.800 --> 26:29.800
+It's slightly stronger than Word 26.
+
+26:29.800 --> 26:37.800
+And we have also proven that the content of the VM is what we expect with the initial crypto hash.
+
+26:37.800 --> 26:43.800
+So we essentially are measuring from the start of how the VM is being built.
+
+26:43.800 --> 26:47.800
+So how do we make containers confidential in that space?
+
+26:47.800 --> 26:50.800
+How can we prove that we run the right container in age
+
+26:50.800 --> 26:54.800
+and that it's running in the right trusted environment?
+
+26:54.800 --> 27:00.800
+So this is a diagram of something called KALAC containers that runs containers in little virtual machines.
+
+27:00.800 --> 27:05.800
+And in order for this to be adapted for new...
+
+27:05.800 --> 27:09.800
+Did I lose the sound again? Hello? Yeah.
+
+27:09.800 --> 27:15.800
+In order to adapt that to the new environment, we need to change a few components that are marked in red here.
+
+27:15.800 --> 27:20.800
+Those need to be aware that we want to do some confidential computing with it.
+
+27:20.800 --> 27:23.800
+We also need to encrypt our disks.
+
+27:23.800 --> 27:26.800
+So that's the part on the top right here.
+
+27:26.800 --> 27:32.800
+And we need to have something on the side that will do the verification, that we call the relying party.
+
+27:32.800 --> 27:37.800
+And a relying party from a high level point of view consists in two parts.
+
+27:37.800 --> 27:48.800
+A key broker that delivers secrets and an attestation service that will do a crypto exchange to validate your attestation results.
+
+27:48.800 --> 27:51.800
+So on this diagram now we have three categories of colors.
+
+27:51.800 --> 27:54.800
+We have the trusted platform, which is in red.
+
+27:54.800 --> 28:00.800
+Trusted here means simply that it's ready to do some crypto computations on your behalf.
+
+28:00.800 --> 28:02.800
+It doesn't mean that it holds trusted data.
+
+28:02.800 --> 28:06.800
+All the data that it knows is encrypted.
+
+28:06.800 --> 28:12.800
+The host manages and offers resources used to run the containers like before.
+
+28:12.800 --> 28:15.800
+So that includes CPUs, memory, I.O. That doesn't change.
+
+28:15.800 --> 28:17.800
+But that's all it does.
+
+28:17.800 --> 28:23.800
+To it now, it is because a bag of bytes and a memory page is exactly the same thing, a bag of encrypted bytes.
+
+28:23.800 --> 28:26.800
+It doesn't know how to read the content.
+
+28:26.800 --> 28:30.800
+And the tenant is the new part, is the new aspect of this whole scheme.
+
+28:30.800 --> 28:32.800
+It's the part in green.
+
+28:32.800 --> 28:40.800
+It's confidential in the sense that everything in it is normally not decipherable by the host.
+
+28:40.800 --> 28:43.800
+And even when it's running on the host.
+
+28:43.800 --> 28:49.800
+And some part of it, as you see the relying party, might be in the cloud, might be on premise, might be elsewhere.
+
+28:49.800 --> 28:51.800
+So this is a new security model for Linux.
+
+28:51.800 --> 28:54.800
+Well, the host's admin is now considered hostile.
+
+28:54.800 --> 28:57.800
+And that pretty changes the threat model.
+
+28:57.800 --> 29:00.800
+So I saw here a page that was relatively recent.
+
+29:00.800 --> 29:05.800
+Is it me or is it Fudgy on the screen, right?
+
+29:05.800 --> 29:10.800
+Anyway, so I read for you, it's dated September 9.
+
+29:10.800 --> 29:16.800
+And what is interesting is that it's cosigned by folks from AMD and Intel.
+
+29:16.800 --> 29:23.800
+So they finally agreed on how to describe the memory model and the threat model in a way that everyone would agree on.
+
+29:23.800 --> 29:32.800
+One of the things that you need in order for this scheme to work is to say in platform we trust,
+
+29:32.800 --> 29:36.800
+the platform you run on has to do the work correctly.
+
+29:36.800 --> 29:43.800
+If, for instance, the AMD root key is leaked somewhere, the whole scheme falls apart.
+
+29:43.800 --> 29:49.800
+But the big change is that we no longer trust the host user named Root.
+
+29:49.800 --> 29:51.800
+And that's a good thing.
+
+29:51.800 --> 30:01.800
+On the host, Root has other parts and we just want to get that guy, that bad person, out of the equation.
+
+30:01.800 --> 30:10.800
+So that means the trusted platform needs to provide new services to qualify what is running and to make sure that it's actually running what you want.
+
+30:10.800 --> 30:16.800
+That in that sense that it's a trusted platform.
+
+30:16.800 --> 30:23.800
+So it's really only a tool to be trust that attacks can come from the host and hypervisor.
+
+30:23.800 --> 30:32.800
+And I was discussing in the hallways just minutes ago about how we can try to change that to make sure that the attacks won't come that way.
+
+30:32.800 --> 30:41.800
+But for the moment at least, that means that from the guest point of view, the host platform, the host hypervisor, might be trying to attack you.
+
+30:41.800 --> 30:43.800
+And that's really bad.
+
+30:43.800 --> 30:46.800
+So that's a question that Greg Cage is asking here.
+
+30:46.800 --> 30:48.800
+I'm sorry if this is fuzzy on the screen.
+
+30:48.800 --> 30:51.800
+So what do you actually trust here?
+
+30:51.800 --> 30:53.800
+Do you trust your CPU to do the computations?
+
+30:53.800 --> 30:55.800
+Do you trust external devices?
+
+30:55.800 --> 30:57.800
+Do virtual devices?
+
+30:57.800 --> 30:59.800
+Can you trust them?
+
+30:59.800 --> 31:01.800
+And so on.
+
+31:01.800 --> 31:05.800
+This leads to rather serious resistance on their part.
+
+31:05.800 --> 31:08.800
+Greg Cage there says, good luck with that.
+
+31:08.800 --> 31:10.800
+That was like two months ago.
+
+31:10.800 --> 31:16.800
+Well, when you reach a point where a key maintainer tells you, ah, good luck with this project.
+
+31:16.800 --> 31:18.800
+That's not necessarily a good sign.
+
+31:18.800 --> 31:27.800
+So we are thinking about other ways to do things that don't take as much effort on the kernel part.
+
+31:27.800 --> 31:30.800
+But at least there is one thing that we can do correctly.
+
+31:30.800 --> 31:33.800
+And that's the measurements of the initial state.
+
+31:33.800 --> 31:35.800
+That part we can somewhat trust.
+
+31:35.800 --> 31:41.800
+There is this pre attestation where you measure, the hypervisor essentially measures the initial state of the VM in post state.
+
+31:41.800 --> 31:44.800
+So that's the VM in post state is why it's right out.
+
+31:44.800 --> 31:52.800
+There is post attestation where you start the VM, but you can still assess the initial state that it booted from.
+
+31:52.800 --> 32:00.800
+And so you can send that, the guest can then query the platform security processor or the trustee enclave to say,
+
+32:00.800 --> 32:03.800
+please give me the measurement that you did when I started.
+
+32:03.800 --> 32:11.800
+And that measurement will be delivered almost directly by this additional security component.
+
+32:11.800 --> 32:13.800
+And we can go further.
+
+32:13.800 --> 32:16.800
+We can decide, for instance, to attest the containers themselves.
+
+32:16.800 --> 32:28.800
+It doesn't make much sense in practice because the containers, there is also independent effort to make container images encrypted to preserve the integrity and so on.
+
+32:28.800 --> 32:31.800
+So we don't really need to attest more than that.
+
+32:31.800 --> 32:38.800
+Attesting the bottom part is sufficient for our use case and that's how containers work for now.
+
+32:38.800 --> 32:45.800
+Another quick bit of terminology for the next steps is to understand that in the attestation you have values players
+
+32:45.800 --> 32:51.800
+and you have a verifier that does all the job but gets its input from things that belong to you in green.
+
+32:51.800 --> 32:55.800
+So like the reference value provider and the verifier owner.
+
+32:55.800 --> 33:03.800
+And for instance, you have a separation between the policies to appraise the evidence and the endorsement which is I take over this particular hardware.
+
+33:03.800 --> 33:06.800
+The attestor then can submit some evidence.
+
+33:06.800 --> 33:08.800
+So the attestor is in red.
+
+33:08.800 --> 33:10.800
+It's the trusted platform that does it.
+
+33:10.800 --> 33:15.800
+So it does the crypto measurements and you know that it's the platform doing the crypto measurements.
+
+33:15.800 --> 33:19.800
+And then the verifier can transmit that to the relying party.
+
+33:19.800 --> 33:24.800
+And the relying party can appraise the attestation results.
+
+33:24.800 --> 33:26.800
+So how does this work in practice?
+
+33:26.800 --> 33:30.800
+So you do a cryptographic measurement of the values bits you care about.
+
+33:30.800 --> 33:34.800
+From that, you get essentially something that is a proof of identity.
+
+33:34.800 --> 33:36.800
+It's like an ID card.
+
+33:36.800 --> 33:41.800
+And if everything goes well, you get some secrets in return.
+
+33:41.800 --> 33:47.800
+Because it's a challenge response process, you say that's why you need the attestation service.
+
+33:47.800 --> 33:48.800
+You have the attestation service.
+
+33:48.800 --> 33:51.800
+Something I'm going to show that in a further slide.
+
+33:51.800 --> 33:53.800
+But you know that it's fresh.
+
+33:53.800 --> 33:55.800
+It's happening now.
+
+33:55.800 --> 34:01.800
+And because it's dynamic and it's done on the side, this means you can revoke something that you accepted before.
+
+34:01.800 --> 34:06.800
+You can say, I discovered a zero-day exploit in this particular stack.
+
+34:06.800 --> 34:08.800
+I no longer want to run it.
+
+34:08.800 --> 34:12.800
+So I just revoke access to this and it can't boot anymore.
+
+34:12.800 --> 34:20.800
+So attestation is a proof of the configuration of a system, including the fact that it's running with encryption on.
+
+34:20.800 --> 34:24.800
+And including the fact that it's running a stack that I trust.
+
+34:24.800 --> 34:25.800
+It proves properties.
+
+34:25.800 --> 34:31.800
+Remote attestation decouples the evidence from the verification, just like you decouple a lock from the keys.
+
+34:31.800 --> 34:33.800
+So that's very important.
+
+34:33.800 --> 34:38.800
+There are two models, a passport model where you present the evidence, like a passport that says,
+
+34:38.800 --> 34:43.800
+these government guarantees that you are indeed Christophe de Dinsen.
+
+34:43.800 --> 34:50.800
+Or you can have a background check model, which is similar to putting your finger in a biometric device.
+
+34:50.800 --> 34:53.800
+It's not proving that I'm Christophe de Dinsen.
+
+34:53.800 --> 34:57.800
+It's proving that I have the right finger.
+
+34:57.800 --> 35:01.800
+So how do we... Does that actually prove something to you as a user?
+
+35:01.800 --> 35:04.800
+It's a proof by blocking forward progress.
+
+35:04.800 --> 35:05.800
+What happens is that...
+
+35:05.800 --> 35:10.800
+So first of all, because it's a one-time challenge, as I said, it proves the freshness of what you did.
+
+35:10.800 --> 35:12.800
+It proves that it's happening right now.
+
+35:12.800 --> 35:16.800
+The response contains a cryptographic proof.
+
+35:16.800 --> 35:23.800
+And it's basically as strong as the cryptography that uses it, of that form identity, memory encryption, and so on.
+
+35:23.800 --> 35:33.800
+It also proves the endorsement, because part of the encryption that is made includes your own certificates and keys.
+
+35:33.800 --> 35:39.800
+And it measures the initial guess of the stack, so you know you have a hash of what's running inside.
+
+35:39.800 --> 35:42.800
+If the proof fails, the secrets do not get delivered.
+
+35:42.800 --> 35:48.800
+So what happens is that the guess cannot decrypt its own disk volumes, and it cannot decrypt its container images.
+
+35:48.800 --> 35:52.800
+So basically, it's stuck there, and it's random harmless.
+
+35:52.800 --> 35:57.800
+So in order to build trust, you go step-by-step like this.
+
+35:57.800 --> 36:04.800
+You need to know exactly what you prove, what are the guarantees that you offer that way.
+
+36:04.800 --> 36:10.800
+And what confidential computing really cares about is confidentiality, right?
+
+36:10.800 --> 36:16.800
+So that means that what we really care about is we don't want to leak any data that is considered confidential.
+
+36:16.800 --> 36:20.800
+We don't want it to be leaked, we don't want it to be tampered with.
+
+36:20.800 --> 36:22.800
+We do not protect against crashes.
+
+36:22.800 --> 36:27.800
+Actually, a crash is a good outcome if you detect a correction, for instance.
+
+36:27.800 --> 36:30.800
+The best thing you can do is crush the guests.
+
+36:30.800 --> 36:33.800
+We do not protect disks or network data.
+
+36:33.800 --> 36:36.800
+That has to be done on the side as I showed earlier.
+
+36:36.800 --> 36:43.800
+It does not offer any guarantee of service, and because it's hardware-based, real-time cryptography,
+
+36:43.800 --> 36:48.800
+you can still properly mount some attacks if you know exactly what's running inside.
+
+36:48.800 --> 36:51.800
+It's also highly implementation dependent.
+
+36:51.800 --> 36:54.800
+But online is there is no automatic security.
+
+36:55.800 --> 36:58.800
+So to build things, we start with hardware.
+
+36:58.800 --> 37:01.800
+You may remember that from the TPM days.
+
+37:01.800 --> 37:04.800
+Once upon a time, we invented the hardware TPM,
+
+37:04.800 --> 37:09.800
+and there was a very good talk by James Bottomley yesterday about how to use that on your laptop.
+
+37:09.800 --> 37:17.800
+So what happens there is you have this stack where each step merges and launches something
+
+37:17.800 --> 37:21.800
+and stores, records the results in your log in the TPM.
+
+37:21.800 --> 37:25.800
+And that's the log or hash of the log that is going to tell you,
+
+37:25.800 --> 37:27.800
+I'm at this point in the boot and it's valid.
+
+37:27.800 --> 37:33.800
+And you can do things like, for instance, having keys that can only be unlocked in BIOS Phase 2.
+
+37:33.800 --> 37:38.800
+And once the TPM goes beyond that, its registers have changed,
+
+37:38.800 --> 37:41.800
+and it can no longer detect the same key that was used as part of the boot.
+
+37:41.800 --> 37:46.800
+So the operating system cannot see the key that was used by the BIOS to detect the disk.
+
+37:47.800 --> 37:51.800
+So that's what we call a chain of trust.
+
+37:51.800 --> 37:54.800
+Each step depends on the steps before.
+
+37:54.800 --> 38:00.800
+So I offer you something I call the remit pipeline.
+
+38:00.800 --> 38:04.800
+It's a simplified, in some sense, simplistic model for this kind of trust chain.
+
+38:04.800 --> 38:07.800
+Where you have R that stands for root of trust,
+
+38:07.800 --> 38:09.800
+E stands for endorsement,
+
+38:09.800 --> 38:11.800
+and for measurements,
+
+38:11.800 --> 38:13.800
+I for identity,
+
+38:13.800 --> 38:16.800
+T for trust, how you build policies,
+
+38:16.800 --> 38:18.800
+how you build trust from the elements you had before,
+
+38:18.800 --> 38:20.800
+and S for secrets.
+
+38:20.800 --> 38:24.800
+And you go from root of trust to secrets following these steps.
+
+38:24.800 --> 38:27.800
+So we are going to see that with various examples.
+
+38:27.800 --> 38:33.800
+For instance, that's the remit pipeline for the secure boot system.
+
+38:33.800 --> 38:37.800
+That's for selling a property where you start with a root of trust that's the notary,
+
+38:37.800 --> 38:40.800
+and you end up handing the keys.
+
+38:41.800 --> 38:43.800
+That's the same thing with historical money.
+
+38:43.800 --> 38:46.800
+You have gold or silver or the root of trust.
+
+38:46.800 --> 38:51.800
+Then the government gives value to them that is measured in dollars,
+
+38:51.800 --> 38:55.800
+and the number of dollars is the identity of a given transaction.
+
+38:55.800 --> 38:59.800
+Handing over the cash is how you establish the trust.
+
+38:59.800 --> 39:01.800
+I received this from you,
+
+39:01.800 --> 39:04.800
+and in exchange you deliver secrets, in that case,
+
+39:04.800 --> 39:06.800
+goods or food or something like that.
+
+39:06.800 --> 39:10.800
+So you see that the system is relatively easy to follow.
+
+39:10.800 --> 39:18.800
+So attestation flow unlocks by giving secrets as a cryptographic challenge.
+
+39:18.800 --> 39:21.800
+I explained that earlier, so I'm going to go very quickly,
+
+39:21.800 --> 39:25.800
+but the point here is that it's really a crypto challenge that doesn't prove.
+
+39:25.800 --> 39:29.800
+And that's how you get your response sent to the attestor.
+
+39:29.800 --> 39:35.800
+So now we are getting close to the time that is allotted.
+
+39:35.800 --> 39:39.800
+I have a few other things that I can show,
+
+39:39.800 --> 39:43.800
+but there are demos that we can switch to questions,
+
+39:43.800 --> 39:47.800
+and I can have slides showing some additional demos
+
+39:47.800 --> 39:52.800
+for various use cases of confidential computing.
+
+39:52.800 --> 39:57.800
+Because we have virtual machines, virtual functions, orchestration,
+
+39:57.800 --> 40:00.800
+that's confidential containers and things like that.
+
+40:00.800 --> 40:03.800
+We can have the whole entry level with confidential clusters,
+
+40:03.800 --> 40:09.800
+and so I'm going to simply show the various use cases
+
+40:09.800 --> 40:12.800
+and take questions at the same time.
+
+40:18.800 --> 40:21.800
+No questions? Oh, yeah.
+
+40:21.800 --> 40:24.800
+There is a question over there.
+
+40:25.800 --> 40:40.800
+So companies are, in some cases, allowed to run their own stack on so-called raw machines being rented out,
+
+40:40.800 --> 40:42.800
+where they get to do everything.
+
+40:42.800 --> 40:48.800
+And the attack against them is the BMC could have installed lowest level software
+
+40:48.800 --> 40:51.800
+that can't be replaced and there's no way to know about it.
+
+40:51.800 --> 40:54.800
+So does this address that or not?
+
+40:54.800 --> 40:58.800
+Yeah, so the question is, let me rephrase a little,
+
+40:58.800 --> 41:06.800
+the question is about sub-platform items like a BMC that have special powers.
+
+41:06.800 --> 41:10.800
+James, bottom line, I think, or someone else mentioned yesterday
+
+41:10.800 --> 41:15.800
+that everyone in this room is probably running a copy of Minix without knowing it,
+
+41:15.800 --> 41:19.800
+as soon as you're running a relatively recent Intel Core.
+
+41:19.800 --> 41:25.800
+Because there is a copy of Minix in the management processor.
+
+41:25.800 --> 41:30.800
+So it's the same idea this has, a lot of power and can do a lot of harm.
+
+41:30.800 --> 41:36.800
+This is the... the ARM core in a CV system is exactly in this class as well.
+
+41:36.800 --> 41:41.800
+It can do a lot of harm and the various failures that were detected
+
+41:41.800 --> 41:47.800
+were precisely by uploading a bad firmware in this ARM core.
+
+41:47.800 --> 41:49.800
+So the attacks do exist.
+
+41:49.800 --> 41:52.800
+To the best of my knowledge, the attacks that exist so far
+
+41:52.800 --> 41:57.800
+mostly require some privileged access to the machine
+
+41:57.800 --> 42:01.800
+because the BMC itself normally has privileges, but you're correct.
+
+42:01.800 --> 42:06.800
+This is an ACTAC vector that may exist.
+
+42:08.800 --> 42:14.800
+What I'm showing here, by the way, is RAIL 9.3 running on Azure with encrypted.
+
+42:14.800 --> 42:19.800
+It's just to show you that it's much simpler than when I did it manually.
+
+42:19.800 --> 42:23.800
+So you just click, click, click, click, and it deploys the VM for you.
+
+42:23.800 --> 42:26.800
+But of course you have to trust Azure to manage your secrets.
+
+42:26.800 --> 42:29.800
+And when they say, for instance, that they don't keep the private key,
+
+42:29.800 --> 42:33.800
+it's a website saying I don't keep the private key.
+
+42:35.800 --> 42:37.800
+Any other questions?
+
+42:45.800 --> 42:51.800
+What is the performance penalty on running the encryption?
+
+42:51.800 --> 42:56.800
+So the question is what is the performance penalty on running with encryption?
+
+42:56.800 --> 42:59.800
+It's not where you think.
+
+42:59.800 --> 43:07.800
+You might think that running with memory encryption makes memory accesses slower.
+
+43:07.800 --> 43:10.800
+And in practice, that's not really the case
+
+43:10.800 --> 43:15.800
+because we already have levels upon levels upon levels of cache
+
+43:15.800 --> 43:19.800
+and that the actual performance is re-dominated by the cache.
+
+43:19.800 --> 43:25.800
+I think that in the worst cases you can probably detect a 10% change, but that's about it.
+
+43:25.800 --> 43:33.800
+The real problem, though, when you run in the cloud, is that you're encrypting your memory,
+
+43:33.800 --> 43:37.800
+which means that the Linux kernel you have in memory is encrypted.
+
+43:37.800 --> 43:40.800
+So it varies from one VM to the next.
+
+43:40.800 --> 43:47.800
+So you cannot share it across VMs with the traditional techniques.
+
+43:47.800 --> 43:52.800
+But if you're running containers, you don't want to run your content,
+
+43:52.800 --> 43:55.800
+to keep your container images on the host either, right?
+
+43:55.800 --> 43:59.800
+So today when you run 10 containers, booting NGINX 10 times,
+
+43:59.800 --> 44:03.800
+you got one image of NGINX that gets downloaded once.
+
+44:03.800 --> 44:08.800
+If you want to have a secure NGINX, then you are going to download an encrypted image of NGINX
+
+44:08.800 --> 44:12.800
+that is going to be stored on an encrypted disk that is per VM.
+
+44:12.800 --> 44:16.800
+And so you're going to download it 10 times, store it 10 times.
+
+44:16.800 --> 44:19.800
+And the memory, so it's 10 times more.
+
+44:19.800 --> 44:22.800
+And so that's where the real cost of this thing is.
+
+44:22.800 --> 44:26.800
+And to be frank, it's not impossible that that might be one of the big reasons
+
+44:26.800 --> 44:28.800
+for pushing this by hardware vendors
+
+44:28.800 --> 44:33.800
+because you really need Mithia hardware for the same thing.
+
+44:33.800 --> 44:36.800
+There's...
+
+44:36.800 --> 44:43.800
+In answer to performance, what is the cost of trusting something that shouldn't have been trusted?
+
+44:43.800 --> 44:44.800
+Yes.
+
+44:44.800 --> 44:46.800
+Okay, but more to the point.
+
+44:46.800 --> 44:49.800
+The only solution I see, and I do see a solution,
+
+44:49.800 --> 44:54.800
+is that you have to run encrypted secure, boot whatever, at the factory,
+
+44:54.800 --> 44:59.800
+track that boot image, the session key for that thing,
+
+44:59.800 --> 45:04.800
+through its lifetime of deployments, such that you know that that never got overwritten
+
+45:04.800 --> 45:06.800
+any other time farther down the chain.
+
+45:06.800 --> 45:10.800
+So it's a different eco structure for the industry.
+
+45:10.800 --> 45:16.800
+So I think that I understood your comment by saying that
+
+45:16.800 --> 45:22.800
+you really need to do something that is short lived
+
+45:23.800 --> 45:26.800
+at the factory when you build these chips,
+
+45:26.800 --> 45:31.800
+you put them into an encrypted mode there at the chip,
+
+45:31.800 --> 45:34.800
+you know, with all the out of station, at a low level,
+
+45:34.800 --> 45:38.800
+and track that through all deployments.
+
+45:38.800 --> 45:39.800
+Oh, I see.
+
+45:39.800 --> 45:46.800
+And then run on that so that when you're presented with it with a thing you claim is secure,
+
+45:46.800 --> 45:50.800
+you actually have to add a station from the factory all the way to where you go to use it
+
+45:50.800 --> 45:52.800
+in order to believe and trust that.
+
+45:52.800 --> 45:57.800
+Yes, so I think the point is really that we need to check the quality of the encryption being used
+
+45:57.800 --> 45:59.800
+to store memory, et cetera.
+
+45:59.800 --> 46:05.800
+Now, on that front, the good news is that some of these technologies were invented with
+
+46:05.800 --> 46:07.800
+another motivation in mind.
+
+46:07.800 --> 46:10.800
+I don't know if you remember mem restors and stuff like that.
+
+46:10.800 --> 46:14.800
+There was a time where we thought that we could have all memory,
+
+46:14.800 --> 46:18.800
+essentially the RAM being persistent like on old HP calculators,
+
+46:18.800 --> 46:21.800
+where you switch off the machine and the RAM stays there.
+
+46:21.800 --> 46:23.800
+And of course that has a real problem.
+
+46:23.800 --> 46:28.800
+It makes a number of things faster, but that has a problem that if you take out the chip,
+
+46:28.800 --> 46:30.800
+the data is in there.
+
+46:30.800 --> 46:33.800
+So you want to encrypt all accesses to memory in order to avoid that.
+
+46:33.800 --> 46:38.800
+So because of that, the encryption technologies that have been used have been carefully thought out
+
+46:38.800 --> 46:43.800
+and have been tested with this method of taking the chip out and trying to reverse attack it.
+
+46:43.800 --> 46:48.800
+So that part, you know, you can never say never,
+
+46:48.800 --> 46:51.800
+but that's probably not the weakest link in the system.
+
+46:51.800 --> 46:53.800
+I think there was a question on the other side as well.
+
+46:53.800 --> 46:55.800
+Yes.
+
+46:55.800 --> 47:03.800
+How feasible is it to encrypt a certain process and leave other processes encrypted?
+
+47:03.800 --> 47:10.800
+So the question is how feasible is it to leave one process unencrypted while other processes are encrypted?
+
+47:10.800 --> 47:14.800
+And that's the first generation technologies that I was talking about.
+
+47:14.800 --> 47:18.800
+SME and SGX work exactly like this.
+
+47:18.800 --> 47:24.800
+Now the problem with these technologies is that it's very hard to support fork,
+
+47:24.800 --> 47:31.800
+because fork in Linux is you have two processes that have the same address space at least initially.
+
+47:31.800 --> 47:39.800
+And when you fork, do you want the other process to have the same address space ID or a different one?
+
+47:39.800 --> 47:44.800
+Most of the cases where you care for sharing memory, you want to have the same address space,
+
+47:44.800 --> 47:47.800
+but when you do a fork exact, maybe you don't want.
+
+47:47.800 --> 47:54.800
+So in order to solve that problem, Intel, for instance, implemented something that they call a libOS,
+
+47:54.800 --> 47:59.800
+and that's an OS you run inside a process that simulates all this fork and all this nice,
+
+47:59.800 --> 48:06.800
+essentially simulates all the Linux system calls from within a process with simulated process inside a process
+
+48:06.800 --> 48:10.800
+and knowing when to fork an actual process on the outside.
+
+48:10.800 --> 48:23.800
+That's one of the reasons why SGX did not really take off is that you had to rethink your application a lot in order to fit that model.
+
+48:23.800 --> 48:26.800
+First of all, thank you so much for a great presentation.
+
+48:26.800 --> 48:28.800
+I actually have double question.
+
+48:28.800 --> 48:37.800
+One, if it would be possible to share the slides, maybe somewhere because I don't see them on the description.
+
+48:37.800 --> 48:47.800
+And second is if we can use this with the cloud providers, like for example, the ETS and other clouds, if it's possible.
+
+48:47.800 --> 48:56.800
+So I understood the first part. Can you repeat the second part? I did not understand the second part.
+
+48:56.800 --> 49:06.800
+So first was about the slides. And second question was if we can use confidential containers with the providers like AWS ETS
+
+49:06.800 --> 49:09.800
+and other cloud Kubernetes providers.
+
+49:09.800 --> 49:14.800
+So the first question is about sharing the slides.
+
+49:14.800 --> 49:21.800
+If you don't mind, I prefer sharing the blog because it's probably better reading, but the slides will be shared.
+
+49:21.800 --> 49:28.800
+This presentation is made with software that I developed called Tower 3D, which is my biggest failure in the open source world
+
+49:28.800 --> 49:34.800
+because it's 500,000 lines of code. I cannot compile it anymore and there is a single user and that's me.
+
+49:34.800 --> 49:40.800
+So that means I cannot really help you run this presentation yourself.
+
+49:40.800 --> 49:46.800
+What I do is I share the source code and I share snapshots of the screen and I share a video of it.
+
+49:46.800 --> 49:52.800
+So that's how you... And you'll have the first-time replay because also we call everything.
+
+49:52.800 --> 49:59.800
+On the second question, which now I forgot.
+
+49:59.800 --> 50:01.800
+What is it?
+
+50:01.800 --> 50:09.800
+So the question was if we can run this level of confidentiality, like the encryption and everything,
+
+50:09.800 --> 50:15.800
+so confidential containers on the cloud, like for example using ETS from AWS.
+
+50:15.800 --> 50:21.800
+Yes, so the second question was about running confidential containers in the cloud.
+
+50:21.800 --> 50:25.800
+At the moment, not really.
+
+50:25.800 --> 50:34.800
+So, confidential containers at the moment is, I think we're completing release 0.8, if I'm memory serves me right.
+
+50:34.800 --> 50:37.800
+But so it's still not completely deployable.
+
+50:37.800 --> 50:43.800
+And quite frankly, one of the aspects that concerns me the most from a usability point of view,
+
+50:43.800 --> 50:47.800
+I'm working on it at the moment with a team of researchers at IBM,
+
+50:47.800 --> 50:54.800
+is that in order for this to be secured, there are so many APIs that go through the host to the QBLAD and so on,
+
+50:54.800 --> 50:59.800
+that we need to rewrite an alternate control plane path for these.
+
+50:59.800 --> 51:06.800
+The current solution, if you use confidential containers today, they close down all the insecure APIs.
+
+51:06.800 --> 51:08.800
+That's the default policy.
+
+51:08.800 --> 51:15.800
+And so when you close down something like getting the logs or doing your QBLAD is exactly inside a container,
+
+51:15.800 --> 51:17.800
+you lose a lot of functionality.
+
+51:17.800 --> 51:21.800
+We are trying to restore that in a safe way, but you imagine that it's complicated
+
+51:21.800 --> 51:26.800
+because that means you have to have a completely parallel control plane that doesn't run on the same host.
+
+51:26.800 --> 51:28.800
+That's not completely true though.
+
+51:28.800 --> 51:30.800
+And so I am late.
+
+51:30.800 --> 51:31.800
+Thank you very much.
+
+51:31.800 --> 51:37.800
+If there are further questions, I don't know, maybe you can recompile his slides to find his email address,
+
+51:37.800 --> 51:40.800
+or you can talk to him somewhere in the hallway.
+
+51:40.800 --> 51:44.800
+What's your email address on the slides? I don't remember.
+
+51:44.800 --> 51:48.800
+No, I did not give my email address. I gave my GitHub account.
+
+51:48.800 --> 51:51.800
+My email address is...
+
+51:51.800 --> 51:56.800
+Well, the easiest one I think is cc3d at redhat.com.
+
+51:56.800 --> 51:58.800
+Or cddd.
+
+51:58.800 --> 52:03.800
+Yeah, so first slide, c3d.github.io is...
+
+52:03.800 --> 52:05.800
+And from there you can...
+
+52:05.800 --> 52:07.800
+My name is not like...
+
+52:07.800 --> 52:11.800
+There are not many hash collisions on it, so you can find me easily.
+
+52:11.800 --> 52:14.800
+So, ask him any questions.
+
+52:14.800 --> 52:16.800
+Thank you very much.
+
+52:16.800 --> 52:21.800
+Let's hope this gets implemented because it will improve security very much.
+
+52:21.800 --> 52:25.800
+As a token of appreciation, we have some chocolates.
+
+52:25.800 --> 52:26.800
+Thank you.
+
+52:26.800 --> 52:27.800
+Thank you very much.
+
+52:27.800 --> 52:28.800
+Thank you.
+

@@ -1,0 +1,673 @@
+Hello. Yeah, you can hear me?
+Oh, perfect. Okay, great. Very disconcerting. Okay, great. Last talk of the day, so we still
+have some people here. That's nice. Good. All right, so my name is Dan Phillips and today
+I'm going to talk about deploying Ruby on WebAssembly, smaller, safer, faster, and more
+universal. The faster parts should have an asterisk here, and I'll talk about that too,
+but we'll get into the details during the talk. A bit about me before we get started.
+I'm an engineer at an illustrious company called Loophole Labs, and I've got three of my co-workers
+right here, and we do a couple different things, but we like to call it primitives for software
+infrastructure, so we kind of focus on really specific pieces of cloud infrastructure specifically.
+I mostly focus on WebAssembly, server-side WebAssembly, and we also have a product that does live
+migrations of VMs, which my colleague Felicitas here demoed a couple months ago in Chicago.
+It's really awesome talk. You should check it out. That's the end of my pseudo-pitch for that.
+I work primarily on the scale function runtime. It's a scale plug-in framework that is based
+in WebAssembly. It is sort of a language agnostic way to build plug-ins, and I'll talk a bit
+about that sort of in conjunction with what I'm going to talk about with Ruby.
+And on the Internet, I'm d-underscore-filla, so on GitHub it's d-filla without the underscore,
+because they don't allow underscores in usernames, but on Twitter or X, whatever you want to call it,
+that's me, and I mostly tweet about stuff kind of like this.
+Also, I'm from Chicago. That's where I live, and I run the Wasm Chicago group, so if you're ever
+in town, you'd like to come by and hang out. We would love to have you.
+Also, all of our stuff is online too, so it's virtual if you'd like to check it out.
+Okay, so what is WebAssembly? Who here has done any work with WebAssembly on the server?
+Anybody? We've got two. We've got my colleagues and one person.
+Okay, great. Excellent. Okay, so we're going to just talk about the background of what Wasm is.
+Wasm, for short, you can say Wasm, Wasm. It doesn't really matter technically if you want to be pedantic.
+It might be Wasm because the precursor was Asm.js, which was a toolset for compiling C, C++ libraries
+to JavaScript in very performant ways, so Asm, Wasm, maybe.
+WebAssembly is a safe, portable, low-level code format designed for efficient execution and compact
+representation, which doesn't mean much yet. It's a safe sandbox execution environment.
+It is a deny-by-default sort of security pattern, and it makes no assumption about languages or hosts.
+So we're going to get more specific, a little bit less abstract.
+The best way to think about it is that it's a virtualized CPU. It's a new type of architecture.
+So it's a compilation target, just like when we compile things to x86 or R64, whatever.
+It is a virtualized instruction set architecture.
+That it utilizes a bytecode binary format, so what you get when you compile to Wasm is a Wasm binary,
+which is a binary, but it's not machine code yet. It's sort of an interstitial representation.
+It uses a stack machine model for this, but it's not actually a stack machine.
+It's just sort of virtualized in this way. You could say that it is if you use the interpreter,
+but you can also compile AOT. So what does that all mean?
+In a broad sense, it's really just another architecture. That's the way to think about it.
+The difference is that it is virtualized, so you need a runtime to translate it to machine code.
+Again, many of the runtimes, specifically those that came out first, that are in the browsers,
+all the major browsers, utilize both interpreted execution and ahead of time compilation.
+It's universal, meaning that anywhere where there's a spec-compliant runtime, you can run Wasm.
+That's the sort of biggest sell, right?
+So is it just a client-side technology? A couple months ago we were speaking at DevOps,
+and we would just talk about it. People were like, yeah, I don't really do front-end stuff that much.
+I was like, no, no, no, no. That's actually not what we're talking about.
+We're talking about using Wasm on the server. And why would you do that?
+This is from the spec itself, WebAssembly.org.
+It's a safe sandbox execution environment that makes no assumption about languages or hosts.
+Extremely important.
+The cold start times for Wasm binaries for a Wasm module are in the Nanos microsecond range.
+Even with many megabytes, you could still see microseconds start-up times,
+just like we have with Ruby, which I'll talk about.
+It's a universal compilation target.
+So there's this saying in the Wasm community that Wasm is neither web and it is neither assembly.
+That's a very important point.
+So I like to think of WebAssembly as kind of cloud infrastructure's penicillin moment.
+WebAssembly came out of a long tradition of trying to write more performant code on the web.
+If you just take V8, for example, or the JSVM, they've gone through many, many iterations to make that extremely performant.
+Actually, it's quite amazing what they've done.
+But even still, there wasn't quite a good way to have extremely performant code run in the browser.
+So WebAssembly came around after these sort of earlier iterations with ASM and some other things.
+And I like to think of it as sort of a penicillin moment.
+It was like people wanted to have a safe way to run code from any language, very performantly.
+And it must be safe because it's going to be like overnight on billions of users' devices.
+So what they decided to do is go in the same direction with a bytecode format and a VM.
+And then if you kind of think about it, and if you kind of squint, if you think about what the WebAssembly VM is,
+you could have traditional VMs, and then you could think about containers,
+and then possibly in the next iteration, we have WASM.
+So smaller, safer, faster, much more universal.
+And faster has an asterisk here, thankfully.
+I meant to put it on the first slide, but I forgot.
+Faster means, in this context, especially startup times.
+And then when we think about performance with WASM, it's typically described as near-native speed, if not native speed.
+There's a famous quote here from Solomon Hikes that said that if WASM had existed in 2008, they wouldn't have needed to make Docker.
+This got a lot of VCs, very excited in 2019.
+And there was kind of a hype cycle that got kicked off, probably when he tweeted this.
+And we're going to kind of talk through whether or not this has come to fruition and what the sort of next steps are in this space.
+Cool. So WASI.
+WASI is the WebAssembly system interface. Has anyone heard of WASI?
+Okay, good. A few people.
+Started in 2019, it was initially kind of like a POSIX interface for WebAssembly.
+WebAssembly is just a VM.
+And when we think of it, it's the dumbest VM because it's really just like a VM that's an architecture.
+So if you think about just machine code, it has no concept of syscalls or libcs or anything until you give it to it.
+It's the same thing with WASM.
+So WASM itself just executes very simple instructions.
+So if we want to run this stuff on the server, we need to think about a way that we can interface with this sort of underlying host.
+It utilizes a security model called capability-based security.
+If anyone here has heard of Plan 9, the operating system, it borrowed some of the approaches that were sort of explored there and implemented them.
+And it's an evolving standard, right?
+There's Preview 1, 2, 3.
+Preview 2 literally just got released last week.
+That also means that it's not implemented yet in all of the runtimes, but it's getting there.
+Preview 1 was kind of this base layer that kind of wrapped standard POSIX calls.
+Preview 2 introduces networking for the first time, so things like BSD sockets.
+And then Preview 3 is going to be very important for dealing with async.
+And that's going to be a very big advance.
+That will probably happen by next year or so.
+And then, after all those things are there, we'll probably get to 1.0.
+So it's been kind of a long journey with Wazzy.
+Is it required to run Wazum on the server?
+No, it is not.
+You don't need to use Wazzy.
+Oh, is that my time?
+Okay, okay.
+I was like, no.
+Yeah, so is it required?
+It's not required.
+You can run Pure WebAssembly on the server just like you do in a browser.
+So, I'm going to go through some techniques there that we can do with system requirements and the host.
+And I'll kind of talk through those as we get into the actual Ruby stuff.
+So, briefly, I'd like to just mention the project that I focus on at work.
+This is the scale, function runtime.
+It's a plug-in framework.
+This is a link to the actual page.
+You can also think of it as a serverless function runtime.
+It gives you a polyglot programming environment in the same runtime environment.
+So, this means that in the same runtime, you could run Rust code, Timescript code, and Go code, all talking to each other at native speeds, or maybe even faster than native in certain cases.
+We've done some interesting things where we took the, so if anyone does Golang in here at all, we took Go's Regex library, which has some performance issues, and we swapped it out using scale with Rust's Regex library.
+And we got a four-time, four-times improvement over native.
+So, running it in WebAssembly was four times faster than running it in native when we did this.
+And from the Go side, you had no idea that you were even using Rust.
+That's kind of the cool part of it.
+Right?
+This is written in Golang.
+Right now, we support Rust.
+Go, Timescript, the future holds Python and maybe some other things.
+Hopefully Ruby soon too.
+I don't know.
+I've got to convince my boss if that's going to happen.
+So, yeah.
+So, building Ruby.
+Many people in here probably built Ruby from source.
+And we're going to talk about building it to WebAssembly.
+Ruby has some assumptions.
+Right?
+One of the first assumptions is that you're going to run it on a Unix-like environment.
+Right?
+This is a big one.
+Right?
+And if you're compiling this to something that has no concept of Unix, this could be quite a challenge.
+When we, when people were first looking at this, they saw that one of the most developed tool chains for Wasm was with C and C++.
+And people said, oh, C Ruby.
+I can take C Ruby, compile it to Wasm.
+Voila.
+Turns out that was not quite the case.
+There was a lot of work to do to make that work.
+And we'll kind of talk through some of those steps.
+The other one is a file system.
+Wasm doesn't have a file system.
+You have to give it a file system.
+You have to either give it access to a file system.
+Wasi allows you to do this now pretty easily.
+But maybe you don't want to give it access to the underlying host file system in the browser.
+Obviously, there's no access to the file system there for very good reason.
+Dynamic linking.
+Again, Wasm has no concept of this like we have in the C world.
+So this is something that is also a challenge.
+And then obviously system calls and libc.
+There is no concept of that in a pure Wasm module.
+So that's something we also have to give it.
+Some of the specific pain points were exceptions.
+Exceptions in Ruby and the Ruby VM depend on set jump, long jump.
+This is something that had to be worked around.
+And this was quite challenging at first.
+Fibers.
+Wasm has no concept of context switching.
+There's no concept of kernel space or user space or anything like that.
+So this is something that had to be figured out.
+GC, you must be able to inspect the VM.
+This is also not easy to do because there are no locals that you can inspect in Wasm.
+So one of the ways that this was achieved was with a project called Asyncify.
+Asyncify is a project that allowed you to run WebAssembly code in the browser.
+And also do Async JavaScript at the same time.
+So when you run WebAssembly in a browser, you interface with it through JavaScript.
+But WebAssembly is single threaded right now.
+And the problem there is that we needed to be able to sort of pause the stack, copy things,
+resume the stack, rewind, unwind, and so on.
+So what the people in the Ruby world found out is that we could take that and use it to solve all of these problems, which was quite nice.
+If you want more detail on that, you should check out Yuda Saito's talk from Ruby Kagi last year.
+He is the main contributor to Ruby Wasm.
+And he is also a really, really great guy to talk to about any of this stuff.
+He's super, super good at this.
+So check out that talk for a lot more technical detail there.
+This talks about deploying, actually.
+And I will get there.
+Otherwise, I would go more into detail on those points.
+So I'd like to talk to you about how you can deploy a Ruby project today with Wasm.
+So I made this little project called Boxer.
+It's a side project of mine.
+I've been working on it in my spare time.
+And what this lets you do is it lets you take a container declaration and you can use it to run the WebAssembly code.
+It lets you take a container declaration like a Docker file and then it spits out a Wasm binary.
+Pretty simple.
+You can check it out.
+It's Boxer.dev.
+And I'll talk through this in the demo too.
+But there's quite a bit that has to go into this.
+But the point is, right now, if you want to do a Ruby app on WebAssembly,
+you have to bring in the runtime itself.
+You have to compile it.
+You have to set up the linking.
+You have to pack the actual files that you want to use into the WebAssembly itself.
+And a lot of this is quite complex.
+So this kind of does it all for you in a single step.
+So what's in one of these boxes?
+I like to call them Wasm boxes.
+I don't know.
+There's kind of a nice metaphor compared with a container.
+This is a box.
+It's smaller.
+You've got the base layer.
+What the base layer does is the base layer gives you basically imports and exports.
+So the Wasm module only knows about its imports and exports.
+That's all it gets from the outside world.
+And so if you want to set up an import into a Wasm module,
+you have to provide that on the host side or on the side of another module.
+This also gives you a virtual file system, virtualized syscode subs.
+There's a project called Wasix from single store labs.
+Not to be confused with Wasix from Wasm, which is another Wasm runtime.
+It's naming things as hard, I guess.
+So what this does is it gives you stubbed out syscalls
+and then the VFS is actually usable syscalls, POSIX-based FS syscalls.
+And I'll talk about that too.
+The compiled runtime gives you a compiled Ruby runtime.
+And then obviously it packs up the user source code.
+And the only thing, this is very important,
+is that the only thing that it knows about is what is inside it,
+is the Ruby VM and the source code and the imports and exports.
+So how is this done?
+Right?
+Interfaces, libc, a sandbox file system, Wiser.
+Wiser is a really cool project.
+If you're interested in WebAssembly, this allows you to pack up
+WebAssembly into a single binary.
+It allows you to deconstruct it.
+It allows you to analyze it.
+It's a really, really great project.
+I highly recommend checking it out if you're interested.
+This is a very simple project.
+It's just like a container does.
+This gives you the imports and exports.
+Here in the VFS we make a directory.
+We copy that using Wiser.
+This is a C example, but this a.out would normally be a binary.
+The big difference here is this must be a WebAssembly binary.
+That's the big difference.
+Set the working directory.
+That does that in the container in the box, rather, itself.
+And then executes it.
+And what this does is this also bundles up the runtime itself,
+passes in the correct arguments,
+and then executes the WASM module inside it.
+So, WASM VFS.
+This is another project of mine,
+and we worked on it for a while at Loophole.
+This project basically is pretty simple.
+It gives you the most standard POSIX SysCalls
+for file systems,
+all implemented virtually in WebAssembly.
+So, this is kind of cool because this means
+that you can just use most things
+that depend on a Unix-based file system,
+which is a lot of things.
+Specifically, tomorrow I'm giving a very similar talk
+to this in the Python room.
+Compiling Python, it really, really depends
+on the file system itself.
+So, you can check that out if you're interested.
+And go through this.
+Yep.
+Cool.
+And now I'm going to do the demo, which is why I'm sitting.
+Cool.
+All right.
+So, we've all worked with Docker, right?
+Mostly with Docker.
+So, we've all worked with Docker, right?
+Mostly probably everyone, every single person here.
+Okay, cool.
+Yeah, so this is a simple Docker file.
+You got from Ruby 3.0,
+setting the working directory,
+copying the source code to the
+to the current directory,
+which is user-source-app,
+and then running the actual code, right?
+And the source code is this.
+It's just a simple little script
+that does some square rooting
+and prints it out.
+So, by the way,
+please ignore my Rust warnings
+that I haven't fixed yet.
+This is written in Rust.
+But here's a little information about Boxer.
+And what I can do then is
+the...
+Basically, I wanted to keep a similar API
+to Docker,
+because we're all pretty familiar with it.
+We have BoxBuild passing the Docker file itself.
+Okay, you can see at the bottom.
+It found the base image, right?
+The base layer.
+It is building. Take several seconds.
+What that did is that bundled the run time,
+the standard library, the source code,
+and the FS all in the right place
+so that it can be executed into a single binary.
+So now it's one binary.
+Okay?
+And then if we do Box Run,
+there we have it.
+Ruby on WebAssembly.
+That's that.
+Okay?
+So pretty simple.
+Whoops.
+There's some big caveats.
+So one of the big ones is threads are not supported yet.
+Right?
+There, pthreads are not that are pretty typical
+used in like green threads,
+things with like Ruby and Python.
+This is not supported yet in WebAssembly.
+There's some ways to do it with asyncify.
+It's pretty challenging, but basically like with stack switching,
+you can do some fancy stuff.
+Networking, this is also a big one.
+Out of the box, this is not supported.
+So if you want to do something with a network,
+this is very challenging.
+So if you want to do this,
+and there are ways to virtualize layers
+of the kernels networking stack
+and then combine them with the sort of
+WASM module that you have
+and then pass them across to the host.
+And there are some techniques for this
+and this is actually kind of the way forward for that.
+Native dependencies, this is also a big one.
+But, native dependencies,
+there's a whole other benefit
+with using WebAssembly for
+native dependencies, which means you just have to compile it once.
+Right?
+So you can compile a native dependency once
+for all platforms
+and then anywhere that you have a WASM runtime,
+then you can use that native dependency.
+So, yeah, there's a lot of work going on here
+and this is sort of like the next steps
+in what need to be solved.
+But things like
+WASI Preview 2 and 3
+solve things like networking
+and then threads will also be part of it too
+within the next year.
+So this is a little thing
+that I had ChatGP teammate.
+I got like a box and then a container. It's pretty fun.
+Now for some actual metrics.
+A container of the same exact code
+that I showed you using the same exact Docker file.
+A container could be anywhere from 80 to 900 megabytes
+depending on which container that you use
+and if you want to bundle the entire standard library.
+Right?
+Startup speed could be 800 milliseconds to 2 seconds.
+The cold start problem for serverless functions
+is a big problem that a lot of cloud providers have.
+They try to do a lot of trickery
+and then things can start up fast.
+This is a big problem
+because most of those use container...
+Security models are shared kernel.
+A container is not really an isolated environment.
+It kind of is, but it relies on a kernel
+and all the images share the same kernel.
+So that's something.
+In a box, the sizes of this one is 16 megabytes.
+Startup speeds are
+100 microseconds to about 1 millisecond.
+And the security model is a virtualized sandbox
+that's built into the virtualized sandbox.
+So it's a very simple,
+and the security model is a virtualized sandbox
+machine code execution.
+So the future.
+Full support for libc and syscall interfaces.
+Right?
+This is something that we have worked on a little bit
+and have done some cool stuff at scale with...
+Or at loophole on scale,
+we have this thing called extensions,
+which allows you to generate
+host functions that can then act
+as the underlying layer that you wouldn't have
+in the WebAssembly VM.
+So we did a talk in Seattle last year
+where we talked about how we
+stubbed out the GVisor container runtime
+and took the syscalls
+and provided them
+with WebAssembly
+using that technique.
+So you had WebAssembly-based syscalls
+on the other side of what we would
+consider a container
+isolated environment.
+The other next step
+is to modularize kernel stacks,
+which is kind of terrifying.
+But this is kind of cool because
+if you could have a plug-able
+networking stack, you could do things like
+run things that require Unix
+in places that don't actually have
+a Unix operating system.
+You could use the WasmVFS.
+And then when needed, you could write
+shims and put modules
+wherever you want them to be.
+So this kind of creates a cool thing.
+We got a paradigm shift, a kernel-free,
+composable, universal, Wasm-based operating environment.
+There are some people trying this.
+Wazzy is kind of getting there.
+Wally, which is the names here, I know.
+Wally is the WebAssembly
+Linux interface.
+This was just released by group at Carnegie Mellon
+at the end of last year.
+Incredible stuff. They basically take that approach.
+They virtualize everything.
+Signals,
+threads,
+file systems, and then they create
+host functions which match those things
+for the top, like, 150
+Unix-based syscalls
+and make those available. So you can run stuff
+like this out of the box.
+It was a little bit rough.
+I was going to try to incorporate that in this talk,
+but I didn't have time.
+Bare metal runtimes with a
+unicernel. This is a big one, too.
+You take a unicernel, give you just
+the syscalls that the Wasm runtime needs,
+and then run them.
+You can run them
+in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+You can run them in a virtual machine.
+seems true.
+Yeah.
+So is it worth it to port 0B to pure wasm or to the POSIX interfaces?
+Yes, that's a great question.
+So right now, so there's a couple ways to answer this,
+but the capability based security is a big part of Wazzy specifically.
+And this works in a way that basically you exchange handles and you exchange permission.
+So compared with the UNIX way of having user group space or
+whatever namespaces, things like that, this is actually based on each capability.
+Wasm itself has no concept of that.
+Wasm itself just knows to execute the code in the module and
+it can't know about anything else outside of it.
+So Wazzy kind of tax that on.
+So this technique kind of takes that approach where your second approach,
+where basically it stubs out all of the sort of UNIX and POSIX capabilities and
+puts it all in Wasm, right?
+So Ruby thinks it's in UNIX, but it's not, right?
+In this example, there's a benefit to that too though,
+is when I mentioned about modularizing the kernel libraries.
+I'm dead serious about that because what that could do is allow for
+a greater sense of isolation and security and resource sort of alignment.
+Because when you run certain applications, like we know with containers,
+kind of introduce this, you don't need everything necessarily, right?
+So if you could only have what you need and each of those components could be
+completely isolated, memory safe, and they could be reused across multiple different
+things just like an operating system does, but faster and safer.
+There's a pretty exciting future there.
+And I think that you'll see certain people,
+while he kind of takes that approach, you'll see certain people pushing that more.
+I'm definitely a proponent of that, but there's some disagreements about whether
+it's the best thing, but yeah, absolutely.
+Cool, I've kept you guys here a lot.
+Anyone else?
+Feel free to talk to me after too.
+Cool, thanks again.

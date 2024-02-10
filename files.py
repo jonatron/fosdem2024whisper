@@ -59,6 +59,10 @@ files = \
     "title": "Ingesting and analyzing millions of events per second in real-time using open source tools\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2675-will-the-first-artificial-general-intelligence-agi-instance-be-free-or-open-source-software-.av1.webm",
+    "title": "Will the first Artificial General Intelligence (AGI) instance be free or open-source software?\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3553-learning-from-disaster-response-teams-to-save-the-internet.av1.webm",
     "title": "Learning from disaster response teams to save the internet\n"
   },
@@ -81,6 +85,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2716-firefox-power-profiling-a-powerful-visualization-of-web-sustainability.av1.webm",
     "title": "Firefox power profiling: a powerful visualization of web sustainability\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-1991-proving-that-cloud-sysadmins-cannot-read-your-data-.av1.webm",
+    "title": "Proving that Cloud Sysadmins Cannot Read your Data!\n"
   },
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3362-open-source-for-sustainable-and-long-lasting-phones.av1.webm",
@@ -137,6 +145,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-3297-sequoia-pgp-rethinking-openpgp-tooling.av1.webm",
     "title": "Sequoia PGP: Rethinking OpenPGP Tooling\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3120-synergy-in-open-communities.av1.webm",
+    "title": "Synergy in Open Communities\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2215/fosdem-2024-3595-open-food-facts-acting-on-the-health-and-environnemental-impacts-of-the-food-system.av1.webm",
@@ -307,6 +319,10 @@ files = \
     "title": "Introduction to OpenAPI\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2952-the-api-landscape-mapping-the-2000-api-and-opensource-tooling-for-developers.av1.webm",
+    "title": "The API Landscape : mapping the 2000+ API and opensource tooling for Developers\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-1710-deploy-fast-without-breaking-things-level-up-apiops-with-opentelemetry.av1.webm",
     "title": "Deploy Fast, Without Breaking Things: Level Up APIOps With OpenTelemetry\n"
   },
@@ -373,6 +389,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-1780-how-do-you-change-the-governance-model-of-an-established-open-source-project-.av1.webm",
     "title": "How do you change the governance model of an established open source project?\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2310-meritocracy-or-do-ocracy-why-diversity-is-still-hard-and-what-can-we-do.av1.webm",
+    "title": "Meritocracy or Do-ocracy - why diversity is still hard and what can we do\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-1693-please-make-it-make-sense-product-management-methods-to-make-your-project-s-purpose-clear.av1.webm",
@@ -523,6 +543,10 @@ files = \
     "title": "Yet another event sourcing library\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2636-declarative-calcs-and-visualization-with-calculang.av1.webm",
+    "title": "declarative calcs and visualization with calculang\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-1872-how-to-create-the-universal-operating-system.av1.webm",
     "title": "How to create the universal operating system\n"
   },
@@ -665,6 +689,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3194-from-an-artificial-nose-weekend-hack-to-a-future-proof-iot-device.av1.webm",
     "title": "From an artificial nose weekend hack to a future-proof IoT device\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-2495-flutter-buildroot-and-you-.av1.webm",
+    "title": "Flutter, Buildroot, and you!\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-2132-google-home-but-better-building-our-own-smart-home-display-with-flutter.av1.webm",
@@ -1085,6 +1113,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2275-hpc-container-conformance.av1.webm",
     "title": "HPC Container Conformance\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2365-updates-and-innovations-with-the-apptainer-platform.av1.webm",
+    "title": "Updates and Innovations with the Apptainer Platform\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1970-automating-spark-and-pipeline-upgrades-while-testing-in-production.av1.webm",
@@ -1895,12 +1927,20 @@ files = \
     "title": "Introduction to the Public Code and Digital Public Goods devroom\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2558-sustainable-open-source-development.av1.webm",
+    "title": "Sustainable Open Source Development\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2818-some-updates-on-public-code-in-germany.av1.webm",
     "title": "Some updates on Public Code in Germany\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2666-gnu-health-incorporating-digital-public-goods-in-the-european-healthcare-system.av1.webm",
     "title": "GNU Health. Incorporating Digital Public Goods in the European healthcare system\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3748-ospo4good-un-event-report-2024-call-for-participation.av1.webm",
+    "title": "OSPO4Good UN Event report & 2024 Call for Participation\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2658-from-disconnected-elements-to-a-harmonious-ecosystem-the-epiverse-trace-project.av1.webm",
@@ -1921,6 +1961,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-1706-trubudget-a-dpg-to-support-the-project-workflow-in-international-multi-stakeholder-environments.av1.webm",
     "title": "TruBudget - a DPG to support the project workflow in international multi-stakeholder environments\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2975-intro-to-janssen-managing-inter-domain-trust-and-security.av1.webm",
+    "title": "Intro to Janssen: Managing inter-domain trust and security\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2167-moodle-empowering-educators-to-improve-our-world.av1.webm",
@@ -2111,6 +2155,10 @@ files = \
     "title": "Backtracie and the quest for prettier Ruby backtraces\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k3401/fosdem-2024-2770-deploy-your-next-ruby-app-with-webassembly-wasm-smaller-safer-faster.av1.webm",
+    "title": "Deploy Your Next Ruby App with WebAssembly (Wasm): Smaller, Safer, Faster\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-2682-semver-in-the-rust-ecosystem-breakage-tooling-and-edge-cases.av1.webm",
     "title": "SemVer in the Rust ecosystem: breakage, tooling, and edge cases\n"
   },
@@ -2269,6 +2317,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-2037-hopsfs-fuse-mount.av1.webm",
     "title": "HopsFS FUSE Mount\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-3418-external-rook-ceph-cluster.av1.webm",
+    "title": "External Rook Ceph Cluster\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k3201/fosdem-2024-1959-boosting-cephfs-security-in-kubernetes-rook-s-intelligent-network-fencing-for-uninterrupted-data-flow-and-workload-harmony-.av1.webm",
