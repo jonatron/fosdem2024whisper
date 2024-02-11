@@ -1,0 +1,677 @@
+WEBVTT
+
+00:00.000 --> 00:10.680
+All right. Thank you. We're going to start with the next presentation.
+
+00:10.680 --> 00:12.840
+All right. Thank you for coming.
+
+00:12.840 --> 00:16.680
+Can you hear me back there? That's great. Thank you.
+
+00:16.680 --> 00:21.920
+So my name is Matawór Belicki and I'm a compiler engineer at Intel.
+
+00:21.920 --> 00:27.560
+Today, I'm going to talk about a downstream compiler project that we have.
+
+00:27.560 --> 00:32.080
+It's an Intel compiler but for GPUs.
+
+00:33.080 --> 00:35.960
+Why do I come here in the first place?
+
+00:35.960 --> 00:44.800
+So I would like to share this experience which we have of maintaining and doing a downstream compiler.
+
+00:44.800 --> 00:52.320
+I think this is the case for many LLVM-based projects that they work as a downstream compiler.
+
+00:52.320 --> 00:58.600
+Maybe they have similar issues to what we had or maybe they are thinking about doing things the same way.
+
+00:58.600 --> 01:04.320
+So they can see if our results would work for them or not.
+
+01:04.320 --> 01:12.960
+I think it also might be interesting and valuable to LLVM developers and maintainers to see how their project is used
+
+01:12.960 --> 01:16.000
+and maybe sometimes even a little bit abused.
+
+01:16.760 --> 01:22.720
+Yeah. And well, I also hope that I will gather some comments, some feedback,
+
+01:22.720 --> 01:28.480
+maybe somebody who is also doing something similar has better ideas to what we did.
+
+01:28.480 --> 01:34.920
+So without further ado, what is IGC and how it relates to LLVM?
+
+01:34.920 --> 01:42.360
+So IGC, as I started talking before, stands basically for Intel Graphics Compiler.
+
+01:42.360 --> 01:51.080
+And this is a SPMD compiler that targets GPU, where SPMD means single program multiple data.
+
+01:51.080 --> 01:56.680
+This is a kind of a paradigm that is very popular among GPU programming models.
+
+01:56.680 --> 02:02.760
+When you have a singular program that is executed on multiple instances of data at the same time, right?
+
+02:02.760 --> 02:08.880
+A little bit like Cmd but here the vectorization is completely implicit.
+
+02:08.920 --> 02:11.280
+You only program from the scalar point of view.
+
+02:11.280 --> 02:22.120
+You only see a single program but underneath it is working on a multiple amount of our own custom passes that work together.
+
+02:22.120 --> 02:28.720
+We currently are not using the LLVM Code Gen infrastructure in any capacity.
+
+02:28.720 --> 02:39.440
+What we do have is a custom pass-based emitter which performs vectorization at the same time,
+
+02:39.440 --> 02:45.560
+lowering the LLVM IR into another custom IR which is called VISA.
+
+02:45.560 --> 02:53.080
+And what you see at the bottom of the slide is basically how the target ISA look like,
+
+02:53.080 --> 02:55.280
+what we are trying to emit here.
+
+02:55.320 --> 03:06.960
+So this is basically our assembly and I think the most interesting part that you can see at glance is that it's explicitly vector instruction.
+
+03:06.960 --> 03:19.320
+So we have this impedance and difference between what comes to us in form of scalar program and what we emit in terms of a vector program.
+
+03:19.320 --> 03:31.880
+So to do what we do we are using the LLVM C++ API.
+
+03:31.880 --> 03:46.200
+So basically we use all the same functions and classes which you would normally would use to create an LLVM pass if you were writing it as a part of LLVM.
+
+03:46.200 --> 03:53.960
+We cannot really use the API here although it's stable and that would be great for us but it's really limited in terms of what it allows.
+
+03:53.960 --> 04:05.640
+So basically this API is mostly designed for front ends to create LLVM IR and then to push it through the rest of the LLVM infrastructure.
+
+04:05.640 --> 04:14.400
+But in our case we actually want to modify this LLVM infrastructure to serve our needs.
+
+04:14.440 --> 04:20.960
+So this is one thing and the other thing is our open source model here.
+
+04:20.960 --> 04:34.400
+So IGC is as I said before part of the graphics driver and for the graphics driver we do both close source and open source releases.
+
+04:35.400 --> 04:40.640
+And the same goes for IGC. So basically there are two flavors of IGC.
+
+04:40.640 --> 04:46.400
+There is a close source IGC that contains some proprietary code that is not available in the open source IGC.
+
+04:46.400 --> 04:49.560
+And there is an open source IGC which is freely available at any time.
+
+04:49.560 --> 04:52.880
+Here is a GitHub repository if you'd like to see it.
+
+04:52.880 --> 05:03.360
+So we are also part of some of the GNU or Linux distributions like Archibb onto or Debian.
+
+05:03.400 --> 05:08.720
+So this is how this works from the distribution point of view.
+
+05:08.720 --> 05:13.120
+When it comes to development we sadly develop close source first.
+
+05:13.120 --> 05:17.920
+We do have...
+
+05:17.920 --> 05:27.480
+So when we commit some changes we basically do this through the close source repository and then we have some infrastructure that takes care of replicating this for open source.
+
+05:27.520 --> 05:34.520
+So we basically have a system of annotating parts of the code which are sensitive and shouldn't reach public IED.
+
+05:34.520 --> 05:43.160
+And this script basically cuts them off and then we also have some CI infrastructure that checks in every framework.
+
+05:43.160 --> 05:52.360
+And this allows us to generally have both close and open source repositories that are pretty much in sync when it comes to latest changes.
+
+05:52.360 --> 05:58.320
+So this is the picture of how everything looks like around IGC.
+
+05:58.320 --> 06:02.920
+So why do we need to support multiple LLVM versions in the first place?
+
+06:02.920 --> 06:08.320
+So as I said before we are striving to be part of open source distributions.
+
+06:08.320 --> 06:11.880
+And this means that we have to fit into the distro.
+
+06:11.880 --> 06:21.880
+So basically all the Linux distributions have a set of LLVM versions that they support out of the box that they already have in their package managers.
+
+06:22.880 --> 06:33.880
+And what the maintainers of the distributions really want to see from the packages that come into the distro is that they use what already is there.
+
+06:33.880 --> 06:36.880
+So that we use already present LLVM versions.
+
+06:36.880 --> 06:49.880
+So this creates this pressure for us to keep updating LLVM on our end and always to be able to compile the latest version of LLVM that is supported by the distros.we target.
+
+06:50.680 --> 06:59.480
+And on the other hand we have this close source windows version of our compiler which is still on LLVM 9.
+
+06:59.480 --> 07:03.480
+And there we doesn't really see this kind of pressure to update.
+
+07:03.480 --> 07:06.360
+And because of that we mostly see drawbacks of updating.
+
+07:06.360 --> 07:14.760
+So each LLVM update brings to us both some performance improvements and some performance regressions.
+
+07:14.840 --> 07:18.840
+And well we only want the latter, not really the former.
+
+07:18.840 --> 07:24.840
+So we have to always come and remove the regression and this creates additional effort.
+
+07:24.840 --> 07:29.840
+At the same time the improvements doesn't really seem to feel worthy of that.
+
+07:29.840 --> 07:34.840
+So on the windows end we see a lot of less reason to update.
+
+07:34.840 --> 07:37.840
+That's why the updates there are slower.
+
+07:37.840 --> 07:43.840
+And this creates this kind of discrepancy when we have a range of supported LLVM by a single code base.
+
+07:45.200 --> 07:48.200
+So how do we do that?
+
+07:50.640 --> 07:58.640
+So when you try to support multiple versions of a C++ library similar to LLVM,
+
+07:58.640 --> 08:02.640
+a number of issues comes into play.
+
+08:02.640 --> 08:07.640
+So first of all there are changes in optimizations that...
+
+08:08.520 --> 08:13.520
+So the changes in LLVM functionality and how the things are done in there that
+
+08:13.520 --> 08:19.520
+create changes in the performance of the code generated by the compiler.
+
+08:19.520 --> 08:25.520
+Those kind of changes also occasionally cause some bugs on our side.
+
+08:25.520 --> 08:30.520
+For example when new intrinsic or a new IR instruction is introduced
+
+08:30.520 --> 08:35.520
+we also have to take care of it and handle it on our end.
+
+08:36.400 --> 08:41.400
+There is for example this pass that combines many PIP-Hole optimization
+
+08:41.400 --> 08:44.400
+which is called Instruction Combiner.
+
+08:44.400 --> 08:48.400
+And this is probably the most, the singular most problematic pass in terms of
+
+08:48.400 --> 08:53.400
+supporting multiple versions because it brings different results each time.
+
+08:55.400 --> 09:00.400
+And it does it to the extent that at some point we decided to just fork Instruction Combiner
+
+09:00.400 --> 09:06.400
+and keep it on a singular version and not really use the upstream one.
+
+09:08.400 --> 09:16.400
+But really those cases are hard to generalize and we usually have to work on each of them
+
+09:16.400 --> 09:19.400
+and then create a fix on our site.
+
+09:19.400 --> 09:24.400
+But what is much more easier to generalize in our example, in our case,
+
+09:24.400 --> 09:27.400
+is the API changes.
+
+09:27.400 --> 09:33.400
+And to do that we do have a part of code that we call LLVMRapper.
+
+09:33.400 --> 09:47.400
+And this is basically a small wrapper like library that provides a single unified API
+
+09:47.400 --> 09:56.400
+that allows us to call functions from LLVM9 to 15 without a single interface basically.
+
+09:57.400 --> 10:06.400
+So the biggest benefit of having that in one place is that we don't really have this
+
+10:06.400 --> 10:09.400
+bunch of if-deaf scattered around our code.
+
+10:09.400 --> 10:15.400
+And when we come and when we start to abandon the old versions and don't support them anymore,
+
+10:15.400 --> 10:21.400
+we just can go remove a singular call from the wrapper library
+
+10:21.400 --> 10:28.400
+and then just change this call in our code and it's very straightforward process.
+
+10:28.400 --> 10:34.400
+So if you're interested how the wrapper looks like, it's available here.
+
+10:34.400 --> 10:37.400
+It's a headers-only library.
+
+10:37.400 --> 10:47.400
+So the conventions that we use when developing this is that we try to mirror the LLVM header structure
+
+10:47.400 --> 10:49.400
+as much as we can.
+
+10:49.400 --> 10:56.400
+So it's fairly obvious where to look for the calls when you try to add them
+
+10:56.400 --> 10:58.400
+or when you try to remove them.
+
+11:01.400 --> 11:06.400
+And the other important thing is that for each wrapper function that we add,
+
+11:06.400 --> 11:15.400
+we try to follow the signature of the function as it comes from the latest supported version.
+
+11:16.400 --> 11:24.400
+So in the future when we can drop the wrapper, we just can replace it with a call to the new version of the library.
+
+11:24.400 --> 11:27.400
+So how does it look like in practice?
+
+11:28.400 --> 11:38.400
+So for most cases really, it's very simple and we just see places where we get functions,
+
+11:38.400 --> 11:46.400
+we get methods that change their name a little bit or maybe change the arguments that they receive.
+
+11:46.400 --> 11:50.400
+So most of the cases are like this.
+
+11:50.400 --> 11:57.400
+Sometimes, unfortunately, we have to go on and try to add something which is not available yet.
+
+11:57.400 --> 12:02.400
+This is one such case when we basically had to pull an implementation into our headers
+
+12:02.400 --> 12:07.400
+so we can use it temporarily for various versions of LLVM.
+
+12:09.400 --> 12:13.400
+In the worst cases, it can be whole classes, but I don't think there are many of them.
+
+12:13.400 --> 12:16.400
+I think this is the only one that we have right now.
+
+12:19.400 --> 12:25.400
+And when it comes to types, it usually can be handled by a simple type alias, so it's not that much.
+
+12:25.400 --> 12:29.400
+So how does it look like in terms of numbers?
+
+12:30.400 --> 12:44.400
+So right now we have 52 headers including 224 wrapper functions that allow us to seamlessly support LLVM from 9 to 15.
+
+12:45.400 --> 12:55.400
+As you can see from this table, so this table basically follows the header directories that we use.
+
+12:55.400 --> 13:05.400
+And as you can see, most of the wrapper types or functions are contained in the IR directory.
+
+13:05.400 --> 13:15.400
+This basically shows that this is the directory that we both use the most and probably the one that is mostly being developed upstream.
+
+13:15.400 --> 13:18.400
+Hence the DDDD changes.
+
+13:20.400 --> 13:22.400
+So what about the future plans?
+
+13:22.400 --> 13:35.400
+So as you may have seen, when I was talking, I was referring to LLVM 9 to 15 and we already have LLVM 17 released and we will have LLVM 18 soon.
+
+13:37.400 --> 13:48.400
+So when it comes to updating beyond LLVM 16, we have the small issue of the OPAC pointers.
+
+13:52.400 --> 14:06.400
+So basically the OPAC pointers change, this was a big change that was introduced with LLVM 14, but back then it wasn't mandatory.
+
+14:06.400 --> 14:11.400
+But with LLVM 16, it became the default mode of operations for LLVM.
+
+14:11.400 --> 14:19.400
+And the changes work like this, that it basically removes the pointy type information from the pointer passed in the LLVM IR.
+
+14:19.400 --> 14:26.400
+So we have this pretty simple code that doesn't involve any additional type annotations.
+
+14:26.400 --> 14:36.400
+So the unfortunate fact is that we heavily rely on the pointer information in our code base.
+
+14:37.400 --> 14:52.400
+So there are plenty of places where this information can be either, so where the type pointer like dependency can be fully removed because we have the information available elsewhere,
+
+14:52.400 --> 14:56.400
+or perhaps it's not even needed, but it was used there for some other reason.
+
+14:56.400 --> 15:11.400
+But for the GPU targets, we have a specific issue that we have some types that were really good to be modeled as the type pointers with the OPACs track type.
+
+15:11.400 --> 15:16.400
+So for the GPUs, there are things like samplers, images, etc.
+
+15:16.400 --> 15:25.400
+And these are generally handles that are passed from the runtime through the kernel code and then are given somehow to the hardware.
+
+15:25.400 --> 15:36.400
+And well, so we really have to know what is coming inside this type of pointer.
+
+15:36.400 --> 15:41.400
+So we really have to know what it is because we have to emit the right instruction.
+
+15:42.400 --> 15:53.400
+So depending on sampler, depending on type of image, this will be resolved to a different kind of load, or maybe not even a load, but something more sophisticated.
+
+15:53.400 --> 16:07.400
+And well, this information is really needed there and we couldn't really get it with the OPAC pointers because we only see then a pointer type that is passed to the kernel.
+
+16:07.400 --> 16:17.400
+So this is the entry point for us and then is somehow used, but we don't really know what this pointer represents.
+
+16:17.400 --> 16:26.400
+So this type of change obviously cannot be handled by the mechanism that I showed before. It cannot be handled by a wrapper.
+
+16:26.400 --> 16:34.400
+So we cannot conjure the pointy type information from the OPAC pointer, at least not always and at least not like for free.
+
+16:34.400 --> 16:43.400
+We could do some analysis, but this would cost us the compilation time, which we cannot really have.
+
+16:43.400 --> 16:51.400
+But fortunately, there are already some changes that has been introduced to LVM and I'm talking about it.
+
+16:51.400 --> 16:58.400
+LVM API, we will be still using at this point the type pointers.
+
+16:59.400 --> 17:17.400
+From there, we could go to LVM 16, but then we would be doing LVM transition and also starting to go from type pointers to target extension types,
+
+17:17.400 --> 17:20.400
+which we don't really want to do at the same time.
+
+17:20.400 --> 17:26.400
+So we decided that we will take this target extension type patch.
+
+17:26.400 --> 17:33.400
+It's actually a pretty small patch that is quite self-contained, so it's not that easy to port back.
+
+17:33.400 --> 17:47.400
+So we are going to port it back to LVM 14 and use this version with this patch to slowly move to the target extension types.
+
+17:48.400 --> 17:56.400
+And from then, when we are happy with our results, we will move on to LVM 16 at the same time,
+
+17:56.400 --> 18:01.400
+dropping support for everything that we had before.
+
+18:01.400 --> 18:12.400
+So coming to conclusions, it is actually possible to support multiple versions of LVM.
+
+18:12.400 --> 18:21.400
+It is a little bit of pain, but on the other hand, if you look back at the numbers that I displayed before, the wrapper isn't really that big.
+
+18:21.400 --> 18:31.400
+So it's like 200 wrapper functions, but when you think about all the functions that LVM is exposing, there is really plenty of them,
+
+18:31.400 --> 18:34.400
+and this is a really small percentage of that.
+
+18:34.400 --> 18:41.400
+And also, you know, it's distributed in time, so it's not like you are writing 200 functions up front.
+
+18:41.400 --> 18:48.400
+You are just slowly adding them and removing over the time as the window of supported version changes.
+
+18:48.400 --> 18:57.400
+So this shows that to some extent, a stable IPI perhaps could be created if there was such need in the community.
+
+18:58.400 --> 19:09.400
+But even if such an API was created, it would be probably pointless, because when you do the engineering the way we did it,
+
+19:09.400 --> 19:16.400
+you in the end still have the risk that you will come to the big changes like the Opaq pointers,
+
+19:16.400 --> 19:24.400
+when you will have to basically come and switch to the newer version with dropping everything else.
+
+19:25.400 --> 19:30.400
+So, well, that's mostly what I had prepared today. Thank you for listening, and I'm open for questions.
+
+19:37.400 --> 19:40.400
+Yeah, I know, sorry. Please go on.
+
+19:40.400 --> 19:45.400
+Did you consider using the old VMC API, which is supposedly most stable?
+
+19:45.400 --> 19:52.400
+Yes, yes, yes. So the question was if we considered using CAPI, which is stable.
+
+19:52.400 --> 19:56.400
+And yeah, we did, but the CAPI doesn't offer what we need.
+
+19:56.400 --> 20:00.400
+So, sorry, I'm asked to repeat the question.
+
+20:00.400 --> 20:04.400
+So the question was if we considered to use the CAPI.
+
+20:06.400 --> 20:09.400
+Yes, we did. Unfortunately, the CAPI doesn't support what we need.
+
+20:09.400 --> 20:17.400
+So CAPI allows creating new IR, so basically building IR from the parcel tree state that you would have.
+
+20:17.400 --> 20:24.400
+In our case, we don't really want to do this. We already have LVM IR provided by a SPIRV translator in our case.
+
+20:24.400 --> 20:29.400
+What we really want to do is to modify this and create our customer LVM passes.
+
+20:29.400 --> 20:32.400
+That's why we need the C++ API, unfortunately.
+
+20:35.400 --> 20:37.400
+Please go on.
+
+20:37.400 --> 20:45.400
+Can you mix up simple VM persons like say you have this product, this is the LVM9, or do you use those?
+
+20:45.400 --> 20:50.400
+And there's about there, like how do you do that?
+
+20:50.400 --> 20:54.400
+Sorry, can you speak up? I cannot hear you from here.
+
+20:54.400 --> 21:03.400
+Can you mix up simple VM persons like if you have LVM9 on your big old private VM, there's about the LVM9, how do you deal with that?
+
+21:04.400 --> 21:13.400
+So how do we do that? We fix them for the version, sorry, I was forgetting about repeating the question.
+
+21:13.400 --> 21:20.400
+So the question was how we deal with the bugs that are in the older versions but are not in the newer versions.
+
+21:20.400 --> 21:31.400
+So and the answer is that we fix them in the version that we have, in the version in which they appear.
+
+21:31.400 --> 21:36.400
+And if the fix is applicable to the newer version, obviously it's not a problem.
+
+21:36.400 --> 21:43.400
+If not, we will have to somehow wrap it up, but such cases are really rare.
+
+21:43.400 --> 21:52.400
+So usually we don't really see any things that are wrong in the LVM code.
+
+21:52.400 --> 22:01.400
+The code is usually what is wrong in our code and we can handle that on our side regardless of the LVM version.
+
+22:01.400 --> 22:09.400
+Maybe I misunderstood before, but were you saying that you were going to phase out the older version?
+
+22:09.400 --> 22:13.400
+So the question is if we are going to phase out older versions.
+
+22:13.400 --> 22:20.400
+Yes, we are going to phase out older versions because we are not able to support them and LVM 16 at the same time.
+
+22:20.400 --> 22:28.400
+So I mean technically it would be, but we decided that the cost of supporting both OPAG pointers and type pointers is not really worth it.
+
+22:28.400 --> 22:35.400
+But then the distributions that you were supporting previously or the Linux?
+
+22:35.400 --> 22:42.400
+So the question right now is about distributions and if they will see a dropped support.
+
+22:42.400 --> 22:50.400
+So first of all they still have the versions that were already released that cover the older LVM versions.
+
+22:50.400 --> 22:57.400
+And when it comes to the LVM versions, LVM 16 is not really cutting edge right now, right?
+
+22:57.400 --> 23:01.400
+We will have LVM 18 in a matter of days I believe.
+
+23:01.400 --> 23:09.400
+And well, so we are a little bit backwards, right?
+
+23:09.400 --> 23:16.400
+Have you considered assuming your backend for your custom ISA or is it like the closed part?
+
+23:16.400 --> 23:20.400
+So the question is if we have considered upstreaming our backend.
+
+23:20.400 --> 23:24.400
+So yes, we did.
+
+23:24.400 --> 23:30.400
+It's not really in an upstreamable state right now I would say.
+
+23:30.400 --> 23:35.400
+So basically, so it's all open source, you can go and check how it looks.
+
+23:35.400 --> 23:44.400
+So we basically have a very thin pass that is emitting the VISA code, the other IR.
+
+23:44.400 --> 23:52.400
+And then we have a separate library that is handling the VISA for us and is written in a completely different style than LVM etc.
+
+23:52.400 --> 23:55.400
+It's not really good fit to be managed with LVM.
+
+23:55.400 --> 24:00.400
+But yeah, we are seriously thinking about upstreaming and upstreaming as much as you can.
+
+24:00.400 --> 24:09.400
+And basically like this presentation and the fact that we had to put so much effort shows that it's really worth to work in upstream.
+
+24:09.400 --> 24:28.400
+So going a little bit in the direction of the earlier question is why do you need to support multiple versions of LVM if you basically have to shoot your own anyway because you replace and combine everything?
+
+24:28.400 --> 24:37.400
+So do you basically have your own LVM for when you complete your 4B and you actually use the system LVM and just replace it?
+
+24:37.400 --> 24:45.400
+So the question was why we want to support multiple versions and if we have our custom for the VM that we ship or if we use a system one.
+
+24:45.400 --> 24:51.400
+So I will start from the end. We are using the system provided version of LVM.
+
+24:51.400 --> 24:55.400
+That's why we want to support a range although a very narrow range in the open source.
+
+24:56.400 --> 25:07.400
+And going back to LVM 9 comes from the fact that we also support the Windows compiler which is on the older version because of the effort that comes with the performance regression that the upgrade brings.
+
+25:15.400 --> 25:16.400
+Sorry, I didn't get the question.
+
+25:25.400 --> 25:26.400
+Yes, yes.
+
+25:26.400 --> 25:28.400
+How can you do that if you use the system provided one?
+
+25:28.400 --> 25:43.400
+Okay. So the question was, so I mentioned in the slides that we are going to patch LVM 14 to support TAT and at the same time I said before that we are using the system version of LVM.
+
+25:44.400 --> 25:48.400
+So sorry, I haven't explained that pretty well before.
+
+25:48.400 --> 26:00.400
+So basically the patched LVM will be only internally for our development and when we are ready we will just say that we are supporting LVM 16 right now.
+
+26:00.400 --> 26:07.400
+But you know this patch version is only to ease the development on our side. It's not a release version.
+
+26:14.400 --> 26:22.400
+One possible way around to bind new things to distribute your modified version of LVM or at least package it all up as one.
+
+26:22.400 --> 26:28.400
+Yes, you are going to have two copies of LVM libraries but that might get you out of the hole.
+
+26:28.400 --> 26:35.400
+Yeah, so the question was about having distributing binary more than one copy of LVM.
+
+26:35.400 --> 26:51.400
+So this is an option and this is probably something that we will have to do occasionally but this is also something that we don't really want to do because we have, believe it or not, a tight budget for size of the graphics driver.
+
+26:51.400 --> 26:58.400
+So you know, you have this graphics driver. It is a very big blob.
+
+26:58.400 --> 27:08.400
+It is like 200 megabytes that the user don't know from time to time and really the marketing is pushing us to make it as small as it is possible.
+
+27:08.400 --> 27:15.400
+So even a megabyte is a big difference in this case.
+
+27:18.400 --> 27:23.400
+All right, I don't think we have any other questions. Thank you.
+
+27:28.400 --> 27:31.400
+Thank you.
+

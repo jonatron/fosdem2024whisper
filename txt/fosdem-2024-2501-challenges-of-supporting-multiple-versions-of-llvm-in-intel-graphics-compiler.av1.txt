@@ -1,0 +1,225 @@
+All right. Thank you. We're going to start with the next presentation.
+All right. Thank you for coming.
+Can you hear me back there? That's great. Thank you.
+So my name is Matawór Belicki and I'm a compiler engineer at Intel.
+Today, I'm going to talk about a downstream compiler project that we have.
+It's an Intel compiler but for GPUs.
+Why do I come here in the first place?
+So I would like to share this experience which we have of maintaining and doing a downstream compiler.
+I think this is the case for many LLVM-based projects that they work as a downstream compiler.
+Maybe they have similar issues to what we had or maybe they are thinking about doing things the same way.
+So they can see if our results would work for them or not.
+I think it also might be interesting and valuable to LLVM developers and maintainers to see how their project is used
+and maybe sometimes even a little bit abused.
+Yeah. And well, I also hope that I will gather some comments, some feedback,
+maybe somebody who is also doing something similar has better ideas to what we did.
+So without further ado, what is IGC and how it relates to LLVM?
+So IGC, as I started talking before, stands basically for Intel Graphics Compiler.
+And this is a SPMD compiler that targets GPU, where SPMD means single program multiple data.
+This is a kind of a paradigm that is very popular among GPU programming models.
+When you have a singular program that is executed on multiple instances of data at the same time, right?
+A little bit like Cmd but here the vectorization is completely implicit.
+You only program from the scalar point of view.
+You only see a single program but underneath it is working on a multiple amount of our own custom passes that work together.
+We currently are not using the LLVM Code Gen infrastructure in any capacity.
+What we do have is a custom pass-based emitter which performs vectorization at the same time,
+lowering the LLVM IR into another custom IR which is called VISA.
+And what you see at the bottom of the slide is basically how the target ISA look like,
+what we are trying to emit here.
+So this is basically our assembly and I think the most interesting part that you can see at glance is that it's explicitly vector instruction.
+So we have this impedance and difference between what comes to us in form of scalar program and what we emit in terms of a vector program.
+So to do what we do we are using the LLVM C++ API.
+So basically we use all the same functions and classes which you would normally would use to create an LLVM pass if you were writing it as a part of LLVM.
+We cannot really use the API here although it's stable and that would be great for us but it's really limited in terms of what it allows.
+So basically this API is mostly designed for front ends to create LLVM IR and then to push it through the rest of the LLVM infrastructure.
+But in our case we actually want to modify this LLVM infrastructure to serve our needs.
+So this is one thing and the other thing is our open source model here.
+So IGC is as I said before part of the graphics driver and for the graphics driver we do both close source and open source releases.
+And the same goes for IGC. So basically there are two flavors of IGC.
+There is a close source IGC that contains some proprietary code that is not available in the open source IGC.
+And there is an open source IGC which is freely available at any time.
+Here is a GitHub repository if you'd like to see it.
+So we are also part of some of the GNU or Linux distributions like Archibb onto or Debian.
+So this is how this works from the distribution point of view.
+When it comes to development we sadly develop close source first.
+We do have...
+So when we commit some changes we basically do this through the close source repository and then we have some infrastructure that takes care of replicating this for open source.
+So we basically have a system of annotating parts of the code which are sensitive and shouldn't reach public IED.
+And this script basically cuts them off and then we also have some CI infrastructure that checks in every framework.
+And this allows us to generally have both close and open source repositories that are pretty much in sync when it comes to latest changes.
+So this is the picture of how everything looks like around IGC.
+So why do we need to support multiple LLVM versions in the first place?
+So as I said before we are striving to be part of open source distributions.
+And this means that we have to fit into the distro.
+So basically all the Linux distributions have a set of LLVM versions that they support out of the box that they already have in their package managers.
+And what the maintainers of the distributions really want to see from the packages that come into the distro is that they use what already is there.
+So that we use already present LLVM versions.
+So this creates this pressure for us to keep updating LLVM on our end and always to be able to compile the latest version of LLVM that is supported by the distros.we target.
+And on the other hand we have this close source windows version of our compiler which is still on LLVM 9.
+And there we doesn't really see this kind of pressure to update.
+And because of that we mostly see drawbacks of updating.
+So each LLVM update brings to us both some performance improvements and some performance regressions.
+And well we only want the latter, not really the former.
+So we have to always come and remove the regression and this creates additional effort.
+At the same time the improvements doesn't really seem to feel worthy of that.
+So on the windows end we see a lot of less reason to update.
+That's why the updates there are slower.
+And this creates this kind of discrepancy when we have a range of supported LLVM by a single code base.
+So how do we do that?
+So when you try to support multiple versions of a C++ library similar to LLVM,
+a number of issues comes into play.
+So first of all there are changes in optimizations that...
+So the changes in LLVM functionality and how the things are done in there that
+create changes in the performance of the code generated by the compiler.
+Those kind of changes also occasionally cause some bugs on our side.
+For example when new intrinsic or a new IR instruction is introduced
+we also have to take care of it and handle it on our end.
+There is for example this pass that combines many PIP-Hole optimization
+which is called Instruction Combiner.
+And this is probably the most, the singular most problematic pass in terms of
+supporting multiple versions because it brings different results each time.
+And it does it to the extent that at some point we decided to just fork Instruction Combiner
+and keep it on a singular version and not really use the upstream one.
+But really those cases are hard to generalize and we usually have to work on each of them
+and then create a fix on our site.
+But what is much more easier to generalize in our example, in our case,
+is the API changes.
+And to do that we do have a part of code that we call LLVMRapper.
+And this is basically a small wrapper like library that provides a single unified API
+that allows us to call functions from LLVM9 to 15 without a single interface basically.
+So the biggest benefit of having that in one place is that we don't really have this
+bunch of if-deaf scattered around our code.
+And when we come and when we start to abandon the old versions and don't support them anymore,
+we just can go remove a singular call from the wrapper library
+and then just change this call in our code and it's very straightforward process.
+So if you're interested how the wrapper looks like, it's available here.
+It's a headers-only library.
+So the conventions that we use when developing this is that we try to mirror the LLVM header structure
+as much as we can.
+So it's fairly obvious where to look for the calls when you try to add them
+or when you try to remove them.
+And the other important thing is that for each wrapper function that we add,
+we try to follow the signature of the function as it comes from the latest supported version.
+So in the future when we can drop the wrapper, we just can replace it with a call to the new version of the library.
+So how does it look like in practice?
+So for most cases really, it's very simple and we just see places where we get functions,
+we get methods that change their name a little bit or maybe change the arguments that they receive.
+So most of the cases are like this.
+Sometimes, unfortunately, we have to go on and try to add something which is not available yet.
+This is one such case when we basically had to pull an implementation into our headers
+so we can use it temporarily for various versions of LLVM.
+In the worst cases, it can be whole classes, but I don't think there are many of them.
+I think this is the only one that we have right now.
+And when it comes to types, it usually can be handled by a simple type alias, so it's not that much.
+So how does it look like in terms of numbers?
+So right now we have 52 headers including 224 wrapper functions that allow us to seamlessly support LLVM from 9 to 15.
+As you can see from this table, so this table basically follows the header directories that we use.
+And as you can see, most of the wrapper types or functions are contained in the IR directory.
+This basically shows that this is the directory that we both use the most and probably the one that is mostly being developed upstream.
+Hence the DDDD changes.
+So what about the future plans?
+So as you may have seen, when I was talking, I was referring to LLVM 9 to 15 and we already have LLVM 17 released and we will have LLVM 18 soon.
+So when it comes to updating beyond LLVM 16, we have the small issue of the OPAC pointers.
+So basically the OPAC pointers change, this was a big change that was introduced with LLVM 14, but back then it wasn't mandatory.
+But with LLVM 16, it became the default mode of operations for LLVM.
+And the changes work like this, that it basically removes the pointy type information from the pointer passed in the LLVM IR.
+So we have this pretty simple code that doesn't involve any additional type annotations.
+So the unfortunate fact is that we heavily rely on the pointer information in our code base.
+So there are plenty of places where this information can be either, so where the type pointer like dependency can be fully removed because we have the information available elsewhere,
+or perhaps it's not even needed, but it was used there for some other reason.
+But for the GPU targets, we have a specific issue that we have some types that were really good to be modeled as the type pointers with the OPACs track type.
+So for the GPUs, there are things like samplers, images, etc.
+And these are generally handles that are passed from the runtime through the kernel code and then are given somehow to the hardware.
+And well, so we really have to know what is coming inside this type of pointer.
+So we really have to know what it is because we have to emit the right instruction.
+So depending on sampler, depending on type of image, this will be resolved to a different kind of load, or maybe not even a load, but something more sophisticated.
+And well, this information is really needed there and we couldn't really get it with the OPAC pointers because we only see then a pointer type that is passed to the kernel.
+So this is the entry point for us and then is somehow used, but we don't really know what this pointer represents.
+So this type of change obviously cannot be handled by the mechanism that I showed before. It cannot be handled by a wrapper.
+So we cannot conjure the pointy type information from the OPAC pointer, at least not always and at least not like for free.
+We could do some analysis, but this would cost us the compilation time, which we cannot really have.
+But fortunately, there are already some changes that has been introduced to LVM and I'm talking about it.
+LVM API, we will be still using at this point the type pointers.
+From there, we could go to LVM 16, but then we would be doing LVM transition and also starting to go from type pointers to target extension types,
+which we don't really want to do at the same time.
+So we decided that we will take this target extension type patch.
+It's actually a pretty small patch that is quite self-contained, so it's not that easy to port back.
+So we are going to port it back to LVM 14 and use this version with this patch to slowly move to the target extension types.
+And from then, when we are happy with our results, we will move on to LVM 16 at the same time,
+dropping support for everything that we had before.
+So coming to conclusions, it is actually possible to support multiple versions of LVM.
+It is a little bit of pain, but on the other hand, if you look back at the numbers that I displayed before, the wrapper isn't really that big.
+So it's like 200 wrapper functions, but when you think about all the functions that LVM is exposing, there is really plenty of them,
+and this is a really small percentage of that.
+And also, you know, it's distributed in time, so it's not like you are writing 200 functions up front.
+You are just slowly adding them and removing over the time as the window of supported version changes.
+So this shows that to some extent, a stable IPI perhaps could be created if there was such need in the community.
+But even if such an API was created, it would be probably pointless, because when you do the engineering the way we did it,
+you in the end still have the risk that you will come to the big changes like the Opaq pointers,
+when you will have to basically come and switch to the newer version with dropping everything else.
+So, well, that's mostly what I had prepared today. Thank you for listening, and I'm open for questions.
+Yeah, I know, sorry. Please go on.
+Did you consider using the old VMC API, which is supposedly most stable?
+Yes, yes, yes. So the question was if we considered using CAPI, which is stable.
+And yeah, we did, but the CAPI doesn't offer what we need.
+So, sorry, I'm asked to repeat the question.
+So the question was if we considered to use the CAPI.
+Yes, we did. Unfortunately, the CAPI doesn't support what we need.
+So CAPI allows creating new IR, so basically building IR from the parcel tree state that you would have.
+In our case, we don't really want to do this. We already have LVM IR provided by a SPIRV translator in our case.
+What we really want to do is to modify this and create our customer LVM passes.
+That's why we need the C++ API, unfortunately.
+Please go on.
+Can you mix up simple VM persons like say you have this product, this is the LVM9, or do you use those?
+And there's about there, like how do you do that?
+Sorry, can you speak up? I cannot hear you from here.
+Can you mix up simple VM persons like if you have LVM9 on your big old private VM, there's about the LVM9, how do you deal with that?
+So how do we do that? We fix them for the version, sorry, I was forgetting about repeating the question.
+So the question was how we deal with the bugs that are in the older versions but are not in the newer versions.
+So and the answer is that we fix them in the version that we have, in the version in which they appear.
+And if the fix is applicable to the newer version, obviously it's not a problem.
+If not, we will have to somehow wrap it up, but such cases are really rare.
+So usually we don't really see any things that are wrong in the LVM code.
+The code is usually what is wrong in our code and we can handle that on our side regardless of the LVM version.
+Maybe I misunderstood before, but were you saying that you were going to phase out the older version?
+So the question is if we are going to phase out older versions.
+Yes, we are going to phase out older versions because we are not able to support them and LVM 16 at the same time.
+So I mean technically it would be, but we decided that the cost of supporting both OPAG pointers and type pointers is not really worth it.
+But then the distributions that you were supporting previously or the Linux?
+So the question right now is about distributions and if they will see a dropped support.
+So first of all they still have the versions that were already released that cover the older LVM versions.
+And when it comes to the LVM versions, LVM 16 is not really cutting edge right now, right?
+We will have LVM 18 in a matter of days I believe.
+And well, so we are a little bit backwards, right?
+Have you considered assuming your backend for your custom ISA or is it like the closed part?
+So the question is if we have considered upstreaming our backend.
+So yes, we did.
+It's not really in an upstreamable state right now I would say.
+So basically, so it's all open source, you can go and check how it looks.
+So we basically have a very thin pass that is emitting the VISA code, the other IR.
+And then we have a separate library that is handling the VISA for us and is written in a completely different style than LVM etc.
+It's not really good fit to be managed with LVM.
+But yeah, we are seriously thinking about upstreaming and upstreaming as much as you can.
+And basically like this presentation and the fact that we had to put so much effort shows that it's really worth to work in upstream.
+So going a little bit in the direction of the earlier question is why do you need to support multiple versions of LVM if you basically have to shoot your own anyway because you replace and combine everything?
+So do you basically have your own LVM for when you complete your 4B and you actually use the system LVM and just replace it?
+So the question was why we want to support multiple versions and if we have our custom for the VM that we ship or if we use a system one.
+So I will start from the end. We are using the system provided version of LVM.
+That's why we want to support a range although a very narrow range in the open source.
+And going back to LVM 9 comes from the fact that we also support the Windows compiler which is on the older version because of the effort that comes with the performance regression that the upgrade brings.
+Sorry, I didn't get the question.
+Yes, yes.
+How can you do that if you use the system provided one?
+Okay. So the question was, so I mentioned in the slides that we are going to patch LVM 14 to support TAT and at the same time I said before that we are using the system version of LVM.
+So sorry, I haven't explained that pretty well before.
+So basically the patched LVM will be only internally for our development and when we are ready we will just say that we are supporting LVM 16 right now.
+But you know this patch version is only to ease the development on our side. It's not a release version.
+One possible way around to bind new things to distribute your modified version of LVM or at least package it all up as one.
+Yes, you are going to have two copies of LVM libraries but that might get you out of the hole.
+Yeah, so the question was about having distributing binary more than one copy of LVM.
+So this is an option and this is probably something that we will have to do occasionally but this is also something that we don't really want to do because we have, believe it or not, a tight budget for size of the graphics driver.
+So you know, you have this graphics driver. It is a very big blob.
+It is like 200 megabytes that the user don't know from time to time and really the marketing is pushing us to make it as small as it is possible.
+So even a megabyte is a big difference in this case.
+All right, I don't think we have any other questions. Thank you.
+Thank you.

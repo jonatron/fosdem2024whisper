@@ -399,8 +399,16 @@ files = \
     "title": "Please Make It Make Sense: Product Management Methods to Make Your Project's Purpose Clear\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-3671-compliance-as-a-community-effort-engaging-contributors-and-users.av1.webm",
+    "title": "Compliance as a Community Effort: Engaging Contributors and Users\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2190-single-vendor-is-the-new-proprietary.av1.webm",
     "title": "Single-vendor is the new proprietary\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2328-cracking-the-code-to-executive-support-open-source-edition.av1.webm",
+    "title": "Cracking the Code to Executive Support: Open Source Edition\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2029-open-source-in-2024-boundaries-burnout-business.av1.webm",
@@ -507,6 +515,10 @@ files = \
     "title": "Zero-touch Infrastructure for Container Applications\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3402-from-containers-to-unikernels-navigating-integration-challenges-in-cloud-native-environments.av1.webm",
+    "title": "From Containers to Unikernels: Navigating Integration Challenges in Cloud-Native Environments\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2784-debug-your-stage-1-systemd-with-gdb-and-the-nixos-test-framework.av1.webm",
     "title": "Debug your stage-1 systemd with GDB and the NixOS test framework\n"
   },
@@ -587,6 +599,10 @@ files = \
     "title": "UKIs, TPMs, immutable initrds and full disk encryption – What Distributions Should Keep in Mind when Hopping onto the System Integrity Train\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2949-enhancing-linux-accessibility-a-unified-approach.av1.webm",
+    "title": "Enhancing Linux Accessibility: A Unified Approach\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2888-mkosi-initrd-building-initrds-out-of-distribution-packages.av1.webm",
     "title": "mkosi-initrd: Building initrds out of distribution packages\n"
   },
@@ -649,6 +665,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2198-the-first-13-years-of-blockchain-name-systems.av1.webm",
     "title": "The first 13 years of blockchain name systems\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3242-screen-sharing-on-raspberry-pi-5-using-vnc-in-weston-and-wayland-with-the-yocto-project-and-openembedded.av1.webm",
+    "title": "Screen Sharing on Raspberry Pi 5 Using VNC in Weston and Wayland with the Yocto Project and OpenEmbedded\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-2572--vanilla-debian-on-an-industrial-embedded-device.av1.webm",
@@ -1319,6 +1339,10 @@ files = \
     "title": "The new Swiss Open Source Law: \"Public Money Public Code\" by default\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2361-foss-cad-eda-tools-supporting-the-open-access-pdk-initiative.av1.webm",
+    "title": "FOSS CAD/EDA tools supporting the open access PDK initiative\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-3582-welcome-to-the-llvm-dev-room.av1.webm",
     "title": "Welcome to the LLVM dev room\n"
   },
@@ -1329,6 +1353,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2371-patch-based-test-coverage-for-quick-test-feedback.av1.webm",
     "title": "Patch based test coverage for quick test feedback\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2501-challenges-of-supporting-multiple-versions-of-llvm-in-intel-graphics-compiler.av1.webm",
+    "title": "Challenges of supporting multiple versions of LLVM in Intel Graphics Compiler\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2254-elfconv-aot-compiler-that-translates-linux-aarch64-elf-binary-to-llvm-bitcode-targeting-webassembly.av1.webm",
@@ -2011,6 +2039,10 @@ files = \
     "title": "How can we trust 3rd party code? Using Python to understand the trust relationships within the python ecosystem\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2311-making-python-safer-than-ever.av1.webm",
+    "title": "Making Python safer than ever\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1996-match-all-things-python-parsing-structured-content-with-python-s-new-match-statement.av1.webm",
     "title": "Match all things Python: Parsing structured content with Python's new match statement\n"
   },
@@ -2241,6 +2273,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3318-spdx-in-the-yocto-project.av1.webm",
     "title": "SPDX in the Yocto Project\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3169-how-to-make-spdx-industry-standard-for-ai-ml.av1.webm",
+    "title": "How to make SPDX industry standard for AI/ML\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-1896-12-months-of-sboms-an-experience-report.av1.webm",
