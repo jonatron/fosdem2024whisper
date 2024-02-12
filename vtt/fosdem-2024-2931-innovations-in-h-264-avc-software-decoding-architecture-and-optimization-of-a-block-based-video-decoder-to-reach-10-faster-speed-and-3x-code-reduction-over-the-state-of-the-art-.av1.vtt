@@ -1,0 +1,1358 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Okay, I guess we can start.
+
+00:07.000 --> 00:12.000
+So, hello everybody.
+
+00:12.000 --> 00:14.000
+I'm Thibault Rafaillac.
+
+00:14.000 --> 00:16.000
+I'm a postdoc in Montpellier.
+
+00:16.000 --> 00:19.000
+And it's really a pleasure and an honor to be here.
+
+00:19.000 --> 00:21.000
+This is my first time as a speaker in FOSDEM.
+
+00:21.000 --> 00:23.000
+So it's pretty cool.
+
+00:23.000 --> 00:26.000
+So this talk will be about H.264,
+
+00:26.000 --> 00:30.000
+is a library that I've been developing for about ten years.
+
+00:30.000 --> 00:34.000
+And that was experimental initially.
+
+00:34.000 --> 00:37.000
+It was like a tool project, like a toy project
+
+00:37.000 --> 00:41.000
+to try different programming techniques, like unusual stuff.
+
+00:41.000 --> 00:45.000
+And then I've been working on towards a stable release since 2020.
+
+00:45.000 --> 00:51.000
+At the moment, it supports only Intel architectures from SSE3 onwards.
+
+00:51.000 --> 00:54.000
+And at the moment, it supports a progressive high.
+
+00:54.000 --> 00:58.000
+And the MVC profiles, which is Blu-ray 3D.
+
+00:58.000 --> 01:00.000
+Yay!
+
+01:00.000 --> 01:03.000
+So first a few benchmarks.
+
+01:03.000 --> 01:07.000
+At the time there was a measure last year,
+
+01:07.000 --> 01:10.000
+in November someone measured the performance.
+
+01:10.000 --> 01:14.000
+It's actually, it's currently faster than all of the state of the art.
+
+01:14.000 --> 01:16.000
+It's about 10% faster.
+
+01:16.000 --> 01:19.000
+And the most important thing is that it's three times lighter
+
+01:19.000 --> 01:23.000
+in both code size and binary size.
+
+01:24.000 --> 01:26.000
+On average, it's 10% faster.
+
+01:26.000 --> 01:29.000
+It's actually faster for smaller resolutions like 480p.
+
+01:29.000 --> 01:32.000
+And the speed being very unpredictable,
+
+01:32.000 --> 01:35.000
+I usually focus on code simplicity and number of instructions,
+
+01:35.000 --> 01:39.000
+as Anton would say, and I would very agree on that,
+
+01:39.000 --> 01:41.000
+on elegance of the code.
+
+01:41.000 --> 01:44.000
+It helps speed as a side effect, not the core effect.
+
+01:44.000 --> 01:48.000
+But the biggest advantage has been when adding new features like MVC.
+
+01:48.000 --> 01:50.000
+Because when the core is simple,
+
+01:50.000 --> 01:53.000
+basically adding new stuff is really like a breeze.
+
+01:53.000 --> 01:56.000
+That's less code to patch, less potential side effects,
+
+01:56.000 --> 01:59.000
+and easier remembering of the big picture when you come back to the project.
+
+01:59.000 --> 02:01.000
+Because I'm not working full time on this project,
+
+02:01.000 --> 02:03.000
+it's just a side project.
+
+02:03.000 --> 02:06.000
+First of all, just a little question.
+
+02:06.000 --> 02:11.000
+Who has ever developed an encoder or decoder video or audio?
+
+02:11.000 --> 02:12.000
+Just to see.
+
+02:12.000 --> 02:14.000
+Okay, quite many. Good.
+
+02:14.000 --> 02:16.000
+This talk will be quite technical.
+
+02:16.000 --> 02:19.000
+It's for you guys, or folks.
+
+02:19.000 --> 02:25.000
+Now it's time just to open the box and see which of the techniques
+
+02:25.000 --> 02:32.000
+I think have been the most impactful in simplifying the code and the architecture.
+
+02:32.000 --> 02:34.000
+First a bit of context.
+
+02:34.000 --> 02:39.000
+A.26 AVC segments and images in macro blocks,
+
+02:39.000 --> 02:42.000
+called macro blocks of 16 by 16 pixels,
+
+02:42.000 --> 02:46.000
+which you get from the byte stream in raster scan.
+
+02:46.000 --> 02:47.000
+So that's on the top left.
+
+02:47.000 --> 02:56.000
+Then each macro block is further segmented into 4, 4, or 8, 8 blocks in zigzag order.
+
+02:56.000 --> 03:03.000
+And when you have your code base, the code base basically is in like five or so parts.
+
+03:03.000 --> 03:06.000
+You first parse symbols from the byte stream,
+
+03:06.000 --> 03:10.000
+and then would compute inter, so for each macro block,
+
+03:10.000 --> 03:16.000
+compute a prediction based on either neighboring pixels or pixels from previous frames.
+
+03:16.000 --> 03:18.000
+As intra and inter prediction.
+
+03:18.000 --> 03:25.000
+And then you would add the residuals, like the rest, the difference to make the full picture with IDCT.
+
+03:25.000 --> 03:34.000
+And then going to the blocking, which is just a post filter that blurs the image along the edges of blocks.
+
+03:34.000 --> 03:36.000
+Okay, now for the meat.
+
+03:36.000 --> 03:38.000
+First technique.
+
+03:38.000 --> 03:42.000
+The first technique is very simple and almost of a troll thing.
+
+03:42.000 --> 03:46.000
+It's just put all of your headers into a single header file.
+
+03:46.000 --> 03:51.000
+Personally, I've always been very annoyed at tiny header files.
+
+03:51.000 --> 03:53.000
+When trying to understand a project structure,
+
+03:53.000 --> 03:58.000
+you have to open a lot of them just to get the big picture to know what is calling what and so on and so on.
+
+03:58.000 --> 04:02.000
+And out of this anger, I just put everything into a single file,
+
+04:02.000 --> 04:05.000
+which is about 6k, not that much.
+
+04:05.000 --> 04:09.000
+That contains all of the structure type desks, the inline functions,
+
+04:09.000 --> 04:17.000
+that are defined in each C file, and the same D type desks and functions, which I will discuss later.
+
+04:17.000 --> 04:20.000
+This has a good impact actually on code size,
+
+04:20.000 --> 04:23.000
+and it helps diving back into the project after a long time,
+
+04:23.000 --> 04:29.000
+because I'm telling you, I still remind that I'm not a pro side project.
+
+04:29.000 --> 04:33.000
+So far so good.
+
+04:33.000 --> 04:38.000
+The second technique is about the architecture of the codec itself.
+
+04:38.000 --> 04:42.000
+The overall architecture is designed like a hardware decoder,
+
+04:42.000 --> 04:48.000
+in that this is a graph of code blocks that are activated one after another.
+
+04:48.000 --> 04:55.000
+And then after expressing this graph, I express it in C, not the other way round.
+
+04:55.000 --> 04:59.000
+So I'm not thinking in functions in C, I'm thinking in code blocks,
+
+04:59.000 --> 05:02.000
+make a graph out of it, and then express it in C.
+
+05:02.000 --> 05:07.000
+So in C, it makes the nodes, the code blocks are functions, obviously,
+
+05:07.000 --> 05:11.000
+but then passing execution between code blocks becomes tail calls,
+
+05:11.000 --> 05:19.000
+and everything is done so that the tail calls are converted into jump instructions.
+
+05:19.000 --> 05:26.000
+Inlining is disabled so that each block is present only once in the binary,
+
+05:26.000 --> 05:29.000
+which helps reduce the binary size.
+
+05:29.000 --> 05:35.000
+And also, thinking in code blocks, instead of input output functions,
+
+05:35.000 --> 05:39.000
+makes less use of parameters, because you're not thinking into what my functions
+
+05:39.000 --> 05:42.000
+is going to take as parameters in return, it's just you're thinking,
+
+05:42.000 --> 05:44.000
+I'm going to pass execution to that function.
+
+05:44.000 --> 05:49.000
+But that function takes its input from the context structure.
+
+05:49.000 --> 05:55.000
+So that improves the readability overall.
+
+05:55.000 --> 05:58.000
+Next one, tree branching.
+
+05:58.000 --> 06:00.000
+That's one's the technical.
+
+06:00.000 --> 06:08.000
+In AVC, the intraframe prediction propagates neighboring pixels in a given direction.
+
+06:08.000 --> 06:14.000
+So in dotted, we have the neighboring pixels, and in full line,
+
+06:14.000 --> 06:17.000
+we have the block that we are trying to predict.
+
+06:17.000 --> 06:20.000
+For each direction, the code will follow the same pattern.
+
+06:20.000 --> 06:26.000
+First, we load the pixels into registers, CPU registers.
+
+06:26.000 --> 06:31.000
+Then, we would probably fix the colors that we fetched,
+
+06:31.000 --> 06:36.000
+particularly if the pixels belong to a block that was unavailable,
+
+06:36.000 --> 06:41.000
+that is in a different slice, or that is out of the bounds of the picture.
+
+06:41.000 --> 06:45.000
+If we do that, then we basically just propagate the pixels from the left
+
+06:45.000 --> 06:48.000
+to the pixels that are unavailable.
+
+06:48.000 --> 06:54.000
+Then we would compute the actual colors, so doing the math in the CPU.
+
+06:54.000 --> 06:57.000
+And finally, store the values to memory.
+
+06:57.000 --> 07:05.000
+That is the typical process that is executed for each direction in the intra mode.
+
+07:05.000 --> 07:08.000
+So AVC has nine directional modes.
+
+07:08.000 --> 07:10.000
+So basically, you get your neighboring pixels,
+
+07:10.000 --> 07:16.000
+and you have nine possible directions from which you have to propagate the colors.
+
+07:16.000 --> 07:20.000
+In the decoder, usually, it looks like this.
+
+07:20.000 --> 07:23.000
+It looks like a branching on the top,
+
+07:23.000 --> 07:27.000
+and each of the directional modes is one function.
+
+07:27.000 --> 07:29.000
+So technically, that's how it's implemented.
+
+07:29.000 --> 07:34.000
+It's usually nine functions, and branching towards these functions
+
+07:34.000 --> 07:37.000
+through an array of function pointers.
+
+07:37.000 --> 07:39.000
+But there are two things we can improve here.
+
+07:39.000 --> 07:42.000
+The first one is the fixed tests.
+
+07:42.000 --> 07:48.000
+The fixed tests are present inside some of the functions, not all of them.
+
+07:48.000 --> 07:52.000
+But we can see that they operate on the same conditions, most of them.
+
+07:52.000 --> 07:57.000
+They do the same tests, so we can merge them upstream.
+
+07:57.000 --> 08:03.000
+And the second thing is the storage code is basically the same.
+
+08:03.000 --> 08:08.000
+Not all the time, but most of the time is the same, so we can merge it.
+
+08:08.000 --> 08:10.000
+So when we do that, it looks like this.
+
+08:10.000 --> 08:12.000
+It looks like a tree.
+
+08:12.000 --> 08:16.000
+The storage is on the bottom, and then you have the compute and the loading,
+
+08:16.000 --> 08:21.000
+which has a fixed donor with it.
+
+08:21.000 --> 08:23.000
+And you have only one branching.
+
+08:23.000 --> 08:27.000
+So it looks like a tree, and in practice, what you do is you branch once,
+
+08:27.000 --> 08:30.000
+one conditional branch to the leaves,
+
+08:30.000 --> 08:35.000
+then go down with unconditional branches down to the storage operation.
+
+08:35.000 --> 08:38.000
+I told you this is very technical.
+
+08:38.000 --> 08:43.000
+In C, the branching is done with a switch.
+
+08:43.000 --> 08:47.000
+The branching inside the tree is done with go-to's,
+
+08:47.000 --> 08:52.000
+and branching out to the trunk is done with break, breaking out of the switch.
+
+08:52.000 --> 08:55.000
+I tried implementing that with functions,
+
+08:55.000 --> 08:58.000
+so doing all of the compute in different functions,
+
+08:58.000 --> 09:01.000
+but compilers get crazy at that.
+
+09:01.000 --> 09:08.000
+It's messy, so it's really the simplest is just to use switch, go-to, and break.
+
+09:08.000 --> 09:09.000
+The practical impact.
+
+09:09.000 --> 09:12.000
+In ABC, you have three intra-modes,
+
+09:12.000 --> 09:15.000
+intra-44, intra-88, and intra-16-16.
+
+09:15.000 --> 09:19.000
+Intra-44 has 14 leaves out of nine directional modes,
+
+09:19.000 --> 09:21.000
+so the impact is pretty okay,
+
+09:21.000 --> 09:25.000
+but intra-88 has 32 leaves out of nine directional modes,
+
+09:25.000 --> 09:28.000
+so that makes a good impact.
+
+09:28.000 --> 09:32.000
+Actually, in the decoder, the intra-88 benefits the most from this.
+
+09:32.000 --> 09:34.000
+Still, this technique is very general,
+
+09:34.000 --> 09:37.000
+and maybe applied to you in your code.
+
+09:37.000 --> 09:44.000
+If you manage to represent things as a tree, as a downward tree.
+
+09:44.000 --> 09:47.000
+Okay, fourth technique.
+
+09:47.000 --> 09:52.000
+In H.264, all of the context data resides in a single structure
+
+09:52.000 --> 09:54.000
+that is passed to every function.
+
+09:54.000 --> 09:57.000
+That is a classical technique, I would say, in many decoders.
+
+09:57.000 --> 09:59.000
+That you have one structure,
+
+09:59.000 --> 10:02.000
+that is the mother of all structures that stores everything.
+
+10:02.000 --> 10:06.000
+It's the context structure.
+
+10:06.000 --> 10:09.000
+In H.264, this structure, the pointer to this structure,
+
+10:09.000 --> 10:11.000
+is stored in a register.
+
+10:11.000 --> 10:15.000
+It's just mapped into a register with GCC that allows it.
+
+10:15.000 --> 10:17.000
+That's very dumb.
+
+10:17.000 --> 10:19.000
+The code actually looks like this.
+
+10:19.000 --> 10:22.000
+If we have GCC, we assign one register,
+
+10:22.000 --> 10:25.000
+we reserve a register to that pointer,
+
+10:25.000 --> 10:28.000
+and we patch all of the function calls
+
+10:28.000 --> 10:32.000
+so that GCC doesn't pass this pointer to functions,
+
+10:32.000 --> 10:34.000
+and Clang, or other compilers,
+
+10:34.000 --> 10:38.000
+will pass this pointer to functions.
+
+10:38.000 --> 10:41.000
+Easy, right?
+
+10:41.000 --> 10:47.000
+In practice, the binary size is reduced by 5% with GCC,
+
+10:47.000 --> 10:49.000
+and there is a minor speed-up,
+
+10:49.000 --> 10:52.000
+and it actually helps on my builds,
+
+10:52.000 --> 10:54.000
+GCC be faster than Clang.
+
+10:54.000 --> 10:55.000
+Yay.
+
+10:55.000 --> 10:56.000
+GCC9.
+
+10:56.000 --> 11:00.000
+After that, I think, for some weird reason,
+
+11:00.000 --> 11:03.000
+after GCC9, the performance actually drops
+
+11:03.000 --> 11:07.000
+to a greater version of GCC.
+
+11:07.000 --> 11:09.000
+So far, so good.
+
+11:09.000 --> 11:11.000
+Fifth technique.
+
+11:11.000 --> 11:15.000
+So I'll try perhaps going slightly fast on this
+
+11:15.000 --> 11:17.000
+because they are very hard to understand
+
+11:17.000 --> 11:20.000
+if they're not into A, B, C, but still.
+
+11:20.000 --> 11:23.000
+In A, B, C, every block has neighbors,
+
+11:23.000 --> 11:28.000
+and when you predict the color of the values of a block,
+
+11:28.000 --> 11:32.000
+you basically look for the values of the neighbors,
+
+11:32.000 --> 11:37.000
+and what the spec contains a lot is conditions.
+
+11:37.000 --> 11:41.000
+Basically, when I ask the value of a block of a neighbor,
+
+11:41.000 --> 11:45.000
+I'm asking first, is my neighbor available?
+
+11:45.000 --> 11:48.000
+Does it belong out of the picture?
+
+11:48.000 --> 11:52.000
+Is it out of the picture, or is it in a different slice,
+
+11:52.000 --> 11:54.000
+or does it exist?
+
+11:54.000 --> 11:56.000
+So if it's available, then I can fetch the value,
+
+11:56.000 --> 11:59.000
+but if it's not available, I fetch a default value.
+
+11:59.000 --> 12:02.000
+And the second test is the neighbor coded
+
+12:02.000 --> 12:06.000
+as the same mode as me, enter or intra.
+
+12:06.000 --> 12:08.000
+If not, default value.
+
+12:08.000 --> 12:10.000
+If so, good value.
+
+12:10.000 --> 12:16.000
+So one technique is just to allocate fake blocks in memory
+
+12:16.000 --> 12:20.000
+that will contain the default data.
+
+12:20.000 --> 12:22.000
+So basically, your picture will be surrounded
+
+12:22.000 --> 12:28.000
+by unavailable blocks which contain default values.
+
+12:28.000 --> 12:32.000
+And the second technique is that all of the blocks
+
+12:32.000 --> 12:34.000
+that you decode will contain the default values
+
+12:34.000 --> 12:37.000
+for the other modes that will be decoded.
+
+12:37.000 --> 12:40.000
+So for example, if I have a block, a macro block,
+
+12:40.000 --> 12:45.000
+that is coded as intra, it will still have motion vectors
+
+12:45.000 --> 12:47.000
+that will be decoded for inter.
+
+12:47.000 --> 12:52.000
+So it will behave like an intra and an inter macro block.
+
+12:52.000 --> 12:57.000
+As you would guess, this makes the code consume more memory
+
+12:57.000 --> 13:02.000
+a bit, but it makes the code a lot simpler.
+
+13:02.000 --> 13:04.000
+And I mean it really a lot simpler.
+
+13:04.000 --> 13:07.000
+This is actually a very important technique,
+
+13:07.000 --> 13:11.000
+but it's hard to achieve because you have to look at the spec
+
+13:11.000 --> 13:17.000
+and spot opportunities where the spec allows you to do that.
+
+13:17.000 --> 13:22.000
+So it consumes about 25% more memory than FFMPEG in practice.
+
+13:22.000 --> 13:24.000
+And that will be possible in the future
+
+13:24.000 --> 13:31.000
+to reduce it to 5% more in FFMPEG only.
+
+13:31.000 --> 13:33.000
+Sixth technique.
+
+13:33.000 --> 13:35.000
+Here is what it looks in memory.
+
+13:35.000 --> 13:39.000
+So we have the picture in a strong line.
+
+13:39.000 --> 13:43.000
+And in yellow, you have the blocks that are actually,
+
+13:43.000 --> 13:46.000
+the macro blocks that are actually stored in memory
+
+13:46.000 --> 13:51.000
+with the neighboring blocks stored on the top left.
+
+13:51.000 --> 13:54.000
+And as you can see on the right, you have no blocks
+
+13:54.000 --> 13:59.000
+because the memory circles around.
+
+13:59.000 --> 14:01.000
+So basically when you look on the top right,
+
+14:01.000 --> 14:03.000
+you're actually looking in memory to the top left.
+
+14:03.000 --> 14:06.000
+To the left.
+
+14:06.000 --> 14:10.000
+Yeah, that's a joke.
+
+14:10.000 --> 14:15.000
+This is still about accessing neighboring values.
+
+14:15.000 --> 14:18.000
+So in H264, we have a problem
+
+14:18.000 --> 14:21.000
+when accessing neighbors of subblocks.
+
+14:21.000 --> 14:25.000
+So in a macro block, blocks are stored in arrays.
+
+14:25.000 --> 14:28.000
+And when you want to access the neighbor of any block,
+
+14:28.000 --> 14:32.000
+any subblock, its neighbors may be in the same macro block
+
+14:32.000 --> 14:35.000
+or in a different macro block.
+
+14:35.000 --> 14:37.000
+That's what we see with B.
+
+14:37.000 --> 14:39.000
+So B is stored in the same macro block, fine.
+
+14:39.000 --> 14:41.000
+But A is stored in a different macro block.
+
+14:41.000 --> 14:44.000
+So in a codec development, typically what you would do
+
+14:44.000 --> 14:47.000
+is copy all of this in a buffer.
+
+14:47.000 --> 14:50.000
+Copy the values from the neighboring macro blocks
+
+14:50.000 --> 14:53.000
+in the same buffer so that you have everything packed
+
+14:53.000 --> 14:55.000
+in the same thing.
+
+14:55.000 --> 14:58.000
+What I do is different.
+
+14:58.000 --> 15:01.000
+I use pre-computed memory offset.
+
+15:01.000 --> 15:04.000
+So that's a nasty technique.
+
+15:04.000 --> 15:08.000
+Basically, when you have your value in memory,
+
+15:08.000 --> 15:11.000
+you know where your neighbor is going to be in memory.
+
+15:11.000 --> 15:12.000
+You know it's there.
+
+15:12.000 --> 15:15.000
+It's in a macro block.
+
+15:15.000 --> 15:18.000
+The offset is basically constant in memory.
+
+15:18.000 --> 15:20.000
+I know it.
+
+15:20.000 --> 15:24.000
+But the problem is that it belongs to a different structure.
+
+15:24.000 --> 15:28.000
+So what I do is just to compute the offset with offset off in C.
+
+15:28.000 --> 15:32.000
+And I look to the memory at that position.
+
+15:32.000 --> 15:34.000
+It's non-standard C.
+
+15:34.000 --> 15:41.000
+So you didn't hear anything.
+
+15:41.000 --> 15:44.000
+So the first two are the sevens technique.
+
+15:44.000 --> 15:46.000
+I have nine.
+
+15:46.000 --> 15:48.000
+These are the last three.
+
+15:48.000 --> 15:51.000
+I promise there are eight and nine are pretty better.
+
+15:51.000 --> 15:54.000
+So this one is about inter-prediction.
+
+15:54.000 --> 15:58.000
+In AVC, for interframe prediction,
+
+15:58.000 --> 16:02.000
+each macro block will be first segmented in two rectangles,
+
+16:02.000 --> 16:07.000
+sub-rectangles, that each will receive a different motion vector.
+
+16:07.000 --> 16:10.000
+And the problem is that there are many possible shapes.
+
+16:10.000 --> 16:14.000
+So there are many possible ways to just cut a macro block.
+
+16:14.000 --> 16:19.000
+So there is not a single number of motion vectors that you will fetch.
+
+16:19.000 --> 16:22.000
+Traditionally, this incurs many tests in the decoder.
+
+16:22.000 --> 16:28.000
+For example, if I have a 2x2 block, then I will fetch one motion vector.
+
+16:28.000 --> 16:32.000
+If I have two rectangles that I will fetch, two motion vectors, and so on and so on.
+
+16:32.000 --> 16:34.000
+That's a lot of tests.
+
+16:34.000 --> 16:35.000
+That's many tests.
+
+16:35.000 --> 16:40.000
+The thing is we want to merge all of these tests together into one.
+
+16:40.000 --> 16:42.000
+That's possible.
+
+16:42.000 --> 16:46.000
+To do so, we assign a bit mask to that shape.
+
+16:46.000 --> 16:49.000
+So we convert the shape to a bit mask,
+
+16:49.000 --> 16:56.000
+where every rectangle will contain one set bit and the rest as zeros.
+
+16:56.000 --> 16:59.000
+Then we convert that into an integer.
+
+16:59.000 --> 17:02.000
+And note that on the left, we have nine rectangles,
+
+17:02.000 --> 17:05.000
+or squares plus rectangles.
+
+17:05.000 --> 17:08.000
+And on the right, we have nine set bits.
+
+17:08.000 --> 17:15.000
+So we know that we are going to have to fetch nine motion vectors out of the byte stream.
+
+17:15.000 --> 17:18.000
+To do so, we loop on set bits.
+
+17:18.000 --> 17:20.000
+That's a classical technique.
+
+17:20.000 --> 17:28.000
+We do count leading zeros on the bit mask to get the first set bit.
+
+17:28.000 --> 17:30.000
+And we clear it with the last operation.
+
+17:30.000 --> 17:33.000
+That clears the last set bit.
+
+17:33.000 --> 17:36.000
+This has a good impact on code size,
+
+17:36.000 --> 17:40.000
+because it merges all of the tests into one loop.
+
+17:40.000 --> 17:45.000
+And it has a minor impact on speed by reducing the number of conditional branches.
+
+17:45.000 --> 17:49.000
+So less pressure on the branch predictor and so on and so on.
+
+17:49.000 --> 17:52.000
+The general pattern, if you want to sit in and reproduce that,
+
+17:52.000 --> 17:55.000
+is to convert your macro block type into a bit mask,
+
+17:55.000 --> 17:58.000
+then iterating on the bit mask.
+
+17:58.000 --> 18:02.000
+And in the decoder, it's used to parse the reference indices, the motion vectors,
+
+18:02.000 --> 18:05.000
+and the residual coefficients.
+
+18:05.000 --> 18:08.000
+Okay.
+
+18:08.000 --> 18:10.000
+Using vector extensions.
+
+18:10.000 --> 18:14.000
+So in H264, SIMD are used everywhere.
+
+18:14.000 --> 18:17.000
+And by everywhere, I mean everywhere, in the whole of the code base.
+
+18:17.000 --> 18:19.000
+It's not separated into decoding and parsing.
+
+18:19.000 --> 18:21.000
+The SIMDs are used even in the parsing.
+
+18:21.000 --> 18:24.000
+And this is thanks to the use of GCC vector extensions.
+
+18:24.000 --> 18:26.000
+So I use GCC vector extensions.
+
+18:26.000 --> 18:31.000
+And to be clear, I use no hand-coded assembly in the decoder.
+
+18:31.000 --> 18:33.000
+It's all C.
+
+18:33.000 --> 18:37.000
+It helps actually reduce the register pressure in scalar register,
+
+18:37.000 --> 18:39.000
+because every time you have some scalar code,
+
+18:39.000 --> 18:42.000
+if you have an opportunity to vectorize it,
+
+18:42.000 --> 18:45.000
+you just reduce the pressure in the scalar register.
+
+18:45.000 --> 18:49.000
+So anything that you can do with this SIMD, it's just a win.
+
+18:49.000 --> 18:51.000
+Just a big win.
+
+18:51.000 --> 18:55.000
+So to do so in code, first you define your vector types.
+
+18:55.000 --> 18:58.000
+So this is standard GCC extensions.
+
+18:58.000 --> 19:07.000
+Then to define vector-capable arrays in your context structure,
+
+19:07.000 --> 19:09.000
+I use union.
+
+19:09.000 --> 19:11.000
+It went through a lot of trial and error.
+
+19:11.000 --> 19:14.000
+And this one is the only one which doesn't generate random stack spills
+
+19:14.000 --> 19:17.000
+by the compilers, both GCC and Klang.
+
+19:17.000 --> 19:21.000
+So this is to me the most stable one to use.
+
+19:21.000 --> 19:25.000
+And the last thing is that I shorten all of the Intel Intrinsics
+
+19:25.000 --> 19:30.000
+so that two reasons, to make the code more readable,
+
+19:30.000 --> 19:34.000
+because the Intel Intrinsics are amazing to read,
+
+19:34.000 --> 19:37.000
+and to help the future ports to other architectures,
+
+19:37.000 --> 19:42.000
+ARM and RISC-V, whatever.
+
+19:42.000 --> 19:45.000
+Four things to care about when using vector extensions.
+
+19:45.000 --> 19:47.000
+First is don't use built-ins.
+
+19:47.000 --> 19:53.000
+They are a bit unreliable, and they may generate big code,
+
+19:53.000 --> 19:55.000
+although you don't always know.
+
+19:55.000 --> 19:58.000
+So to be sure, if you want to use a specific instruction,
+
+19:58.000 --> 20:01.000
+don't rely on built-ins to generate that.
+
+20:01.000 --> 20:04.000
+Just use that specific instruction.
+
+20:04.000 --> 20:09.000
+Then don't use vector sizes that are not supported by the native host.
+
+20:09.000 --> 20:11.000
+Compilers get crazy at that.
+
+20:11.000 --> 20:17.000
+Don't index a vector by a variable, obviously,
+
+20:17.000 --> 20:20.000
+because then the compilers will just push down on stack
+
+20:20.000 --> 20:22.000
+and then index the stack.
+
+20:22.000 --> 20:24.000
+And don't use automatic vectorization,
+
+20:24.000 --> 20:26.000
+as this is very theoretical too,
+
+20:26.000 --> 20:30.000
+but it's not reliable enough in practice.
+
+20:32.000 --> 20:35.000
+Okay, still got some juice.
+
+20:35.000 --> 20:37.000
+Last one.
+
+20:37.000 --> 20:42.000
+So this is a very important, a fun technique, actually.
+
+20:42.000 --> 20:46.000
+I will take here the example of the de-blocking filter in ABC.
+
+20:46.000 --> 20:51.000
+So as a reminder, in ABC, the de-blocking filter is a post-filter
+
+20:51.000 --> 20:54.000
+that blurs all of the edges in that order.
+
+20:54.000 --> 20:57.000
+One, two, three, four, then five, six, seven, eight.
+
+20:57.000 --> 21:00.000
+It's conditional blurring,
+
+21:00.000 --> 21:02.000
+but for the sake of this presentation,
+
+21:02.000 --> 21:06.000
+let's assume we de-block all of the edges.
+
+21:07.000 --> 21:09.000
+In yellow, these are the reads.
+
+21:09.000 --> 21:14.000
+We read pixels, and in orange, we read and we write the pixels.
+
+21:14.000 --> 21:19.000
+The problem we have is that to filter all of the edges
+
+21:19.000 --> 21:21.000
+in one continuous operation,
+
+21:21.000 --> 21:24.000
+we would need to store all of the pixels,
+
+21:24.000 --> 21:26.000
+so all of the values.
+
+21:26.000 --> 21:29.000
+As a reminder, one pixel is one byte.
+
+21:29.000 --> 21:32.000
+It's a luma value.
+
+21:32.000 --> 21:35.000
+We would need to store all of the macro block values
+
+21:35.000 --> 21:38.000
+into SIMD registers.
+
+21:38.000 --> 21:42.000
+In yellow, that needs about 22 hardware registers,
+
+21:42.000 --> 21:46.000
+although we have only 16.
+
+21:46.000 --> 21:48.000
+This is physically impossible.
+
+21:48.000 --> 21:53.000
+So what we traditionally do is that we work one edge at a time,
+
+21:53.000 --> 21:57.000
+loading the matrix from memory, transposing it, filtering it,
+
+21:57.000 --> 21:59.000
+then storing it back.
+
+21:59.000 --> 22:04.000
+And we proceed edge after edge until we're done.
+
+22:05.000 --> 22:08.000
+If we count the reads and the writes,
+
+22:08.000 --> 22:12.000
+each vertical edge is 16 reads, 16 writes,
+
+22:12.000 --> 22:17.000
+and 50 shuffles for the transposed operations, back and forth.
+
+22:17.000 --> 22:19.000
+Each horizontal edge is much easier.
+
+22:19.000 --> 22:22.000
+We do six reads, four writes.
+
+22:22.000 --> 22:27.000
+And in the total, it makes 88 reads, 80 writes, and 200 shuffles.
+
+22:29.000 --> 22:31.000
+Can we do better, of course.
+
+22:31.000 --> 22:35.000
+Now, if you imagine that you have an infinite number of registers,
+
+22:35.000 --> 22:39.000
+as in C, but you get a penalty, the more registers you use.
+
+22:39.000 --> 22:43.000
+What we would do is we would load the left matrix,
+
+22:43.000 --> 22:45.000
+filter edges one and two,
+
+22:45.000 --> 22:49.000
+and then write the left pixels that we won't need anymore.
+
+22:49.000 --> 22:52.000
+Then we would load the right half of the matrix,
+
+22:52.000 --> 22:55.000
+filter edges three and four,
+
+22:55.000 --> 22:58.000
+and at this point, we have the entire macro block values
+
+22:58.000 --> 23:01.000
+in registers or in live variables.
+
+23:01.000 --> 23:05.000
+And some might be spilled on stack, but that's not my business.
+
+23:05.000 --> 23:07.000
+That's a compiler.
+
+23:07.000 --> 23:09.000
+Then we would transpose the whole thing.
+
+23:09.000 --> 23:12.000
+So the whole matrix would transpose it.
+
+23:12.000 --> 23:15.000
+We load the top missing parts.
+
+23:15.000 --> 23:20.000
+We filter edge five and proceed down with edges,
+
+23:20.000 --> 23:23.000
+storing the values as we complete.
+
+23:29.000 --> 23:32.000
+So ideally, if we count all the reads and all the writes,
+
+23:32.000 --> 23:37.000
+it makes 35 reads, 34 writes, and 163 shuffles.
+
+23:37.000 --> 23:39.000
+So that's a net win.
+
+23:39.000 --> 23:42.000
+But, of course, there is a but.
+
+23:42.000 --> 23:46.000
+Ideally, if I would code this by hand, it makes 22 spills,
+
+23:46.000 --> 23:47.000
+spills on stack.
+
+23:47.000 --> 23:52.000
+And actually, with Klang, it makes 40 spills.
+
+23:52.000 --> 23:57.000
+And 40 spills means about 40 writes and about 50 to 60 writes.
+
+23:58.000 --> 24:00.000
+Reads, sorry, reads.
+
+24:00.000 --> 24:05.000
+And it's less on later architectures where you have 32 hardware registers.
+
+24:05.000 --> 24:08.000
+So that's somehow a win, but I'm not quite sure.
+
+24:08.000 --> 24:10.000
+It's like, meh.
+
+24:13.000 --> 24:16.000
+The good thing is that this register-saturating technique
+
+24:16.000 --> 24:19.000
+is easy to design and implement in C,
+
+24:19.000 --> 24:21.000
+especially with regards to reordering instructions,
+
+24:21.000 --> 24:24.000
+because spilling is very sensitive to that.
+
+24:24.000 --> 24:26.000
+It has a good impact on code and binary size,
+
+24:26.000 --> 24:28.000
+and a minor impact on speed.
+
+24:28.000 --> 24:31.000
+It's useful for de-blocking and inter-prediction
+
+24:31.000 --> 24:34.000
+for the six-tap filters, which I'm really happy with.
+
+24:34.000 --> 24:37.000
+And last but not least,
+
+24:37.000 --> 24:42.000
+in general, using C instead of assembly for the SIMD code
+
+24:42.000 --> 24:44.000
+allowed me to improve the filtering code,
+
+24:44.000 --> 24:48.000
+the core code, by about 20%, 20% shorter,
+
+24:48.000 --> 24:53.000
+especially thanks to eliminating redundant operations
+
+24:53.000 --> 24:56.000
+used in macros in assembly,
+
+24:56.000 --> 24:58.000
+and reasoning with more compact code.
+
+24:58.000 --> 25:00.000
+So it helps you get the bigger picture
+
+25:00.000 --> 25:06.000
+and really be more ambitious in how you design code.
+
+25:06.000 --> 25:08.000
+With this in mind, I would encourage you to consider
+
+25:08.000 --> 25:10.000
+switching to assembly...
+
+25:10.000 --> 25:12.000
+No, sorry, C.
+
+25:12.000 --> 25:14.000
+For SIMD code.
+
+25:14.000 --> 25:16.000
+In my own experience, I've always been able to find
+
+25:16.000 --> 25:19.000
+important improvement over assembly code
+
+25:19.000 --> 25:21.000
+at the expense of register pressure, of course.
+
+25:21.000 --> 25:24.000
+In literally every part of the decoder,
+
+25:24.000 --> 25:29.000
+be it inter, intra, de-blocking, and not IDCT,
+
+25:29.000 --> 25:33.000
+because IDCT is just perfect, but how the mark transforms.
+
+25:33.000 --> 25:36.000
+In these cases, the use of C has made the code less overwhelming
+
+25:36.000 --> 25:40.000
+and allows you to go the extra mile and optimize further.
+
+25:40.000 --> 25:42.000
+With this, I would like to thank you for your attention.
+
+25:42.000 --> 25:45.000
+You can see the code there, and I will take any question.
+
+25:45.000 --> 25:50.000
+APPLAUSE
+
+25:52.000 --> 25:56.000
+And last note, Kudos and last round of applause, please,
+
+25:56.000 --> 25:59.000
+for Olivier, who is here, and who agreed to open-source this work
+
+25:59.000 --> 26:03.000
+at the very beginning, so open-sourcing for free.
+
+26:03.000 --> 26:08.000
+APPLAUSE
+
+26:10.000 --> 26:12.000
+Are there any questions? Yes.
+
+26:12.000 --> 26:16.000
+Just out of interest, the speed, basically, benchmarks,
+
+26:16.000 --> 26:19.000
+whether single-threaded or multi-threaded?
+
+26:19.000 --> 26:22.000
+Single-threaded, all of them.
+
+26:22.000 --> 26:24.000
+Sorry.
+
+26:24.000 --> 26:28.000
+So the question was the benchmarks where they're single-threaded
+
+26:28.000 --> 26:33.000
+or multi-threaded, and so the benchmark conditions
+
+26:33.000 --> 26:36.000
+were all single-threaded for all of the decoders.
+
+26:37.000 --> 26:40.000
+Thumbs up means last question?
+
+26:40.000 --> 26:42.000
+Oh, I think you're OK.
+
+26:42.000 --> 26:44.000
+Thank you for your attention.
+
+26:44.000 --> 26:48.000
+APPLAUSE
+

@@ -1,0 +1,452 @@
+Okay, I guess we can start.
+So, hello everybody.
+I'm Thibault Rafaillac.
+I'm a postdoc in Montpellier.
+And it's really a pleasure and an honor to be here.
+This is my first time as a speaker in FOSDEM.
+So it's pretty cool.
+So this talk will be about H.264,
+is a library that I've been developing for about ten years.
+And that was experimental initially.
+It was like a tool project, like a toy project
+to try different programming techniques, like unusual stuff.
+And then I've been working on towards a stable release since 2020.
+At the moment, it supports only Intel architectures from SSE3 onwards.
+And at the moment, it supports a progressive high.
+And the MVC profiles, which is Blu-ray 3D.
+Yay!
+So first a few benchmarks.
+At the time there was a measure last year,
+in November someone measured the performance.
+It's actually, it's currently faster than all of the state of the art.
+It's about 10% faster.
+And the most important thing is that it's three times lighter
+in both code size and binary size.
+On average, it's 10% faster.
+It's actually faster for smaller resolutions like 480p.
+And the speed being very unpredictable,
+I usually focus on code simplicity and number of instructions,
+as Anton would say, and I would very agree on that,
+on elegance of the code.
+It helps speed as a side effect, not the core effect.
+But the biggest advantage has been when adding new features like MVC.
+Because when the core is simple,
+basically adding new stuff is really like a breeze.
+That's less code to patch, less potential side effects,
+and easier remembering of the big picture when you come back to the project.
+Because I'm not working full time on this project,
+it's just a side project.
+First of all, just a little question.
+Who has ever developed an encoder or decoder video or audio?
+Just to see.
+Okay, quite many. Good.
+This talk will be quite technical.
+It's for you guys, or folks.
+Now it's time just to open the box and see which of the techniques
+I think have been the most impactful in simplifying the code and the architecture.
+First a bit of context.
+A.26 AVC segments and images in macro blocks,
+called macro blocks of 16 by 16 pixels,
+which you get from the byte stream in raster scan.
+So that's on the top left.
+Then each macro block is further segmented into 4, 4, or 8, 8 blocks in zigzag order.
+And when you have your code base, the code base basically is in like five or so parts.
+You first parse symbols from the byte stream,
+and then would compute inter, so for each macro block,
+compute a prediction based on either neighboring pixels or pixels from previous frames.
+As intra and inter prediction.
+And then you would add the residuals, like the rest, the difference to make the full picture with IDCT.
+And then going to the blocking, which is just a post filter that blurs the image along the edges of blocks.
+Okay, now for the meat.
+First technique.
+The first technique is very simple and almost of a troll thing.
+It's just put all of your headers into a single header file.
+Personally, I've always been very annoyed at tiny header files.
+When trying to understand a project structure,
+you have to open a lot of them just to get the big picture to know what is calling what and so on and so on.
+And out of this anger, I just put everything into a single file,
+which is about 6k, not that much.
+That contains all of the structure type desks, the inline functions,
+that are defined in each C file, and the same D type desks and functions, which I will discuss later.
+This has a good impact actually on code size,
+and it helps diving back into the project after a long time,
+because I'm telling you, I still remind that I'm not a pro side project.
+So far so good.
+The second technique is about the architecture of the codec itself.
+The overall architecture is designed like a hardware decoder,
+in that this is a graph of code blocks that are activated one after another.
+And then after expressing this graph, I express it in C, not the other way round.
+So I'm not thinking in functions in C, I'm thinking in code blocks,
+make a graph out of it, and then express it in C.
+So in C, it makes the nodes, the code blocks are functions, obviously,
+but then passing execution between code blocks becomes tail calls,
+and everything is done so that the tail calls are converted into jump instructions.
+Inlining is disabled so that each block is present only once in the binary,
+which helps reduce the binary size.
+And also, thinking in code blocks, instead of input output functions,
+makes less use of parameters, because you're not thinking into what my functions
+is going to take as parameters in return, it's just you're thinking,
+I'm going to pass execution to that function.
+But that function takes its input from the context structure.
+So that improves the readability overall.
+Next one, tree branching.
+That's one's the technical.
+In AVC, the intraframe prediction propagates neighboring pixels in a given direction.
+So in dotted, we have the neighboring pixels, and in full line,
+we have the block that we are trying to predict.
+For each direction, the code will follow the same pattern.
+First, we load the pixels into registers, CPU registers.
+Then, we would probably fix the colors that we fetched,
+particularly if the pixels belong to a block that was unavailable,
+that is in a different slice, or that is out of the bounds of the picture.
+If we do that, then we basically just propagate the pixels from the left
+to the pixels that are unavailable.
+Then we would compute the actual colors, so doing the math in the CPU.
+And finally, store the values to memory.
+That is the typical process that is executed for each direction in the intra mode.
+So AVC has nine directional modes.
+So basically, you get your neighboring pixels,
+and you have nine possible directions from which you have to propagate the colors.
+In the decoder, usually, it looks like this.
+It looks like a branching on the top,
+and each of the directional modes is one function.
+So technically, that's how it's implemented.
+It's usually nine functions, and branching towards these functions
+through an array of function pointers.
+But there are two things we can improve here.
+The first one is the fixed tests.
+The fixed tests are present inside some of the functions, not all of them.
+But we can see that they operate on the same conditions, most of them.
+They do the same tests, so we can merge them upstream.
+And the second thing is the storage code is basically the same.
+Not all the time, but most of the time is the same, so we can merge it.
+So when we do that, it looks like this.
+It looks like a tree.
+The storage is on the bottom, and then you have the compute and the loading,
+which has a fixed donor with it.
+And you have only one branching.
+So it looks like a tree, and in practice, what you do is you branch once,
+one conditional branch to the leaves,
+then go down with unconditional branches down to the storage operation.
+I told you this is very technical.
+In C, the branching is done with a switch.
+The branching inside the tree is done with go-to's,
+and branching out to the trunk is done with break, breaking out of the switch.
+I tried implementing that with functions,
+so doing all of the compute in different functions,
+but compilers get crazy at that.
+It's messy, so it's really the simplest is just to use switch, go-to, and break.
+The practical impact.
+In ABC, you have three intra-modes,
+intra-44, intra-88, and intra-16-16.
+Intra-44 has 14 leaves out of nine directional modes,
+so the impact is pretty okay,
+but intra-88 has 32 leaves out of nine directional modes,
+so that makes a good impact.
+Actually, in the decoder, the intra-88 benefits the most from this.
+Still, this technique is very general,
+and maybe applied to you in your code.
+If you manage to represent things as a tree, as a downward tree.
+Okay, fourth technique.
+In H.264, all of the context data resides in a single structure
+that is passed to every function.
+That is a classical technique, I would say, in many decoders.
+That you have one structure,
+that is the mother of all structures that stores everything.
+It's the context structure.
+In H.264, this structure, the pointer to this structure,
+is stored in a register.
+It's just mapped into a register with GCC that allows it.
+That's very dumb.
+The code actually looks like this.
+If we have GCC, we assign one register,
+we reserve a register to that pointer,
+and we patch all of the function calls
+so that GCC doesn't pass this pointer to functions,
+and Clang, or other compilers,
+will pass this pointer to functions.
+Easy, right?
+In practice, the binary size is reduced by 5% with GCC,
+and there is a minor speed-up,
+and it actually helps on my builds,
+GCC be faster than Clang.
+Yay.
+GCC9.
+After that, I think, for some weird reason,
+after GCC9, the performance actually drops
+to a greater version of GCC.
+So far, so good.
+Fifth technique.
+So I'll try perhaps going slightly fast on this
+because they are very hard to understand
+if they're not into A, B, C, but still.
+In A, B, C, every block has neighbors,
+and when you predict the color of the values of a block,
+you basically look for the values of the neighbors,
+and what the spec contains a lot is conditions.
+Basically, when I ask the value of a block of a neighbor,
+I'm asking first, is my neighbor available?
+Does it belong out of the picture?
+Is it out of the picture, or is it in a different slice,
+or does it exist?
+So if it's available, then I can fetch the value,
+but if it's not available, I fetch a default value.
+And the second test is the neighbor coded
+as the same mode as me, enter or intra.
+If not, default value.
+If so, good value.
+So one technique is just to allocate fake blocks in memory
+that will contain the default data.
+So basically, your picture will be surrounded
+by unavailable blocks which contain default values.
+And the second technique is that all of the blocks
+that you decode will contain the default values
+for the other modes that will be decoded.
+So for example, if I have a block, a macro block,
+that is coded as intra, it will still have motion vectors
+that will be decoded for inter.
+So it will behave like an intra and an inter macro block.
+As you would guess, this makes the code consume more memory
+a bit, but it makes the code a lot simpler.
+And I mean it really a lot simpler.
+This is actually a very important technique,
+but it's hard to achieve because you have to look at the spec
+and spot opportunities where the spec allows you to do that.
+So it consumes about 25% more memory than FFMPEG in practice.
+And that will be possible in the future
+to reduce it to 5% more in FFMPEG only.
+Sixth technique.
+Here is what it looks in memory.
+So we have the picture in a strong line.
+And in yellow, you have the blocks that are actually,
+the macro blocks that are actually stored in memory
+with the neighboring blocks stored on the top left.
+And as you can see on the right, you have no blocks
+because the memory circles around.
+So basically when you look on the top right,
+you're actually looking in memory to the top left.
+To the left.
+Yeah, that's a joke.
+This is still about accessing neighboring values.
+So in H264, we have a problem
+when accessing neighbors of subblocks.
+So in a macro block, blocks are stored in arrays.
+And when you want to access the neighbor of any block,
+any subblock, its neighbors may be in the same macro block
+or in a different macro block.
+That's what we see with B.
+So B is stored in the same macro block, fine.
+But A is stored in a different macro block.
+So in a codec development, typically what you would do
+is copy all of this in a buffer.
+Copy the values from the neighboring macro blocks
+in the same buffer so that you have everything packed
+in the same thing.
+What I do is different.
+I use pre-computed memory offset.
+So that's a nasty technique.
+Basically, when you have your value in memory,
+you know where your neighbor is going to be in memory.
+You know it's there.
+It's in a macro block.
+The offset is basically constant in memory.
+I know it.
+But the problem is that it belongs to a different structure.
+So what I do is just to compute the offset with offset off in C.
+And I look to the memory at that position.
+It's non-standard C.
+So you didn't hear anything.
+So the first two are the sevens technique.
+I have nine.
+These are the last three.
+I promise there are eight and nine are pretty better.
+So this one is about inter-prediction.
+In AVC, for interframe prediction,
+each macro block will be first segmented in two rectangles,
+sub-rectangles, that each will receive a different motion vector.
+And the problem is that there are many possible shapes.
+So there are many possible ways to just cut a macro block.
+So there is not a single number of motion vectors that you will fetch.
+Traditionally, this incurs many tests in the decoder.
+For example, if I have a 2x2 block, then I will fetch one motion vector.
+If I have two rectangles that I will fetch, two motion vectors, and so on and so on.
+That's a lot of tests.
+That's many tests.
+The thing is we want to merge all of these tests together into one.
+That's possible.
+To do so, we assign a bit mask to that shape.
+So we convert the shape to a bit mask,
+where every rectangle will contain one set bit and the rest as zeros.
+Then we convert that into an integer.
+And note that on the left, we have nine rectangles,
+or squares plus rectangles.
+And on the right, we have nine set bits.
+So we know that we are going to have to fetch nine motion vectors out of the byte stream.
+To do so, we loop on set bits.
+That's a classical technique.
+We do count leading zeros on the bit mask to get the first set bit.
+And we clear it with the last operation.
+That clears the last set bit.
+This has a good impact on code size,
+because it merges all of the tests into one loop.
+And it has a minor impact on speed by reducing the number of conditional branches.
+So less pressure on the branch predictor and so on and so on.
+The general pattern, if you want to sit in and reproduce that,
+is to convert your macro block type into a bit mask,
+then iterating on the bit mask.
+And in the decoder, it's used to parse the reference indices, the motion vectors,
+and the residual coefficients.
+Okay.
+Using vector extensions.
+So in H264, SIMD are used everywhere.
+And by everywhere, I mean everywhere, in the whole of the code base.
+It's not separated into decoding and parsing.
+The SIMDs are used even in the parsing.
+And this is thanks to the use of GCC vector extensions.
+So I use GCC vector extensions.
+And to be clear, I use no hand-coded assembly in the decoder.
+It's all C.
+It helps actually reduce the register pressure in scalar register,
+because every time you have some scalar code,
+if you have an opportunity to vectorize it,
+you just reduce the pressure in the scalar register.
+So anything that you can do with this SIMD, it's just a win.
+Just a big win.
+So to do so in code, first you define your vector types.
+So this is standard GCC extensions.
+Then to define vector-capable arrays in your context structure,
+I use union.
+It went through a lot of trial and error.
+And this one is the only one which doesn't generate random stack spills
+by the compilers, both GCC and Klang.
+So this is to me the most stable one to use.
+And the last thing is that I shorten all of the Intel Intrinsics
+so that two reasons, to make the code more readable,
+because the Intel Intrinsics are amazing to read,
+and to help the future ports to other architectures,
+ARM and RISC-V, whatever.
+Four things to care about when using vector extensions.
+First is don't use built-ins.
+They are a bit unreliable, and they may generate big code,
+although you don't always know.
+So to be sure, if you want to use a specific instruction,
+don't rely on built-ins to generate that.
+Just use that specific instruction.
+Then don't use vector sizes that are not supported by the native host.
+Compilers get crazy at that.
+Don't index a vector by a variable, obviously,
+because then the compilers will just push down on stack
+and then index the stack.
+And don't use automatic vectorization,
+as this is very theoretical too,
+but it's not reliable enough in practice.
+Okay, still got some juice.
+Last one.
+So this is a very important, a fun technique, actually.
+I will take here the example of the de-blocking filter in ABC.
+So as a reminder, in ABC, the de-blocking filter is a post-filter
+that blurs all of the edges in that order.
+One, two, three, four, then five, six, seven, eight.
+It's conditional blurring,
+but for the sake of this presentation,
+let's assume we de-block all of the edges.
+In yellow, these are the reads.
+We read pixels, and in orange, we read and we write the pixels.
+The problem we have is that to filter all of the edges
+in one continuous operation,
+we would need to store all of the pixels,
+so all of the values.
+As a reminder, one pixel is one byte.
+It's a luma value.
+We would need to store all of the macro block values
+into SIMD registers.
+In yellow, that needs about 22 hardware registers,
+although we have only 16.
+This is physically impossible.
+So what we traditionally do is that we work one edge at a time,
+loading the matrix from memory, transposing it, filtering it,
+then storing it back.
+And we proceed edge after edge until we're done.
+If we count the reads and the writes,
+each vertical edge is 16 reads, 16 writes,
+and 50 shuffles for the transposed operations, back and forth.
+Each horizontal edge is much easier.
+We do six reads, four writes.
+And in the total, it makes 88 reads, 80 writes, and 200 shuffles.
+Can we do better, of course.
+Now, if you imagine that you have an infinite number of registers,
+as in C, but you get a penalty, the more registers you use.
+What we would do is we would load the left matrix,
+filter edges one and two,
+and then write the left pixels that we won't need anymore.
+Then we would load the right half of the matrix,
+filter edges three and four,
+and at this point, we have the entire macro block values
+in registers or in live variables.
+And some might be spilled on stack, but that's not my business.
+That's a compiler.
+Then we would transpose the whole thing.
+So the whole matrix would transpose it.
+We load the top missing parts.
+We filter edge five and proceed down with edges,
+storing the values as we complete.
+So ideally, if we count all the reads and all the writes,
+it makes 35 reads, 34 writes, and 163 shuffles.
+So that's a net win.
+But, of course, there is a but.
+Ideally, if I would code this by hand, it makes 22 spills,
+spills on stack.
+And actually, with Klang, it makes 40 spills.
+And 40 spills means about 40 writes and about 50 to 60 writes.
+Reads, sorry, reads.
+And it's less on later architectures where you have 32 hardware registers.
+So that's somehow a win, but I'm not quite sure.
+It's like, meh.
+The good thing is that this register-saturating technique
+is easy to design and implement in C,
+especially with regards to reordering instructions,
+because spilling is very sensitive to that.
+It has a good impact on code and binary size,
+and a minor impact on speed.
+It's useful for de-blocking and inter-prediction
+for the six-tap filters, which I'm really happy with.
+And last but not least,
+in general, using C instead of assembly for the SIMD code
+allowed me to improve the filtering code,
+the core code, by about 20%, 20% shorter,
+especially thanks to eliminating redundant operations
+used in macros in assembly,
+and reasoning with more compact code.
+So it helps you get the bigger picture
+and really be more ambitious in how you design code.
+With this in mind, I would encourage you to consider
+switching to assembly...
+No, sorry, C.
+For SIMD code.
+In my own experience, I've always been able to find
+important improvement over assembly code
+at the expense of register pressure, of course.
+In literally every part of the decoder,
+be it inter, intra, de-blocking, and not IDCT,
+because IDCT is just perfect, but how the mark transforms.
+In these cases, the use of C has made the code less overwhelming
+and allows you to go the extra mile and optimize further.
+With this, I would like to thank you for your attention.
+You can see the code there, and I will take any question.
+APPLAUSE
+And last note, Kudos and last round of applause, please,
+for Olivier, who is here, and who agreed to open-source this work
+at the very beginning, so open-sourcing for free.
+APPLAUSE
+Are there any questions? Yes.
+Just out of interest, the speed, basically, benchmarks,
+whether single-threaded or multi-threaded?
+Single-threaded, all of them.
+Sorry.
+So the question was the benchmarks where they're single-threaded
+or multi-threaded, and so the benchmark conditions
+were all single-threaded for all of the decoders.
+Thumbs up means last question?
+Oh, I think you're OK.
+Thank you for your attention.
+APPLAUSE

@@ -1,0 +1,521 @@
+WEBVTT
+
+00:00.000 --> 00:11.160
+Perfect. So, welcome everybody. My name is Simon Künzer. I'm the project founder actually
+
+00:11.160 --> 00:16.560
+of Unicraft and lead maintainer there. I'm also CTO and co-founder of Unicraft TMBH,
+
+00:16.560 --> 00:24.720
+which is a commercial open source company using the Unicraft project for building a
+
+00:24.720 --> 00:31.680
+new cloud. You saw some aspects actually from Rasmus talk. This was like three talks earlier
+
+00:31.680 --> 00:38.760
+than mine. Here I'll go really now into much more technical details, how it looks like on the
+
+00:38.760 --> 00:47.080
+kernel side. So, this is much more OS class here, what I'm doing. So, first of all, briefly,
+
+00:47.080 --> 00:58.000
+wave your hands up if you know what a Unicron is. Good. Okay. So, then I do it here really
+
+00:58.000 --> 01:06.320
+quick. In the end, what we are doing is turning an application into a kernel by using something
+
+01:06.320 --> 01:12.040
+that we call operating system libraries that are directly baked to an application and we run
+
+01:12.040 --> 01:17.640
+that as a virtual machine. So, then we're all on the same page. Especially the Unicraft project,
+
+01:17.640 --> 01:26.240
+what's for us important is the aspect of single purpose. So, we do specialization and saying the
+
+01:26.240 --> 01:31.000
+OS layers are built just for that particular application that we're interested in and that
+
+01:31.000 --> 01:35.640
+allows you a lot of optimizations that you can do. For instance, we do single address space because
+
+01:35.680 --> 01:42.400
+we run one application in one kernel. We have a really small TCP and a small memory footprint.
+
+01:42.400 --> 01:49.920
+Behind the scenes, we have something that we call the micro library pool. So, you have decomposed
+
+01:49.920 --> 01:58.720
+OS functionality as library available. So, this is for instance scheduling file systems,
+
+01:59.680 --> 02:10.520
+then libraries that do Linux or POSIX APIs so that ease programming with that environment. So,
+
+02:10.520 --> 02:17.760
+it's kind of an SDK. The current project focus is on Linux compatibility because our vision is
+
+02:17.760 --> 02:24.400
+actually we want seamless application support for existing Linux applications. And since most
+
+02:24.840 --> 02:30.840
+software is written for Linux, especially for the cloud, we want to remove as many obstacles that
+
+02:30.840 --> 02:37.400
+we can do for running them on top of Unicraft. And one aspect as Vassim was showing is the
+
+02:37.400 --> 02:45.240
+tooling side. We have actually two approaches from the kernel side. We can do application
+
+02:45.240 --> 02:51.160
+compatibility natively, meaning you take the sources of your application and compile it together
+
+02:51.200 --> 02:56.880
+with the libraries of your kernel. But we can also do binary compatibility and this is what I'm
+
+02:56.880 --> 03:04.120
+going to speak about here, where we provide the Linux ABI to the application. So, we do system
+
+03:04.120 --> 03:15.360
+calls, VGSOs, etc., etc., to support a pre-compiled application. And now I'm going over these
+
+03:15.400 --> 03:21.400
+individual steps. So, first of all, when you build a kernel and want to make that supporting
+
+03:21.400 --> 03:25.520
+running a Linux application, what you need to understand or the kernel needs to understand is
+
+03:25.520 --> 03:34.560
+the ELF format. Running that application ELF is actually a pretty straightforward process. So,
+
+03:34.560 --> 03:40.600
+you need to first be able to pass the ELF, load it in your memory space, then you need to prepare
+
+03:40.640 --> 03:46.320
+an entrance stack. This is all specifications that you need to look up and fill out the specific
+
+03:46.320 --> 03:51.280
+vectors and values in there, and then jump to the entrance. And then that application is working.
+
+03:51.280 --> 03:56.400
+The only interaction that you will then, from that time on, have with the application are
+
+03:56.400 --> 04:07.360
+actually system calls. There's two interesting things here regarding loading ELF applications.
+
+04:07.560 --> 04:14.120
+So, you have something called non-PIE applications and something called PIE applications, meaning
+
+04:14.120 --> 04:20.320
+non-position independent... Sorry, non-position independent, position independent. The non-position
+
+04:20.320 --> 04:27.160
+dependent, they dictate you the address layout in your unicolonel. And since we want to run
+
+04:27.160 --> 04:32.080
+everything with a single address space, it means we can support only one non-PIE application.
+
+04:32.800 --> 04:38.680
+The beauty of PIE is we can relocate the application in the address space. So, we can still work
+
+04:38.680 --> 04:46.400
+with a single address space, but can run multiple applications if you want. And, sorry, if we're
+
+04:46.400 --> 04:52.760
+going a bit more further with the original reason why PIE is now pretty common in operating systems,
+
+04:52.760 --> 05:01.320
+we could even apply with that single address space full stack ASLR, where we mix kernel libraries
+
+05:01.560 --> 05:07.160
+and application libraries completely spread in the address space. I give you some more readings
+
+05:07.160 --> 05:15.360
+when you download the slides, but basically in the project we are focusing on PIE applications,
+
+05:15.360 --> 05:22.680
+since most of them, at least the last five years, is the standard when you get a pre-compiled
+
+05:23.040 --> 05:34.360
+binary from the distro. System calls. So, we are in a single address space, we have a pre-compiled
+
+05:34.360 --> 05:39.960
+binary from Linux and we want to run it, so we have to do system calls. This is actually a long
+
+05:39.960 --> 05:47.160
+pipeline that we need to run. It starts with a Cisco instruction, so note here this is now x86
+
+05:47.160 --> 05:53.240
+specific, but that instruction usually takes care of a protection domain switch from ring 3 to
+
+05:53.240 --> 05:58.360
+ring 0, but we run in a single protection domain, actually we don't need that, so we go from ring 0
+
+05:58.360 --> 06:07.640
+to ring 0, but yeah, we need to execute that instruction. Then Linux requires us to have an
+
+06:07.640 --> 06:15.120
+own kernel side stack, especially language environments like Go. They don't give you a big
+
+06:15.160 --> 06:20.560
+enough stack that you can just continue executing on the kernel side, so you need to switch. In
+
+06:20.560 --> 06:28.640
+reality, of course, if you have an application that has a big enough stack, you could also
+
+06:28.640 --> 06:36.640
+configure Unicraft to get rid of this step. Then at the moment we are using full CPU features
+
+06:36.640 --> 06:42.440
+also on the Unicraft side, it's mainly coming from for supporting native applications where
+
+06:42.800 --> 06:48.440
+basically addressing the kernel is just a function call, so why would you restrict your CPU
+
+06:48.440 --> 06:55.000
+features? If you don't compile it with that, then you can also remove that step, but if you do that
+
+06:55.000 --> 07:03.080
+in a default option, we need to save and restore that state 2 of your CPU. Then we have a TLS switch,
+
+07:03.840 --> 07:10.880
+which we really require because we use the TLS for our OSD composites, you know,
+
+07:10.880 --> 07:19.800
+libraryization, sorry, because we didn't want to have a central big TCP control structure where
+
+07:19.800 --> 07:24.240
+we need to maintain every particular field. We want to have everything clearly decomposed,
+
+07:24.240 --> 07:32.320
+so the TLS was the way to go for that. Yeah, and then actually we're able to call the system
+
+07:32.360 --> 07:37.840
+call handler. That brings you to the question, does it have to be that complicated? We need to
+
+07:37.840 --> 07:42.960
+do really so many steps, isn't there something we can do a bit better with a single address space?
+
+07:42.960 --> 07:51.800
+And actually there is, and there is this mechanism called VDSO and also kernel VSS call,
+
+07:51.800 --> 08:00.200
+this is an old thing, so the VDSO basically for us is just a catalog to look up kernel symbols,
+
+08:00.400 --> 08:06.120
+so this is a way for us to provide the function addresses to the application that the application
+
+08:06.120 --> 08:10.520
+can directly call because again, single address space, single protection domain,
+
+08:10.520 --> 08:16.560
+we don't need to do a switch. The second thing is the kernel VSS call symbol,
+
+08:16.560 --> 08:23.280
+which was a standardized symbol in the past, mostly for x86 when CPUs were introduced to do
+
+08:23.480 --> 08:29.760
+sysenter and syscall instead of interrupt driven system calls, that was a way for the S,
+
+08:29.760 --> 08:35.440
+from the US to tell the application to enter the kernel more efficiently. For us,
+
+08:35.440 --> 08:41.200
+we can use it as a function call to directly jump in the system call handler, so it's no trap,
+
+08:41.200 --> 08:48.240
+no interrupt, no privileged domain switch, no need to save and restore of extended registers
+
+08:48.560 --> 08:55.680
+because even that is covered by the system V calling convention. And the idea here is we just
+
+08:55.680 --> 09:03.360
+need to patch the libc shared library of that application and then most system calls anyways
+
+09:03.360 --> 09:07.440
+go through the libc because they provide wrappers there and then we have that covered.
+
+09:09.840 --> 09:14.320
+So in comparison, no expensive syscall instruction anymore, it's just a function call,
+
+09:14.800 --> 09:21.040
+the stack maybe we needed depends still, no floating point registers, whatever I mean,
+
+09:21.040 --> 09:26.400
+you don't need to save anymore and the TNS register we need to switch still.
+
+09:27.840 --> 09:36.080
+Okay, now we get into this fork dilemma, how I call it, this is like always the bad word for
+
+09:36.080 --> 09:44.000
+unicolonial people. So this is a bit of OS class here, so you probably remember fork means
+
+09:44.000 --> 09:50.480
+duplicating the address space of your application so that everything is at the same address.
+
+09:51.200 --> 09:55.040
+Problem with this is it's a second address space, I don't want a second address space,
+
+09:55.040 --> 10:01.760
+I want everything flat in a single address space to save time in context switches or TLB flashes,
+
+10:01.760 --> 10:11.520
+right? So, doesn't work. What we actually would need in a unicolon environment is a fork version
+
+10:11.520 --> 10:20.080
+that forks the application to a different address. Unfortunately, without compiler support, that's
+
+10:20.080 --> 10:25.600
+not that easy. You could of course copy the memory region but you need to then start patching your
+
+10:25.600 --> 10:31.280
+application because you have absolute addresses in there like return addresses on stacks, pointer
+
+10:31.280 --> 10:45.840
+addresses, etc. So don't work that great but what we can do, sorry, for instance, let's say,
+
+10:45.840 --> 10:51.520
+what the question is is when you look at the applications, they're compilers position independent.
+
+10:51.520 --> 10:57.120
+In principle, the result is that I can run multiple applications in a single address space.
+
+10:57.120 --> 11:05.520
+It's just that this model with fork and exit doesn't fit, you would say, because we have this fork
+
+11:05.520 --> 11:15.280
+intermediate step. And luckily, there was also this was coming from, let's say, older generations
+
+11:15.840 --> 11:21.920
+of Linux when they were trying to run Linux on targets without MMU. There's a system called V fork
+
+11:22.480 --> 11:31.600
+that allows you that. It's a bit of a funky fork call because it doesn't fork actually. It just pauses
+
+11:31.600 --> 11:39.600
+your parent and allows you to execute within the memory space of the parent, the child, for a short
+
+11:39.600 --> 11:48.240
+period of time, actually until the child calls either exit or one of the execution functions to
+
+11:48.240 --> 11:59.440
+load a new application binary. And that is basically our solution for running multiple
+
+11:59.440 --> 12:05.600
+applications or like a shell or something where the shell forks, you load a position independent
+
+12:05.600 --> 12:11.280
+binary anyway in the next step, then you have it in a different address area and you execute.
+
+12:12.240 --> 12:19.200
+What we want to try out here is if that mechanism works great for, you know, if you could just
+
+12:19.840 --> 12:25.520
+replace the fork system call number internally with a V fork and see for how many applications
+
+12:25.520 --> 12:31.600
+that works great because they were doing fork exit before and for how many that does work.
+
+12:31.600 --> 12:40.160
+But obviously, won't work is for applications that just use fork to open up worker processes.
+
+12:41.120 --> 12:44.480
+But just for this fork exit model that works.
+
+12:47.360 --> 12:55.200
+Okay, and then the last point is a bit, I really rushed through.
+
+12:56.880 --> 13:01.120
+I was when I was preparing, I was checking, okay, I can't say this, there's no time, no time.
+
+13:03.600 --> 13:08.880
+So here I wanted to give you a bit of an overview of what we did the last year when we looked at
+
+13:08.880 --> 13:15.520
+different applications and we're always in front of that question. We need to have Linux
+
+13:15.520 --> 13:21.280
+compatibility, but at the same time, we don't want to re-implement Linux. And there's some
+
+13:21.280 --> 13:29.040
+aspects where it's really tricky. For instance, the first one is a really interesting example. It's
+
+13:29.040 --> 13:35.760
+about querying from the kernel side network interfaces or setting up routing tables, etc.
+
+13:35.760 --> 13:43.680
+So get if address and call, which normally needs a complete subsystem of sockets to be
+
+13:43.680 --> 13:49.520
+implemented. And then on top of a known protocol called netlink, just to do this user space kernel
+
+13:49.520 --> 13:55.920
+interaction for gathering that information. An alternative here could be, of course, we implemented
+
+13:55.920 --> 14:01.680
+that, but an alternative here could be also to make use of the VDSO again, patch the libc
+
+14:01.680 --> 14:06.560
+and do more direct calls for just querying the IP address from the kernel that's currently set.
+
+14:09.520 --> 14:17.840
+Another interesting point is applications that are so mean that implicitly rely on a specific
+
+14:17.840 --> 14:24.720
+behavior on Linux. And really, a funny example is primitive scheduling that you come across
+
+14:25.600 --> 14:30.560
+from time to time. So far we have cooperative scheduling in Unicraft because that's a really
+
+14:30.560 --> 14:40.640
+efficient for us scheduling way to do things. But then you, I mean, you put something like
+
+14:40.640 --> 14:49.600
+Frank in PHP or MySQL and they use busy waiting loops to wait for other threads to wake up.
+
+14:50.320 --> 14:55.280
+With a cooperative scheduler, you can imagine what happens. Basically nothing because you're
+
+14:55.280 --> 14:59.840
+constantly busy waiting but never give another threat to chance to pop up.
+
+15:02.080 --> 15:08.000
+Then there is this whole topic about which system calls you need to support, which ones you can
+
+15:08.000 --> 15:14.240
+stop, which one need to be completely implemented. It's actually true that you can stop a lot,
+
+15:14.240 --> 15:22.160
+you don't need all of them. I would here refer you to a nice paper from
+
+15:22.320 --> 15:31.600
+Esplos. Actually last year for STEM, the authors were giving a presentation here too about how to
+
+15:31.600 --> 15:35.680
+figure out which system calls you need to implement. Of course, there's also sometimes the application
+
+15:35.680 --> 15:41.120
+dependent, but there is a, you don't need to implement all of the Linux system calls to have
+
+15:41.120 --> 15:46.640
+Linux compatibility. There are really a lot of system calls that are really specific to some
+
+15:46.640 --> 15:50.320
+cases or setting up seed groups or whatever, which normal applications don't use.
+
+15:52.640 --> 15:56.720
+And then of course the whole topic about file system hierarchy standard,
+
+15:58.960 --> 16:06.160
+where of course application expect you have something under PROC or under ETC or somewhere.
+
+16:08.000 --> 16:17.840
+So far, we were able to go around that by providing a meaningful filled text file
+
+16:18.800 --> 16:22.720
+for the application, especially the PROC file system without implementing that yet.
+
+16:23.520 --> 16:32.720
+And that worked for NGINX, Node.js, Redis, HA Proxy and a lot of other number of applications.
+
+16:35.600 --> 16:42.640
+Okay, so now we're so fast through this, I'm sorry. So we have time for some questions. I guess
+
+16:42.880 --> 16:50.160
+there's some stuff for more clarity. We are an open source project. These are the resources where
+
+16:50.160 --> 17:00.080
+you can find us. And you can also, I mean, see that I put here KraftCloud, that logo. This is
+
+17:00.080 --> 17:10.000
+what we currently try to build with our company, which is a cloud that uses the beauty of unicronals
+
+17:10.000 --> 17:17.520
+for really fast bootups, high resource efficiency for serverless architectures,
+
+17:17.520 --> 17:31.600
+microservices, functional services, etc. Unfortunately, just two minutes for the
+
+17:31.600 --> 17:38.320
+questions, but still, are there any questions? So when you run everything in a single address
+
+17:38.320 --> 17:43.760
+base, do you actually need to enable paging at all? So yeah, with the CPU, actually we need to
+
+17:43.760 --> 17:49.520
+enable paging, but it allows you to build a page table at compile time. And then it's just
+
+17:49.520 --> 17:54.400
+switching that page table on during boot. What additionally happens with Linux applications
+
+17:54.400 --> 17:59.840
+that are sometimes doing MAP calls and mapping here, something or file there, of course, if you
+
+17:59.840 --> 18:04.240
+enable that support, then you need some kind of dynamic page table handling. But if you don't need
+
+18:04.240 --> 18:09.200
+that, you have the opportunity to have a compile time page table. So we don't have the time to
+
+18:09.200 --> 18:14.240
+discuss it, but I was wondering if you have paging, wouldn't you be able to use copy and write to
+
+18:14.800 --> 18:20.160
+the popular one? Maybe something to think about. Of course, we do also copy and write where you
+
+18:20.160 --> 18:24.720
+need it. The thing is, what we still want is a single address space. So that page table is,
+
+18:25.760 --> 18:29.760
+basically, there's just one page table, another page table per application. We don't have this
+
+18:29.760 --> 18:36.640
+page table switches, no TLB flushes. So this is where we gain actually a lot of performance
+
+18:36.640 --> 18:43.440
+also from. And since we say we are a single application, we run only one thing, why do I need
+
+18:44.080 --> 18:50.000
+to handle? Everything that runs in the unique kernel is defined to be trusted,
+
+18:50.800 --> 18:56.720
+and you have then the hard isolation boundaries outside from the hard-provise environment to
+
+18:56.800 --> 19:01.280
+protect anything that is going bad or an overtaken unique conference.
+
+19:05.760 --> 19:09.760
+If you write, protect the data pages of a process that does fork, you can actually
+
+19:09.760 --> 19:14.800
+detect processes that don't use default exec that do actual fork to share memory,
+
+19:14.800 --> 19:16.080
+and you would be able to detect that.
+
+19:19.600 --> 19:24.000
+I would just add to that because you would have multiple other spaces just for a short while,
+
+19:24.240 --> 19:25.920
+so it's not really a performance issue, right?
+
+19:26.400 --> 19:32.960
+Yeah, it's like two kinds, implementation effort and... But yeah, I see your point.
+
+19:32.960 --> 19:38.640
+Also for non-position independent applications, I mean, if you have a choice not supporting
+
+19:38.640 --> 19:43.200
+multiple of them and having multiple address spaces, I mean, why not go for multiple address
+
+19:43.200 --> 19:46.560
+spaces, it does not invalidate the unique kernel idea.
+
+19:46.560 --> 19:51.360
+No, no, no, it doesn't. It doesn't. It just comes with some cost, right?
+
+19:51.360 --> 19:52.000
+Right.
+
+19:52.000 --> 19:56.000
+Okay, thank you very much. We have to switch to another talk. Thanks again.
+

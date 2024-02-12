@@ -1,0 +1,197 @@
+My name is Antonio, I'm a Kubernetes maintainer and working in SIG Network, STL and SIG testing.
+And my interest here is to show a bit more about the problems that Kubernetes has internally
+and why something like multi-network are not easy to implement.
+So Kubernetes started as a container orchestrator platform, right?
+Excuse me.
+Hey.
+Okay, you shut up the light on the top.
+What is the light?
+On that one.
+I think it's there.
+This one?
+This one?
+Okay, I must say to break it down.
+It's like the meme with the two buttons, right?
+Which one?
+And sweaty now.
+The tableau?
+Tableau?
+Let's go with tableau.
+Okay, okay, okay, good.
+The tableau.
+Well, this is the thing.
+In Kubernetes started as an orchestrator and now it's a big thing and everybody wants to do Kubernetes.
+And this comic is the best example, right?
+People just want to throw everything in Kubernetes and magically start to happen.
+But that doesn't work this way, right?
+In order to absorb all these new problems to me, right?
+Kubernetes, what it does is it implemented a plugable architecture.
+Instead of being everything hard called, we try to define interfaces, APIs.
+You can see it's here, right?
+It's common these days to build your custom resource or you can have the CSI to implement your driver and your storage.
+But you see that something is missing here, right?
+You don't see CNI.
+Since Docker seems to be in 1.22, Kubernetes doesn't have any networking capabilities.
+So all the network is behind the CRI API.
+So it's left to the containers.
+And if you went to the DAG multi-network meeting like one hour ago, you can see that the people that implement network plugins has to do a lot of diagnostics with annotations and JSON embedding and all these other things.
+This is something that we want to solve.
+But before we go there, is how Kubernetes work is just you have a control plane and then you have all these worker nodes that have resources and you run POS, right?
+Everything is controlled through the API.
+Kubernetes at the end is you have a REST API, you define the API and you define the behaviors.
+And these behaviors are asserted by the E2E test.
+So when people implement something, they can run the E2E test and validate that they are API.
+They are implementation match the APIs.
+With this, you achieve a consistency across the ecosystem, right?
+A lot of people think, oh, Kubernetes use a lot of IP tables.
+And that's a big lie because IP tables and Q-proxies and implementation detail, right?
+The API services.
+But you can implement the same without IP tables.
+You can use eBPF, user space, XDP, sockets, whatever.
+The important thing is you implement the API, you run our E2E test that defines how this should behave, and the user will have the same behavior,
+independently of what it has behind the scenes.
+So when we move to the network, you need to think that Kubernetes was created as an application orchestration, right?
+So it was not created as an infrastructure as a service.
+And then these consequences, you have three APIs for the network, three primitives that we can say, right?
+The nodes that are the VMs that run in an infrastructure that can be assumed as a node network.
+The node network here is not an IP network, right?
+It's an abstraction, say, it's everything that is connected there.
+So all the VMs are in a node network.
+All the pods are in a pod network, right?
+The pods has this requirement, that's the Kubernetes requirement.
+Every pod has to be able to talk with another pod without an app.
+And this is important because this allows all the applications to talk with each other.
+And pods need to communicate.
+Pod needs to discover, right?
+And then we want to hard call all the APIs everywhere.
+We need to create a set of pods and then expose these pods.
+And for that, you have services, right?
+So simplifying, obviously simplifying everything, you can find these three networks in a Kubernetes cluster.
+If we go one by one, the first network is the node network, right?
+This is you have a bare metal cluster or a cloud provider, you run your machine, and you have a virtual machine.
+So this is a virtual machine or a server, right?
+It has resources, it has interfaces, it has whatever.
+So the way that this work is for the network side is you have two fields, right?
+One of the fields is the status.
+The status is the one that holds the addresses.
+Something discovers when you start the node, the cube let, that's the component of Kubernetes that runs in the node.
+It starts to discover all this VM, all this machine, and start to populate these fields, right?
+All these fields, right?
+So you have all the addresses.
+The first thing, okay, let me start back.
+The first thing that the cube let us is to register the object.
+So this creates the API object.
+As we say before, Kubernetes is about API semantics.
+So once you've registered the object, things start to move.
+And one of the things is it starts to check for conditions.
+How much memory, what IP addresses, because this information is going to be needed by other APIs or by other controllers.
+In addition to this, there are the bootstrapping of the VM is complicated in the sense that it can be controlled by the cube let,
+or it can be controlled by an external cloud provider.
+Then the addresses and some of the information that you can be in the API can be populated by this other controller.
+In addition to this, you also have a field that's a reminiscence from the past that is the POSSIDER.
+Contrary to what most people think, the POSSIDER is an informative field.
+So the CNI network plug-in or whatever can use it or may not use it.
+So in theory, a lot of plug-ins use it, but it doesn't mean that because you have POSSIDER in the spec,
+you are going to have this SIDER assigned to your POSSIDER.
+This is one of the problems when you develop APIs and commit these mistakes.
+This leads to the users and generate confusion.
+We talked about the node unit initialization first.
+When the node starts, and we talked about the CNI not being part of Kubernetes.
+When the node starts, the first thing that you need to do is to check if the network is ready.
+Because you cannot create POSSIDER, the POSSIDER cannot get IP addresses.
+So for that, there are two container runtime calls.
+There is one container runtime call that is network ready.
+This goes through the CNI API to the container runtime.
+And the container runtime right now, cryo and container D, the only thing that it does is to check if there is a CNI config file.
+Just that. You can fake the file and it's going to say that the network is ready.
+Moving from the nodes to the POSSIDER. This is one of the most tricky parts.
+The POSSIDER is the minimal unit of work in Kubernetes.
+So the POSSIDER is created and lives in a network, is able to reach other POSSIDER networks,
+but this presents a security problem for people.
+So what we created is the network policy API.
+That means that you are able to define relations between the POSSIDER.
+This POSSIDER can talk with each other, this POSSIDER can talk with each other.
+This is a high level.
+So what happens when you create a POSSIDER is that a user creates a POSSIDER or a deployment.
+A deployment is a composition of the POSSIDER API.
+So this is going to create an object called POD in the API server.
+The controller, the scheduler is going to see, okay, there is a POD created, but it doesn't have a node assigned.
+So I'm going to assign this POD to this node because it has resources, whatever constraints that you put there.
+Then it assigns a node to the POD spec.
+And the QLED that is watching this POD object and got this POD assigned gets the POD and starts working on it.
+It starts to create the POD.
+That's the so-called declarative thing.
+And how the QLED starts to create the POD is via the CRI API.
+So it starts to build the CRI API as a JRPC service that is used to communicate between the QLED and the container runtime.
+So the first thing that it does is to call this RampotSambos call.
+And in this RampotSambos call, you have networking parameters like DNS, config, PORMAP, hostname.
+When this goes to the container runtime, as I said before, CRI and containerD, UC and I, but this is not mandatory.
+You need to create the NegoName space and to create the Nego, right?
+And once you create that, it goes back and the QLED keeps working.
+After that, you get the POD IPs from the status response, right?
+So that's the only thing that the QLED and Kubernetes know about the network.
+Create a POD and receive the IPs.
+And this is the big problem that we have right now to start to model multi-network and this other complex network of policies, right?
+So we cover the nodes, we cover the PODs, and now we need to cover the discovery, right?
+We have everything running, everything is fine, but we need to implement applications.
+For that, we created the service API.
+For the service API, what you do is you are able to define to expose a set of PODs by selecting.
+To say, okay, I want this POD that implement a web server to be exposed through DNS or through a load balancer, right?
+So for services, there are like five types of services.
+One is the cluster IP service.
+The cluster IP service is kind of a load balancer.
+You define the set of PODs that you want to expose and you expose via cluster IP, virtual IP and virtual POD.
+It's just a full forwarding.
+You have a whole set of options to modify the behavior, but basically that's only that.
+For node port, this is a way, so right now you have the applications and you need to expose them externally.
+And for that, you have the node port.
+The node port is the typical form mapping that we do in our routers to expose something in one internal server, right?
+You get the IP of the node, a port in the range that doesn't collision with other things in the host, and you expose internally.
+And then you have the load balancer services.
+This is different.
+What it does is it creates the service and waits for external controller to populate a load balancer that is able to send traffic to the PODs inside the cluster.
+You also have ways to expose the services with DNS.
+That's the headless service.
+So basically what it does is it creates a new record, a record that as Bakken has the PODs, right?
+As the A answers.
+The way that the Kubernetes service work is when you have a service object with a selector, right?
+And there is a controller that is watching the PODs.
+When the QLED creates the PODs, the QLED updates the POD status and the IPs.
+And so when the POD is ready, this controller is to see, I have a POD that matches this selector of the service, so I need to start to create an important slide for this service.
+And then when you have the service and the important slides, the proxy implementation, like you proceed, is able to define in the data plane the for load balancer, right?
+So you have this cluster IP, this virtual IP, this virtual POD, and you have these Bakken.
+It's just installing rules.
+One of the most tricky things with services is to do termination, graceful termination, because this, you saw the service type load balancer,
+the problem is that you need to coordinate synchronally three parts of infrastructure.
+So the POD has a state.
+The POD can run, start being creating, start running, and start deleting.
+But there's some time that you want to do rolling updates.
+And for that, what you want is, I want to run my new version, but people is still hitting my endpoint.
+I don't want to lose any package.
+So for that, you establish a grace period.
+And this grace period is related to the endpoint slides.
+And this is used by load balancers to implement serial downtime.
+So in a common state, you start updating the POD.
+The POD is still able, you see the run line, is still able to receive traffic at that point because it's terminating.
+So it's going to be able to answer.
+But the health check starts failing.
+So the moment that they start failing, the load balancers start to move this endpoint out of rotation.
+So the new traffic is only going to the new PODs.
+Once the new POD is removed and replaced by the new one, the health check starts succeeding again.
+And it can start to receive new traffic on the new application.
+As I said before, Kubernetes defines some APIs and others are defined by composition.
+So you can have a load for load balancer on top of service.
+There is this ingress API that allows you to use the service of a game
+and define another layer of abstraction with the seven primitives as HTTP.
+So you could say this path this way and this path this other way.
+These APIs were created in the region for some things that are no longer or we carry over some of the problems.
+Okay, thanks.
+So as evolution, we have Gateway API that's the new API that has standardized.
+And the other problem is that Kubernetes itself is portable and all the things that you can see there is the network.
+So the same thing that you run a POD, you may be running a webhook that interferes when you create the POD with the API call and all this stuff.
+So this is one of the other problematic.
+We need to be backwards compatible and support everything.
+If you want to be more interested in see what is going on, we have a public dashboard so you can read the caption what is going next.
+Okay, sorry.
+Sorry, we are behind schedule so no questions.
+Thank you.

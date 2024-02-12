@@ -1,0 +1,385 @@
+Welcome back everybody.
+We're going to begin a little block of talks with the intersection of AI and real-time communications.
+Rob Pickering here is going to take it away with building open source agents using LMS.
+Rob, go for it.
+Thank you. Hi, can you hear me okay?
+Brilliant.
+Okay.
+So I'm Rob Pickering.
+I kind of landed in the real-time communications VoIP industry about 20 years ago after doing a whole load of other internet stuff
+and I've never quite really managed to escape.
+But what I want to talk about today is the idea of putting LLMs on the end of the telephone
+and some work I've been doing for about kind of the last nine, ten months on this whole idea.
+But in terms of where I come from on this, what was the kind of the most important thing for a successful project
+or a successful open source project?
+Come on.
+What was the most important thing for a successful project?
+Developers.
+Developers, yeah.
+Well, basically I think it's a fundamental belief in what you're doing that is just completely unassailable.
+You just believe in what you're doing and kind of make it work.
+I don't have that view actually about AI on telephones or machine voice interfaces generally.
+And up to now I've actually been reasonably agnostic about the utility of machine voice interfaces.
+I did a bit of work about four years ago right at the height of the COVID pandemic around connecting
+dialogue flow type AI, so proprietary conversational AI to phone lines for doing things on assistance lines.
+So basically asking a bunch of questions and then feeding the results into a Google spreadsheet.
+And I was reasonably convinced at that point that you could kind of make this into a SME product by putting a kind of a front end on it
+that allowed it to be self-service where someone could just go to a website, you know, kind of order themselves a machine voice assistant,
+connect it to the end of the phone line, feed the results into whatever office automation they use and, you know,
+just automate away all their customer contact.
+That was probably really quite naive. I didn't think I entirely believed in that, but it actually didn't go so well for that whole thing.
+I mean, the technology worked absolutely brilliantly and did a great job, but it took roughly a day basically to onboard the most basic of sort of telephone agents
+getting some results back. So kind of before that and ever since really, I've been a little bit agnostic about machine voice interfaces.
+I do do the whole, you know, Alexa Google Home thing, but only kind of in the workshop when I'm covered in dust or something,
+or in the car. I'm one of those kind of people that prefers kind of pointy-plicky stuff.
+From a developer point of view, I think they're painful to train and then they still blow up in your face afterwards
+and users either kind of train themselves to, you know, not like that Alexa,
+but they're only effectively train themselves to talk to the agent the way the agent expects them to, or they just kind of give up.
+Round about sort of this time last year, I started looking when things like GPT kind of went general release or general availability.
+I sort of thought, well, actually, could we start using LLMs to do the difficult bit, the intent recognition part of that,
+and then effectively kind of feed that into our back-end logic.
+I thought, okay, let's give it a go. There was nothing kind of really like that.
+OpenAI hadn't released their kind of audio interface, although all the pieces were there with Whisper and everything else.
+So I thought, okay, let's kind of give this a go and try connecting an LLM up to the telephone.
+So how do you do it? Well, there are quite a few projects that have kind of got most of the moving parts of taking a SIP conversation in
+and then turning it into an audio stream that you can then put into a speech-to-text,
+send that off to whatever LLM platform or whatever local LLM you're running, and get the results back.
+Asterisk, I'd already used actually in the previous project, and there was a nice bit of software actually.
+Dan's disappeared off now because I'm talking.
+Dan had a nice Asterisk-ARI interface module that effectively allowed you to work with Dialogflow,
+and that was fine, send the audio stream up to Google, get the results back.
+There's a similar module in FreeSwitch, and then there's Jambones.
+Jambones is really quite a nice open source platform, sort of open source UC platform,
+that kind of does all this stuff for you from a speech-to-text and text-to-speech point of view.
+So it interfaces to, I think it's about 10 different speech-to-text services, multiple text-to-speech services.
+It's got a nice API, WebSocket, Vent API, and it's like, okay, let's use Jambones as the piece that we're going to put the SIP calls into
+and figure out how to kind of write a bit of middleware that sits in the middle and lets us evaluate this.
+So this was my kind of plan for how to work this.
+So we have this really imaginatively named LLM agent down here.
+It talks to Jambones. It also talks to OpenAI.
+So call comes in from a SIP carrier.
+Jambones tells us via a WebSocket that that calls come in.
+It then hands us the speech-to-text transcription of that call.
+We send that off to OpenAI with a prompt.
+We get the result back and then we use the text-to-speech engine that also interfaces Jambones to get that out as an audio stream.
+And okay, doing it with just one vendor isn't a great idea.
+So I added Google Palm 2 onto that as well and put a nice kind of generic interface on it.
+We use the Jambones WebSocket API and the way that the agent actually works to get a calling or when we set an agent up,
+the idea was to make it quite big and multi-tenant capable so that we could have one instance of Jambones
+and one instance of the LLM agent effectively handling multiple inbound calls and multiple inbound call agents
+so running effectively multiple LLM scripts.
+So what happens when we set a new client up, a new agent within the LLM agent software?
+There's a lot of agents in here, aren't there?
+We pull a spare number off a pool that we hold inside Jambones.
+We nail up an application with a new WebSocket to the agent and we link that to a number
+and that then gives us a way of routing a call in into our software that we can then post off the S2T to the LLM.
+Inside Jambones it kind of looks like this.
+You have a bunch of applications and then we have a bunch of applications that post in to our agent
+and then we have a bunch of phone numbers, big lock of them that are routed in from a carrier.
+Some of the numbers are allocated to an application that means that they've been linked to an agent and then others are available.
+So when we make a REST call into our LLM agent software, we federally nail up an application
+and then that connects up to a Jambones phone number.
+The whole point really is that the client application that's trying to provide this agent service doesn't see any of that complexity in Jambones,
+although it does effectively, is post the prompt to the agent interface.
+It gets a phone number back saying I've linked your number to this phone number and then it gets a WebSocket feed of all the events that occur on that agent.
+So rather than messing around doing this as PowerPoint where let's set up an agent,
+so all that we do is we make a REST call to create an agent.
+So in this case I'm going to create a chat GPT, oh sorry, an open AI GPT 3.5 turbo agent with a prompt there.
+And then I get a response back. That response gives me an ID and a phone number.
+So let's give that phone number a call.
+Impossible to stage because the number is kind of pseudo random.
+Okay, so that's a simple call on a REST API that allows us to create an agent with a prompt.
+I'm just going to tear that agent down again otherwise we will leak phone numbers.
+Okay, so that was kind of the first part of it. We built a service that allowed us to run up an agent on the end of a phone number that was using an LLM to fulfill the conversation.
+Next part of it I thought was kind of worthwhile was to give it a try with putting a user interface so that we can create a playground for it.
+Just allowed us to experiment with it. So that's really kind of the next part of it which is to go back to the playground.
+And we do a similar thing here. We can select a model, we'll do a slightly more capable model, hit on create agent.
+We did that playing around with voices so I'll still use a UK English voice but let's do something like that.
+Yeah, I know the font is quite tiny.
+I'd like to buy five different UK flags please.
+That's great. Could you please specify the size and material for the UK flags you want to order?
+We have sizes of 50 centimetres, one metre and five metres and materials of nylon or canvas.
+Could you do me one each of those sizes and each of the material please just so I've got a range of samples?
+Sure, just to clarify you would like one UK flag of each size, 50 centimetres, one metre, five metres in both nylon and canvas material.
+So that would be a total of six flags. Is that correct?
+Yeah, that's right.
+Great. Could you please provide your full name and delivery address?
+Okay, so actually that was the kind of presentation I was giving in kind of July, August 5 last year.
+So that was as we just developed the thing. Let's go back and have a look at some of the fun things we had to try with it.
+So I thought this one was quite cool actually.
+Rob's Donuts wholesale ordering line. How can I assist you today?
+Hello, I need to order some donuts.
+Hi there, thank you for calling Rob's Donuts. I'd be happy to help you with your order. How many donuts would you like to order?
+Hello, I need to order some donuts. I sell on average 45 donuts a day. What is the best price you can offer me?
+Great. Selling an average of 45 donuts is fantastic. Let me calculate the best price for you. Based on our cost price, I can offer you a special price of 40 pence per donut.
+So for 45 donuts, the total would be 18 pounds. How does that sound to you?
+Thank you for the offer, but I'm afraid that price is too high for me. I need to maintain a margin of 75% on my purchase price in order to make a profit. Can you offer a lower price?
+I think Saul will yank me off stage if I let that whole thing run for five minutes. Let's move on.
+That was kind of interesting, right? Because that's actually the prompt for the cafe owner. It's not huge.
+We basically just set two different agents off, bridged the call together and set these folks. They did actually arrive at a price.
+If you find the video online, there is actually a bit of a bug in the middle in that one of the speech-to-text transcriptions gets...
+Basically, they get confused about whether they're quoting for the volume of orders per day, and it all goes a bit awry, but then they recover it again.
+It's quite an interesting example of... If I was a little cynical at the start of the process, it's certainly a good demo of what the technique can do.
+There is kind of a bit of a problem because doing demos like that, it is really, really quite interesting to do that from a one-page prompt.
+I literally woke up at four in the morning and thought, it'd be quite cool if we tried that. Wrote a couple of prompts, didn't really tweak them around very much.
+I think I posted a video on the internet by about seven in the morning. It's not a complicated thing to do.
+But there is a bit of a trap in here because prompts aren't code. They're just an initialization of some AIS state in the expectation or hope that you might get the kind of completions that you're looking for.
+But actually, as long as we understand that, we can kind of work with it.
+But the problems that we did find while we were playing with these different instantiations of agents based on simple text prompts are certainly hallucination.
+All sorts of interesting things happen, especially through the lens of a lossy speech to text.
+Bear in mind, we're using these models as text-based models and we're putting speech to text on the front.
+So if they get deeply confused about whether we're talking about pounds and pence or donuts per day or pence per donut because of poor transcription,
+you get almost a sort of multiplying effect on that hallucination because the randomness that the speech to text can inject,
+particularly with real humans on noisy phone lines, kind of multiplies that ability to hallucinate.
+There's also prompt injection. I would not encourage anyone to sack all their salespeople and empower an AI to negotiate prices.
+Because actually, they don't do maths. I don't know if that's a secret, but they don't do maths.
+They replicate previous results effectively.
+So that's a problem that if I'm malicious, I can inject malicious text with knowledge
+that the underlying LLM is implemented in order for it to give me donuts for 1p or pay me £1,000 to buy a donut or something similar.
+A particular problem when we're trying to do this with voice on things like telephone connections,
+and this is a huge issue because of our expectation we pick up the phone to a human
+and you get basically about a second or so to respond before the human on the end gets a bit fed up and either thinks you've gone away or whatever.
+So poor latency is particularly a problem, especially if we're using large remote models where we're firing a request into open AIS data centre
+and hoping they'll look favourably upon us.
+And similarly, there's very definitely a privacy issue around firing off all this data to humongous cloud providers.
+A lot of these problems are quite soluble though.
+And the model that we came up with which seems to work quite well actually is effectively using containment or gatekeeping.
+So rather than just giving the agent one great big prompt right at the start, what you effectively do is micro prompt each stage.
+So it's going back really more to that model that I talked about where we use the LLM to do the intent recognition
+but then use logic to decide how we as an organisation are going to actually act on that.
+And this actually lines up quite nicely with a lot of the current AI safety theory.
+If you look at some of Musta Solomon's work on this whole idea of applying guardrails and effectively putting algorithmic controls on what the AI can do,
+this idea of gatekeeping and containment actually works quite nicely with that.
+So the idea with this is that you allow the LLM full authority over the conversation
+but as soon as you then summarise that conversation and once they can act an action on it, anything that's got side effects or changes,
+only the gatekeeper logic gets to do that.
+So if I'm authenticating a bank account for example, what I don't do is say to the LLM, Fred's password is Tuesday.
+Check whether he's authenticated or not.
+You effectively use a multi-letter approach where the LLM doesn't have any knowledge of the secret.
+It's only sent off to extract and then we give an indicator back to the LLM of either that answer is correct, incorrect or perhaps close enough, drill down.
+And what that means is that the LLM then is acting as an agent of the logic which is implementing the algorithm rather than having this kind of,
+this autonomy and this ability to go and do things.
+I'm probably going to run out of time if I show you how we architected the API to do that.
+But fundamentally what you do is the API's got the ability to do that.
+What you do is you create your initial agent with your initial prompt and then when a call comes in, we get a call event on the WebSocket
+and then each completion or intent recognition that goes through the LLM,
+we get an event on the WebSocket that tells us that's happened
+and then we get the ability to post an update to the agent on a specific call ID to update the prompt that's being used.
+So for example in the banking application context, the user has said, you know, I want to log on.
+So we update the prompt to say prompt the user for their secret.
+And then when the LLM comes back with a result, the result may be multiple results, right?
+It may be, yeah, I got the user secret. No, actually the user doesn't want to know that at all.
+They just want to open an account and they want to talk to a salesperson or any one of those intents.
+So the gatekeeper then moves the conversation into another of these contexts by putting effectively an update prompt.
+So it's a little bit like RAG where well it is RAG effectively.
+So what we're effectively doing is that the LLM is doing the intent recognition,
+plumbing it into the algorithm and then giving an answer which is generated by an algorithm effectively
+and certainly controlling it through logic in an algorithm.
+So, you know, that's the 30,000 foot view of the project.
+I kind of founded this really as a little side project just because I was kind of interested in what the technology was capable of.
+As a result of what I've kind of figured out from doing this, there are a few kind of opportunities for development here.
+And the most obvious one which helps solve the latency problem, a whole load of other things, privacy problems as well,
+is at the moment we're only interfacing to open AI and Google.
+There's an abstraction there that should make it easy to interface to other things, but actually for operational reasons,
+we kind of decided to use open AI and Google because this whole thing is available as a playground that you can just go to today
+and play with so I'm kind of funding hosting of that.
+And the quantization of the hosting cost actually works better with open AI and Google than it does with implementing
+an open source model and paying for the compute time to run it to make it available.
+But certainly some work on implementing this based on open source models, bringing Mastral and Lama into the mix.
+Open source embedded, speech text, text space.
+The best game in Taiwan at the moment I think is probably Whisper.
+There's been a new release of open AI's Whisper in December and that is an open source product,
+unlike some of their other stuff and bringing that into the speech recognition engine,
+either doing it here or doing it in JamBones' custom speech-to-text engine,
+I think is definitely going to have some interesting results there.
+Handling interruptions and async conversations.
+Human beings aren't very good at doing conversations in turn like those two agents there were there.
+The agent starts talking, human interrupts them.
+Yes, you can help me, this is what I want.
+So again, being better at handling that and that's something that I think we can do through customization of that speech-to-text engine
+that allows us to abort an intent recognition earlier if someone starts talking.
+Again, latency is going to be improved by making those models closer.
+Function calling.
+So open AI's API has got the ability to do function calls.
+Some of the other commercial models have, none of them do it in a consistent way
+and I've not even thought about how we start to make function calling,
+something that the API can kind of abstract away in a sensible way.
+Someone came up a while ago with a bot-to-bot API which I think is quite cool
+so it's the idea of let's just stop the humans talking to each other at all.
+I do not buy and bot, talk, steal them, selling bot and we just don't bother with that anymore.
+I like the idea of audio interfaces and this kind of textual log of the conversation
+because it's kind of interesting and it means we can read it.
+But certainly freeing up humans from conducting it all through the medium of a killer as audio doesn't seem particularly sensible.
+And I guess actually a sustainable business model to support the try-out.
+The try-out interface which sits at llm.applicay.com's costing $200 or $300 a month to run at the moment in credits
+which I guess is a new MacBook every few months so I should probably try and find a way of kind of supporting that.
+And most of all a better name because tripping over the name LLM agent in this presentation has been kind of fun.
+So that's where the project's going, going forwards.
+A bunch of links there. There's my email address, Robert Pickering.org at RobertMatrix.org.
+We got time for questions?
+So quick question. I'm curious about the integration between OpenAI Whisper and Gambon.
+So is this something that you're going to have a little bit of that?
+Something you can do, use OpenAI Whisper within Gambon or do you need to do it outside?
+Do you know, I've not looked, it seems like an obvious thing for Jambones to do but it's not my project.
+It may be they've even done it or someone's done it.
+The brilliant thing about Jambones is it has got a custom speech-to-text API on it
+so you have got this kind of plug-in availability where you can take a WebSocket audio feed from Jambones
+and hand the transcription back in.
+But let's say that you want to use OpenAI Whisper because it's open source, it's faster, it's latency.
+So I'm curious about how does that interlace with your kind of project.
+It's like in the workflow, it's something that you need to do it before using Jambones, in Jambones, after.
+I don't know if you have anything about it.
+Architecturally I could choose to do that in any place.
+It seems pretty obvious that given that I'm handing off speech-to-text and text-to-speech to Jambones,
+I would do it there and if someone isn't doing it already then doing it through their custom speech-to-text API
+would be the obvious place to do it.
+It gets a little bit interesting because of that thing that I talked about with the ability to do interruptions
+and terminating the endpoint on a conversation.
+I think when setting up, and it's one of the jobs that's kind of been on my to-do list since about October,
+when I do get around to doing it, I think I actually may find that doing it within just the straight Jambones custom speech-to-text
+interface might be too restrictive because it doesn't allow me to get real-time control of what's going on
+in the inferencing that's been handed off to OpenAI.
+But I hope not because in theory if we could just throw that into Jambones then that both solves the problem
+and is a useful enhancement to that project.
+Okay.
+Thank you.
+Over there.
+Yeah, so in the point you mentioned that the language model is not like code,
+not going to produce or react like code.
+Yeah.
+It's not reliable enough.
+But there is this thing called the GBNF, the formal grammar in the language.
+Yeah.
+Okay, so the question was about my statement that prompts on code,
+particularly in things like OpenAI models.
+And it's my opinion on that impact of by formal notations like GBNF, I think it is in Lama.
+GBNF in Lama.
+Yeah, I mean that's an alternative approach to the problem is to make the AI more deterministic, right?
+So you either constrain the AI by an algorithm kind of outside the box
+or you make the AI more deterministic.
+And I would argue that actually doing both is probably what you need to do.
+Any more questions?
+Can I take the orange t-shirt at the back please?
+Thank you.
+My question was about literacy.
+Is that mostly caused by finding what the end of the sentence is
+or by the time that it takes to get a response from the LLM?
+Okay, that's a great question.
+So the question is, I've stated latency is a problem.
+Is that primarily caused by the endpoint detection in the speech to text
+or is it primarily caused by the latency to the LLM?
+And the answer is it's both.
+Good streaming speech to text allows me to reduce that latency.
+Really bad speech to text, which is kind of heavily blocked.
+So I'm having to take a big sample size before I put it into my engine
+to get a stream of transcription out.
+Obviously slows down my, I can't even send for a completion
+until I've got what looks like a meaningful piece of user input.
+But I've then got the further delay caused by non-deterministic stuff on the engine.
+So you will have noticed actually I chose GPT 3.5 for one of those demos
+because it's really quick.
+GPT 4, even Turbo, you know, kind of like about half of the latency
+is waiting for the transcription
+and the other half is waiting for getting the answer back.
+But really great question.
+How are we doing for time?
+I've still got time for another question.
+White shirt in the middle there.
+Could you screen that a bit by getting the speech to Urbanare?
+Because you can both with humans, I don't know how to think about it.
+They go, um, okay.
+So could you put the voice on to do that?
+So the caller hasn't gotten that long silence when they think they've got away.
+So the question is can you kind of use human factors
+and put some kind of noise, some feedback, some Urbanare's
+coming from the agent synthesized to effectively let the human know
+that there's still something on the end.
+Yeah, you absolutely can actually.
+And the LLNA agent code, I think it might have gone away.
+But one of the things that I was just put some background noise in there,
+so you just put some background office noise,
+because everyone is super used to calling call centers
+and hearing tappity tappity click clickity click.
+And you know, what did you do at the weekend in the background?
+So I think I might have found the web file I was using for that
+wasn't entirely as unencumbered as I thought it was.
+Question down here at the front.
+What type of speech model is there?
+Because it sounds pretty natural.
+That one that I was using there was Google,
+which is, you know, still pretty good.
+It's old but good.
+But it's a really nice streaming speech to text.
+The text to speech was again Google.
+It's one of the WaveNet Google text to speech.
+Sorry, I misunderstood and misrepresented your question.
+Is there a lot of interest in the bot interface
+where you set the zone up and find and selling bots
+which can involve people there?
+Which seems to be a big waste of producing power
+because you could just have like a json API
+and find and sell donuts.
+So the question is, is there a lot of interest in a bot-to-bot interface?
+And actually, when I was first asked this question,
+it was in another presentation, another place.
+And I wittily retorted, yeah, we've had EDI for kind of like 30 years
+and you know, that's the way that you do these kind of data exchange
+and negotiation.
+But I think the reality is it is quite interesting
+and people have subsequently persuaded me to change my mind on this
+because it is quite interesting to be able to see
+a human-parsable transcript of a negotiation.
+I think it might have legs.
+It's well down the feature list.
+But it is quite interesting from that point of view
+because I can see a transcript of it
+rather than seeing, you know, a bunch of XML
+or a bunch of JSON saying this is why we arrived at 46p of donut.
+What I actually get to see is something that purports to be something
+like a kind of human reasoning path.
+But I think it's a very good question.
+Any more questions?
+Oh, waving your arm to the back.
+Sorry, I missed you.
+Latency is, you know, yeah.
+One and a half, two seconds is not a great latency.
+Getting that down to 500, 600, 700 milliseconds would be ideal.
+And by being able to chunk the speech to text better
+so that we can stream it
+and also move the inference thing quicker and faster,
+we can hopefully get that down.
+I mean, through some of the techniques like the background noise,
+you can kind of get away with it,
+especially if the human being knows they're talking to a bot,
+which I, you know, you kind of have to be honest
+and let them know that's what's happening.
+So I think people are happy to synchronize in that way,
+but it could be a lot better.
+Okay, so question is what use cases are there
+in the domain of customer interaction?
+Not out there, but which ones have you tried?
+Which ones have we tried?
+In terms of trying this on real users
+in a real production commercial environment,
+I'm going to stick my hands up and say I don't think it's ready yet.
+There's some development work that I'm personally doing
+that should kind of come to fruition.
+August, September this year,
+they'll put it into a real trial environment
+in a commercial environment,
+but right now there's those four or five bullet points on hurdles there
+to improve the ability of the system to do stuff.
+I wouldn't put this on the end of anything commercially significant
+right now in February 2024,
+but I think with the right controls in place,
+there is so much money to be made out of doing this.
+The amount of human endeavor spending its time on the end of headsets
+in call centers is going to happen commercially,
+so really what we need to do is going to make it work
+in the most beneficial way that we possibly can,
+and by making it open source
+so we can see the moving parts that are inside it,
+and having it depend on open source models that can be audited
+I think is the best possible way of doing that personally.
+I think we're probably done with questions,
+I'm certainly out of time, so thank you all very much.

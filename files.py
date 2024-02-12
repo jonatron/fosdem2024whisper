@@ -71,6 +71,10 @@ files = \
     "title": "Magic and Software\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-1899-where-did-all-the-fun-go-and-how-to-bring-it-back-with-foss-.av1.webm",
+    "title": "Where Did All the Fun Go? And How to Bring it Back with FOSS!\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-3345-opening-up-communication-silos-with-matrix-2-0-and-the-eu-digital-markets-act.av1.webm",
     "title": "Opening up communication silos with Matrix 2.0 and the EU Digital Markets Act\n"
   },
@@ -81,6 +85,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2415-how-to-build-an-open-source-school-cloud-for-5-million-users.av1.webm",
     "title": "How to Build an Open Source School Cloud for 5 Million Users\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/janson/fosdem-2024-1779-private-clouds-do-not-need-to-be-legacy-.av1.webm",
+    "title": "Private clouds do not need to be legacy!\n"
   },
   {
     "href": "https://video.fosdem.org/2024/janson/fosdem-2024-2716-firefox-power-profiling-a-powerful-visualization-of-web-sustainability.av1.webm",
@@ -121,6 +129,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-2092-the-d-programming-language-for-modern-open-source-development.av1.webm",
     "title": "The D Programming Language for Modern Open Source Development\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-3095-one-way-forward-finding-a-path-to-what-comes-after-unix.av1.webm",
+    "title": "One way forward: finding a path to what comes after Unix\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k1105/fosdem-2024-1902-first-aid-kit-for-c-c-server-performance.av1.webm",
@@ -317,6 +329,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2531-introduction-to-openapi.av1.webm",
     "title": "Introduction to OpenAPI\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2866-making-api-terms-of-service-trustworthy-presenting-fact-the-fair-api-commitment-terms.av1.webm",
+    "title": "Making API Terms of Service Trustworthy? Presenting FACT : The Fair API Commitment Terms\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2952-the-api-landscape-mapping-the-2000-api-and-opensource-tooling-for-developers.av1.webm",
@@ -555,6 +571,10 @@ files = \
     "title": "Yet another event sourcing library\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2696-the-old-remains-new.av1.webm",
+    "title": "The Old Remains New\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2636-declarative-calcs-and-visualization-with-calculang.av1.webm",
     "title": "declarative calcs and visualization with calculang\n"
   },
@@ -575,6 +595,14 @@ files = \
     "title": "Self-hosting and autonomy using guix-forge\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-3652-opening-and-welcome-introducing-the-open-website-alliance-and-today-s-program.av1.webm",
+    "title": "Opening and Welcome — Introducing the Open Website Alliance and Today's Program\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-3544-defend-foss-from-innovation-to-world-wide-positive-change.av1.webm",
+    "title": "Defend FOSS: From innovation to world-wide positive change\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-2305-open-source-leadership-at-scale-how-1300-people-improved-drupal-s-multilingual-features.av1.webm",
     "title": "Open source leadership at scale, how 1300+ people improved Drupal’s multilingual features\n"
   },
@@ -591,8 +619,16 @@ files = \
     "title": "Wrestling giants: How can free open source CMSes remain competitive with enterprise clients?\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-3730-collaborative-government-websites-standardization-for-digital-sovereignty-using-open-source-the-model-of-rwanda-and-the-govstack-global-initiative.av1.webm",
+    "title": "Collaborative government websites standardization for digital sovereignty using Open-Source. The model of Rwanda and the GovStack Global initiative\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-3634-shaping-the-future-investing-wisely-in-long-term-open-source-development-with-five-for-the-future-.av1.webm",
     "title": "Shaping the Future: Investing Wisely in Long-Term Open Source Development with \"Five for the Future\"\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-3639-roundtable-round-off-on-foss-cms-collaboration.av1.webm",
+    "title": "Roundtable Round-Off on FOSS CMS Collaboration\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1985-ukis-tpms-immutable-initrds-and-full-disk-encryption-what-distributions-should-keep-in-mind-when-hopping-onto-the-system-integrity-train.av1.webm",
@@ -731,6 +767,10 @@ files = \
     "title": "Breathing Life into Legacy: An Open-Source Emulator of Legacy Apple Devices\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2247-confedss-concolic-execution-and-the-puzzling-practice-of-peripheral-emulation.av1.webm",
+    "title": "CONFEDSS: Concolic execution and the puzzling practice of peripheral emulation\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1762-arm64ec-microsoft-s-emulation-frankenstein.av1.webm",
     "title": "Arm64EC: Microsoft's emulation Frankenstein\n"
   },
@@ -855,6 +895,14 @@ files = \
     "title": "Evolve your (web)app while it is running\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4601/fosdem-2024-2044-type-safe-queries-with-gleam-graphql.av1.webm",
+    "title": "Type-safe Queries with Gleam & GraphQL\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/j1106/fosdem-2024-1634-microblocks.av1.webm",
+    "title": "MicroBlocks\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-1635-mit-app-inventor.av1.webm",
     "title": "MIT App Inventor\n"
   },
@@ -943,6 +991,10 @@ files = \
     "title": "Towards a bright future with Mobian?\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1309/fosdem-2024-2508-daily-blogging-embedded-gecko-development.av1.webm",
+    "title": "Daily blogging embedded Gecko development\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-3254-the-state-of-openjdk.av1.webm",
     "title": "The State of OpenJDK\n"
   },
@@ -1001,6 +1053,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2713-how-to-bring-up-gcc-for-your-new-chip.av1.webm",
     "title": "How to bring up GCC for your new chip\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2216-my-experience-as-a-first-time-contributor-to-gcc-s-lto.av1.webm",
+    "title": "My experience as a first time contributor to GCC's LTO\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2759-what-can-compiler-explorer-do-for-gcc.av1.webm",
@@ -1123,6 +1179,10 @@ files = \
     "title": "Overcoming MPI ABI incompatibility\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2117-extracting-mini-apps-from-hpc-software-for-total-cost-of-ownership-optimized-systems-procurement.av1.webm",
+    "title": "Extracting Mini-Apps from HPC software for Total Cost of Ownership optimized systems procurement\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2338-pypartmc-engineering-python-to-fortran-bindings-in-c-for-use-in-julia-and-matlab.av1.webm",
     "title": "PyPartMC: engineering Python-to-Fortran bindings in C++, for use in Julia and Matlab\n"
   },
@@ -1235,6 +1295,10 @@ files = \
     "title": "POSIX identities out of OAuth2 identity providers: how to redesign SSSD and Samba?\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2038-how-tansu-a-reactive-agnostic-library-simplifies-widget-creation-for-agnosui.av1.webm",
+    "title": "How Tansu, a Reactive Agnostic Library, Simplifies Widget Creation for AgnosUI\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2617-calc-with-calculang-a-language-for-calculations.av1.webm",
     "title": "calc with calculang, a language for calculations\n"
   },
@@ -1245,6 +1309,14 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2890-unraveling-javascript-s-heart-mastering-the-event-loop-for-peak-performance.av1.webm",
     "title": "Unraveling JavaScript's Heart: Mastering the Event Loop for Peak Performance\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2563-the-biome-toolchain.av1.webm",
+    "title": "The Biome toolchain\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2779-staying-ahead-of-the-game-javascript-security.av1.webm",
+    "title": "Staying Ahead of the Game: JavaScript Security\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1301/fosdem-2024-2540-codebase-conquest-how-nx-turbocharged-our-react-workflow.av1.webm",
@@ -1343,6 +1415,10 @@ files = \
     "title": "FOSS CAD/EDA tools supporting the open access PDK initiative\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2060-using-the-ecp5-for-libre-soc-prototyping.av1.webm",
+    "title": "Using the ECP5 for Libre-SOC prototyping\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-3582-welcome-to-the-llvm-dev-room.av1.webm",
     "title": "Welcome to the LLVM dev room\n"
   },
@@ -1417,6 +1493,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3375-news-from-the-hermit-crab-from-soundness-foundations-to-gpu-virtualization.av1.webm",
     "title": "News from the Hermit Crab — From Soundness Foundations to GPU Virtualization\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3386-linux-binary-compatible-unikernels-with-unikraft.av1.webm",
+    "title": "Linux Binary Compatible Unikernels with Unikraft\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2208/fosdem-2024-3483-support-dynamically-linked-executables-via-linux-ld-so-and-implement-ena-driver-to-expand-application-of-osv.av1.webm",
@@ -1547,6 +1627,14 @@ files = \
     "title": "Firefox: Good things come in .deb packages\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1909-broom-not-included-curling-the-modern-way.av1.webm",
+    "title": "Broom not included: curling the modern way\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1798-improving-ipv6-only-experience-on-linux.av1.webm",
+    "title": "Improving IPv6-only experience on Linux\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-1748-network-topology-discovery-how-it-really-works.av1.webm",
     "title": "Network Topology Discovery: how it really works\n"
   },
@@ -1591,6 +1679,10 @@ files = \
     "title": "I want my own cellular network! Having fun with LTE networks and Open5Gs.\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5230/fosdem-2024-2359-navigating-the-networking-maze-of-kubernetes-a-journey-of-discovery-confusion-and-hopefully-enlightenment.av1.webm",
+    "title": "Navigating the Networking Maze of Kubernetes: A Journey of Discovery, Confusion, and (Hopefully) Enlightenment\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3061-packaging-bazel-and-bazel-based-packages.av1.webm",
     "title": "Packaging Bazel and Bazel-based packages\n"
   },
@@ -1621,6 +1713,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-1692-running-nlnet-on-nixos.av1.webm",
     "title": "Running NLnet on NixOS\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3044-clevis-tang-unattended-boot-of-an-encrypted-nixos-system.av1.webm",
+    "title": "Clevis/Tang: unattended boot of an encrypted NixOS system\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-2763-dune-3d-the-making-of-a-maker-s-tool.av1.webm",
@@ -1715,6 +1811,10 @@ files = \
     "title": "Open Source Community Updates\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-.av1.webm",
+    "title": "Innovations in H.264/AVC software decoding (Architecture and optimization of a block-based video decoder to reach 10% faster speed and 3x code reduction over the state-of-the-art)\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3538-ffmpeg-vvc-decoder.av1.webm",
     "title": "FFmpeg VVC Decoder\n"
   },
@@ -1753,6 +1853,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3406-prompt-compass-a-methodological-approach-to-evaluating-the-use-of-large-language-models-in-ssh-research.av1.webm",
     "title": "Prompt Compass: A Methodological Approach to Evaluating the Use of Large Language Models in SSH research\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3496-ub-app-using-design-justice-to-involve-marginalised-communities-and-urban-planners-in-co-designing-a-new-photovoice-tool-for-citizen-engagement.av1.webm",
+    "title": "UB App: Using Design Justice to involve marginalised communities and urban planners in co-designing a new photovoice tool for citizen engagement\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3434-beyond-ratings-empowering-communities-through-wikirate-for-transparent-corporate-impact-research-and-analysis-.av1.webm",
@@ -1805,6 +1909,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3010-making-openrefine-more-reproducible.av1.webm",
     "title": "Making OpenRefine more reproducible\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3152-node-reduction-through-artificial-intelligence-inferences-using-graphology-and-sigmajs-a-case-study-on-hypertextual-conversations-in-freight-train-graffiti-in-the-north-american-region-.av1.webm",
+    "title": "Node Reduction through Artificial Intelligence Inferences using Graphology and SigmaJS: A Case Study on Hypertextual Conversations in Freight Train Graffiti in the North American Region.\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub4132/fosdem-2024-3179-qadence-a-library-for-digital-analog-quantum-computing.av1.webm",
@@ -1899,6 +2007,10 @@ files = \
     "title": "EU Policy Devroom Wrap-Up\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2728-thunderbird-why-visual-change-is-good.av1.webm",
+    "title": "Thunderbird: Why Visual Change Is Good\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3049-reimagining-personal-computing-with-e-ink-community-insights-and-design-challenges.av1.webm",
     "title": "Reimagining Personal Computing with E ink: Community Insights and Design Challenges\n"
   },
@@ -1911,8 +2023,16 @@ files = \
     "title": "Bad UX is Bad Security: Adventures in Qubes OS UX Design\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3326-web-accessibility-for-open-source-privacy-security-tools.av1.webm",
+    "title": "Web-accessibility for open-source privacy & security tools\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3509-penpot-2-0-is-here-.av1.webm",
     "title": "Penpot 2.0 is here!\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3585-open-source-firmware-bmc-and-bootloader-devroom-intro.av1.webm",
+    "title": "Open Source Firmware, BMC and Bootloader devroom - intro\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2936-open-source-firmware-status-on-amd-platforms-2024-5th-edition.av1.webm",
@@ -1927,8 +2047,16 @@ files = \
     "title": "systemd-boot, systemd-stub, UKIs\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3099-grub-project-status-update.av1.webm",
+    "title": "GRUB - Project Status Update\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3309-kernel-command-line-to-configure-userspace-considered-harmful.av1.webm",
     "title": "Kernel command line to configure userspace considered harmful\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3724-trenchboot-project-status-update.av1.webm",
+    "title": "TrenchBoot - project status update\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3598-beyond-joins-and-indexes.av1.webm",
@@ -1965,6 +2093,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2666-gnu-health-incorporating-digital-public-goods-in-the-european-healthcare-system.av1.webm",
     "title": "GNU Health. Incorporating Digital Public Goods in the European healthcare system\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2641-the-orthanc-ecosystem-for-medical-imaging.av1.webm",
+    "title": "The Orthanc ecosystem for medical imaging\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3748-ospo4good-un-event-report-2024-call-for-participation.av1.webm",
@@ -2019,12 +2151,20 @@ files = \
     "title": "Developing in Public : Open Source Tech Education\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2052-open-source-railway-designer-osrd-why-sncf-rseau-start-an-open-source-project-.av1.webm",
+    "title": "Open Source Railway Designer (OSRD): why SNCF Réseau start an open source project ?\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2112-how-to-use-private-data-in-generative-ai-end-to-end-solution-for-retrieval-augmented-generation-with-cratedb-and-langchain.av1.webm",
     "title": "How to Use Private Data in Generative AI: End-to-End Solution for Retrieval Augmented Generation with CrateDB and LangChain\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2072-a-murder-party-with-lea.av1.webm",
     "title": "A murder party with Lea\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-1652--new-workflow-orchestrator-in-town-apache-airflow-2-x-.av1.webm",
+    "title": "`New` Workflow Orchestrator in town: \"Apache Airflow 2.x\"\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ud2218a/fosdem-2024-2326-a-slow-migration-from-django-templates-to-vue-graphql.av1.webm",
@@ -2119,6 +2259,14 @@ files = \
     "title": "Using GStreamer to build real-time applications with Golang\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3609-building-open-source-telephone-agents-using-llms.av1.webm",
+    "title": "Building open source telephone agents using LLMs\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3591-skynet-introducing-local-ai-summaries-in-jitsi-meet.av1.webm",
+    "title": "Skynet: introducing local AI summaries in Jitsi Meet\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1302/fosdem-2024-3123-build-your-enum-lcr-server-using-cgrates.av1.webm",
     "title": "Build your ENUM LCR Server using CGRateS\n"
   },
@@ -2157,6 +2305,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2458-mambo-dynamic-binary-modification-tool-for-risc-v.av1.webm",
     "title": "MAMBO - Dynamic Binary Modification Tool for RISC-V\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2643-lessons-from-porting-software-to-risc-v-rise.av1.webm",
+    "title": "Lessons from porting software to RISC-V @ RISE\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-2327-unleashing-risc-v-in-managed-runtimes-navigating-extensions-memory-models-and-performance-challenges-in-openjdk.av1.webm",
@@ -2239,6 +2391,10 @@ files = \
     "title": "Thunderbird: How to Exchange Rot For Rust\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-2603-fighting-cancer-with-rust.av1.webm",
+    "title": "Fighting cancer with Rust\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/h1308/fosdem-2024-2420-the-journey-of-hacking-in-a-new-serde-dataformat.av1.webm",
     "title": "The journey of hacking in a new serde dataformat\n"
   },
@@ -2277,6 +2433,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3169-how-to-make-spdx-industry-standard-for-ai-ml.av1.webm",
     "title": "How to make SPDX industry standard for AI/ML\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-2889-sboms-that-you-can-trust-the-good-the-bad-and-the-ugly.av1.webm",
+    "title": "SBOMs that you can trust - the good, the bad, and the ugly\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-1896-12-months-of-sboms-an-experience-report.av1.webm",

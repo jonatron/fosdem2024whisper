@@ -1,0 +1,173 @@
+Perfect. So, welcome everybody. My name is Simon Künzer. I'm the project founder actually
+of Unicraft and lead maintainer there. I'm also CTO and co-founder of Unicraft TMBH,
+which is a commercial open source company using the Unicraft project for building a
+new cloud. You saw some aspects actually from Rasmus talk. This was like three talks earlier
+than mine. Here I'll go really now into much more technical details, how it looks like on the
+kernel side. So, this is much more OS class here, what I'm doing. So, first of all, briefly,
+wave your hands up if you know what a Unicron is. Good. Okay. So, then I do it here really
+quick. In the end, what we are doing is turning an application into a kernel by using something
+that we call operating system libraries that are directly baked to an application and we run
+that as a virtual machine. So, then we're all on the same page. Especially the Unicraft project,
+what's for us important is the aspect of single purpose. So, we do specialization and saying the
+OS layers are built just for that particular application that we're interested in and that
+allows you a lot of optimizations that you can do. For instance, we do single address space because
+we run one application in one kernel. We have a really small TCP and a small memory footprint.
+Behind the scenes, we have something that we call the micro library pool. So, you have decomposed
+OS functionality as library available. So, this is for instance scheduling file systems,
+then libraries that do Linux or POSIX APIs so that ease programming with that environment. So,
+it's kind of an SDK. The current project focus is on Linux compatibility because our vision is
+actually we want seamless application support for existing Linux applications. And since most
+software is written for Linux, especially for the cloud, we want to remove as many obstacles that
+we can do for running them on top of Unicraft. And one aspect as Vassim was showing is the
+tooling side. We have actually two approaches from the kernel side. We can do application
+compatibility natively, meaning you take the sources of your application and compile it together
+with the libraries of your kernel. But we can also do binary compatibility and this is what I'm
+going to speak about here, where we provide the Linux ABI to the application. So, we do system
+calls, VGSOs, etc., etc., to support a pre-compiled application. And now I'm going over these
+individual steps. So, first of all, when you build a kernel and want to make that supporting
+running a Linux application, what you need to understand or the kernel needs to understand is
+the ELF format. Running that application ELF is actually a pretty straightforward process. So,
+you need to first be able to pass the ELF, load it in your memory space, then you need to prepare
+an entrance stack. This is all specifications that you need to look up and fill out the specific
+vectors and values in there, and then jump to the entrance. And then that application is working.
+The only interaction that you will then, from that time on, have with the application are
+actually system calls. There's two interesting things here regarding loading ELF applications.
+So, you have something called non-PIE applications and something called PIE applications, meaning
+non-position independent... Sorry, non-position independent, position independent. The non-position
+dependent, they dictate you the address layout in your unicolonel. And since we want to run
+everything with a single address space, it means we can support only one non-PIE application.
+The beauty of PIE is we can relocate the application in the address space. So, we can still work
+with a single address space, but can run multiple applications if you want. And, sorry, if we're
+going a bit more further with the original reason why PIE is now pretty common in operating systems,
+we could even apply with that single address space full stack ASLR, where we mix kernel libraries
+and application libraries completely spread in the address space. I give you some more readings
+when you download the slides, but basically in the project we are focusing on PIE applications,
+since most of them, at least the last five years, is the standard when you get a pre-compiled
+binary from the distro. System calls. So, we are in a single address space, we have a pre-compiled
+binary from Linux and we want to run it, so we have to do system calls. This is actually a long
+pipeline that we need to run. It starts with a Cisco instruction, so note here this is now x86
+specific, but that instruction usually takes care of a protection domain switch from ring 3 to
+ring 0, but we run in a single protection domain, actually we don't need that, so we go from ring 0
+to ring 0, but yeah, we need to execute that instruction. Then Linux requires us to have an
+own kernel side stack, especially language environments like Go. They don't give you a big
+enough stack that you can just continue executing on the kernel side, so you need to switch. In
+reality, of course, if you have an application that has a big enough stack, you could also
+configure Unicraft to get rid of this step. Then at the moment we are using full CPU features
+also on the Unicraft side, it's mainly coming from for supporting native applications where
+basically addressing the kernel is just a function call, so why would you restrict your CPU
+features? If you don't compile it with that, then you can also remove that step, but if you do that
+in a default option, we need to save and restore that state 2 of your CPU. Then we have a TLS switch,
+which we really require because we use the TLS for our OSD composites, you know,
+libraryization, sorry, because we didn't want to have a central big TCP control structure where
+we need to maintain every particular field. We want to have everything clearly decomposed,
+so the TLS was the way to go for that. Yeah, and then actually we're able to call the system
+call handler. That brings you to the question, does it have to be that complicated? We need to
+do really so many steps, isn't there something we can do a bit better with a single address space?
+And actually there is, and there is this mechanism called VDSO and also kernel VSS call,
+this is an old thing, so the VDSO basically for us is just a catalog to look up kernel symbols,
+so this is a way for us to provide the function addresses to the application that the application
+can directly call because again, single address space, single protection domain,
+we don't need to do a switch. The second thing is the kernel VSS call symbol,
+which was a standardized symbol in the past, mostly for x86 when CPUs were introduced to do
+sysenter and syscall instead of interrupt driven system calls, that was a way for the S,
+from the US to tell the application to enter the kernel more efficiently. For us,
+we can use it as a function call to directly jump in the system call handler, so it's no trap,
+no interrupt, no privileged domain switch, no need to save and restore of extended registers
+because even that is covered by the system V calling convention. And the idea here is we just
+need to patch the libc shared library of that application and then most system calls anyways
+go through the libc because they provide wrappers there and then we have that covered.
+So in comparison, no expensive syscall instruction anymore, it's just a function call,
+the stack maybe we needed depends still, no floating point registers, whatever I mean,
+you don't need to save anymore and the TNS register we need to switch still.
+Okay, now we get into this fork dilemma, how I call it, this is like always the bad word for
+unicolonial people. So this is a bit of OS class here, so you probably remember fork means
+duplicating the address space of your application so that everything is at the same address.
+Problem with this is it's a second address space, I don't want a second address space,
+I want everything flat in a single address space to save time in context switches or TLB flashes,
+right? So, doesn't work. What we actually would need in a unicolon environment is a fork version
+that forks the application to a different address. Unfortunately, without compiler support, that's
+not that easy. You could of course copy the memory region but you need to then start patching your
+application because you have absolute addresses in there like return addresses on stacks, pointer
+addresses, etc. So don't work that great but what we can do, sorry, for instance, let's say,
+what the question is is when you look at the applications, they're compilers position independent.
+In principle, the result is that I can run multiple applications in a single address space.
+It's just that this model with fork and exit doesn't fit, you would say, because we have this fork
+intermediate step. And luckily, there was also this was coming from, let's say, older generations
+of Linux when they were trying to run Linux on targets without MMU. There's a system called V fork
+that allows you that. It's a bit of a funky fork call because it doesn't fork actually. It just pauses
+your parent and allows you to execute within the memory space of the parent, the child, for a short
+period of time, actually until the child calls either exit or one of the execution functions to
+load a new application binary. And that is basically our solution for running multiple
+applications or like a shell or something where the shell forks, you load a position independent
+binary anyway in the next step, then you have it in a different address area and you execute.
+What we want to try out here is if that mechanism works great for, you know, if you could just
+replace the fork system call number internally with a V fork and see for how many applications
+that works great because they were doing fork exit before and for how many that does work.
+But obviously, won't work is for applications that just use fork to open up worker processes.
+But just for this fork exit model that works.
+Okay, and then the last point is a bit, I really rushed through.
+I was when I was preparing, I was checking, okay, I can't say this, there's no time, no time.
+So here I wanted to give you a bit of an overview of what we did the last year when we looked at
+different applications and we're always in front of that question. We need to have Linux
+compatibility, but at the same time, we don't want to re-implement Linux. And there's some
+aspects where it's really tricky. For instance, the first one is a really interesting example. It's
+about querying from the kernel side network interfaces or setting up routing tables, etc.
+So get if address and call, which normally needs a complete subsystem of sockets to be
+implemented. And then on top of a known protocol called netlink, just to do this user space kernel
+interaction for gathering that information. An alternative here could be, of course, we implemented
+that, but an alternative here could be also to make use of the VDSO again, patch the libc
+and do more direct calls for just querying the IP address from the kernel that's currently set.
+Another interesting point is applications that are so mean that implicitly rely on a specific
+behavior on Linux. And really, a funny example is primitive scheduling that you come across
+from time to time. So far we have cooperative scheduling in Unicraft because that's a really
+efficient for us scheduling way to do things. But then you, I mean, you put something like
+Frank in PHP or MySQL and they use busy waiting loops to wait for other threads to wake up.
+With a cooperative scheduler, you can imagine what happens. Basically nothing because you're
+constantly busy waiting but never give another threat to chance to pop up.
+Then there is this whole topic about which system calls you need to support, which ones you can
+stop, which one need to be completely implemented. It's actually true that you can stop a lot,
+you don't need all of them. I would here refer you to a nice paper from
+Esplos. Actually last year for STEM, the authors were giving a presentation here too about how to
+figure out which system calls you need to implement. Of course, there's also sometimes the application
+dependent, but there is a, you don't need to implement all of the Linux system calls to have
+Linux compatibility. There are really a lot of system calls that are really specific to some
+cases or setting up seed groups or whatever, which normal applications don't use.
+And then of course the whole topic about file system hierarchy standard,
+where of course application expect you have something under PROC or under ETC or somewhere.
+So far, we were able to go around that by providing a meaningful filled text file
+for the application, especially the PROC file system without implementing that yet.
+And that worked for NGINX, Node.js, Redis, HA Proxy and a lot of other number of applications.
+Okay, so now we're so fast through this, I'm sorry. So we have time for some questions. I guess
+there's some stuff for more clarity. We are an open source project. These are the resources where
+you can find us. And you can also, I mean, see that I put here KraftCloud, that logo. This is
+what we currently try to build with our company, which is a cloud that uses the beauty of unicronals
+for really fast bootups, high resource efficiency for serverless architectures,
+microservices, functional services, etc. Unfortunately, just two minutes for the
+questions, but still, are there any questions? So when you run everything in a single address
+base, do you actually need to enable paging at all? So yeah, with the CPU, actually we need to
+enable paging, but it allows you to build a page table at compile time. And then it's just
+switching that page table on during boot. What additionally happens with Linux applications
+that are sometimes doing MAP calls and mapping here, something or file there, of course, if you
+enable that support, then you need some kind of dynamic page table handling. But if you don't need
+that, you have the opportunity to have a compile time page table. So we don't have the time to
+discuss it, but I was wondering if you have paging, wouldn't you be able to use copy and write to
+the popular one? Maybe something to think about. Of course, we do also copy and write where you
+need it. The thing is, what we still want is a single address space. So that page table is,
+basically, there's just one page table, another page table per application. We don't have this
+page table switches, no TLB flushes. So this is where we gain actually a lot of performance
+also from. And since we say we are a single application, we run only one thing, why do I need
+to handle? Everything that runs in the unique kernel is defined to be trusted,
+and you have then the hard isolation boundaries outside from the hard-provise environment to
+protect anything that is going bad or an overtaken unique conference.
+If you write, protect the data pages of a process that does fork, you can actually
+detect processes that don't use default exec that do actual fork to share memory,
+and you would be able to detect that.
+I would just add to that because you would have multiple other spaces just for a short while,
+so it's not really a performance issue, right?
+Yeah, it's like two kinds, implementation effort and... But yeah, I see your point.
+Also for non-position independent applications, I mean, if you have a choice not supporting
+multiple of them and having multiple address spaces, I mean, why not go for multiple address
+spaces, it does not invalidate the unique kernel idea.
+No, no, no, it doesn't. It doesn't. It just comes with some cost, right?
+Right.
+Okay, thank you very much. We have to switch to another talk. Thanks again.

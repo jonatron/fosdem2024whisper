@@ -1,0 +1,593 @@
+WEBVTT
+
+00:00.000 --> 00:13.000
+My name is Antonio, I'm a Kubernetes maintainer and working in SIG Network, STL and SIG testing.
+
+00:13.000 --> 00:19.560
+And my interest here is to show a bit more about the problems that Kubernetes has internally
+
+00:19.560 --> 00:25.240
+and why something like multi-network are not easy to implement.
+
+00:25.240 --> 00:31.240
+So Kubernetes started as a container orchestrator platform, right?
+
+00:31.240 --> 00:32.240
+Excuse me.
+
+00:32.240 --> 00:33.240
+Hey.
+
+00:33.240 --> 00:35.240
+Okay, you shut up the light on the top.
+
+00:35.240 --> 00:37.240
+What is the light?
+
+00:37.240 --> 00:39.240
+On that one.
+
+00:39.240 --> 00:41.240
+I think it's there.
+
+00:41.240 --> 00:43.240
+This one?
+
+00:43.240 --> 00:45.240
+This one?
+
+00:45.240 --> 00:50.240
+Okay, I must say to break it down.
+
+00:50.240 --> 00:53.240
+It's like the meme with the two buttons, right?
+
+00:53.240 --> 00:54.240
+Which one?
+
+00:54.240 --> 00:55.240
+And sweaty now.
+
+00:55.240 --> 00:56.240
+The tableau?
+
+00:56.240 --> 00:57.240
+Tableau?
+
+00:57.240 --> 00:58.240
+Let's go with tableau.
+
+00:58.240 --> 00:59.240
+Okay, okay, okay, good.
+
+00:59.240 --> 01:00.240
+The tableau.
+
+01:00.240 --> 01:05.240
+Well, this is the thing.
+
+01:05.240 --> 01:12.240
+In Kubernetes started as an orchestrator and now it's a big thing and everybody wants to do Kubernetes.
+
+01:12.240 --> 01:14.240
+And this comic is the best example, right?
+
+01:14.240 --> 01:19.240
+People just want to throw everything in Kubernetes and magically start to happen.
+
+01:19.240 --> 01:22.240
+But that doesn't work this way, right?
+
+01:22.240 --> 01:25.240
+In order to absorb all these new problems to me, right?
+
+01:25.240 --> 01:29.240
+Kubernetes, what it does is it implemented a plugable architecture.
+
+01:29.240 --> 01:34.240
+Instead of being everything hard called, we try to define interfaces, APIs.
+
+01:34.240 --> 01:36.240
+You can see it's here, right?
+
+01:36.240 --> 01:44.240
+It's common these days to build your custom resource or you can have the CSI to implement your driver and your storage.
+
+01:44.240 --> 01:47.240
+But you see that something is missing here, right?
+
+01:47.240 --> 01:48.240
+You don't see CNI.
+
+01:48.240 --> 01:54.240
+Since Docker seems to be in 1.22, Kubernetes doesn't have any networking capabilities.
+
+01:54.240 --> 01:58.240
+So all the network is behind the CRI API.
+
+01:58.240 --> 01:59.240
+So it's left to the containers.
+
+01:59.240 --> 02:12.240
+And if you went to the DAG multi-network meeting like one hour ago, you can see that the people that implement network plugins has to do a lot of diagnostics with annotations and JSON embedding and all these other things.
+
+02:12.240 --> 02:15.240
+This is something that we want to solve.
+
+02:15.240 --> 02:26.240
+But before we go there, is how Kubernetes work is just you have a control plane and then you have all these worker nodes that have resources and you run POS, right?
+
+02:26.240 --> 02:29.240
+Everything is controlled through the API.
+
+02:29.240 --> 02:34.240
+Kubernetes at the end is you have a REST API, you define the API and you define the behaviors.
+
+02:34.240 --> 02:39.240
+And these behaviors are asserted by the E2E test.
+
+02:39.240 --> 02:46.240
+So when people implement something, they can run the E2E test and validate that they are API.
+
+02:46.240 --> 02:50.240
+They are implementation match the APIs.
+
+02:50.240 --> 02:54.240
+With this, you achieve a consistency across the ecosystem, right?
+
+02:54.240 --> 02:58.240
+A lot of people think, oh, Kubernetes use a lot of IP tables.
+
+02:58.240 --> 03:03.240
+And that's a big lie because IP tables and Q-proxies and implementation detail, right?
+
+03:03.240 --> 03:04.240
+The API services.
+
+03:04.240 --> 03:07.240
+But you can implement the same without IP tables.
+
+03:07.240 --> 03:11.240
+You can use eBPF, user space, XDP, sockets, whatever.
+
+03:11.240 --> 03:20.240
+The important thing is you implement the API, you run our E2E test that defines how this should behave, and the user will have the same behavior,
+
+03:20.240 --> 03:25.240
+independently of what it has behind the scenes.
+
+03:25.240 --> 03:33.240
+So when we move to the network, you need to think that Kubernetes was created as an application orchestration, right?
+
+03:33.240 --> 03:37.240
+So it was not created as an infrastructure as a service.
+
+03:37.240 --> 03:49.240
+And then these consequences, you have three APIs for the network, three primitives that we can say, right?
+
+03:49.240 --> 03:57.240
+The nodes that are the VMs that run in an infrastructure that can be assumed as a node network.
+
+03:57.240 --> 03:59.240
+The node network here is not an IP network, right?
+
+03:59.240 --> 04:03.240
+It's an abstraction, say, it's everything that is connected there.
+
+04:03.240 --> 04:06.240
+So all the VMs are in a node network.
+
+04:06.240 --> 04:09.240
+All the pods are in a pod network, right?
+
+04:09.240 --> 04:13.240
+The pods has this requirement, that's the Kubernetes requirement.
+
+04:13.240 --> 04:16.240
+Every pod has to be able to talk with another pod without an app.
+
+04:16.240 --> 04:21.240
+And this is important because this allows all the applications to talk with each other.
+
+04:21.240 --> 04:23.240
+And pods need to communicate.
+
+04:23.240 --> 04:26.240
+Pod needs to discover, right?
+
+04:26.240 --> 04:28.240
+And then we want to hard call all the APIs everywhere.
+
+04:28.240 --> 04:32.240
+We need to create a set of pods and then expose these pods.
+
+04:32.240 --> 04:35.240
+And for that, you have services, right?
+
+04:35.240 --> 04:43.240
+So simplifying, obviously simplifying everything, you can find these three networks in a Kubernetes cluster.
+
+04:43.240 --> 04:47.240
+If we go one by one, the first network is the node network, right?
+
+04:47.240 --> 04:55.240
+This is you have a bare metal cluster or a cloud provider, you run your machine, and you have a virtual machine.
+
+04:55.240 --> 04:58.240
+So this is a virtual machine or a server, right?
+
+04:58.240 --> 05:02.240
+It has resources, it has interfaces, it has whatever.
+
+05:02.240 --> 05:08.240
+So the way that this work is for the network side is you have two fields, right?
+
+05:08.240 --> 05:13.240
+One of the fields is the status.
+
+05:13.240 --> 05:15.240
+The status is the one that holds the addresses.
+
+05:15.240 --> 05:22.240
+Something discovers when you start the node, the cube let, that's the component of Kubernetes that runs in the node.
+
+05:22.240 --> 05:29.240
+It starts to discover all this VM, all this machine, and start to populate these fields, right?
+
+05:29.240 --> 05:30.240
+All these fields, right?
+
+05:30.240 --> 05:33.240
+So you have all the addresses.
+
+05:33.240 --> 05:35.240
+The first thing, okay, let me start back.
+
+05:35.240 --> 05:38.240
+The first thing that the cube let us is to register the object.
+
+05:38.240 --> 05:40.240
+So this creates the API object.
+
+05:40.240 --> 05:44.240
+As we say before, Kubernetes is about API semantics.
+
+05:44.240 --> 05:48.240
+So once you've registered the object, things start to move.
+
+05:48.240 --> 05:52.240
+And one of the things is it starts to check for conditions.
+
+05:52.240 --> 05:59.240
+How much memory, what IP addresses, because this information is going to be needed by other APIs or by other controllers.
+
+05:59.240 --> 06:09.240
+In addition to this, there are the bootstrapping of the VM is complicated in the sense that it can be controlled by the cube let,
+
+06:09.240 --> 06:12.240
+or it can be controlled by an external cloud provider.
+
+06:12.240 --> 06:23.240
+Then the addresses and some of the information that you can be in the API can be populated by this other controller.
+
+06:23.240 --> 06:31.240
+In addition to this, you also have a field that's a reminiscence from the past that is the POSSIDER.
+
+06:31.240 --> 06:36.240
+Contrary to what most people think, the POSSIDER is an informative field.
+
+06:36.240 --> 06:42.240
+So the CNI network plug-in or whatever can use it or may not use it.
+
+06:42.240 --> 06:49.240
+So in theory, a lot of plug-ins use it, but it doesn't mean that because you have POSSIDER in the spec,
+
+06:49.240 --> 06:53.240
+you are going to have this SIDER assigned to your POSSIDER.
+
+06:53.240 --> 07:00.240
+This is one of the problems when you develop APIs and commit these mistakes.
+
+07:00.240 --> 07:05.240
+This leads to the users and generate confusion.
+
+07:05.240 --> 07:10.240
+We talked about the node unit initialization first.
+
+07:10.240 --> 07:15.240
+When the node starts, and we talked about the CNI not being part of Kubernetes.
+
+07:15.240 --> 07:20.240
+When the node starts, the first thing that you need to do is to check if the network is ready.
+
+07:20.240 --> 07:25.240
+Because you cannot create POSSIDER, the POSSIDER cannot get IP addresses.
+
+07:25.240 --> 07:28.240
+So for that, there are two container runtime calls.
+
+07:28.240 --> 07:31.240
+There is one container runtime call that is network ready.
+
+07:31.240 --> 07:35.240
+This goes through the CNI API to the container runtime.
+
+07:35.240 --> 07:42.240
+And the container runtime right now, cryo and container D, the only thing that it does is to check if there is a CNI config file.
+
+07:42.240 --> 07:48.240
+Just that. You can fake the file and it's going to say that the network is ready.
+
+07:48.240 --> 07:54.240
+Moving from the nodes to the POSSIDER. This is one of the most tricky parts.
+
+07:54.240 --> 07:59.240
+The POSSIDER is the minimal unit of work in Kubernetes.
+
+07:59.240 --> 08:05.240
+So the POSSIDER is created and lives in a network, is able to reach other POSSIDER networks,
+
+08:05.240 --> 08:08.240
+but this presents a security problem for people.
+
+08:08.240 --> 08:11.240
+So what we created is the network policy API.
+
+08:11.240 --> 08:15.240
+That means that you are able to define relations between the POSSIDER.
+
+08:15.240 --> 08:18.240
+This POSSIDER can talk with each other, this POSSIDER can talk with each other.
+
+08:18.240 --> 08:20.240
+This is a high level.
+
+08:20.240 --> 08:26.240
+So what happens when you create a POSSIDER is that a user creates a POSSIDER or a deployment.
+
+08:26.240 --> 08:29.240
+A deployment is a composition of the POSSIDER API.
+
+08:29.240 --> 08:34.240
+So this is going to create an object called POD in the API server.
+
+08:34.240 --> 08:42.240
+The controller, the scheduler is going to see, okay, there is a POD created, but it doesn't have a node assigned.
+
+08:42.240 --> 08:48.240
+So I'm going to assign this POD to this node because it has resources, whatever constraints that you put there.
+
+08:48.240 --> 08:52.240
+Then it assigns a node to the POD spec.
+
+08:52.240 --> 08:59.240
+And the QLED that is watching this POD object and got this POD assigned gets the POD and starts working on it.
+
+08:59.240 --> 09:01.240
+It starts to create the POD.
+
+09:01.240 --> 09:04.240
+That's the so-called declarative thing.
+
+09:04.240 --> 09:08.240
+And how the QLED starts to create the POD is via the CRI API.
+
+09:08.240 --> 09:16.240
+So it starts to build the CRI API as a JRPC service that is used to communicate between the QLED and the container runtime.
+
+09:16.240 --> 09:22.240
+So the first thing that it does is to call this RampotSambos call.
+
+09:22.240 --> 09:29.240
+And in this RampotSambos call, you have networking parameters like DNS, config, PORMAP, hostname.
+
+09:29.240 --> 09:36.240
+When this goes to the container runtime, as I said before, CRI and containerD, UC and I, but this is not mandatory.
+
+09:36.240 --> 09:41.240
+You need to create the NegoName space and to create the Nego, right?
+
+09:41.240 --> 09:45.240
+And once you create that, it goes back and the QLED keeps working.
+
+09:45.240 --> 09:52.240
+After that, you get the POD IPs from the status response, right?
+
+09:52.240 --> 09:57.240
+So that's the only thing that the QLED and Kubernetes know about the network.
+
+09:57.240 --> 10:00.240
+Create a POD and receive the IPs.
+
+10:00.240 --> 10:08.240
+And this is the big problem that we have right now to start to model multi-network and this other complex network of policies, right?
+
+10:08.240 --> 10:14.240
+So we cover the nodes, we cover the PODs, and now we need to cover the discovery, right?
+
+10:14.240 --> 10:19.240
+We have everything running, everything is fine, but we need to implement applications.
+
+10:19.240 --> 10:21.240
+For that, we created the service API.
+
+10:21.240 --> 10:29.240
+For the service API, what you do is you are able to define to expose a set of PODs by selecting.
+
+10:29.240 --> 10:40.240
+To say, okay, I want this POD that implement a web server to be exposed through DNS or through a load balancer, right?
+
+10:40.240 --> 10:45.240
+So for services, there are like five types of services.
+
+10:45.240 --> 10:47.240
+One is the cluster IP service.
+
+10:47.240 --> 10:51.240
+The cluster IP service is kind of a load balancer.
+
+10:51.240 --> 11:01.240
+You define the set of PODs that you want to expose and you expose via cluster IP, virtual IP and virtual POD.
+
+11:01.240 --> 11:03.240
+It's just a full forwarding.
+
+11:03.240 --> 11:09.240
+You have a whole set of options to modify the behavior, but basically that's only that.
+
+11:09.240 --> 11:18.240
+For node port, this is a way, so right now you have the applications and you need to expose them externally.
+
+11:18.240 --> 11:20.240
+And for that, you have the node port.
+
+11:20.240 --> 11:27.240
+The node port is the typical form mapping that we do in our routers to expose something in one internal server, right?
+
+11:27.240 --> 11:38.240
+You get the IP of the node, a port in the range that doesn't collision with other things in the host, and you expose internally.
+
+11:38.240 --> 11:41.240
+And then you have the load balancer services.
+
+11:41.240 --> 11:42.240
+This is different.
+
+11:42.240 --> 11:52.240
+What it does is it creates the service and waits for external controller to populate a load balancer that is able to send traffic to the PODs inside the cluster.
+
+11:52.240 --> 11:55.240
+You also have ways to expose the services with DNS.
+
+11:55.240 --> 11:57.240
+That's the headless service.
+
+11:57.240 --> 12:05.240
+So basically what it does is it creates a new record, a record that as Bakken has the PODs, right?
+
+12:05.240 --> 12:08.240
+As the A answers.
+
+12:08.240 --> 12:16.240
+The way that the Kubernetes service work is when you have a service object with a selector, right?
+
+12:16.240 --> 12:20.240
+And there is a controller that is watching the PODs.
+
+12:20.240 --> 12:26.240
+When the QLED creates the PODs, the QLED updates the POD status and the IPs.
+
+12:26.240 --> 12:38.240
+And so when the POD is ready, this controller is to see, I have a POD that matches this selector of the service, so I need to start to create an important slide for this service.
+
+12:38.240 --> 12:51.240
+And then when you have the service and the important slides, the proxy implementation, like you proceed, is able to define in the data plane the for load balancer, right?
+
+12:51.240 --> 12:56.240
+So you have this cluster IP, this virtual IP, this virtual POD, and you have these Bakken.
+
+12:56.240 --> 12:59.240
+It's just installing rules.
+
+12:59.240 --> 13:06.240
+One of the most tricky things with services is to do termination, graceful termination, because this, you saw the service type load balancer,
+
+13:06.240 --> 13:14.240
+the problem is that you need to coordinate synchronally three parts of infrastructure.
+
+13:14.240 --> 13:17.240
+So the POD has a state.
+
+13:17.240 --> 13:22.240
+The POD can run, start being creating, start running, and start deleting.
+
+13:22.240 --> 13:25.240
+But there's some time that you want to do rolling updates.
+
+13:25.240 --> 13:31.240
+And for that, what you want is, I want to run my new version, but people is still hitting my endpoint.
+
+13:31.240 --> 13:33.240
+I don't want to lose any package.
+
+13:33.240 --> 13:35.240
+So for that, you establish a grace period.
+
+13:35.240 --> 13:38.240
+And this grace period is related to the endpoint slides.
+
+13:38.240 --> 13:42.240
+And this is used by load balancers to implement serial downtime.
+
+13:42.240 --> 13:46.240
+So in a common state, you start updating the POD.
+
+13:46.240 --> 13:52.240
+The POD is still able, you see the run line, is still able to receive traffic at that point because it's terminating.
+
+13:52.240 --> 13:54.240
+So it's going to be able to answer.
+
+13:54.240 --> 13:56.240
+But the health check starts failing.
+
+13:56.240 --> 14:02.240
+So the moment that they start failing, the load balancers start to move this endpoint out of rotation.
+
+14:02.240 --> 14:06.240
+So the new traffic is only going to the new PODs.
+
+14:06.240 --> 14:14.240
+Once the new POD is removed and replaced by the new one, the health check starts succeeding again.
+
+14:14.240 --> 14:18.240
+And it can start to receive new traffic on the new application.
+
+14:18.240 --> 14:24.240
+As I said before, Kubernetes defines some APIs and others are defined by composition.
+
+14:24.240 --> 14:28.240
+So you can have a load for load balancer on top of service.
+
+14:28.240 --> 14:33.240
+There is this ingress API that allows you to use the service of a game
+
+14:33.240 --> 14:39.240
+and define another layer of abstraction with the seven primitives as HTTP.
+
+14:39.240 --> 14:43.240
+So you could say this path this way and this path this other way.
+
+14:43.240 --> 14:53.240
+These APIs were created in the region for some things that are no longer or we carry over some of the problems.
+
+14:53.240 --> 14:54.240
+Okay, thanks.
+
+14:54.240 --> 14:59.240
+So as evolution, we have Gateway API that's the new API that has standardized.
+
+14:59.240 --> 15:09.240
+And the other problem is that Kubernetes itself is portable and all the things that you can see there is the network.
+
+15:09.240 --> 15:17.240
+So the same thing that you run a POD, you may be running a webhook that interferes when you create the POD with the API call and all this stuff.
+
+15:17.240 --> 15:21.240
+So this is one of the other problematic.
+
+15:21.240 --> 15:24.240
+We need to be backwards compatible and support everything.
+
+15:24.240 --> 15:32.240
+If you want to be more interested in see what is going on, we have a public dashboard so you can read the caption what is going next.
+
+15:32.240 --> 15:34.240
+Okay, sorry.
+
+15:43.240 --> 15:46.240
+Sorry, we are behind schedule so no questions.
+
+15:54.240 --> 15:56.240
+Thank you.
+
