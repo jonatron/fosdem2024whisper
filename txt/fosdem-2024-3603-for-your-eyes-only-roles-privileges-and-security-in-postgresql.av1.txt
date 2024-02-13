@@ -1,0 +1,499 @@
+Hello, everyone. Thanks for joining. We have Ryan talking about roles, privileges, and
+security in post-dress. Over to you.
+Thank you. I also get to quit this at the end of my deck, but it's fairly easy. I'm
+Ryan Booz everywhere. I try to be my blogger software in Booz, which you'll see some stuff
+time to time. And I will try and get this updated version in my repo hopefully before
+the end of the day, and I will do my best to link it to the website. They have a place
+for us to do that.
+So quick agenda. Roles and privileges. It's something we have to deal with everywhere,
+whether it's in post-dress, whether it's on your machines, whether it's in your applications.
+And it's something that, as I've done more and more in post-dress, helped users in post-dress,
+helped people transitioning into using post-dress, understanding roles, and how the privileges
+that we can inherit and use really interact with things. So that's what we're going to
+try and go top down. It's, every time I run through this, I'm actually writing a chapter
+of a book on this, and it's like trying to figure out the exact order because of all
+the pieces that have to come together. So we'll start with the building blocks, get
+through roles, talk a little bit about inheritance, which is really important. And for me, it's
+about getting down to object ownership because I think that's where most people get confused
+and have a difficult time using post-dress at scale with a lot of people. So quick disclaimers.
+We won't cover everything. There's just too much, right? But everything I cover in here
+should be applicable. It is applicable to anything that's currently in support version,
+which is 12 plus. Honestly, it should work with anything from nine, six forward, aside
+from one or two things that have been added over the last few releases. So let's go ahead
+and dive in. So first, the building blocks. So there's four pieces here. One is just,
+I want to talk about the building blocks. We're going to talk about roles, security,
+and ownership, just to get you through as we go. So if you have been using post-dress
+for a while, you may or may not understand this, but it's really critical to understanding
+how privileges and roles work. And so if you are in a hosted environment, this may not
+matter to you. But again, it's really important to understand. So as you create roles, objects,
+and the ownership and the privileges, this is how this works. So we have, if this is a bare
+bone server, we have a cluster. And we have a host, whether it's a VM, whether that's bare
+metal. And on that host, you can have as many running post-dress clusters as you want. So
+we just had to talk about clustering, but the actual process running on the host is called
+a cluster. If you go to the documentation, that's what you'll see. So we can have multiple
+clusters. They just have to run on different ports. And then once you have a cluster, now
+this should make sense. Really, there's a lot that goes on in there, but as far as this
+talk goes, the two pieces that are really critical and really symbiotic to one another
+is roles and the databases, the objects that are contained therein. So these exist at the
+cluster level. So roles are created at the cluster, databases are created at the cluster,
+and again, remember, for this talk, cluster is one instance of post-dress, not many, many
+instances. And then, like I said, the interplay between these is actually just a little bit
+more nuanced than I used to spend a lot of my time in SQL Server a number of years ago.
+And it's similar, right? We're talking about roles or users and privileges, but the way
+that they rely on one another in post-dress, again, can be a nuance that not everyone picks
+up initially. So we'll try and talk that through. Essentially, just to show that everything
+in the database, everything we care about from an object perspective has to be owned
+by a role. And so it cannot exist until a role exists, and then it includes a database.
+And so there's just this back and forth that we're trying to understand as we go. When
+you're in the cluster, every cluster has what's called a PG-HBA file, that is, host-base authentication.
+And it's the first layer of authentication. So again, if you're running your own server,
+this exists, you have to do something with it. If you're in a hosted environment, most
+of this is taken care of for you if you're in a cloud vendor. And I like to think of
+it almost like a firewall rule, right? So it's a file that literally shows which hosts
+and roles can connect to what database is using what authentication method. And it's
+a matter of reading top down as a connection tries to happen into Postgres. It matches
+each of those properties. What host is this connection coming from? What is the role that's
+trying to connect? And what is the method they're trying to use? And the first one it
+finds, that is the role, that is the HBA rule that it lists. These things can be very, very
+long, right? But it's just left to right on each line. What type is it local? Is it host-based?
+A bunch of others. Which database? All databases, the users, addresses, and then methods. So
+when it comes to methods, you've probably heard this if you've been around long enough,
+but their trust still exists. And so just avoid using trust. Really at all costs. What
+that means is on that machine, if the host and the user matches, you're in. You just
+trust it and move forward. It's not terribly secure, right? And so in most environments,
+if it's not some kind of central authentication, like Kerberos or whatever that might be, most
+places do give you Scram 256 now. So Scram was developed, I forget now, five or six years
+ago, really kind of took over, replaced MD5 and some other things. So Scram 256 is what
+we recommend if you're using password-based authentication. And just need to make your,
+it's probably what you're using, but if you don't know, go ahead and look.
+All right, so that's just the building blocks. We have a host. We have a cluster running on
+it. We know the inside of the cluster. We have roles, databases, and some objects. So
+let's go ahead and talk about that first part. Once we've at least gotten through that host-based
+authentication, we have a host, a user, and a type. We've matched the rules, and now we're
+allowed to try and connect. Who are we connecting as? So roles, obviously, own the database
+schema's objects, things like tables, functions, views, things you would expect within a database.
+And roles own the database itself. There's a role that owns the database that's created.
+Roles have cluster-level privileges. It's this nuance of thing we'll call attributes,
+and I'll show you in just a minute. Those are separate from the privileges that you
+get within a database. But they're kind of, again, it's like the host-level, what can
+you as a user do as a role do in this data in this cluster? And then you might be able
+to be granted privileges to a data... They can be granted privileges to database schemas,
+objects, and so forth. And then possibly, as we'll see in one second, some roles have
+the ability to grant their privileges and their privileges to other roles in the database.
+And we'll see why that's really important. So just to talk, I've been trying consistently
+to say roles over and over and over rather than users and groups. So in the SQL standard,
+role is there, and so is user and group. User... I might have the backwards, but user and group
+is also in the standard. But starting with, I think, was 8.2. We moved to just roles.
+So there's no real semantic difference between roles and groups. It doesn't do something
+magical. What we tend to say, what the convention is, when you create a role and it's allowed
+to actually log in to the cluster, we kind of consider that role a user. And if it's
+not allowed to log in, we consider that a group. Everything else about the roles can
+be consistent. They can all have privileges. They can all do a lot of things. They can own
+this. Even a role that can't log in can own something. And you'll see why we do that in
+just a little bit when it comes to inheritance. So you can do this, create user and create
+group does exist. They are simply aliases to create role. And so if you say create user,
+it, behind the scenes, does create role, whatever attributes you pass in, it will apply. And
+then by default, it will apply the login automatically. And group will apply no login so you can't
+get in. So there's really no reason. It depends on your environment and how you work. But
+there's really no reason you can't do a create role consistently across the board. Any of
+these will work. They'll get the exact same thing done. Just recognize the first two are
+not running create role under the covers. And so I keep talking about these attributes.
+So now we understand a little bit what roles are. You can apply attributes to the roles.
+So they are predefined settings that, again, are at the cluster level. There's nothing
+to do with the databases yet. And they map to this catalog table called PG roles. So
+these are the attributes. I say Postgres 15. I think these have been the same attributes
+since Postgres 9.6. One might have changed. I don't remember to be honest with you. The
+ones that we, I'm going to talk about just briefly through the rest of this. What most
+of you are probably concerned with as you are administering databases are the ones that
+are underlined. Can you login or not? Is this role a super user or not? Talk about that
+in a minute. Can they create other roles? Can they create databases in this cluster?
+Is it password based authentication? And then can they inherit privileges from other roles?
+The other three that are listed there, again, a little bit complex in connection limit,
+if you really want to set it, you can. Just recognize if you don't set those other couple
+strings, the connection or the attributes, the strings or inherit. By default, roles
+will be able to inherit from other roles. We're going to talk about that a little bit.
+They have unlimited connections. If there are available connections, I can connect many
+times as that user from that method and so forth. Any questions on roles?
+One thing that I often forget to talk about, there is a way, again, depending on what you're
+doing and how you are administering Postgres, you can actually, for a role, set many of
+the settings that you could do within Postgres. If you go into running Postgres instance and
+you can do something like set search path, set jit, you can actually alter a user and
+set that property so that every time they connect and has to be connection, that property
+will get set for that session. That can be really helpful. Sometimes you get lost in
+documentation and it might be useful for what you do. I just chose jit. Here's an example.
+Jit can be really good and it can be really troublesome when you have complex queries
+that are lots of data. Maybe the jit actually is not as helpful. Maybe you have a report
+user in your database that's often running really complex reports and you just don't
+realize that maybe jit's one of the reasons that it's not being as efficient as it could
+be. Maybe with that user, you would turn off jit. You don't have to think about it anymore.
+Every time they connect, jit would just be turned off for that session.
+How many of you have heard of the SuperUser? Most people have. If you've worked with Postgres,
+you've been warned about this thing called the SuperUser. Most people, if you're learning,
+have logged in with the user Postgres and they can do whatever they want and they never
+think about why they can do whatever they want and we move forward with life and we forget.
+You would think that someone who has access with SuperUser would kind of be like the superhero,
+the neighborhood friendly Superman. It's always looking out for the benefit of good of everybody
+but the reality is SuperUser is a lot more like this. You can do anything, anywhere,
+destroy whatever you want and no one can stop you. It means we have to be really careful
+with SuperUser. Again, as Postgres has become more and more popular, the usage has increased,
+depending what SuperUser is needed for, which in many ways is often very little. Compared
+to quite honestly some of the trouble you can get into with it, it's really valuable
+to know what you can do and ways to get around it. You get one SuperUser created when the
+cluster is initiated. When you say initDB, you get a user. That user has to be a SuperUser
+because things have to be done. Roles are going to have to be created. The process is
+running as that user. But it doesn't mean that you actually have to use that user moving
+forward. There's a lot of recommendations where you actually can change that user Postgres
+to no login. You can't log in now. You can log in as a role that could set log in if
+you really need to for some reason. There's a lot of ways that it's necessary for some
+actions that we're going to do, but it's just really powerful. Typically named Postgres.
+Is that because when we run initDB, the user, the process that is running Postgres to init
+that DB will be the name of the SuperUser that's created. In most systems, when you install
+from an RPM package or something like that, it will be the, the rim keeps all of our RPM
+packages up. Give me a hand. It's Postgres user. In Linux, it's created. Therefore, the
+SuperUser is called Postgres. You can actually tell initDB to use a different role if you
+want. Create a different role and use it. But generally it's Postgres unless you have
+a different environment. And it bypasses every security check everywhere in Postgres except
+for login. So as long as that host is allowed to log in and you're a SuperUser from that
+point forward, you can do whatever you want. So it's kind of like root on Linux. So most
+cloud providers do not provide this to you. Now there are some, if you are in your sandbox
+environment, like a private VM or something like that, you may get direct access and you
+may get SuperUser. If you use AWS, Microsoft, Google, whatever your hosting provider might
+be, you do not get SuperUser. They give you something that is like SuperUser. We all,
+we trust him. So it's just enough power, but not so much that you can destroy the world.
+And so the recommendations, you'll find this in docs. I actually forgot what page and I
+tried to find it quickly, but there is this recommendation in docs and then you'll see
+this elsewhere. If you are going to manage, and you're a DBA of a Postgres cluster, it's
+usually best practice to create, just as you would in Linux, create a user that can do
+what you need us to do, but is not root. And so in this case, we say something SuperUser
+like, at a bare minimum, they probably should be able to create other roles that will allow
+them to create roles, alter roles and so forth. And they probably need to be able to create
+databases. But if they're not SuperUser, they can't just go to any database, delete, remove,
+modify anything they want. And that's what you're trying to prevent. So it allows user
+management, but a little bit safer. Now there are still some things that you may not be
+able to do if you are not a SuperUser. There are some extensions that require being a SuperUser
+to install. Now the team consistently has worked, we'll talk about the very end, about
+providing new roles that can allow us to do some of these things that used to require
+SuperUser. So I know that that's one that's been talked about, for instance. It used to
+be checkpoint. You could only run a checkpoint if you had the privilege or you had SuperUser.
+And so now there's a privilege with 16 that allows you to run a checkpoint, even if you're
+not a SuperUser. So we have roles, both regular roles, super-duper roles, and the kind of roles
+we want for managing our database. And then for those roles, we need to apply privileges.
+And at the heart of it, we've just, by creating roles, all we've done is been able to log
+in. And so if we want to actually do something in the database, we have to understand privileges
+in Postgres. So obviously there are a set of access rights, to database schemas, objects.
+Now when I say objects, I generally mean things like tables, views, functions, store procedures,
+things that have ownership of some sort. Not every single thing in a Postgres database
+is actually owned by an owner, a role. Most things are. They can be granted, privileges
+can be granted or revoked. You've probably been used to this either in Postgres or elsewhere.
+And then the one thing I, it's, as we get to one or two things at the end, it's easy
+to forget that any time you run a script, and it says, grant something to somebody,
+it only impacts things that exist right then. So a lot of people I've seen will start a
+database up, they'll do something like grant all, select all, to all tables on public to
+whatever. And they think, great, I've solved my problem for the rest of time. And then
+they create a new table, and no one can read from it. When you explicitly run a grant or
+revoke statement, it only impacts the things that exist right then. So just keep that in
+mind. So here are the privileges, 15 and 16. I actually thought I went through and changed
+all of those to 16, so I must have missed that. These are all the things that we can
+set. Now the ones I have underlined, starting with Postgres 15, are the ones that are essentially
+provided by default unless you modify anything. So every single user, again, super user side,
+and unless you've modified something, every role will get these four privileges on any
+database on the public schema. And the reason is there's this role called public. It's basically
+hard coded in a Postgres. You can't remove it. You can't get rid of it. And every role
+gets is granted membership into public. And again, most roles inherit. And so when you
+have that kind of role, you automatically get the connect privilege, right? So I've passed
+HBA, I provided an actual password that works, but if I don't have the connect privilege,
+I can't connect. So I can turn off connect to a database. I might have multiple databases,
+but this user does not get to connect to that one. That's really the usage. Again, I can
+connect, but if I can't use it, I can't do anything. You can actually connect to a Postgres
+database, get a valid connection, you're connected, and then you want to do anything, select whatever
+it might be, and you're just denied. And that's where usage comes in. Temporary tables and
+then executing things like store procedures and so forth and functions. Now, if you're
+using Postgres 14 or below on the public schema, you also have the create privilege through
+public on the public schema. And so that we realized gets to be some of a security hole.
+All right. And the reason is, in this case, I don't want to get into too much, but if
+you create something on any schema, so on the public role, that's where most people were
+creating things. A lot of us still don't use schemas in our applications. We just create
+tables by default. They go into the public schema. And so if somebody created a store
+procedure and they weren't super user, there are ways, actually not that difficult, if
+you know what you're doing, to create a function, somehow get someone with elevated privileges
+to run it and you can get super user. Another talk that I like to do. So we realized that.
+So basically starting the 15 and above create is not provided through public to the public
+schema. So you have to be explicitly granted. Every role has to be explicitly granted create.
+And then when you create your own schemas, you have to grant create to other roles if
+you want them to be able to do it. So recognize that change. Now, the one caveat here is, if
+you've been upgrading 12, 13, 14, 15, when you upgrade to 15, it doesn't take away the
+privilege from roles that already existed. Again, all of this is point in time, right?
+I applied the role at some of the privilege at some point in the past. I have to explicitly
+do something to modify that. And so security best practice. I've been talking about public
+a little bit. And again, this is more what has come around. It's got a lot of attention
+over the last few years, which is there's just this potential for bad things to happen
+on the public schema. And so most folks, most advice you'll get is to revoke all privileges
+from the public schema from the public role. Again, you can't get rid of the role. So you
+want to remove all privileges from public. And then per database, you probably want to
+remove privileges specific, you know, to the database itself. And what that would mean
+is, again, that comes to the connect, right? So you have to be able to connect to a database.
+If I don't revoke all privileges, any user, they're part of public, public has connect,
+then they can connect to that database. And so that allows you, this just means that then
+you have to be more explicit with every database, every schema and so forth. All right, you'll
+find this a number of blog posts, people talking about security, and especially two years ago
+with Postgres 15, there was a lot of news around this. Now granting privileges is hopefully
+pretty straightforward. The docs pages on grant and revoke are really good. They go
+into a lot of detail on all the privileges, what it means when I say I grant someone select.
+What does that mean? When I grant someone delete, what does that mean? What is it just
+delete rows or does it allow me to do something else? And so there's a lot of good documentation,
+but you grant something to an object, to a role, and then you can name a, you shouldn't,
+you name a schema, whether it's public, whether it's all, could be all schemas or specific
+schema. So in this case, we're simply granting create. So now this admin can create something.
+They can use and create in the schema that I've created, but then we're going to create
+a junior role, and the junior dev role, and we're granting a select and certain update,
+but they can't delete, they can't create in the database. In theory, they've been given
+usage on the database. I missed that out here. I should have had that in that line.
+Now there are other ways to do this. So again, just remember, explicit grants only affect
+current database objects. So I'm going to do a quick demo at the end of this to show
+you all of this very quickly and hopefully, you know, tie all the pieces together. Again,
+these pages are really good. And so it just answers all the questions, every privilege.
+And if you don't know, if you go to the Postgres documentation, there's a search box up top,
+and it works pretty well. And so you can just simply say grant, grant, privilege, grant,
+revoke, and it will come right up. All right. So we have the cluster. We understand we have
+roles and objects and databases on the cluster. There are some attributes and privileges given
+to a role at the cluster level. Then we get to the databases themselves. Now we have privileges,
+which we can grant two roles for all the various types of things within the database. But if
+you notice on this slide, if I had to do this for every user, this gets really frustrating
+and complex. Now quite honestly, this is probably why a lot of people, myself included, is just
+easier to use SuperUser. Just log in with that one user, do everything you need to do,
+because I trust myself. I'm not going to do anything bad. But the better way forward is
+to deal with inheritance. So you may have noticed, you may have not, that earlier on, this is one
+of those attributes, one of the privileges, I'm sorry, the attributes to a user. Do you inherit
+privileges or not? Now it doesn't matter if you aren't granted membership into some other role
+that would apply privileges. You could receive privileges from. So roles can be granted membership
+into other roles. That's why there really is no group and user difference here. It's just whether
+they, you know, again, we say whether they can log in or not log in. But if you create the roles
+that cannot log in, treat them as groups, you can apply all of your privileges to those groups in
+ways that make sense and then grant ownership into those roles from other, for other roles. So
+this is really the preferred method for managing it. What you would expect in a, you know, whether
+it's Linux, Windows, whatever it is, you have groups, you have users, users can be part of
+multiple groups. It's exactly what we're talking about here. But you have to go to some effort. So
+again, just a really quick example we hate, we're creating a senior dev user role, they can inherit,
+report user, they can inherit. And then we create two groups because they can't log in. All right.
+And so we just, we explicitly say no inherit. Now, you don't have to do that for groups, but it can
+get a little bit messy trying to figure out exactly where everything's coming from. So a lot of
+wisdom is your groups, let them be separate and apply the groups you need to other, to your actual
+user roles. And then I've said, hey, grant, insert, update, delete on all tables to the read only
+privilege. Now it's, I should have to the admin privilege. I was like, wait, that's not read only
+to the admin privilege, right? So right here. And then we have grant select, all tables to this
+read only privilege. Right. But those are my two groups. They can't log in. So how's this going
+to help me? Well, you can then grant membership into those other groups. So I say grant admin and
+read only priv to the senior dev and then only grant read only priv to the junior dev. And so
+essentially what that looks like is this. Those two roles both have read only privilege. But the
+senior dev has now also has other privilege. So you kind of keep building on top of that. So it's a
+great way to be able to apply the kinds of privileges you need across many roles. And then if you
+need to update something, you update one object, the group role, and it will be applied to all of the
+users that are inheriting from that user. Any questions on inherit? What that looks like? Yeah.
+Okay, the question is, if the super user creates roles, do those roles get the same privileges as
+super user? No. Okay, misunderstood. If you create a role and you grant it super user, they're super
+user, just like what's exactly same as what you would expect Postgres to do. Yep. It's a flag in the
+database. And if it doesn't matter what the name of the role is, if it is a super user, you're a
+super user. Have fun. Don't destroy. Okay. But maybe that is the fun, right? No, I'm kidding. Test your
+backups. Okay. So great. We have, you know, just trying to build down through this, we have our
+cluster, we've created roles, we understand what those privileges look like. We understand that there
+is, you know, this, this level of the roles and the privileges they get, but then we get the object
+ownership. And honestly, this is when I decided I started to need to dig into roles in Postgres.
+Because I was using super user for everything I didn't care, right? And then I actually started to manage an
+application with multiple users, a lot of devs in a, you know, one environment, a couple different users for
+various applications that were connecting from another environment. And all of a sudden I was like, what is
+going on? Because this is not what I thought was going to happen. And that's when I had to really start to dig
+in. So that's why all of the other stuff leading up to this is important for me as an application
+developer or running or helping to teams of application developers effectively use Postgres. So object
+ownership, whoever creates the object, whatever role you are currently logged in as, or that session is
+currently acting as, when that object gets created, they are the user. Table, function, view, you know, on and
+on. Even a database. When I create a database, if I had privilege to create the database, that database is now
+owned by me, not by Postgres, not by some other user. So it's really, that's just the first thing you got to
+understand. Now, the owner of the object is essentially like a super user of the object. Right? They're not a
+super user, but I own the object. I'm the only one that can actually do a lot of things on that object, unless
+I've granted other privilege. And there are some things only I can do. Or a super user. So I like to think of this
+as principle of least privilege. When I create something, the way that Postgres works, it says, we don't want anyone
+to do anything. You have to tell me Postgres, the cluster, what everyone else should be able to do to this object.
+I don't care if they're part of some group that has access to this thing, and you're both part of the same group. I
+don't care. They have to be given explicit privilege in some way. So that's kind of the first place that you start to get
+confused. If you happen to have multiple devs, and you're on a test database, and you're all part of the same group,
+and all of a sudden dev one creates something, and dev two says, oh, let me go just see what you did, like access denied,
+like what? What are the test server? What are you talking about? And this is what it gets down to is object ownership and
+understanding of that. Now, again, roles, there are some roles that can actually, you know, grant, yeah, default, sorry, default
+privileges. So we're going to talk about default privileges in just a minute. And that's where kind of the power for managing
+application and creation of objects and management of objects can be really helpful. So this is what I showed earlier. And hopefully
+you can see, and I actually forgot to make this point early on, and I apologize for that. The one unique thing for Postgres
+with me coming from a different database is that although the roles are created at the cluster level, I cannot connect to the
+Postgres cluster, unless I can connect to a database, every connection is to a database. And so I might have the right password
+might have the right host might have the right role. But if I don't have access, I don't have literal connect privilege to any
+database, I can't get in. So there's this thing that like I almost said, symbiotic earlier, like roles and objects are
+separate. But what's a little bit unique about Postgres, again, for me is you they need to exist together. That's why when
+you initiate a Postgres cluster, you get one database and one super user because that super user can now connect to the database
+that's named after itself, blah, blah, blah. So there's this new one. Now the problem, though, is if all of my users are
+creating all these different objects down here, right, they're all owned by different people. And as I said earlier, the owner of
+the object is is like the super user of that object. And so then you start to get into conflict of who can use what and what can
+you do in that object. So what I've learned over the years, now I work for a company called redgate, you may have heard of the
+Flyway application, it's migration schema based migration, redgate owns that product and manages the open source portion of that. And we
+see lots of folks that are moving from other databases to Postgres. Yay, we're super excited about that. But again,
+understanding this ownership principle is so important. So they will, you know, go and create, they don't even realize what owner they're
+connecting and running these migration scripts as. And if the migration scripts don't explicitly modify ownership, all of a sudden they
+have objects in the database that are run by multiple people because different people were running these migration scripts. And then you
+get into a big issue because now someone wants to modify this table, we've turned off login for super user. And only that user can
+modify the table. And you just get into this like roundabout, right? So what we tend, what I tend to like to tell people is particularly as
+you get up to your production database. Now with Flyway, what we would say when we help folks do this, we go through, you know, dev, we have a
+staging server. And often what we'll say, and I'm going to show you default privileges in a minute, is create run all of your scripts. Now again,
+if you do a dump, you'll see that after every object in a dump file, if you do the script, it postgres explicitly changes the owner. Now that's
+also where you get those error messages, if you don't have that owner on your machine. But the object was created, whoever creates the object, it
+doesn't matter if it's for a backup script. If you ran a backup script from your server, and those objects were owned by Joe, and you go run it on the
+other server connected as Mary, all of those objects would be connected, created as Mary, if you didn't explicitly change the ownership now. So that's what it's like this
+nuance, right? So we tend to recommend when you are actually going to production or even your staging server, you run those scripts as one group role, and you make sure
+that group, you know, doesn't have things like select and delete, whatever, they are just allowed to create the objects. But you have other roles that are
+granting permission into those objects then, in a way that is accessible. And the beauty of doing that is you can still switch to that role, you'll see that in the demo I'll do in just a
+minute. So if you needed to modify something about that, you can still set into that role, and then you know exactly which role you need to get to do the
+modification. So this is a nuance here, and the value to this comes with default privileges. So as you'll see in the demo, again, I create an object like
+table. Only I can modify that table. I don't, unless you're a super user, I don't care if we both are part of the same group roles, only I can modify that table unless we set it to a role that
+both of us are a part of, and then both of us can be, can switch into. So this is just a really simple example. And I'll show you another one in the demo.
+Default privileges are way to say when I, as this user, so I'm connected, you guys are, is everything okay? Okay, they're staring at me like I'm doing something wrong.
+The, so I create default privileges, I'm altering them, and I'm saying grant select on all tables to the role public. Now it could be any role, right, but I'm saying the public role. Now, anytime I create a table, if I had gone ahead of time and removed all the
+privileges, whatever, anytime I, as whoever, whatever role I'm running that command as, every time I create a table from this point forward, everyone will be able to select because everyone's a member of public. Right, does that make sense? If I didn't do this, every time I create an object, I then have to explicitly grant the roles. That gets really tiresome.
+Now the only nuance here, and I have been dealing with this, so again, Redgate has been doing a lot with Flyway and Postgres, and I've been trying to help them understand that only exists for, again, when I create the object. If I later go and modify this default privilege, nothing changes about the objects I created earlier.
+You still have to go back and grant whatever you just modified to all of those other objects. Right, but it's super helpful. So from a migration perspective to just ease the management, what we tend to do is say, hey, make a group role that, you know, certain people are part of us, they can set to that role and modify the objects if they need to.
+But then you know the owner of all the objects, and it's not necessarily the Postgres user. That's what most people end up doing on the cloud host environment or something like that.
+Any questions, yeah?
+Just about syntax, so first we have actually, who has privileges from equal sign and what privileges, and who has given these privileges, correct?
+Exactly. So this says that the user Postgres, the owner of this specific default privilege, anytime the Postgres creates a table where it just says equal, that's public, that's all.
+And so they have read access. The question was, I apologize, you know, basically what's being shown here. So when I create the default privilege, you know, the equal with nothing in front of it just means public.
+And then you can name multiple roles. In this case it's just the owner obviously has all the privilege, and they always have all the privilege, right? Yeah.
+So do you think it's possible to have wild cards after like, you know, like, any database is structured if the user will have access to these types of privilege?
+That's a great, so the question is, is it possible to have wild cards? And I think you're saying, like, if I create a default privilege, and I don't know if I said this earlier, and I apologize, this is per database, right?
+So if I create the default in the database, sorry, I don't think there is. I mean, again, you can create things like, in this case I said on tables, you can do things like on tables, on views, so you get a lot of the objects.
+But I don't believe there's a way to say like a wild card across multiple things.
+So a great question, the question is, could you do this in the template? Yeah, you could. You could create your roles in the template database.
+You could, for the roles that you want to use, set your default privileges, and if that all works out and you have all the roles and owners, every database you create is going to get that stuff.
+All right, I just really want to quickly run this demo, it's about five minutes, and so just so you can see it, because sometimes for me at least, that's just helped me see what's happening, right?
+It's one thing to see slides, but just really quickly, so providing object access, because this is, again, this is where I see so many of the actual problems happen.
+When you don't give someone a super user, all of a sudden things just go haywire.
+And so you can either explicitly grant access every time to every kind of object and go for it. A lot of work, do what you want to do.
+You can alter default privileges, and now any time something is created in that database by that role, including something like migration scripts, they will inherit these privileges for whatever roles you assigned.
+You can then set role in the app, I'm going to show you that, so in Postgres you can say set role, so I could connect to the database, I could set, change my role for that session to the owner of the table so I can do something with it and modify the privileges and so forth.
+And then in Postgres 14 and above, we're starting to get some of these other attributes to do more.
+I talked earlier about this, this is the object ownership thing in security. Again, there's a number of talks on this, I think I have an old one maybe linked on my blog somewhere.
+So let's go ahead and quickly do the demo.
+So I have an empty database, this is going to be really quick.
+So I'm using dbeaver, I just like it because of the color coding stuff, just a little bit easier for you to see and show.
+So the current role I'm currently connected as Postgres, so this session I initiated as a Postgres super user.
+And I'm going to create a new schema, and I still have to do all the things I want to do, so I'm going to create a developer role, now it says no login, so what kind of role is this?
+We consider this a group role.
+And so the set role, if you say none, that will change the ownership of the current session back to whoever initiated that session.
+So as Postgres, I just had this here because I think earlier I had said to something else.
+And so for that role, we're going to do this, we're going to grant select, insert, update, delete on all tables in the demo app schema to this group role called developer.
+Now it can't login, so it can't really do anything, right?
+And then we're going to say grant create and usage to this role.
+And then we're going to create our developer users, it doesn't really matter, you know, anything here doesn't matter.
+Oops, I am not hitting, am I hitting the right keys?
+Oh, my apologies.
+So dbeaver, I can just say control, enter, and it will run the commands.
+So I've created two users, and now the magic.
+I can grant those users access privilege into that role, that group.
+Now at this moment, now that they've been given granted access, what does that mean about their privilege?
+I have not granted any privileges to those users yet.
+But what do they now have?
+Select, insert, update, delete on all tables, and they have create and usage, right?
+So now without doing anything else, they can use that schema.
+And we can see if I, so now I can set role.
+So this, I could have multiple tabs, I could have connected as dev one on one tab and dev two on another tab.
+In Postgres, when you say set role to a role, it's basically like switching user, there's one or two things that don't happen at that moment.
+One is, remember earlier I said you alter, you can alter some settings, those things don't get run when you do set role.
+But otherwise, if I'm allowed, I'm running a super user so I can do this, if I have membership in that role, I can set to it and act as that role for a little bit.
+And then I can go back.
+So I'm going to set to dev one, so this is as if I had connected as dev one to the database now, and I'm going to create a table in that new schema, because I can.
+Again, we haven't granted anything to that user explicitly except membership in this group.
+And now we'll see, oh, I need to create the table, don't I?
+What's that?
+I didn't, what?
+So here, I'll just drop this because that's going to miss everything.
+Yes.
+Ah.
+Alright.
+Come on.
+Yes.
+Does not exist.
+Okay, maybe I, well, if this doesn't go, then we'll just move on and I'll show you what I can.
+Alright, there we go.
+So now I can see that, oh my goodness, my hands are not hitting the right keys here.
+So I have this table and the owner is Postgres.
+So now I set my role to dev two and I try and alter that table.
+Of course I can't.
+I don't have permission to do that because Postgres created it.
+They didn't give me permission.
+So I'm going to go ahead and drop that table.
+I could also just alter the, I could just alter the owner.
+What I'm going to do this time is I'm going to set the role to developer.
+This is the, no, again, it can't log in, but I can set the role to, I have access to developer or I'm super user.
+So I'm now, now I'm developer.
+I create that same table and now we can see that it's owned by developer.
+Okay, what does that really do for us?
+Well, now I can go back to dev two and I can try and alter that table.
+And of course this doesn't work.
+Maybe I didn't.
+What's that?
+Oh, I didn't.
+Okay.
+Let me just talk you through this rather than, man, I literally ran through this five times today.
+My apologies.
+The big point here is as we go down through, as long as the user is a member of that group and that group created the objects,
+I can do the privileges I'm allowed to do on that object then.
+All right, so it's a way to let me do some stuff.
+Now, some things I may not be able to do, I might have to switch into that role to do some alter things like that, right?
+If I want to alter the object itself.
+And so, yeah, I see, man, that's really crazy.
+Anyway, the main, hate when a demo fails, right?
+The main point is there's like two recordings of this.
+You can see this run through if you want.
+It's just to say again, you have to grant specific privileges.
+I was going to come down here to the default privileges and show again that once you set something like the default privilege,
+as long as you create those objects with that role, they will get whatever privileges you said to the roles that you provided.
+And so, it's just a way.
+So in this case, it was just a read on the report user.
+I want them to be able to read from every table.
+If I'm not using Postgres 14 and above, I would have to make sure that they have select on all the tables.
+Setting a default privilege is one of the easiest ways to do that.
+All right.
+So last thing, go back.
+Demo fail.
+We'll have to get that end of the time.
+Just to really quickly bring up predefined roles.
+So predefined roles have existed for a while and Postgres 14 and above.
+There's a lot that's been done to try and do things, provide roles that for management purposes.
+So you don't have to be a super user.
+I gave the example earlier of checkpoint, right?
+So now you can give someone this checkpoint.
+We call them predefined roles.
+You can grant them membership into that role and then that user could run a checkpoint.
+Things like read all data.
+This has been a problem for a long time.
+So starting with Postgres 14, I think it was, we had the read all tables and the write all tables.
+So if you just wanted someone to be able to read all tables, in this case, in all databases,
+because it's a role there, you could now create this, you know, grant them access into this.
+Here are the current predefined roles.
+This is updated to 16.
+I believe the one that's different here, I knew earlier and right now I can't find it.
+But this is where you can do things like read servers.
+So a lot of monitoring programs now require you to be able to read the log or to read files from disk.
+Well, if you don't want super user to connect, you could grant your monitoring role something like read server files
+so that they can still read the files without being a super user.
+All right?
+That's the end of it.
+I really apologize for the demo.
+I love giving that demo and I don't know what I did.
+But anyway, if you have questions, I'll take one and then we're going to have to be done.
+Yeah.
+Thank you.
+Great.
+Yeah.
+Great question.
+For those who are still here, the question is there like a log cap of transitions of, I guess the mic is off.
+There's, is there a log cap when you grant things off and on, right?
+I had this default privilege and then I modified it.
+There isn't.
+You would have to do that in some way.
+Maybe through scripture if you do.

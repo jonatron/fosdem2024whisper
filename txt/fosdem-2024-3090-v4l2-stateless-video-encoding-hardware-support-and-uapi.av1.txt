@@ -1,0 +1,402 @@
+All right.
+Hello, everybody, and thanks for being here today.
+So I'm Paul Krakowski, and today I'll be talking about VFALL2
+Stateless Video Encoding.
+We're going to talk about hardware support,
+and we're going to talk about the Stateless Video Encoding
+new API, and we're going to see why it's actually difficult
+to come up with this new API.
+So I am now self-employed working in my own company,
+which is called SeasBase, so I provide engineering services
+on topics related to multimedia and graphics,
+so if you're interested, there's my email here.
+And let's begin with a very simple question.
+Why do we need to encode videos?
+So the main reason is really that storing pictures
+in digital form is extremely big in terms of size.
+So it really, really takes a lot of storage,
+and this is really not something that is reasonable.
+So pictures are just way too big.
+So what do we have to do?
+Well, simple. We just have to compress them.
+So let's compress videos.
+And now what happens when we do that?
+They tend to look crappy.
+So we compress them too much, and they look bad.
+So this kind of brings us to the main topic of encoding,
+which is the management of the trade-off
+between the size of the video and the quality that we get,
+or at least the perceived quality.
+So we want things that are not too big,
+and that look good, essentially.
+So in order to do that, we have a number of techniques
+which are implemented as codecs, which are just formats
+that specify kind of how we should encode videos.
+So a good codec has a good trade-off
+between the size and the quality,
+and in general, the codecs that we have today
+are extremely, extremely performant at this.
+Most of them have specifications that can be accessed.
+They are often hard to read,
+because essentially, if you want to understand the spec,
+you need to understand the codec first.
+And if you don't know the codec first,
+it's quite hard to understand the spec.
+So that's the situation,
+but at least there are some standards and specifications.
+So some require realities to be used,
+some others don't.
+That really depends.
+So there is a bunch of codecs which are hyped now.
+There is a lot of talk about AV1,
+VP9, HTC5, and HTC6,
+so that's the kind of upcoming stuff
+that everyone is excited about.
+But of course, it really takes a while
+before people actually use those codecs in the real world.
+But there is a real interest in that,
+especially if we're looking to reduce our global power consumption,
+because better codecs means less data,
+and if we have less data,
+less energy consumption for storage and for transmission.
+So having good codecs is actually quite important,
+and it can really make a difference.
+So how do we encode those videos?
+There is a number of techniques which are used,
+usually one after the other in some kind of chain.
+So we have a first class, which is the spatial compression,
+which is essentially how we can represent a single static picture
+in the most efficient way
+by using lots of different compression techniques.
+So I've mentioned a few here.
+Essentially, we go to frequency domain,
+and then we can eliminate some coefficients
+from that frequency domain.
+This is what we call quantization,
+and we have a value that we call QP, the quantization parameter,
+which is here to tell us how many of those frequency-based coefficients
+we want to keep in order to represent our picture.
+And in general, the high-frequency coefficients represent details,
+and the low-frequency coefficients represent the rough shape of the picture.
+But we also apply temporal compression techniques.
+Temporal compression will use the previews
+and sometimes the next frames as well
+in order to kind of calculate the current picture.
+So instead of coding a single picture all the time,
+we are actually coding a difference between the previews
+and all the next picture to create the current one.
+So this is, for example, a representation
+of what we call motion vectors,
+which will indicate how the kind of pixels change
+from one frame to another,
+so we have a notion of directivity and direction, and so on.
+So when we encode a video, we kind of have to decide on a strategy,
+which is exactly what do we want to do when we encode that video
+and which kind of trade-off we're going to adopt
+between the size and the quality
+and how we want that trade-off to evolve over time
+and things like that.
+So we have very common strategies.
+For example, if you just want an average or a constant bitrate
+to stay the same for the whole stream,
+that's one strategy that an encoder can implement,
+but we can also decide that instead we want a constant quality,
+so the size might change depending on what we want to achieve.
+So it's important to understand that this notion of strategy
+for encoding is really at the core of what an encoder is doing,
+and this is generally what we call rate control.
+So rate control is about dynamically deciding on this trade-off,
+so we have to decide on which frame type we want to use,
+we have to decide on the quantization parameter
+and a number of other settings that we can set in the encoder
+to essentially have it adapt to different scenes
+and also to be able to react to changes in the scene.
+So if you, for example, have a movie
+and you're going from one scene to another,
+you want your encoder to kind of react to that
+and give more details on the first image of the new scene,
+for example, things like that.
+So the main takeaway from this slide
+is that the rate control implementation
+is really the key to have good encoding
+and to have something that is actually performance
+and that gives good results.
+So now that we have a brief overview of those compression techniques
+and what encoders are supposed to do,
+the main topic is how do we accelerate this
+because doing all of this on the CPU
+is usually a very intensive process,
+so it will take a lot of your CPU,
+and nowadays we have lots of use cases
+where people want super high sizes
+and they want high frame rate,
+like 60 frames per second on things like 4K,
+and there are use cases where we want to be able to encode
+just as we are receiving the data.
+So for example, a regular camera that you used to shoot,
+you want to be able to produce a video
+so you want to be able to encode in more or less real time.
+So if you really want to achieve that,
+you have to use dedicated hardware which will offload this
+and will give you some acceleration for this process.
+So this is when we start talking about hardware-based video encoding
+or hardware-accelerated video encoding.
+So those hardware encoders,
+not only do they know how to produce the correct
+format for the video that we chose for the codec,
+they sometimes also have some extra features
+like pre-processing, so for example,
+they can convert the format of the pictures that you give them.
+They can also apply things like antishaking or cropping.
+So this is a very common pre-processing pipeline
+for an encoder.
+Usually they will have the ability
+to also encode multiple streams in parallel,
+so this, well, not necessarily in parallel,
+but at least in a time-shared way.
+So you could use the same encoder
+and have multiple streams that you want to encode,
+and then you encode one frame for one stream
+which goes into one sync, one output,
+and then you have another stream
+that you also want to deal with concurrently.
+So it's important that you are able to kind of switch
+between different contexts of encoding
+because you don't want your encoder to be just dedicated
+to one thing, to one task,
+so it's a little bit like a GPU
+where you want to be able to render multiple things like that.
+All right, so when we're talking about hardware video encoding,
+there is essentially two types of hardware implementations.
+The first one, which is probably the most common,
+is what we call the stateful encoders.
+So these encoders are somewhat abstracted
+and a bit less flexible for, let's say, the end users
+because they essentially come with a microcontroller
+that will do most of the heavy lifting involved in encoding,
+especially implementing the rate control strategies.
+So they come with a firmware that implements that,
+and it really does a lot, especially the rate control.
+And the CPU will usually interact with that encoder
+through some mailbox interface,
+and it will essentially give it messages
+like encode this source with these parameters,
+but the parameters are still quite high level.
+On the contrary, we have a second type of implementation,
+which we call the stateless encoders,
+which are really more bare metal,
+so they are also more flexible,
+and we have more control over exactly the parameters
+that we give the encoder and all the, let's say, technical decisions
+that are used to create the final bit stream,
+the final video codec data.
+So in that situation, the CPUs that is driving the encoder
+have to do more.
+It has to do essentially all that the firmware was doing
+in the stateful case, so this is generally more involved.
+And, yeah, it means that you have more things to do on your kernel,
+and we have, of course, a bunch of others.
+For the stateless designs, we have less known examples,
+but they are also quite popular and found in lots of chips.
+So we have the Hentro from Vericilicon,
+which is found, for example, on lots of IMX8s.
+We also find it on RockChip platforms,
+and some on Alwinner as well.
+Alwinner, which is a Chinese chip maker,
+has their own video engine implementation,
+which also has an encoder.
+So that's pretty much what we know about so far.
+Oh, MediaTek, I didn't mention it.
+So it's stateful, but it's kind of helpful between the two, right,
+because you can also drive it stateless.
+Okay, stateful encoder, stateless decoder.
+Okay, great.
+All right.
+Okay, so for the stateful case, in Linux,
+we have a great API in V4L2,
+which is based on the V4L2 memory-to-memory framework,
+which works with QQs,
+so essentially you're going to submit data from user space,
+which is your source picture,
+and you're going to get some encoded bitstream
+as a result from this API.
+We have pixel formats to describe the coded streams,
+and we can use some specific controls
+to set features of the encoder.
+So when there is a technical choice to be made,
+we can use those controls and tell it exactly,
+well, how we want the video to be encoded.
+But again, the rate control is implemented in the firmware,
+so all we can do with that is to tell the firmware,
+to tell the microcontroller what it should do,
+but it's not going to be the kernel side that does it.
+On the other side with the stateless encoding,
+like I said, we have a lot more to do from the CPU side,
+and this is when it gets a bit complicated with V4L2.
+So currently we don't have a stateless encoding UAPI.
+There is some difficulty that I'm going to mention
+in order to do that.
+And one of the points that are difficult
+is to implement the rate control part,
+so to be able to adapt exactly what the video stream looks like
+depending on the policy that you want to follow.
+And of course we want that UAPI to be hardware agnostic,
+so we don't want to just have user space drivers
+that will be specific to each encoder.
+Instead we want to have a generic interface,
+like it's the case for the stateful encoders,
+where we have this generic V4L2 API.
+But stateless encoding also has significant advantages.
+It's a lot more flexible,
+and that means that we have more control over what's going on.
+So in theory we are able to take better decisions
+to produce the best stream that we can,
+and that is not necessarily the case
+with a stateful, firmware-driven approach.
+So user space might actually have a bunch of information,
+like knowing that the scene is changing, for example,
+things like that, that can really help the encoders.
+So it actually makes sense for user space
+to want to do its own rate control,
+because it can have more information,
+it can also implement, let's say, advanced strategies.
+For example, nowadays there is talk about machine learning
+and how to help encoders achieve better results.
+So things like that would make sense in user space.
+But we also want to support simple cases
+where we don't want user space to have a huge stack
+that is very complex, but it would really be nice
+to have a simple case that can be covered
+without so much logic in user space.
+So you can kind of see that there is a little bit of contradiction
+between these two things, and this is one of the main,
+let's say, topics that make creating this UAPI difficult.
+So let's take a look at some existing work
+that was already carried out for these state-based encoders.
+For the Hentro H1, which is probably the most popular one
+in this category, we have some work that was done by RockTip,
+which is free software, in a stack called MPP.
+So you can find the source code here,
+and that's the part where it implements encoding for the H1.
+So that's great, but this is not V4L2.
+It's a fully user space-based approach.
+So we have Google that did a custom V4L2 driver in Chromium OS.
+So this is for the Chromebooks that they ship with RockTip SOCs
+that have the H1.
+So this time it's a V4L2 driver,
+but it really is hardware-specific,
+so you have a very specific API to drive that encoder.
+Now, from this base, which has all the knowledge
+of how to drive the encoder,
+I was able to write a mainline-based implementation
+on V4L2 when I was working at Budlin,
+and this one is still hardware-specific.
+So we have some custom register configuration
+that is pushed to the driver,
+and we get some custom feedback as a result
+that the user space side can use
+in order to implement the rate control.
+So in this case, the rate control is done in user space entirely.
+Ooh, it's not working anymore.
+Okay, and now we have also VPH encoding from Collabora,
+which also does the rate control in user space.
+So you can find the links to the RFC series there
+and the user space implementation in Gstreamer as well
+to demonstrate how it works.
+So while working on this hardware,
+there is a few things that we learned.
+For example, the fact that some metadata fields of the bitstream
+are actually constrained by the hardware itself.
+So it means that there are some fields in the codec
+where the specification allows you to choose between different values,
+but the encoder actually only works with one of them.
+So it means that if you are going to generate those fields,
+you need to be aware of which hardware you're running on.
+So the lesson learned from that was that the bitstream generation
+should really be on the kernel side
+because this is how you can really know exactly which choices are valid
+or not for this particular hardware.
+Sometimes the hardware also has rate control helpers.
+So this is some hardware features
+that can help you implement better rate control.
+It's not necessarily always a good idea
+or always required to use them, but they exist.
+And in that case, this kind of suggests that the rate control
+would make sense to be done in user space,
+sorry, in the kernel side,
+because again, we don't want user space to be specific to a particular hardware.
+We want it to be generic and agnostic.
+Now for a second example, which is something I've worked on very recently,
+again, at Budlin.
+So this is based on some existing work from the Linux Sanctuary community,
+which did a lot of research and implemented some user space implementation
+for the all-winner video engine encoder.
+And I did some follow-up work on some more recent platforms
+that also implement H264 encoding,
+this time using a proper VFIL2 driver.
+And again, because we still didn't have the stateless encoding UAPI,
+I decided to use the stateful encoding UAPI more or less directly.
+And this made it clear that this API was quite limiting
+and that it didn't allow leveraging the full potential of the stateless hardware designs.
+So there's a few lessons to be learned from that.
+Like I said, stateful API is not really a good fit for these stateless encoders,
+so it's not really viable to try and use that.
+The Bitstream beta data needs to be produced canalside, like I said,
+because we have some hardware constraints that we cannot represent
+and let's say forward to user space.
+So it has to be the kernel that decides how to generate those Bitstream headers.
+And for rate control, it's really unclear
+because having rate control on the kernel side
+makes the user space quite simple and it makes it really easy to operate it
+without having a lot of logic aside.
+But on the other hand, having the rate control in user space is a lot more flexible
+and it means that you can implement kind of whatever strategy you want,
+you can decide on the implementation yourself,
+which is a bit less easy when it's on the kernel side.
+Of course, it's not impossible, it's all free software and you can change it like you want,
+but we still understand that there is interest in both cases.
+So the current state of the art for stateless encoding in VFrl2
+is that it's in progress, it's a discussion,
+so if you have an opinion on that or if you have ideas on how this could be improved
+or how this published quantization parameter,
+which references we're going to use to generate the frames based on the previews on X-frames.
+So having a switch kind of allows user space to choose if it wants to have low-level control
+or if it wants to have something simple that works, which is maybe suboptimal,
+but that can still be used nicely.
+Another way would be that we have rate control implemented in the kernel side,
+but instead of applying it to the next frame, it would just provide some suggestion to user space,
+so it would be some kind of feedback data that is provided with an indication
+of what the next QP or frame type could be to follow the policy that was selected kernel side.
+This could also work because then user space could decide to follow this feedback suggestion or not,
+so then it could decide to do something completely different.
+So in that situation, user space would still have all the low-level control,
+but it would have suggestions about which values would make sense
+depending on the kernel side rate control implementation.
+So that's also something that could work, and we could even have some switch to auto-apply the feedback
+so that user space doesn't even have to copy that suggestion into the actual configuration.
+We could just have a switch that makes it kind of automatically go,
+and after that, user space really doesn't have much to do,
+and it can kind of let it handle it by itself.
+So that would be also some form of trade-off that allows having something simple for user space
+and also allow user space to be able to control things if it wants to.
+Another thing that would be interesting is to have some common code
+that is shared between these different state-based encoders
+because especially for things like the bitstream metadata generation,
+there is a lot that is common, of course, because it targets the same format,
+so we could have some helpers that are shared between these different drivers.
+Again, the state-full encoders don't have to generate that bitstream metadata,
+so it's really something specific to the state-less encoders.
+Finally, the rate control implementations, if they end up existing on the kernel side,
+it would also be nice to be able to share them between the different drivers
+instead of having driver-specific implementations for that.
+Besides discussing and exchanging ideas and hopefully finding a solution
+for what this UAPI should look like,
+the next step will be to merge the work done on the Hentro and Cedrus drivers
+to bring X264 encoding and VPA encoding for Hentro.
+After that, the next step will be to have some G-streamer and FFM-back integration
+to use this UAPI, and after that, normally the rest of the world
+should be able to use the state-less hardware encoders, which will be great.
+So time is up for me. Thanks everybody for listening.
+Thank you for a great talk. Unfortunately, we do not have time for questions,
+but I really encourage everyone who has a question to just catch the speaker in the corridor.
+Thank you. Thanks.

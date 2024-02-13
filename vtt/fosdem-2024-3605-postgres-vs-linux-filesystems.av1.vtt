@@ -1,0 +1,1271 @@
+WEBVTT
+
+00:00.000 --> 00:08.040
+Hello, thanks for the introduction.
+
+00:08.040 --> 00:12.140
+So my name is Tomas Wunderer, I work for ABB, I'm a Postgres contributor,
+
+00:12.140 --> 00:15.300
+cometer, developer, and so on.
+
+00:15.300 --> 00:19.480
+And I'm here to talk about Postgres versus file systems, right?
+
+00:19.480 --> 00:25.880
+If you want, you already can find the slides on my personal website.
+
+00:25.880 --> 00:28.520
+There's nothing much else, just talks.
+
+00:28.520 --> 00:32.720
+I gave at different conferences, this talk is already there.
+
+00:32.720 --> 00:39.960
+So if you want to look at the slides in more detail, you have the chance already.
+
+00:39.960 --> 00:46.600
+So a very short overview of what I'm planning to talk about during this talk.
+
+00:46.600 --> 00:51.000
+And by the way, if you have any questions during the talk, please shout.
+
+00:51.000 --> 00:58.400
+I prefer to answer the questions as we go, because we will go through different stuff.
+
+00:58.400 --> 01:03.120
+And it's easier to answer the question about the topic that I'm currently talking about, right?
+
+01:03.120 --> 01:12.640
+So in the first section, I will briefly explain how Postgres uses file systems and how.
+
+01:12.640 --> 01:19.600
+And I will a little bit talk about the overall design and maybe some advantages and
+
+01:19.600 --> 01:26.960
+disadvantages of that, try to explain why it works the way it works.
+
+01:26.960 --> 01:32.640
+And then I will get to the main goal of this talk and
+
+01:32.640 --> 01:38.480
+this like give an overview of how Postgres performs on different file systems.
+
+01:38.480 --> 01:43.360
+I'm going to restrict myself to file systems that are on Linux,
+
+01:43.360 --> 01:50.960
+like the usual file systems that you probably can use for production workloads or might consider.
+
+01:50.960 --> 01:54.320
+I'm not going to talk about like experimental file systems or
+
+01:54.320 --> 01:58.240
+file systems that are not used regularly.
+
+01:58.240 --> 02:02.560
+I'm not saying those file systems are not interesting, but
+
+02:02.560 --> 02:09.200
+I need to restrict myself to something that is actually benchmarkable and so on.
+
+02:09.200 --> 02:18.640
+And I'm also going to talk about file systems on storage that is attached directly to the machine, right?
+
+02:18.640 --> 02:23.280
+Because once you introduce like network attached storage,
+
+02:23.280 --> 02:27.680
+which usually introduces like latency and so on,
+
+02:27.680 --> 02:33.360
+that changes the behavior significantly, right?
+
+02:33.360 --> 02:37.760
+So I'm going to talk about if you are concerned about performance,
+
+02:37.760 --> 02:41.760
+you probably use directly attached storage anyway.
+
+02:41.760 --> 02:47.360
+And I'm also not going to talk about like managed instances because if someone
+
+02:47.360 --> 02:52.080
+chooses the file systems for you, then this is kind of like useless, right?
+
+02:52.080 --> 03:01.360
+So let's assume that you do have access to storage that is attached directly to the machine.
+
+03:01.360 --> 03:05.920
+And that you have a choice to like which file systems to use.
+
+03:05.920 --> 03:12.320
+And I'm doing these benchmarks and these talks because I wanted to learn myself something.
+
+03:12.320 --> 03:16.640
+I'm not here like, I'm not an expert on file systems, right?
+
+03:16.640 --> 03:22.720
+I'm a database developer, database engineer, and I wanted to know like how does it work now?
+
+03:22.720 --> 03:26.480
+Because like we do have benchmarks from like 20 years ago,
+
+03:26.480 --> 03:35.760
+but the hardware changes over time evolved and like was the current situation, right?
+
+03:35.760 --> 03:44.800
+And in the end, maybe we will talk a little bit about future file systems of like storage in Postgres,
+
+03:44.800 --> 03:51.440
+but there is a really nice talk by Andres Freund who talks about like how we might evolve
+
+03:51.440 --> 03:59.280
+one of the things about storage in Postgres, which is direct IO, asynchronous IO and so on.
+
+03:59.280 --> 04:06.640
+And there are actually developers that might give better opinions on this, right?
+
+04:06.640 --> 04:13.760
+So there is like a talk from the PGConFU, which is like two months ago.
+
+04:13.840 --> 04:18.480
+It's on YouTube available. You can find it.
+
+04:18.480 --> 04:25.440
+So I restricted myself to measuring data on like the usual Linux file systems,
+
+04:25.440 --> 04:29.200
+which is XT4, XFS, those are the traditional ones,
+
+04:29.200 --> 04:33.120
+then the new which is BTRFS and ZFS.
+
+04:33.120 --> 04:41.600
+ZFS is like not like native Linux file systems, of course, but it's commonly used.
+
+04:41.600 --> 04:46.880
+Then I've been like thinking usually don't have a single device, right?
+
+04:46.880 --> 04:54.960
+You have like multiple devices, so should you use like LVM to build like a volume on those devices?
+
+04:54.960 --> 05:00.800
+Or should you use something that has multi-device support built in, right?
+
+05:00.800 --> 05:08.960
+Which is like BTRFS and ZFS, they don't require you to build like a rate, a rate and that.
+
+05:09.040 --> 05:11.840
+Then there's like the question of snapshots, right?
+
+05:11.840 --> 05:16.000
+If you need just the bare file system and POSGRACE is fine with that,
+
+05:17.920 --> 05:22.000
+then the XT4, XFS are perfectly viable solutions.
+
+05:22.000 --> 05:24.080
+But maybe you want something smarter, right?
+
+05:24.080 --> 05:27.440
+Maybe you want to be able to do backups using snapshots,
+
+05:27.440 --> 05:34.000
+or maybe you want to use the, you know, the sent and receive which is built into ZFS
+
+05:34.960 --> 05:38.400
+to replicate data or stuff like that, right?
+
+05:38.400 --> 05:43.600
+So the question is like what happens when you actually want snapshots up more?
+
+05:46.320 --> 05:52.560
+I did some experiments with stuff like compression and so on in the file systems,
+
+05:52.560 --> 05:58.720
+but in my benchmarks, in the stuff that I benchmark, it didn't make much difference.
+
+05:58.720 --> 06:02.000
+I'm not saying that that's like universal truth.
+
+06:04.960 --> 06:10.960
+But I'm not going to show any results with and without compression
+
+06:10.960 --> 06:15.520
+because simply there was no difference for the OLTP workloads that I tested.
+
+06:17.600 --> 06:24.480
+So a very brief executive summary, just like to explain what I found or what I think is my
+
+06:24.480 --> 06:29.600
+conclusion is that in general, you should prefer a major supportive file system, right?
+
+06:29.680 --> 06:35.040
+You do run databases because you want to maintain the data, right?
+
+06:35.040 --> 06:38.800
+I mean like if you have a file system which is like super fast, experimental,
+
+06:39.760 --> 06:46.160
+and you know once in a while loses your data, it's like okay, maybe you don't really need
+
+06:46.160 --> 06:48.080
+like F-Sync at all, right?
+
+06:48.080 --> 06:55.520
+So my recommendation is in general to use supportive file system which is supported by
+
+06:55.520 --> 07:00.240
+whoever supports your operating system or like the environment.
+
+07:01.280 --> 07:08.240
+And that usually means like one of those four fast systems that I mentioned.
+
+07:09.520 --> 07:14.640
+The other thing is that you should use sufficiently recent kernel.
+
+07:15.840 --> 07:18.160
+And there are two main reasons for that.
+
+07:18.160 --> 07:25.440
+First is well, we do improve the database, but the kernel improves other parts too, right?
+
+07:25.760 --> 07:32.560
+So if you are using like old kernel and that might mean a couple years ago, a couple years old,
+
+07:33.280 --> 07:39.280
+you are losing a lot of optimizations and improvements that are typically focused on
+
+07:39.280 --> 07:40.480
+like a new hardware.
+
+07:41.600 --> 07:45.520
+So if you are using new hardware, you are usually losing a lot of performance.
+
+07:47.200 --> 07:52.240
+The other important reason of course is the bugs, right?
+
+07:52.320 --> 07:57.040
+And I'm not just talking about the regular security issues and so on.
+
+07:57.040 --> 08:05.440
+I'm talking about like data corruption issues that are in the kernel.
+
+08:09.920 --> 08:13.520
+I think I do have a slide where I mentioned the F-Sync gate,
+
+08:14.800 --> 08:19.280
+which I think I spoke at FOSDEM about in 2019.
+
+08:19.280 --> 08:28.720
+But the other part of the executive summary is that EXT4 and XFS are roughly the same performance.
+
+08:28.720 --> 08:36.400
+I mean like I don't think you need to talk very much about like should I use EXT4 or XFS?
+
+08:36.400 --> 08:38.240
+Like will it be faster or slower?
+
+08:40.400 --> 08:44.560
+Through this, I mean like in my experience, the differences are fairly small.
+
+08:44.560 --> 08:48.880
+And by fairly small, I mean like 10% difference in throughput for example.
+
+08:50.000 --> 08:55.680
+It's something that I believe I could probably tune the file system,
+
+08:55.680 --> 09:03.440
+actually eliminate by tuning the file system or maybe buying a slightly faster disks or like
+
+09:03.440 --> 09:04.320
+something like that.
+
+09:04.320 --> 09:10.640
+Is it a throughput? I also put 10% for the overall communication piece.
+
+09:10.640 --> 09:16.560
+Yeah, so the question is like how do I measure, you know, the performance?
+
+09:16.880 --> 09:18.160
+What do I mean by throughput?
+
+09:20.480 --> 09:28.320
+I mean OLTP performance in the database, which means like small, random IO, random reads,
+
+09:28.320 --> 09:30.000
+random writes and so on.
+
+09:30.800 --> 09:35.680
+So that's what I mean by difference in performance.
+
+09:36.320 --> 09:42.560
+If the database does like 100,000 transactions per second, and the other on a different file
+
+09:42.560 --> 09:46.560
+system, it does like 110,000 transactions per second.
+
+09:46.560 --> 09:48.560
+That's the throughput that I care about.
+
+09:49.440 --> 09:50.480
+Does it answer the question?
+
+09:51.280 --> 09:52.000
+Yes.
+
+09:52.000 --> 09:52.640
+Yeah, cool.
+
+09:54.640 --> 10:00.240
+Obviously throughput is not like, I'm going to talk about like other ways, other things that need
+
+10:00.240 --> 10:02.720
+to be considered when comparing file systems.
+
+10:03.840 --> 10:05.840
+But this is like the gist, right?
+
+10:05.920 --> 10:14.160
+Like if I had to choose from the EXT4 and XFS, I would probably pick what's default
+
+10:14.160 --> 10:17.760
+into distribution that I'm using because that's simply easier.
+
+10:21.120 --> 10:27.200
+And then of course, if you need something like more advanced, if you need snapshots,
+
+10:27.200 --> 10:34.160
+for example, and if you use them heavily, then I would definitely go with either ZFS or BTRFS.
+
+10:34.880 --> 10:43.520
+And I'm probably way more in the ZFS camp, like because of the reasons that I will talk
+
+10:43.520 --> 10:44.880
+about later, about the results.
+
+10:47.280 --> 10:51.120
+Obviously, if you only need snapshots like once in a while, you could use LVM
+
+10:52.080 --> 10:55.040
+and snapshots at that level that works.
+
+10:56.000 --> 11:04.480
+But the native snapshots in copy on write file systems are usually much faster.
+
+11:04.480 --> 11:11.120
+They have like much slower impact on throughput of the database or on performance.
+
+11:14.400 --> 11:14.880
+Right.
+
+11:14.880 --> 11:20.960
+So the first thing I'm going to talk about is why Postgres actually relies on operating system
+
+11:21.600 --> 11:26.000
+so much because there are databases that just kind of like ignore the file system
+
+11:27.040 --> 11:33.920
+or and either like implement like completely custom file systems on raw devices or
+
+11:35.920 --> 11:37.120
+do something else, right?
+
+11:37.120 --> 11:42.480
+Like do much more like direct IO and so on.
+
+11:43.040 --> 11:49.280
+And the answer is like, I do recognize the complexity of the file systems, right?
+
+11:51.200 --> 11:55.680
+Database engineers sometimes have the tendency to say like, oh, it's file system.
+
+11:55.680 --> 11:56.560
+It's simple, right?
+
+11:56.560 --> 12:03.520
+It's like you overvalue the complexity of the layer you are working on, on the database
+
+12:03.520 --> 12:08.080
+and kind of like diminish the say like, oh, no, all the layers are simple.
+
+12:08.080 --> 12:11.280
+The stuff that I'm doing is like very, very complex, right?
+
+12:11.280 --> 12:13.840
+And I want to say that I don't think that at all.
+
+12:14.640 --> 12:20.480
+I do recognize that all the layers, both below the database and above the database,
+
+12:20.480 --> 12:22.480
+have significant complexity, right?
+
+12:23.440 --> 12:25.840
+And I'm not here to talk shit about file systems.
+
+12:27.280 --> 12:30.880
+I'm here to learn something essentially, right?
+
+12:30.880 --> 12:34.080
+So Postgres is a database, right?
+
+12:34.960 --> 12:40.320
+We are storing and accessing data and that's the whole point why we actually do what we do.
+
+12:42.560 --> 12:47.360
+But we do leave the low level stuff to the operating system and the operating system
+
+12:47.360 --> 12:57.120
+implements the on-disk format, it implements the caching to kernel,
+
+12:57.120 --> 13:02.320
+it implements the device drivers that communicate with the hardware and so on.
+
+13:04.240 --> 13:11.360
+And we just use the Postgres interface on top of the operating system, on top of the kernel.
+
+13:13.040 --> 13:16.880
+And all the low level stuff is responsibility of the operating system.
+
+13:16.880 --> 13:26.080
+That might change a little bit with the patches that improve or start using the asynchronous
+
+13:26.080 --> 13:30.960
+IO and direct IO, but so far that wasn't the case.
+
+13:32.320 --> 13:34.320
+The question is like, is it even a good idea?
+
+13:34.320 --> 13:39.360
+I mean, shouldn't the database just do everything directly and just ignore the operating system?
+
+13:39.360 --> 13:41.120
+Well, sure.
+
+13:41.920 --> 13:46.720
+If you have the developer capacity to do that, if you have an infinite amount of money to
+
+13:46.720 --> 13:51.600
+actually spend on development, then sure, you can do everything, right?
+
+13:53.440 --> 13:59.280
+But the project doesn't have this advantage, right?
+
+13:59.280 --> 14:01.840
+We do have a limited amount of time and so on.
+
+14:02.480 --> 14:11.120
+So we decided or like, I haven't been contributing to Postgres back then,
+
+14:11.120 --> 14:17.600
+but the choice was to just leave as much as possible to the operating system and it worked
+
+14:17.600 --> 14:20.400
+quite well so far, right?
+
+14:20.400 --> 14:27.520
+And I'm not sure it would even be possible to do the custom stuff because there was so much,
+
+14:28.240 --> 14:33.600
+for example, Postgres supports many platforms and the support for direct IO and so on
+
+14:33.920 --> 14:39.200
+varies a lot between the different Unix systems, right?
+
+14:39.200 --> 14:44.000
+Even though they all support, you know, implement Postgres, right?
+
+14:44.000 --> 14:50.960
+So there's like a lot of difference, a lot of nuance and we would need to deal with all of that.
+
+14:50.960 --> 14:58.960
+So that would be terrible, I think, and it would not allow us to actually improve the database
+
+14:58.960 --> 15:01.040
+as much as we did.
+
+15:01.040 --> 15:06.800
+And of course, by relying on the operating system, we automatically get all the benefits,
+
+15:06.800 --> 15:10.160
+all the improvements those guys do, right?
+
+15:10.160 --> 15:16.160
+So if they improve the file systems, we do get the benefits, which is great.
+
+15:18.080 --> 15:23.680
+So how Postgres actually works in general, like a very simplified idea is that we have
+
+15:23.680 --> 15:28.480
+like the Postgres as an application, essentially running on top of the kernel,
+
+15:28.480 --> 15:34.480
+which has some, you know, shared buffers, which is memory managed by the database.
+
+15:34.480 --> 15:40.080
+And then we have some processes which are either doing some, you know, maintenance operations
+
+15:40.080 --> 15:45.360
+or whatever, or as the backend processes are handling user connections, right?
+
+15:45.360 --> 15:50.560
+So you connect to the database, it will fork a process and the process will access
+
+15:51.760 --> 15:58.240
+the shared buffers, which is where the data is going to be for the backend, right?
+
+15:58.240 --> 16:04.880
+And when the data is not actually in memory yet, the Postgres will read the data through
+
+16:04.880 --> 16:10.320
+Pagecase, which is managed by the kernel, and the kernel will do some magic and will,
+
+16:10.320 --> 16:15.360
+you know, read the data from the disk to the hardware interfaces file systems
+
+16:15.360 --> 16:23.600
+and will include some IOH scheduler to govern all the process, right?
+
+16:23.600 --> 16:28.160
+So that's roughly how it works, how Postgres is designed.
+
+16:28.800 --> 16:33.840
+With the Direct IOH, we will kind of like ignore the Pagecase and we will, you know, do
+
+16:34.880 --> 16:42.400
+still talk through to the operating system facilities, but without the Pagecase, right,
+
+16:42.400 --> 16:46.720
+of course. And in that case, the shared buffers will be much larger, right, or
+
+16:47.360 --> 16:54.480
+it should be much larger, of course. Right, so this is like the Direct IOH kind of.
+
+16:55.760 --> 17:02.560
+Anyway, we are still essentially in this, and this whole talk is about this architecture.
+
+17:03.680 --> 17:14.240
+So I spoke about a couple of reasons why you should use like new kernels and what are the
+
+17:14.240 --> 17:22.240
+problems with like relying on all the kernels, and that's like, well, there's a lot of things that
+
+17:22.240 --> 17:28.560
+can go wrong, and there's error handling, but what happened in like 2018, we discovered that we
+
+17:28.560 --> 17:34.480
+are actually not either receiving the errors at all from the kernel, because for example, you open
+
+17:35.360 --> 17:41.760
+a file to one file descriptor, you do some writes on the file, and then you close the file,
+
+17:42.720 --> 17:49.360
+or the file gets closed for some reason, and no one actually knows about the error at all. Even
+
+17:49.360 --> 17:56.720
+though you might have like another file descriptor for the same file, you will not read, learn about
+
+17:56.720 --> 18:03.680
+it. And there's like different ways to lose information about errors during fSync, for example,
+
+18:03.680 --> 18:10.560
+which is pretty fatal for Postgres, because we do rely on the fSync, for example, during checkpoints,
+
+18:10.640 --> 18:20.480
+right? So luckily, it's not a very common issue. I mean, I don't remember when I actually got like
+
+18:20.480 --> 18:27.760
+the last fSync error in, you know, when working with the database, but when it happens, it can,
+
+18:27.760 --> 18:34.720
+it should definitely not be like a silent corruption, right? So this was fixed, I believe,
+
+18:35.440 --> 18:41.200
+but again, it's something that needs to be, that is fixed only in sufficiently recent kernels,
+
+18:41.200 --> 18:51.920
+right? So you need to run a recent kernel to be immune to this. The other problem, of course,
+
+18:51.920 --> 18:58.480
+is that, and that's not like a bug, that's a problem with the design in general, and it is
+
+18:59.440 --> 19:08.480
+because the most of the IO activity is actually managed by the kernel, by the operating system,
+
+19:09.680 --> 19:17.840
+but it does not actually have any insight into what the database needs, right? It has no concept of,
+
+19:18.480 --> 19:25.520
+well, this write is more important than this write, right? Because this write affects user activity,
+
+19:25.680 --> 19:30.960
+and this is some sort of like a background task which could wait, right? Like the operating system
+
+19:30.960 --> 19:37.840
+has no idea how to, has no way to actually, you know, differentiate between the writes,
+
+19:39.600 --> 19:50.000
+so that's one reason. The other reason is, for example, prefection, right? The current storage
+
+19:50.080 --> 20:00.560
+systems rely heavily on actually having full queues. If you only request from SSD one block at a time
+
+20:00.560 --> 20:09.760
+in a synchronous way, it's going to be really slow. If you submit like many, many IO requests ahead,
+
+20:11.040 --> 20:17.920
+then you are able to saturate actually the storage device, like the, the tooth, right? You get like
+
+20:17.920 --> 20:26.800
+much better performance in general. And again, that's something that the database needs to do
+
+20:27.520 --> 20:34.720
+explicitly. It's not something the operating system can, can do on its own, and we do actually
+
+20:34.720 --> 20:40.960
+rely on the operating system to do prefetching for sequential scans, for example, but the,
+
+20:41.680 --> 20:49.600
+we need to do explicit prefetching for other types of scans. So for example, during index scans or
+
+20:49.600 --> 20:59.440
+bitmap heap scans, we need to do explicit prefetching. So it's like, this is a design problem.
+
+21:01.040 --> 21:09.440
+So rule number one, use recent kernel. All the kernels have all kinds of issues. Okay.
+
+21:09.520 --> 21:18.560
+It's not always like perfect. There are regressions in kernels too. Once in a while, you can get like
+
+21:18.560 --> 21:26.240
+a dropping performance because something went wrong. But overall, I think it's like something you
+
+21:26.240 --> 21:37.440
+should do. Right. So this was like a very basic explanation of, of, of why POSGRESS IO, why POSGRESS
+
+21:37.440 --> 21:42.480
+uses file systems the way it does. And now I'm going to talk about some benchmarks and stress
+
+21:42.480 --> 21:52.240
+test because this is like very, like high level. Right. I like to, to do some measurements and
+
+21:52.240 --> 21:57.840
+look at the numbers and say, like, okay, so this performs well, this sucks. Right. So what I did,
+
+22:00.160 --> 22:06.400
+I did a lot of stress tests, which essentially means running PG bench, which is OLTP
+
+22:07.680 --> 22:17.440
+database benchmark tool. Simply, it does a lot of like random IO to POSGRESS. And I measured
+
+22:17.440 --> 22:24.320
+like the truth. The first important thing here is that this only really matters if you are IO bound.
+
+22:25.120 --> 22:32.640
+Right. If you are hitting the, the storage, then that's the only way, that's the only case where
+
+22:33.600 --> 22:39.440
+the difference in file system performance can actually affect the throughput. Right. If you are CPU
+
+22:39.440 --> 22:45.840
+bound, for example, because you are working with very small amounts of memory and it's all in cache,
+
+22:46.640 --> 22:53.200
+then the file system doesn't really matter. The other reason, of course, is that
+
+22:53.600 --> 23:05.440
+typical production systems are not using IO for 100% time. Like once you hit, for example,
+
+23:05.440 --> 23:14.800
+saturation of like 75%, right, you are already like being affected by, by latency increase
+
+23:14.800 --> 23:20.880
+system so on. At that point, you probably already are thinking about upgrading the storage system
+
+23:20.880 --> 23:29.600
+or like migrating to do something else. So that's one reason. So keep this in mind when
+
+23:31.120 --> 23:38.400
+interpreting the results that I'm going to show you. It's probably like the worst case scenario.
+
+23:40.640 --> 23:48.720
+The other thing, of course, is that I only have some particular hardware available. And
+
+23:50.880 --> 23:56.560
+some of the file systems, especially like ZFS and so on, they do support a lot of different
+
+23:56.560 --> 24:04.160
+features. So you can like move the intent look or stuff like that to a different device. I didn't
+
+24:04.160 --> 24:12.000
+do anything like that. Right. What I recommend you do, if you are actually evaluating like different
+
+24:12.000 --> 24:19.120
+file systems for your use case, to actually try that with, with the hardware that you are considering.
+
+24:19.920 --> 24:25.840
+Right. To actually do your own measurements. Right. I would love to have like a perfect
+
+24:25.840 --> 24:30.480
+benchmarks for all possible hardware configurations, but it's not possible. Right.
+
+24:31.680 --> 24:39.360
+So I'm going to show you a bunch of results, a bunch of charts. And I'm going to,
+
+24:40.800 --> 24:46.640
+I think what is more important is like not the exact numbers, but it's more about the visual,
+
+24:46.640 --> 24:53.680
+like, like understanding like what's happening. Right. So for example, this is from two machines.
+
+24:55.520 --> 25:04.240
+This is like a smaller, older Intel machine. This is larger Xeon. And this is the time that it takes
+
+25:04.240 --> 25:13.120
+to do a bulk load into the database. Right. Of scale 2000 means like, I don't know, 30 gigabytes
+
+25:13.120 --> 25:23.040
+of data. And this loads the data, builds indexes and so on. And the first bunch of results here,
+
+25:23.040 --> 25:31.440
+which is in seconds. So the shorter, the better. These are just like regular file systems on LVM
+
+25:32.560 --> 25:40.640
+without any snapshots, just like right. And then there are a couple that are two that are actually
+
+25:40.640 --> 25:50.800
+multi-device without the LVM using the BTRFS or ZFS file systems, like multi-device support.
+
+25:50.800 --> 25:58.480
+Right. And you can see that it's like almost the same, except for ZFS for some reason, it's like much
+
+25:58.480 --> 26:06.400
+slower. Right. But that might be a hardware issue or like specific to this hardware configuration,
+
+26:06.400 --> 26:10.640
+because on a different machine, which only has a single device though, it's like NVMe,
+
+26:12.640 --> 26:17.760
+the difference is like much smaller. Right. And there is no LVM because there are no multiple
+
+26:17.760 --> 26:26.640
+devices. Right. So that's one thing. That's what I mean, what I said that the difference between
+
+26:26.640 --> 26:35.360
+EXT4 and XFS is like usually very small. And then we have a couple results for
+
+26:37.440 --> 26:43.840
+snapshots when you start creating actually snapshots on LVM. And you can see that it like improves,
+
+26:43.840 --> 26:49.440
+oh sorry, improves like, degrades like significantly. Right. So it suddenly takes like twice as much
+
+26:49.440 --> 26:57.280
+time in some cases, except for the native file systems, like the copy and write file system,
+
+26:57.280 --> 27:07.120
+BTRFS and ZFS that didn't actually like got much worse. Right. So this is similar thing you can
+
+27:07.120 --> 27:17.040
+see here for the other machine. So what I conclude from this is that if you actually do need the
+
+27:17.040 --> 27:24.560
+snapshots, use the ZFS or BTRFS. Yes.
+
+27:36.960 --> 27:46.160
+So for BTRFS, I just did like a regular, I didn't want the specific like explicitly else. Right.
+
+27:46.240 --> 27:48.000
+So I just created the BTRFS like.
+
+27:49.920 --> 27:55.120
+Because the easy optimization would be to turn on copy and write for the files affected by the
+
+27:55.120 --> 28:01.040
+database. And then when you do the snapshot, it still does copy and write only and in those points.
+
+28:01.760 --> 28:07.600
+Right. So I consider like disabling copy and write because there's like an option for, I'm not
+
+28:07.600 --> 28:13.280
+sure if it's a mount option, like no data copy and write and so on. The problem with that is,
+
+28:13.920 --> 28:18.640
+as far as I remember, is that it actually disables like checksums or affects like these
+
+28:18.640 --> 28:23.840
+capabilities. Right. Which, and that's what I don't want. Right. I do want the checksumming
+
+28:24.560 --> 28:33.040
+and so on for these file systems. Right. So that's it. Right. Well, these are the results
+
+28:33.040 --> 28:38.400
+with the LVM snapshots and these are the built-in snapshots. Right. So my conclusion, if you want
+
+28:38.400 --> 28:43.440
+snapshots, if you need snapshots for like, because it makes, for example, backup simpler for you,
+
+28:44.560 --> 28:52.640
+use these file systems, then I do have some results for OLVP-PG bench, which is like a read-only
+
+28:53.920 --> 29:00.960
+mode. It simply means like select by primary key. Right. It does a lot of random IO.
+
+29:01.920 --> 29:08.480
+This is like the large, large scales, which means that it actually is hitting the
+
+29:10.880 --> 29:18.640
+disks a lot. It's not like in memory. And you can also see that on the smaller machine, which is like
+
+29:20.160 --> 29:27.280
+just four cores, the differences are fairly small. The ZFS is a bit slower. I assume that it's because
+
+29:27.360 --> 29:30.960
+it's not using the page cache. It's using the ARC cache and there's like,
+
+29:32.000 --> 29:38.560
+like different size. It's like smaller than the page cache in this configuration. So that's fine.
+
+29:39.680 --> 29:48.400
+On the larger machine, which you can see that this is like five times or four times higher throughput
+
+29:48.880 --> 29:57.840
+because it's using NVME, then the beta RFS is getting slower. ZFS is slightly slower also.
+
+29:57.840 --> 30:07.760
+Right. Which again, in absolute numbers, this is not great. If ZFS is giving you or like beta
+
+30:07.760 --> 30:11.840
+RFS is giving you some additional features, I think this is perfectly fine.
+
+30:12.400 --> 30:21.280
+For the read write, and I'm actually showing for the read write like different scales.
+
+30:22.240 --> 30:27.200
+Scale, this is like a small scale, which means everything fits into shed buffers. So we are
+
+30:27.200 --> 30:36.400
+actually doing a lot, very few random writes. A thousand here means it fits into RAM, but not
+
+30:36.400 --> 30:45.040
+into shed buffers. And this is like much larger than memory in general. And you can see that,
+
+30:45.040 --> 30:54.800
+again, the EXT4 XFS kind of like perform the best. And unfortunately, the copyright systems,
+
+30:54.800 --> 31:07.920
+once you exceed the available RAM, get much slower. The OLTP PG bench is not exactly,
+
+31:10.080 --> 31:13.280
+it's very uniform access. Right. So, yes.
+
+31:13.840 --> 31:17.920
+Do you use large blocks on ZFS?
+
+31:18.720 --> 31:25.280
+So, for ZFS, I use the 8 kilobyte blocks. Right. So I reduce the size of the block
+
+31:26.160 --> 31:35.120
+to match the postgres data block. What I was going to say,
+
+31:35.200 --> 31:44.080
+well, I wanted to say that PG bench may not be a perfect thing to model your database,
+
+31:44.080 --> 31:50.880
+your application, because it randomly and uniformly accesses all the different parts of the database.
+
+31:51.440 --> 31:56.240
+But usually what you have is you have a very active subset of the database,
+
+31:57.520 --> 32:04.080
+which probably fits into memory. And then you have the rest of the database,
+
+32:04.160 --> 32:08.800
+which is like historical data or users that are not very active or something.
+
+32:10.000 --> 32:17.360
+So, this, which means that you probably are not very affected by this. This is like the worst
+
+32:17.360 --> 32:25.200
+case possible. Right. And you are probably somewhere in this region. Right. In which case, the ZFS
+
+32:26.240 --> 32:33.440
+is slower, but not by much. So that's one thing you need to consider when
+
+32:33.440 --> 32:38.560
+interpreting the benchmark results and applying them to your application. Right.
+
+32:39.840 --> 32:47.520
+But one thing I'd like to mention is that throughput is not the whole story. Right. I mean,
+
+32:48.320 --> 32:52.640
+if you only get information about like how many transactions you can get per second, that doesn't
+
+32:52.640 --> 32:59.760
+actually, you know, fully explain or fully describe the database or like the performance of
+
+32:59.760 --> 33:07.920
+any system. The other thing that you need to look at is latency. Right. Because if you get like
+
+33:07.920 --> 33:15.600
+very different latencies, like one, one request gets handled in one millisecond, the other request
+
+33:15.600 --> 33:24.560
+gets handled in five, five minutes. It's like in, on average, it's probably not very good performance.
+
+33:24.640 --> 33:32.880
+Right. So what I did is I actually show behavior over time, not just for the whole
+
+33:32.880 --> 33:40.480
+two hour run, but I show how actually the performance changes over time. And this is
+
+33:40.480 --> 33:48.000
+like the throughput. And you can see that EXT4, one thing I want to say, don't look at the numbers.
+
+33:48.000 --> 33:53.760
+Right. The numbers, you may not even be able to read them from the back. That doesn't matter.
+
+33:53.760 --> 34:00.480
+You can look at the slide later. What matters is that you can compare the charts visually.
+
+34:01.440 --> 34:08.480
+Yeah. You can, you can look at the first row and that's the small data set, which is the data set
+
+34:08.480 --> 34:14.640
+that fits into shared buffers. The other row is the medium, which is like fits into memory,
+
+34:14.640 --> 34:22.080
+but doesn't fit into shared buffers. This doesn't, the third one, large one, doesn't fit into
+
+34:23.040 --> 34:31.440
+memory at all. But that's the read write. And this is read only. Right. All these, this is small
+
+34:31.440 --> 34:38.800
+read write, medium read write, large read write, large read only. Sorry, there is a mistake here.
+
+34:40.160 --> 34:47.440
+And this shows like how that actually behaves over two hours. And you can visually compare
+
+34:47.520 --> 34:56.080
+each row. Right. So you can, for example, see here that EXT4, XFS are really, really stable.
+
+34:56.080 --> 35:07.040
+Right. You get really, very similar throughput over time. BTRFS is a bit slower. ZFS also
+
+35:07.040 --> 35:16.480
+very stable. And then once you get larger and larger data sets, the behavior changes. Not for
+
+35:16.480 --> 35:23.920
+EXT4, XFS, of course, you get like slower, lower performance. But for example, for BTRFS, you get
+
+35:23.920 --> 35:34.160
+like much more, much more jitter in, in the throughput for per second. Right. So, so that's
+
+35:34.160 --> 35:45.040
+not great. Also, you get like progressively slower throughput. She's not great for ZFS. It's similar.
+
+35:45.040 --> 35:51.280
+Right. I mean like, you get like more variants in, in the throughput. And ultimately, even for ZFS,
+
+35:51.280 --> 35:58.320
+you get like much lower throughput for read only. But I started talking about latency. This shows me
+
+35:58.320 --> 36:05.680
+still just throughput over time. It shows me like how, how it changes over like two hour period.
+
+36:05.760 --> 36:15.840
+It doesn't show me latency. Right. So, this is the result of percentiles of, of the same test. And
+
+36:17.120 --> 36:22.640
+ideally, you would see something like this. Right. I mean, this is, I think, 25%.
+
+36:25.440 --> 36:34.480
+50%. 75, 95, 99. And ideally, you would see like perfectly straight lines, which gives you very
+
+36:34.480 --> 36:39.920
+consistent performance over time. Right. So, this is really, really nice. I mean, like the
+
+36:39.920 --> 36:46.320
+throughput was fairly low. But this is really nice because it's very predictable for operation.
+
+36:47.920 --> 36:54.720
+Similar thing here. Right. You get some blips here, some, you know, spice latency and so on.
+
+36:54.720 --> 37:00.320
+But it's very short, very predictable, really nice. And you probably will not even see this
+
+37:00.320 --> 37:08.080
+in like a monitoring. For ZFS, it's not that great. It simply needs to do, I don't know, compression,
+
+37:08.080 --> 37:16.880
+whatever, do copy on write of the data. For BTRFS, it's unfortunately much worse. Right. This means
+
+37:16.880 --> 37:23.760
+that the, the latency spikes are pretty significant. I mean, if you look at the
+
+37:24.720 --> 37:33.520
+throughput, you can see that there are like a lot of fluctuations here. So, that's not great.
+
+37:34.720 --> 37:40.320
+I would definitely, as a DBA, I would like to see something like this. Right. Because it gives me
+
+37:41.040 --> 37:46.000
+nice smooth behavior. This is okay. This is not great.
+
+37:46.880 --> 37:55.200
+Okay. For the smaller machine, it's like a very similar, similar story, except that the
+
+37:55.200 --> 38:00.800
+differences are not as pronounced because simply the storage is not as powerful. Right. I mean,
+
+38:00.800 --> 38:07.760
+like you get similar performance for the smaller dataset, then as we are increasing the amount
+
+38:07.840 --> 38:16.400
+of random writes in random IO, it gets worse. And of course, similar, similar outcome for,
+
+38:16.400 --> 38:22.240
+for the latencies. Right. So, I use this as a visual way to compare the results.
+
+38:23.760 --> 38:27.520
+Not the exact numbers, but like how the chart looks like. Right.
+
+38:29.680 --> 38:34.400
+And I think I do have to say like a super large machine, which is, I don't know,
+
+38:35.360 --> 38:41.760
+100 cores, AMV epic with four NVMEs. And you can again see very similar
+
+38:43.680 --> 38:52.320
+pattern with like EXE4 XFS. There are some fluctuations here. I'm not sure what exactly
+
+38:52.320 --> 39:00.000
+that is. I need to look into that. But the, and I would say the ZFS behaves like better here.
+
+39:00.880 --> 39:06.640
+It's like nicer. You can see those are most likely checkpoints, these spikes.
+
+39:07.920 --> 39:11.360
+So there's probably a way to improve this.
+
+39:14.560 --> 39:20.320
+Similar for latency, right. Like these are really nice. Well, you can always improve that,
+
+39:20.320 --> 39:28.960
+but this looks really nice. ZFS is slower or worse. BTRFS has some latency spikes that
+
+39:29.040 --> 39:37.120
+would cause a lot of trouble in production. Right. So, there was just like looking at the file
+
+39:37.120 --> 39:42.800
+systems and with some basic tuning at the file system level. But there are also things that
+
+39:43.600 --> 39:49.360
+you could think about at the Postgres level. And the first level is, well,
+
+39:51.920 --> 39:58.560
+you need to be careful about, about filling the page cache. Right. Because what can happen in
+
+39:58.560 --> 40:04.400
+Linux and with the default configuration can happen quite easily is that you accumulate a lot of
+
+40:05.360 --> 40:10.320
+dirty data in the page cache because Postgres will just write stuff into the operating system and
+
+40:10.320 --> 40:17.440
+then eventually call fsync. Right. And if you accumulate like 10% of the RAM in the, in the
+
+40:17.440 --> 40:24.800
+page cache and then say, okay, write all these five gigabytes of data to disk at once that will
+
+40:24.800 --> 40:34.480
+inevitably affect the, the user activity. Right. So, you need to be careful about, for example,
+
+40:35.120 --> 40:40.080
+decreasing the background bytes. And I think I do have this here. This is
+
+40:41.360 --> 40:50.400
+EXT4 with the default, default here, which I think is one gigabyte for, for this machine.
+
+40:51.360 --> 40:59.200
+And this is the throughput for, if I decrease the, the dirty background bytes for 32 bytes,
+
+40:59.760 --> 41:07.680
+32 megabytes. And you can see that it's much, much more consistent. Right. Because here the, the gray,
+
+41:09.200 --> 41:17.120
+gray chart is essentially like per second throughput. And the red one is like average over 15 seconds.
+
+41:17.120 --> 41:22.160
+Right. So it's like a smoothed out. And you can see that it's like almost the same throughput,
+
+41:22.160 --> 41:28.240
+but this is like much more variable. And for the latencies with 32 megabytes, sorry,
+
+41:28.240 --> 41:39.280
+32 megabytes, one gigabyte, it's the same, same thing. The decreasing the, decreasing the dirty
+
+41:39.280 --> 41:46.800
+background bytes makes it much more consistent. Obviously, if it had just like benefits that
+
+41:46.880 --> 41:53.120
+would be the default. Right. Unfortunately, if you decrease this, you kind of like reduce the
+
+41:53.120 --> 42:00.160
+throughput of the machine, of, of, of the system. Right. How much, I don't know, you need to test it.
+
+42:00.800 --> 42:08.000
+Right. Or I do plan to do the test. I don't have the numbers yet. But in this case, obviously,
+
+42:08.000 --> 42:15.680
+the, the impact is like minimal. So that was one thing I want to talk about. Yeah. The other thing
+
+42:15.680 --> 42:20.400
+I wanted to talk about is full page rights, which unfortunately something Postgres has to do.
+
+42:20.400 --> 42:25.280
+It means that after each checkpoint, the first change to the page will write the whole eight
+
+42:25.280 --> 42:34.720
+kilobyte into, into the transaction lock. The problem with that is that it inflates the amount of,
+
+42:34.720 --> 42:39.840
+you know, data we write into transaction lock. And it can easily happen that you, you just,
+
+42:39.840 --> 42:45.280
+by doing the full page rights, you hit the next checkpoint. Right. Because you write so much wall
+
+42:45.760 --> 42:50.800
+that you are required to do the next checkpoint. And it's like infinite loop. Right. So you will do
+
+42:50.800 --> 42:57.920
+like a lot of full page rights. I do believe that ZFS actually allows you to disable this.
+
+42:58.880 --> 43:09.040
+Right. So in ZFS, you can actually optimize the Postgres to benefit from the feature of ZFS,
+
+43:09.760 --> 43:19.600
+which can be very beneficial. The problem with ZFS that I run into is that it's really difficult
+
+43:19.600 --> 43:29.840
+to configure prefetch like for, for sequential scans, for example. I mean like PGDOM, for example,
+
+43:29.840 --> 43:36.400
+if you do that on, on the database for me, it took like twice as long as on the other file systems.
+
+43:36.720 --> 43:45.680
+Right. I'm, if there is a good way to enable prefetch on, on ZFS, I'd like to know about that.
+
+43:46.480 --> 43:54.880
+But I found like, you know, 10 different options at different places in ZFS that should be configured.
+
+43:54.880 --> 44:01.040
+That's like very difficult for me. Right. So what about snapshots?
+
+44:01.520 --> 44:11.280
+I mentioned that with snapshots, you would probably expect lower performance. Right. Because the,
+
+44:11.280 --> 44:17.040
+the file system needs to do something else. Right. With ZFS and BTRFS, that's not really the case,
+
+44:17.040 --> 44:23.760
+because they do copy and write by default. So that's okay. But what is the impact of doing a
+
+44:23.760 --> 44:38.080
+snapshots on the EXT4 XFS in case you are using LVM? Well, these are, these are the results for
+
+44:39.120 --> 44:48.720
+EXT4 LVM snapshots, BTRFS with LVM, BTRFS when you do that natively in BTRFS, and ZFS
+
+44:49.520 --> 44:54.480
+with native snapshots. Right. And you can immediately see that if you are doing snapshots,
+
+44:55.920 --> 45:08.880
+the, the ZFS and BTRFS can easily compete with the EXT4, which can only do that through LVM.
+
+45:09.840 --> 45:15.360
+So that's like, if you need snapshots, if you want to benefit from snapshots, if you are willing to
+
+45:15.360 --> 45:22.960
+pay for snapshots, then ZTRFS or BTRFS can actually do a pretty good job. Like at least as good as
+
+45:24.240 --> 45:32.160
+the traditional file systems. Of course, there's still the problem with latency. In this case,
+
+45:32.160 --> 45:41.440
+once you start doing snapshots, snapshots on EXT4 and LVM, the latency gets much worse. And I would
+
+45:41.440 --> 45:51.120
+even say that the latency of ZFS is better. It's more predictable. BTRFS is still a bit slower.
+
+45:51.120 --> 45:59.040
+Or like, obviously the latency is much worse. In all those charts, the scales are always the same
+
+45:59.040 --> 46:06.080
+for all, you know, charts in the same row. So it's like easy to compare this. So you can see that
+
+46:06.160 --> 46:11.600
+the 95 percentile, which is the, you know, the violet here, is much higher than here.
+
+46:15.040 --> 46:23.520
+So this is from a different machine from the large AMD. And you can see that, of course,
+
+46:24.960 --> 46:30.480
+with, when you have like EXT4 with no snapshots, it's, it's really fast. Once you start doing
+
+46:30.480 --> 46:37.280
+snapshots on LVM, and by doing snapshots, I mean like having three snapshots at the same time.
+
+46:37.280 --> 46:43.520
+Right? So during the benchmarks, I just created like a snapshot every five minutes, and then
+
+46:43.520 --> 46:48.080
+deleted the snapshot after 15 minutes. Right? So there are always like three snapshots at the
+
+46:48.080 --> 46:55.200
+same time. You can see that this is like a massive impact on EXT4. And I'm not sure if you are
+
+46:55.200 --> 47:04.880
+willing to pay for that. And then, of course, like, BTRFS is better. ZFS, sorry, this is BTRFS
+
+47:04.880 --> 47:09.680
+with no snapshots with snapshots. And there is like no difference here, right, between those charts.
+
+47:10.400 --> 47:18.640
+So which is great. That's exactly what we expect from, from those file systems. And just to compare
+
+47:18.640 --> 47:26.080
+BTRFS and ZFS, again, ZFS no snapshots, ZFS snapshots. You can see there's like almost no
+
+47:26.080 --> 47:33.040
+difference when you enable and start doing snapshots, which is great. Exactly what we expect from
+
+47:33.680 --> 47:42.000
+copy and write file system. But the comparison between BTRFS and ZFS is pretty clear, especially
+
+47:42.000 --> 47:54.960
+for this scale, for example. So this is one of the reasons why I'm more like a favor, a fan of ZFS.
+
+47:56.160 --> 48:04.320
+So that's all I wanted to say today. If you want, you can find all the results, all the charts on
+
+48:04.320 --> 48:11.920
+GitHub. If you want the source data, or if you want the, the scripts that I used, I am very open to
+
+48:11.920 --> 48:19.120
+just providing them. I have no problem with that. It's multiple gigabytes of data. So that's why I
+
+48:19.120 --> 48:24.800
+didn't put it on, on GitHub. But I'm still going to do more benchmarks. I will publish it there.
+
+48:25.760 --> 48:34.000
+If you want to look at a very interesting paper, which I think explains a lot about like the
+
+48:34.000 --> 48:40.640
+challenges, how actually we need to saturate NVME storage. There is a very nice paper
+
+48:41.920 --> 48:48.800
+from VLDB. I highly recommend it. And yeah, I think that's all.
+

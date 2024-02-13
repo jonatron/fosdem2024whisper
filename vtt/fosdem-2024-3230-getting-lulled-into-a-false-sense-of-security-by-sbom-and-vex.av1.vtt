@@ -1,0 +1,980 @@
+WEBVTT
+
+00:00.000 --> 00:05.000
+Good afternoon everybody.
+
+00:05.000 --> 00:07.000
+I hope you hear me well.
+
+00:07.000 --> 00:21.000
+My name is Henrik and I'm going to talk about S-Bom and VEX or better about all the problems of collecting high quality data that are required to be part of those documents.
+
+00:21.000 --> 00:44.000
+So it's nice that we have those data formats, that we can sign them and exchange them and merge them, but I think it's very important for the consumers to know about all the problems related to vulnerability database, quality, dependency management, all of those problems leading to actually wrong data being encoded in VEX and S-Bom documents.
+
+00:45.000 --> 00:48.000
+A little bit about two minutes about myself.
+
+00:48.000 --> 00:50.000
+I'm a security researcher at Ender Labs.
+
+00:50.000 --> 01:01.000
+Previously I've been working at SAP Security Research where I started around about 10 years ago to work on the detection, assessment and mitigation of known open source vulnerabilities.
+
+01:01.000 --> 01:17.000
+I think the most noteworthy outcome of that activity was Eclipse Steady, which I co-authored, which is basically combining static and dynamic programming analysis techniques in order to basically determine the reachability of vulnerable code.
+
+01:17.000 --> 01:26.000
+And kind of hand in hand with Eclipse Steady is another project, which is called Project KB, which is a data set of fixed commits, right?
+
+01:27.000 --> 01:32.000
+Fixed commits that tell you which are actually the vulnerable functions in the different open source projects.
+
+01:32.000 --> 01:39.000
+A little later on I was interested by this increase of supply chain attacks, the more and more malicious packages showing up.
+
+01:39.000 --> 01:55.000
+And again, two open source projects I was involved in, which I co-authored was the Backstabbers Knife Collection, which is a collection of around about 4,000 malicious packages that have been published on PIPI and NPM and RubyGems and so forth,
+
+01:55.000 --> 02:00.000
+which is helping researchers to kind of develop new detective measures.
+
+02:00.000 --> 02:16.000
+And have also contributed to the risk explorer, which is kind of a comprehensive taxonomy about all the different ways and techniques at the disposal of attackers in order to inject malicious payloads or code into open source packages to infect downstream users.
+
+02:16.000 --> 02:22.000
+All right. The outline of this call, this talk is as follows.
+
+02:23.000 --> 02:33.000
+I mean, in order to produce accurate S-bomb and VEX documents, you basically need to link applications to all the components and component versions, right?
+
+02:33.000 --> 02:36.000
+And we heard a little bit in earlier presentations about this.
+
+02:36.000 --> 02:40.000
+And from there on, you need to link those component versions to vulnerabilities.
+
+02:41.000 --> 02:52.000
+And then in the next step, you need to link this to the vulnerable code functions, code snippets, right, in order to have all the information required for VEX documents.
+
+02:52.000 --> 03:03.000
+And what I would like to do in this talk is to provide your kind of systematic, structured overview about all the problems that appear that exist when wanting to establish this link,
+
+03:03.000 --> 03:08.000
+and which make that those links are pretty brittle and weak in many cases.
+
+03:09.000 --> 03:18.000
+And I will exemplify this by vulnerabilities, CVEs, most of the time that you can consume from OSV.
+
+03:18.000 --> 03:22.000
+A very important note, and I put a star so that I do not forget.
+
+03:22.000 --> 03:27.000
+I mean, OSV is a great, let's say, project. They do a great job.
+
+03:27.000 --> 03:29.000
+They just aggregate vulnerability information.
+
+03:29.000 --> 03:34.000
+They provide you this nice API to read vulnerability information.
+
+03:35.000 --> 03:45.000
+And so this is just so much better than what we did or what we had a couple of years earlier with NVD and the CPEs in order to identify affected components, right?
+
+03:45.000 --> 03:53.000
+Because those names didn't really match at all to the identifiers of the packages that you find in NPM and all the package registries.
+
+03:53.000 --> 04:00.000
+So this is a great step forward, OSV, but still there's some data quality issue that I want to point out.
+
+04:00.000 --> 04:10.000
+Again, they are just aggregating other vulnerability databases like the GitHub advisory database, Python security advisories and so forth.
+
+04:12.000 --> 04:21.000
+And so my goal for today is basically make you take S-bombs and VEX documents with one or maybe a couple of more grains of salt
+
+04:21.000 --> 04:28.000
+and make you aware that there may be wrong information represented there and that you may be missing out a lot of stuff.
+
+04:30.000 --> 04:41.000
+I'd like you to choose the right application when you're going to evaluate the next S-bombs or VEX generator and basically ask the right questions.
+
+04:43.000 --> 04:48.000
+So a quick recap of the vulnerability exploitability exchange format.
+
+04:48.000 --> 04:55.000
+So they can be distributed as part of an S-bomb document or separately, and I think separately makes more sense, right?
+
+04:55.000 --> 05:01.000
+Because they are changing more frequently as the analysis of the vulnerabilities going on and as patches are provided.
+
+05:02.000 --> 05:13.000
+And really at the heart, the need of the VEX document is that they assert the status of a certain product identifier or product in regards to a given vulnerability identifier.
+
+05:13.000 --> 05:21.000
+And so this is basically a quote from the CISA minimum requirements for VEX published last year.
+
+05:21.000 --> 05:30.000
+And therefore see a status which must be either under investigation, probably at certainly at the beginning of the analysis by the product vendor,
+
+05:30.000 --> 05:37.000
+then and then it will switch to not affected, affected, and if it is affected hopefully to fixed at some point in time.
+
+05:39.000 --> 05:50.000
+Now also from the CISA requirements, if you say you're not affected, the CISA requirements basically ask you to provide additional reasoning
+
+05:50.000 --> 05:52.000
+about why you're not affected, right?
+
+05:52.000 --> 06:00.000
+And so either you provide what they call an impact statement, which is a free text, or kind of a justification.
+
+06:00.000 --> 06:07.000
+And for the justification, they have five possible values, which is component non-present, the vulnerable code is not present,
+
+06:07.000 --> 06:12.000
+the vulnerable code is not on the execution path, or it cannot be controlled by the adversary.
+
+06:13.000 --> 06:16.000
+The cycle in the X-gamer is kind of very comparable.
+
+06:16.000 --> 06:23.000
+They have nine values, again code not reachable or code protected at the parameter.
+
+06:25.000 --> 06:29.000
+And so whether it's nine or five or seven, that doesn't really matter at this point in time.
+
+06:29.000 --> 06:33.000
+What they have in common is that they talk about vulnerable code.
+
+06:33.000 --> 06:38.000
+And so you should ask yourself, how do we know which function is vulnerable or not?
+
+06:39.000 --> 06:46.000
+And so this is basically what we want to know to produce a VEX document, right?
+
+06:46.000 --> 06:52.000
+For a given application with direct and transitive dependencies, hundreds, God knows how many,
+
+06:52.000 --> 06:54.000
+is there any vulnerable code?
+
+06:54.000 --> 06:57.000
+Can it run in my application context?
+
+06:57.000 --> 07:06.000
+And when I say can it run in my application context, it's basically meaning can I execute the program with input in such a way that this
+
+07:06.000 --> 07:08.000
+vulnerable function is executed?
+
+07:08.000 --> 07:13.000
+And there are different ways to do this, static analysis, dynamic analysis, for example.
+
+07:13.000 --> 07:16.000
+And the last question is can it be exploited?
+
+07:16.000 --> 07:22.000
+Which is another question, because even maybe it is reachable, but there are some mitigations in place,
+
+07:22.000 --> 07:28.000
+or I don't know in the specific deployment, the software is not internet facing and so forth.
+
+07:28.000 --> 07:31.000
+And so in my talk, I will focus more on the first bit.
+
+07:31.000 --> 07:33.000
+Is there any vulnerable code?
+
+07:34.000 --> 07:37.000
+A little bit on the second and I will skip the third part, right?
+
+07:37.000 --> 07:42.000
+Because this is very much depending on kind of the system, the environment where the thing is deployed,
+
+07:42.000 --> 07:49.000
+whereby the first two questions can be answered to some extent by the application developer analyzing this thing in his environment.
+
+07:49.000 --> 07:54.000
+Now the ideal situation would be my wish list for the research community,
+
+07:54.000 --> 08:02.000
+if we had a kind of a fingerprint or a signature or so of vulnerable functions
+
+08:02.000 --> 08:06.000
+that would allow us to find a vulnerable function no matter where it is rebundled,
+
+08:06.000 --> 08:12.000
+somewhere in my Python environment, in my Java class path and so forth.
+
+08:12.000 --> 08:20.000
+Right? And that lets us distinguish this vulnerable function and its function body from the fixed function body.
+
+08:20.000 --> 08:22.000
+But we don't have this.
+
+08:22.000 --> 08:31.000
+And because of that, we basically take a long detour where we go from applications to component versions.
+
+08:31.000 --> 08:36.000
+We try to get this bill of materials on the level, on the granularity of components.
+
+08:36.000 --> 08:40.000
+We link the components or component versions to vulnerabilities.
+
+08:40.000 --> 08:46.000
+And then we have vulnerable code functions linked to the vulnerabilities, at least sometimes.
+
+08:46.000 --> 08:53.000
+And so this is the link that we want to establish and it can basically break at all those cases.
+
+08:53.000 --> 08:58.000
+And I'm, yeah, this is what I basically do in the next couple of minutes.
+
+08:59.000 --> 09:04.000
+The first bit is in most of the cases established through many FEST files.
+
+09:04.000 --> 09:11.000
+We had talked about them, requirements, setup.py, POM, and you name it.
+
+09:11.000 --> 09:18.000
+And the rest here, the lower parts, they are basically covered by a vulnerability databases.
+
+09:18.000 --> 09:24.000
+Public ones like NVD, OSV, and the things that OSV aggregates, right?
+
+09:24.000 --> 09:26.000
+Or private ones.
+
+09:27.000 --> 09:39.000
+And what is important here is that the vulnerable code, in fact, is not, at least not comprehensively covered by any of the public vulnerability databases, right?
+
+09:39.000 --> 09:43.000
+NVD, OSV, they all stop here.
+
+09:43.000 --> 09:46.000
+They just say vulnerability is linked to a component version.
+
+09:46.000 --> 09:48.000
+They don't give you the vulnerable code.
+
+09:48.000 --> 09:52.000
+The vulnerable code is in private vulnerability databases.
+
+09:53.000 --> 09:56.000
+So how does the happy path look like?
+
+09:56.000 --> 09:59.000
+If everything works well, the happy path, right?
+
+09:59.000 --> 10:05.000
+So we would have a manifest file with dependency declarations, pinned, maybe.
+
+10:05.000 --> 10:12.000
+And so it's easy because there's a lot of tooling to identify the direct and transitive dependencies, right?
+
+10:12.000 --> 10:16.000
+So that link is covered, let's say.
+
+10:16.000 --> 10:21.000
+Mapping the vulnerability to the component version on the easy path is basically if,
+
+10:21.000 --> 10:28.000
+if there's a project which just has a single artifact with maybe one supported release branch,
+
+10:28.000 --> 10:32.000
+not multiple release branches for which the fix could look different,
+
+10:32.000 --> 10:39.000
+or maybe some release branches not being supported any longer, end of life, and nobody looks at them any longer.
+
+10:39.000 --> 10:42.000
+And you have a security web project maintainers.
+
+10:42.000 --> 10:48.000
+They communicate very clearly in their security advisory, this and that is the version that is vulnerable or not.
+
+10:48.000 --> 10:50.000
+So that would be covered as well.
+
+10:50.000 --> 10:59.000
+And then the last bit, the easy path to identify the vulnerable code is basically if there's a trivial patch in a function,
+
+10:59.000 --> 11:04.000
+let's say in a law list or a denialist, done in one commit,
+
+11:04.000 --> 11:08.000
+and the commit message kind of mentions the vulnerability identifier.
+
+11:08.000 --> 11:12.000
+In such cases, it's easy to understand what that's the method, right?
+
+11:13.000 --> 11:17.000
+And then more on the reachability part.
+
+11:17.000 --> 11:20.000
+On the easy part, you basically have a static dispatch,
+
+11:20.000 --> 11:25.000
+meaning the function to be called is known at compile time, right?
+
+11:25.000 --> 11:28.000
+And so there's no doubt about which method will be invoked.
+
+11:28.000 --> 11:33.000
+There's no dynamic dispatch as common in object-oriented languages.
+
+11:33.000 --> 11:35.000
+There's no reflection. There's no eval.
+
+11:35.000 --> 11:41.000
+There's no inversion of control where the framework calls into your application rather than you calling into the library.
+
+11:43.000 --> 11:46.000
+And of course, the happy path is existing, right?
+
+11:46.000 --> 11:51.000
+So if you plump all those components together, you will catch a lot of cases.
+
+11:51.000 --> 11:57.000
+But you will also miss out on kind of the obscure parts on how dependencies are established
+
+11:57.000 --> 12:01.000
+or maybe whether anything went wrong here.
+
+12:01.000 --> 12:09.000
+So this happy path is reminding me a little bit of this joke here about the, I think it is called the street light phenomenon or so,
+
+12:09.000 --> 12:13.000
+which is where people basically prefer to search where there is light, right?
+
+12:13.000 --> 12:16.000
+Because this is where it's easy to find something.
+
+12:16.000 --> 12:23.000
+Right, and then now I will try to give you some insights into where there is no light and what are the problems.
+
+12:29.000 --> 12:33.000
+The first one is, and you have heard, I mean, some of you heard the term earlier on,
+
+12:33.000 --> 12:38.000
+is these phantom dependencies, and they basically affect the first link here, right?
+
+12:38.000 --> 12:42.000
+So how do you determine what are the component versions used by an application?
+
+12:42.000 --> 12:47.000
+Again, manifest file is the easy path, but then there, as Yorgo's mentioned earlier on,
+
+12:47.000 --> 12:52.000
+there are these kind of dependencies not expressed in manifest files,
+
+12:52.000 --> 13:01.000
+but kind of described in readme files and kind of manually or scripted in the runtime environments, right?
+
+13:02.000 --> 13:09.000
+I won't go into detail because they were covered in the previous talk, or in fact, two talks behind,
+
+13:09.000 --> 13:13.000
+but I would like to mention this other nice flavor, which is dynamic installation,
+
+13:13.000 --> 13:18.000
+a la try, except install, which I came across.
+
+13:18.000 --> 13:25.000
+It's typically a pattern that I found in malware, because malware, you know, they require requests,
+
+13:25.000 --> 13:28.000
+the Python package request in order to exfiltrate information,
+
+13:28.000 --> 13:33.000
+but they don't want to necessarily ship their component so that it is obvious in their requirements,
+
+13:33.000 --> 13:35.000
+but they do this dynamically.
+
+13:35.000 --> 13:42.000
+So we have kind of patterns to detect this, and I was surprised that this is also a technique used by legitimate packages.
+
+13:42.000 --> 13:47.000
+So what you see here is, again, a try import, we have seen this earlier on,
+
+13:47.000 --> 13:54.000
+and then if the import fails, it's basically making an operating system call, calling pip install sigopt.
+
+13:55.000 --> 13:58.000
+This is with pip install, right?
+
+13:58.000 --> 14:07.000
+Another pip install, and another variation, I like that, it's aptget install, right?
+
+14:07.000 --> 14:13.000
+And so, you know, there is no limit to developer creativity, right?
+
+14:13.000 --> 14:15.000
+And these are not some random packages, right?
+
+14:15.000 --> 14:19.000
+So these are well-known machine learning and used machine learning libraries.
+
+14:19.000 --> 14:23.000
+I'm not talking about the thing that has three downloads.
+
+14:23.000 --> 14:26.000
+Good. This was kind of the first link, second link is here,
+
+14:26.000 --> 14:28.000
+and I guess I need to hurry up a little bit.
+
+14:28.000 --> 14:29.000
+Name changes.
+
+14:29.000 --> 14:32.000
+You had this probably in the panel session earlier on.
+
+14:32.000 --> 14:36.000
+The thing is that projects get renamed and forked,
+
+14:36.000 --> 14:44.000
+and then there are also some strange distribution channels that change the name when you deploy your jar, for example, right?
+
+14:44.000 --> 14:46.000
+I found a nice example here.
+
+14:46.000 --> 14:48.000
+It's a eBix Java client.
+
+14:48.000 --> 14:50.000
+It's a tiny project.
+
+14:50.000 --> 14:55.000
+It has been developed on SourceForge originally, I think in the 2000s or so.
+
+14:55.000 --> 15:00.000
+Has been moved to GitHub, has been renamed, has been forked,
+
+15:00.000 --> 15:09.000
+and every time, basically, the artifacts, the Java archives are deployed with a different identifier, right?
+
+15:09.000 --> 15:16.000
+So in order to make sure that your vulnerability, your CVE identifier, or GitHub security advisory,
+
+15:16.000 --> 15:22.000
+you need to actually, in this case, mark those three group ID, artifact ID, identifiers,
+
+15:22.000 --> 15:25.000
+because otherwise it will not be highlighted as vulnerable.
+
+15:25.000 --> 15:30.000
+So this is one of the first orc copy eBix.
+
+15:30.000 --> 15:34.000
+If you build it from the GitHub sources, this is what is written in the POM.
+
+15:34.000 --> 15:39.000
+The second one, if they kind of choose a strange, at least strange to me,
+
+15:39.000 --> 15:43.000
+I didn't know it, distribution channel, they don't deploy on central.
+
+15:43.000 --> 15:48.000
+They deploy using JITPEG, and if you deploy to JITPEG,
+
+15:48.000 --> 15:54.000
+it basically doesn't take the POM values, but it takes the value from the GitHub repository.
+
+15:54.000 --> 15:57.000
+And so you see here, com GitHub, eBix, Java, blah, blah, blah.
+
+15:57.000 --> 16:04.000
+And the third is the group ID, artifact ID of the fork that deployed on central.
+
+16:04.000 --> 16:08.000
+So this is kind of all the names you would need to catch.
+
+16:08.000 --> 16:11.000
+OSD, in this case, doesn't get any of those.
+
+16:11.000 --> 16:17.000
+They only say it's in the GitHub repo.
+
+16:17.000 --> 16:21.000
+Next problem, again, same link here.
+
+16:21.000 --> 16:24.000
+There is this problem of multi-module projects, right?
+
+16:24.000 --> 16:31.000
+So you have a repository that is producing not only one jar with one identifier,
+
+16:31.000 --> 16:34.000
+but multiple ones.
+
+16:34.000 --> 16:39.000
+Crazy case here, Bouncy Castle, it's a pretty well-known crypto library.
+
+16:39.000 --> 16:46.000
+They have 84 different artifacts with a group ID, ork, Bouncy Castle on central.
+
+16:46.000 --> 16:48.000
+So if you do the search, right?
+
+16:48.000 --> 16:52.000
+They all ork Bouncy Castle and then they have various names.
+
+16:52.000 --> 16:56.000
+They do this to cover FIPS compliant crypto libraries,
+
+16:56.000 --> 17:02.000
+support for different Java version, God knows what, there's a reason for this, I suppose.
+
+17:02.000 --> 17:08.000
+The thing is, this vulnerability is affecting 28 or so of those Java archives,
+
+17:08.000 --> 17:11.000
+but OSD is only marking two.
+
+17:11.000 --> 17:15.000
+And we know this because we looked up the vulnerability, the vulnerable function,
+
+17:15.000 --> 17:21.000
+in the commit that they use to fix the problem and the research for the class, right?
+
+17:21.000 --> 17:26.000
+Another one is this one, Microsoft Common Data Model.
+
+17:26.000 --> 17:29.000
+It's an interesting case, they have one GitHub repository
+
+17:29.000 --> 17:33.000
+that they use to produce artifacts for four different ecosystems,
+
+17:33.000 --> 17:38.000
+NPM, PyPI, NuGet and Java.
+
+17:38.000 --> 17:46.000
+However, somehow the OSD is only marking three ecosystems, so they miss out completely on NPM.
+
+17:46.000 --> 17:54.000
+So if you use the artifact for NPM, your kind of scanner wouldn't get it.
+
+17:54.000 --> 17:59.000
+Now we move on from multi-module projects to rebundling, it's a well-known problem,
+
+17:59.000 --> 18:05.000
+I think I've heard it earlier on, which is where basically the archives,
+
+18:05.000 --> 18:09.000
+the packages contain artifacts from other projects, right?
+
+18:09.000 --> 18:13.000
+This could be binaries, like in many of the Python machine learning libraries,
+
+18:13.000 --> 18:15.000
+but this could also be just Java classes.
+
+18:15.000 --> 18:18.000
+In this case, it's a vulnerability in the spring framework,
+
+18:18.000 --> 18:24.000
+the vulnerable method is called Reset Default Subscription Registry.
+
+18:24.000 --> 18:29.000
+OSV is marking kind of the wrong artifact from spring,
+
+18:29.000 --> 18:32.000
+but interestingly, and this moves on to rebundling,
+
+18:32.000 --> 18:36.000
+this class is also contained in an orc Apache service mix, blah, blah, blah, blah,
+
+18:36.000 --> 18:41.000
+which is not caught by OSV.
+
+18:41.000 --> 18:46.000
+I have, there are some studies about rebundling in Java,
+
+18:46.000 --> 18:50.000
+rebundling in Python.
+
+18:50.000 --> 18:53.000
+This is an interesting case here, this is a WebP image codec,
+
+18:53.000 --> 18:58.000
+I think this was a C component which was vulnerable,
+
+18:58.000 --> 19:02.000
+included also in the Chrome browser,
+
+19:02.000 --> 19:07.000
+but it was also rebundled in 50 different Python packages, right?
+
+19:07.000 --> 19:12.000
+The people just, it's for coding and decoding this image format that I don't know,
+
+19:12.000 --> 19:17.000
+and so 50 projects contained that binary, they were vulnerable,
+
+19:17.000 --> 19:22.000
+OSV covers just six out of those.
+
+19:22.000 --> 19:26.000
+The guy who wrote this analysis, you have the link here,
+
+19:26.000 --> 19:29.000
+also did the job to find the most top rebundled binaries,
+
+19:29.000 --> 19:35.000
+and he found that here, the GCC runtime is 920 different Python packages.
+
+19:35.000 --> 19:38.000
+So it's really hard to keep track of all this,
+
+19:38.000 --> 19:45.000
+because developers just copy code, include code in whatever possible ways.
+
+19:45.000 --> 19:49.000
+This is another one, again Azure functions something that I found myself.
+
+19:49.000 --> 19:54.000
+Typically you would say you declare your dependency and then it is pulled from the repository.
+
+19:54.000 --> 20:01.000
+In this case, they basically included the third party right away in the, what is it now?
+
+20:01.000 --> 20:05.000
+NPM, I think here, no, Python as well.
+
+20:05.000 --> 20:08.000
+And so basically they bundled this verktzorg,
+
+20:08.000 --> 20:15.000
+pretty well-known Python project in the Python package from Azure functions.
+
+20:15.000 --> 20:18.000
+They also took some random, not random,
+
+20:18.000 --> 20:24.000
+they also took some single Python file from some GitHub repository that they included here.
+
+20:24.000 --> 20:27.000
+Again, hard to track.
+
+20:27.000 --> 20:30.000
+Rebundling in JavaScript, I won't go into this,
+
+20:30.000 --> 20:34.000
+it's yet another kind of catastrophic stuff.
+
+20:34.000 --> 20:41.000
+Here I did some statistics about how often do we agree with OSV
+
+20:41.000 --> 20:43.000
+on what are the affected components.
+
+20:43.000 --> 20:49.000
+And we're just talking about the components, not yet the versions, which is again the next link.
+
+20:49.000 --> 20:52.000
+And for a couple of thousand vulnerabilities, Java vulnerabilities,
+
+20:52.000 --> 21:00.000
+it turns out that we only agree in 57% of the vulnerabilities on what are the affected components, right?
+
+21:00.000 --> 21:06.000
+Meaning that in 43%, we have a different opinion on what is affected or not.
+
+21:06.000 --> 21:10.000
+It's a pretty big difference, I find.
+
+21:10.000 --> 21:12.000
+And so how can you read the chart?
+
+21:12.000 --> 21:15.000
+So this is basically where we agree.
+
+21:15.000 --> 21:19.000
+This is where we list one more package than OSV.
+
+21:19.000 --> 21:22.000
+This is where we list 26 more packages.
+
+21:22.000 --> 21:24.000
+This is bouncy castle, right?
+
+21:24.000 --> 21:29.000
+This is where OSV lists more than we do.
+
+21:29.000 --> 21:30.000
+And so forth.
+
+21:30.000 --> 21:33.000
+So it's really interesting statistics that you can get out of it.
+
+21:33.000 --> 21:38.000
+And yeah, which really, I mean, it's really hard to tell also who's right
+
+21:38.000 --> 21:42.000
+because there's so much manual work involved.
+
+21:42.000 --> 21:45.000
+All right.
+
+21:45.000 --> 21:48.000
+That is about version identifiers.
+
+21:48.000 --> 21:53.000
+Here I want to just highlight one thing maybe, two things.
+
+21:53.000 --> 21:58.000
+First, Tomcat, they had a vulnerability not so long ago.
+
+21:58.000 --> 22:02.000
+But 80, the release branch 80, is end of life.
+
+22:02.000 --> 22:05.000
+It was not checked by anybody, right?
+
+22:05.000 --> 22:10.000
+The vulnerable function, though, that I looked up, it existed as long as 2012.
+
+22:10.000 --> 22:12.000
+I think I traveled back in time.
+
+22:12.000 --> 22:16.000
+I found it in 5.5, 2012.
+
+22:16.000 --> 22:21.000
+But nobody kind of marked this as vulnerable.
+
+22:21.000 --> 22:25.000
+This one here is, again, pretty recent.
+
+22:26.000 --> 22:32.000
+Again, they didn't mark old versions, even though the advisory from Apache said they are vulnerable.
+
+22:32.000 --> 22:35.000
+And indeed, the vulnerable code is not there, but I tested.
+
+22:35.000 --> 22:38.000
+The exploit still worked on the old releases as well.
+
+22:38.000 --> 22:45.000
+So I was filing a change and the GitHub security advisory database kind of adjusted the affected version range.
+
+22:45.000 --> 22:49.000
+But all this is a super high-touch manual effort.
+
+22:49.000 --> 22:51.000
+You need to dig down into the code.
+
+22:51.000 --> 22:53.000
+When was it introduced?
+
+22:53.000 --> 22:54.000
+How has it been renamed?
+
+22:54.000 --> 22:55.000
+It's awful.
+
+22:55.000 --> 23:00.000
+I don't go to this example for lack of time, though.
+
+23:00.000 --> 23:07.000
+Last link to go, as I said, you need for this reachability magic.
+
+23:07.000 --> 23:11.000
+No matter how you do it, dynamic static doesn't matter at this point in time.
+
+23:11.000 --> 23:14.000
+You need to know the vulnerable function, the vulnerable code.
+
+23:14.000 --> 23:21.000
+Happy path was one function changed in one commit, in one release branch,
+
+23:21.000 --> 23:23.000
+and you had the CVE identifier and the commit message.
+
+23:23.000 --> 23:24.000
+Beautiful.
+
+23:24.000 --> 23:26.000
+It's not always the case.
+
+23:26.000 --> 23:33.000
+For this component, I think it's Python or so, the guys needed 18 fixed commits.
+
+23:33.000 --> 23:38.000
+They touched 14 functions, and there was no vulnerability identifier.
+
+23:38.000 --> 23:41.000
+And so I hope we caught all of those functions.
+
+23:41.000 --> 23:43.000
+But again, it's a very time-consuming task.
+
+23:43.000 --> 23:46.000
+This was here about validation of SSL certificates,
+
+23:46.000 --> 23:48.000
+and so they didn't do this across the whole code base,
+
+23:48.000 --> 23:52.000
+and so they had to change a lot.
+
+23:52.000 --> 23:57.000
+So this is where the last bit of the link basically breaks.
+
+23:57.000 --> 24:00.000
+This is kind of a summary, right?
+
+24:00.000 --> 24:05.000
+We didn't go into Wendat code, where the people just copy the stuff in your own repository.
+
+24:05.000 --> 24:09.000
+This will be for another talk.
+
+24:09.000 --> 24:12.000
+So this is just about the link, right?
+
+24:12.000 --> 24:17.000
+And now, yeah, for once I'm in time.
+
+24:17.000 --> 24:19.000
+And now we come to the reachability analysis.
+
+24:19.000 --> 24:23.000
+Again, easy path was static dispatch.
+
+24:23.000 --> 24:25.000
+And then the difficulties add up, right?
+
+24:25.000 --> 24:30.000
+You have reflection, you have eval, you have these framework dependency,
+
+24:30.000 --> 24:33.000
+where spring is basically calling into the application,
+
+24:33.000 --> 24:38.000
+then rather than the application calling an easy library.
+
+24:38.000 --> 24:41.000
+Then of course there are vulnerabilities which are all about configuration.
+
+24:41.000 --> 24:43.000
+Cannot do much in that case.
+
+24:43.000 --> 24:45.000
+Cross language calls.
+
+24:45.000 --> 24:47.000
+I think we had this early on.
+
+24:47.000 --> 24:50.000
+So if you have a Python machine learning library that calls into C,
+
+24:50.000 --> 24:54.000
+these cross language stuff is really hard from a program analysis point of view.
+
+24:54.000 --> 24:57.000
+And then of course you have this dynamic dispatch,
+
+24:57.000 --> 25:04.000
+megamorphic call sites where a call, the type of a call target is only known at runtime,
+
+25:04.000 --> 25:08.000
+and you need to do a crazy limbo dance to figure out all the types.
+
+25:08.000 --> 25:13.000
+And sometimes you just over-acproximate crazily.
+
+25:13.000 --> 25:15.000
+Right, takeaways.
+
+25:15.000 --> 25:20.000
+Those links are super brittle, and a high quality vulnerability database
+
+25:20.000 --> 25:26.000
+requires a lot of manual work.
+
+25:26.000 --> 25:29.000
+And, well, let's say, let's see it a little bit more positive.
+
+25:29.000 --> 25:33.000
+The opportunities, I think the industry and the open source community
+
+25:33.000 --> 25:39.000
+benefit greatly from having kind of a comprehensive code level
+
+25:39.000 --> 25:44.000
+on the level of vulnerable functions database to use as input for all this reachability stuff.
+
+25:44.000 --> 25:48.000
+But I don't see it nowhere, which is a pity.
+
+25:48.000 --> 25:52.000
+Actually, the starting, it's starting.
+
+25:52.000 --> 25:54.000
+There's ways of starting, okay?
+
+25:54.000 --> 25:58.000
+Especially with the software heritage as a source of starting points.
+
+25:59.000 --> 26:03.000
+All right.
+
+26:03.000 --> 26:06.000
+And then also when it comes to reachability,
+
+26:06.000 --> 26:10.000
+there's no reliable way to identify the vulnerable code, right?
+
+26:10.000 --> 26:12.000
+So this is what I was mentioning in the beginning.
+
+26:12.000 --> 26:15.000
+It would be nice to have signatures of fingerprints of the code
+
+26:15.000 --> 26:18.000
+rather than doing this stuff with component names and versions,
+
+26:18.000 --> 26:20.000
+and you just can't get it wrong.
+
+26:20.000 --> 26:22.000
+You only get it wrong.
+
+26:22.000 --> 26:27.000
+And so my advice when you talk to your SCA dealer the next time,
+
+26:27.000 --> 26:31.000
+do not only choose a happy path application for your product validation, right?
+
+26:31.000 --> 26:34.000
+Use one that has a little bit of complexity.
+
+26:34.000 --> 26:38.000
+And then also ask for kind of details and statistics,
+
+26:38.000 --> 26:40.000
+what I would say are three critical areas.
+
+26:40.000 --> 26:46.000
+This dependency identification on the top of this thing,
+
+26:46.000 --> 26:49.000
+the vulnerability database, how do they maintain this?
+
+26:49.000 --> 26:52.000
+How do they ensure it is high quality?
+
+26:52.000 --> 26:56.000
+And this reachability bit, how do they actually figure out
+
+26:56.000 --> 26:59.000
+whether the function can be invoked or not?
+
+26:59.000 --> 27:02.000
+And that's it.
+

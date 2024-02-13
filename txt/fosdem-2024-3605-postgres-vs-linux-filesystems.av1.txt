@@ -1,0 +1,423 @@
+Hello, thanks for the introduction.
+So my name is Tomas Wunderer, I work for ABB, I'm a Postgres contributor,
+cometer, developer, and so on.
+And I'm here to talk about Postgres versus file systems, right?
+If you want, you already can find the slides on my personal website.
+There's nothing much else, just talks.
+I gave at different conferences, this talk is already there.
+So if you want to look at the slides in more detail, you have the chance already.
+So a very short overview of what I'm planning to talk about during this talk.
+And by the way, if you have any questions during the talk, please shout.
+I prefer to answer the questions as we go, because we will go through different stuff.
+And it's easier to answer the question about the topic that I'm currently talking about, right?
+So in the first section, I will briefly explain how Postgres uses file systems and how.
+And I will a little bit talk about the overall design and maybe some advantages and
+disadvantages of that, try to explain why it works the way it works.
+And then I will get to the main goal of this talk and
+this like give an overview of how Postgres performs on different file systems.
+I'm going to restrict myself to file systems that are on Linux,
+like the usual file systems that you probably can use for production workloads or might consider.
+I'm not going to talk about like experimental file systems or
+file systems that are not used regularly.
+I'm not saying those file systems are not interesting, but
+I need to restrict myself to something that is actually benchmarkable and so on.
+And I'm also going to talk about file systems on storage that is attached directly to the machine, right?
+Because once you introduce like network attached storage,
+which usually introduces like latency and so on,
+that changes the behavior significantly, right?
+So I'm going to talk about if you are concerned about performance,
+you probably use directly attached storage anyway.
+And I'm also not going to talk about like managed instances because if someone
+chooses the file systems for you, then this is kind of like useless, right?
+So let's assume that you do have access to storage that is attached directly to the machine.
+And that you have a choice to like which file systems to use.
+And I'm doing these benchmarks and these talks because I wanted to learn myself something.
+I'm not here like, I'm not an expert on file systems, right?
+I'm a database developer, database engineer, and I wanted to know like how does it work now?
+Because like we do have benchmarks from like 20 years ago,
+but the hardware changes over time evolved and like was the current situation, right?
+And in the end, maybe we will talk a little bit about future file systems of like storage in Postgres,
+but there is a really nice talk by Andres Freund who talks about like how we might evolve
+one of the things about storage in Postgres, which is direct IO, asynchronous IO and so on.
+And there are actually developers that might give better opinions on this, right?
+So there is like a talk from the PGConFU, which is like two months ago.
+It's on YouTube available. You can find it.
+So I restricted myself to measuring data on like the usual Linux file systems,
+which is XT4, XFS, those are the traditional ones,
+then the new which is BTRFS and ZFS.
+ZFS is like not like native Linux file systems, of course, but it's commonly used.
+Then I've been like thinking usually don't have a single device, right?
+You have like multiple devices, so should you use like LVM to build like a volume on those devices?
+Or should you use something that has multi-device support built in, right?
+Which is like BTRFS and ZFS, they don't require you to build like a rate, a rate and that.
+Then there's like the question of snapshots, right?
+If you need just the bare file system and POSGRACE is fine with that,
+then the XT4, XFS are perfectly viable solutions.
+But maybe you want something smarter, right?
+Maybe you want to be able to do backups using snapshots,
+or maybe you want to use the, you know, the sent and receive which is built into ZFS
+to replicate data or stuff like that, right?
+So the question is like what happens when you actually want snapshots up more?
+I did some experiments with stuff like compression and so on in the file systems,
+but in my benchmarks, in the stuff that I benchmark, it didn't make much difference.
+I'm not saying that that's like universal truth.
+But I'm not going to show any results with and without compression
+because simply there was no difference for the OLTP workloads that I tested.
+So a very brief executive summary, just like to explain what I found or what I think is my
+conclusion is that in general, you should prefer a major supportive file system, right?
+You do run databases because you want to maintain the data, right?
+I mean like if you have a file system which is like super fast, experimental,
+and you know once in a while loses your data, it's like okay, maybe you don't really need
+like F-Sync at all, right?
+So my recommendation is in general to use supportive file system which is supported by
+whoever supports your operating system or like the environment.
+And that usually means like one of those four fast systems that I mentioned.
+The other thing is that you should use sufficiently recent kernel.
+And there are two main reasons for that.
+First is well, we do improve the database, but the kernel improves other parts too, right?
+So if you are using like old kernel and that might mean a couple years ago, a couple years old,
+you are losing a lot of optimizations and improvements that are typically focused on
+like a new hardware.
+So if you are using new hardware, you are usually losing a lot of performance.
+The other important reason of course is the bugs, right?
+And I'm not just talking about the regular security issues and so on.
+I'm talking about like data corruption issues that are in the kernel.
+I think I do have a slide where I mentioned the F-Sync gate,
+which I think I spoke at FOSDEM about in 2019.
+But the other part of the executive summary is that EXT4 and XFS are roughly the same performance.
+I mean like I don't think you need to talk very much about like should I use EXT4 or XFS?
+Like will it be faster or slower?
+Through this, I mean like in my experience, the differences are fairly small.
+And by fairly small, I mean like 10% difference in throughput for example.
+It's something that I believe I could probably tune the file system,
+actually eliminate by tuning the file system or maybe buying a slightly faster disks or like
+something like that.
+Is it a throughput? I also put 10% for the overall communication piece.
+Yeah, so the question is like how do I measure, you know, the performance?
+What do I mean by throughput?
+I mean OLTP performance in the database, which means like small, random IO, random reads,
+random writes and so on.
+So that's what I mean by difference in performance.
+If the database does like 100,000 transactions per second, and the other on a different file
+system, it does like 110,000 transactions per second.
+That's the throughput that I care about.
+Does it answer the question?
+Yes.
+Yeah, cool.
+Obviously throughput is not like, I'm going to talk about like other ways, other things that need
+to be considered when comparing file systems.
+But this is like the gist, right?
+Like if I had to choose from the EXT4 and XFS, I would probably pick what's default
+into distribution that I'm using because that's simply easier.
+And then of course, if you need something like more advanced, if you need snapshots,
+for example, and if you use them heavily, then I would definitely go with either ZFS or BTRFS.
+And I'm probably way more in the ZFS camp, like because of the reasons that I will talk
+about later, about the results.
+Obviously, if you only need snapshots like once in a while, you could use LVM
+and snapshots at that level that works.
+But the native snapshots in copy on write file systems are usually much faster.
+They have like much slower impact on throughput of the database or on performance.
+Right.
+So the first thing I'm going to talk about is why Postgres actually relies on operating system
+so much because there are databases that just kind of like ignore the file system
+or and either like implement like completely custom file systems on raw devices or
+do something else, right?
+Like do much more like direct IO and so on.
+And the answer is like, I do recognize the complexity of the file systems, right?
+Database engineers sometimes have the tendency to say like, oh, it's file system.
+It's simple, right?
+It's like you overvalue the complexity of the layer you are working on, on the database
+and kind of like diminish the say like, oh, no, all the layers are simple.
+The stuff that I'm doing is like very, very complex, right?
+And I want to say that I don't think that at all.
+I do recognize that all the layers, both below the database and above the database,
+have significant complexity, right?
+And I'm not here to talk shit about file systems.
+I'm here to learn something essentially, right?
+So Postgres is a database, right?
+We are storing and accessing data and that's the whole point why we actually do what we do.
+But we do leave the low level stuff to the operating system and the operating system
+implements the on-disk format, it implements the caching to kernel,
+it implements the device drivers that communicate with the hardware and so on.
+And we just use the Postgres interface on top of the operating system, on top of the kernel.
+And all the low level stuff is responsibility of the operating system.
+That might change a little bit with the patches that improve or start using the asynchronous
+IO and direct IO, but so far that wasn't the case.
+The question is like, is it even a good idea?
+I mean, shouldn't the database just do everything directly and just ignore the operating system?
+Well, sure.
+If you have the developer capacity to do that, if you have an infinite amount of money to
+actually spend on development, then sure, you can do everything, right?
+But the project doesn't have this advantage, right?
+We do have a limited amount of time and so on.
+So we decided or like, I haven't been contributing to Postgres back then,
+but the choice was to just leave as much as possible to the operating system and it worked
+quite well so far, right?
+And I'm not sure it would even be possible to do the custom stuff because there was so much,
+for example, Postgres supports many platforms and the support for direct IO and so on
+varies a lot between the different Unix systems, right?
+Even though they all support, you know, implement Postgres, right?
+So there's like a lot of difference, a lot of nuance and we would need to deal with all of that.
+So that would be terrible, I think, and it would not allow us to actually improve the database
+as much as we did.
+And of course, by relying on the operating system, we automatically get all the benefits,
+all the improvements those guys do, right?
+So if they improve the file systems, we do get the benefits, which is great.
+So how Postgres actually works in general, like a very simplified idea is that we have
+like the Postgres as an application, essentially running on top of the kernel,
+which has some, you know, shared buffers, which is memory managed by the database.
+And then we have some processes which are either doing some, you know, maintenance operations
+or whatever, or as the backend processes are handling user connections, right?
+So you connect to the database, it will fork a process and the process will access
+the shared buffers, which is where the data is going to be for the backend, right?
+And when the data is not actually in memory yet, the Postgres will read the data through
+Pagecase, which is managed by the kernel, and the kernel will do some magic and will,
+you know, read the data from the disk to the hardware interfaces file systems
+and will include some IOH scheduler to govern all the process, right?
+So that's roughly how it works, how Postgres is designed.
+With the Direct IOH, we will kind of like ignore the Pagecase and we will, you know, do
+still talk through to the operating system facilities, but without the Pagecase, right,
+of course. And in that case, the shared buffers will be much larger, right, or
+it should be much larger, of course. Right, so this is like the Direct IOH kind of.
+Anyway, we are still essentially in this, and this whole talk is about this architecture.
+So I spoke about a couple of reasons why you should use like new kernels and what are the
+problems with like relying on all the kernels, and that's like, well, there's a lot of things that
+can go wrong, and there's error handling, but what happened in like 2018, we discovered that we
+are actually not either receiving the errors at all from the kernel, because for example, you open
+a file to one file descriptor, you do some writes on the file, and then you close the file,
+or the file gets closed for some reason, and no one actually knows about the error at all. Even
+though you might have like another file descriptor for the same file, you will not read, learn about
+it. And there's like different ways to lose information about errors during fSync, for example,
+which is pretty fatal for Postgres, because we do rely on the fSync, for example, during checkpoints,
+right? So luckily, it's not a very common issue. I mean, I don't remember when I actually got like
+the last fSync error in, you know, when working with the database, but when it happens, it can,
+it should definitely not be like a silent corruption, right? So this was fixed, I believe,
+but again, it's something that needs to be, that is fixed only in sufficiently recent kernels,
+right? So you need to run a recent kernel to be immune to this. The other problem, of course,
+is that, and that's not like a bug, that's a problem with the design in general, and it is
+because the most of the IO activity is actually managed by the kernel, by the operating system,
+but it does not actually have any insight into what the database needs, right? It has no concept of,
+well, this write is more important than this write, right? Because this write affects user activity,
+and this is some sort of like a background task which could wait, right? Like the operating system
+has no idea how to, has no way to actually, you know, differentiate between the writes,
+so that's one reason. The other reason is, for example, prefection, right? The current storage
+systems rely heavily on actually having full queues. If you only request from SSD one block at a time
+in a synchronous way, it's going to be really slow. If you submit like many, many IO requests ahead,
+then you are able to saturate actually the storage device, like the, the tooth, right? You get like
+much better performance in general. And again, that's something that the database needs to do
+explicitly. It's not something the operating system can, can do on its own, and we do actually
+rely on the operating system to do prefetching for sequential scans, for example, but the,
+we need to do explicit prefetching for other types of scans. So for example, during index scans or
+bitmap heap scans, we need to do explicit prefetching. So it's like, this is a design problem.
+So rule number one, use recent kernel. All the kernels have all kinds of issues. Okay.
+It's not always like perfect. There are regressions in kernels too. Once in a while, you can get like
+a dropping performance because something went wrong. But overall, I think it's like something you
+should do. Right. So this was like a very basic explanation of, of, of why POSGRESS IO, why POSGRESS
+uses file systems the way it does. And now I'm going to talk about some benchmarks and stress
+test because this is like very, like high level. Right. I like to, to do some measurements and
+look at the numbers and say, like, okay, so this performs well, this sucks. Right. So what I did,
+I did a lot of stress tests, which essentially means running PG bench, which is OLTP
+database benchmark tool. Simply, it does a lot of like random IO to POSGRESS. And I measured
+like the truth. The first important thing here is that this only really matters if you are IO bound.
+Right. If you are hitting the, the storage, then that's the only way, that's the only case where
+the difference in file system performance can actually affect the throughput. Right. If you are CPU
+bound, for example, because you are working with very small amounts of memory and it's all in cache,
+then the file system doesn't really matter. The other reason, of course, is that
+typical production systems are not using IO for 100% time. Like once you hit, for example,
+saturation of like 75%, right, you are already like being affected by, by latency increase
+system so on. At that point, you probably already are thinking about upgrading the storage system
+or like migrating to do something else. So that's one reason. So keep this in mind when
+interpreting the results that I'm going to show you. It's probably like the worst case scenario.
+The other thing, of course, is that I only have some particular hardware available. And
+some of the file systems, especially like ZFS and so on, they do support a lot of different
+features. So you can like move the intent look or stuff like that to a different device. I didn't
+do anything like that. Right. What I recommend you do, if you are actually evaluating like different
+file systems for your use case, to actually try that with, with the hardware that you are considering.
+Right. To actually do your own measurements. Right. I would love to have like a perfect
+benchmarks for all possible hardware configurations, but it's not possible. Right.
+So I'm going to show you a bunch of results, a bunch of charts. And I'm going to,
+I think what is more important is like not the exact numbers, but it's more about the visual,
+like, like understanding like what's happening. Right. So for example, this is from two machines.
+This is like a smaller, older Intel machine. This is larger Xeon. And this is the time that it takes
+to do a bulk load into the database. Right. Of scale 2000 means like, I don't know, 30 gigabytes
+of data. And this loads the data, builds indexes and so on. And the first bunch of results here,
+which is in seconds. So the shorter, the better. These are just like regular file systems on LVM
+without any snapshots, just like right. And then there are a couple that are two that are actually
+multi-device without the LVM using the BTRFS or ZFS file systems, like multi-device support.
+Right. And you can see that it's like almost the same, except for ZFS for some reason, it's like much
+slower. Right. But that might be a hardware issue or like specific to this hardware configuration,
+because on a different machine, which only has a single device though, it's like NVMe,
+the difference is like much smaller. Right. And there is no LVM because there are no multiple
+devices. Right. So that's one thing. That's what I mean, what I said that the difference between
+EXT4 and XFS is like usually very small. And then we have a couple results for
+snapshots when you start creating actually snapshots on LVM. And you can see that it like improves,
+oh sorry, improves like, degrades like significantly. Right. So it suddenly takes like twice as much
+time in some cases, except for the native file systems, like the copy and write file system,
+BTRFS and ZFS that didn't actually like got much worse. Right. So this is similar thing you can
+see here for the other machine. So what I conclude from this is that if you actually do need the
+snapshots, use the ZFS or BTRFS. Yes.
+So for BTRFS, I just did like a regular, I didn't want the specific like explicitly else. Right.
+So I just created the BTRFS like.
+Because the easy optimization would be to turn on copy and write for the files affected by the
+database. And then when you do the snapshot, it still does copy and write only and in those points.
+Right. So I consider like disabling copy and write because there's like an option for, I'm not
+sure if it's a mount option, like no data copy and write and so on. The problem with that is,
+as far as I remember, is that it actually disables like checksums or affects like these
+capabilities. Right. Which, and that's what I don't want. Right. I do want the checksumming
+and so on for these file systems. Right. So that's it. Right. Well, these are the results
+with the LVM snapshots and these are the built-in snapshots. Right. So my conclusion, if you want
+snapshots, if you need snapshots for like, because it makes, for example, backup simpler for you,
+use these file systems, then I do have some results for OLVP-PG bench, which is like a read-only
+mode. It simply means like select by primary key. Right. It does a lot of random IO.
+This is like the large, large scales, which means that it actually is hitting the
+disks a lot. It's not like in memory. And you can also see that on the smaller machine, which is like
+just four cores, the differences are fairly small. The ZFS is a bit slower. I assume that it's because
+it's not using the page cache. It's using the ARC cache and there's like,
+like different size. It's like smaller than the page cache in this configuration. So that's fine.
+On the larger machine, which you can see that this is like five times or four times higher throughput
+because it's using NVME, then the beta RFS is getting slower. ZFS is slightly slower also.
+Right. Which again, in absolute numbers, this is not great. If ZFS is giving you or like beta
+RFS is giving you some additional features, I think this is perfectly fine.
+For the read write, and I'm actually showing for the read write like different scales.
+Scale, this is like a small scale, which means everything fits into shed buffers. So we are
+actually doing a lot, very few random writes. A thousand here means it fits into RAM, but not
+into shed buffers. And this is like much larger than memory in general. And you can see that,
+again, the EXT4 XFS kind of like perform the best. And unfortunately, the copyright systems,
+once you exceed the available RAM, get much slower. The OLTP PG bench is not exactly,
+it's very uniform access. Right. So, yes.
+Do you use large blocks on ZFS?
+So, for ZFS, I use the 8 kilobyte blocks. Right. So I reduce the size of the block
+to match the postgres data block. What I was going to say,
+well, I wanted to say that PG bench may not be a perfect thing to model your database,
+your application, because it randomly and uniformly accesses all the different parts of the database.
+But usually what you have is you have a very active subset of the database,
+which probably fits into memory. And then you have the rest of the database,
+which is like historical data or users that are not very active or something.
+So, this, which means that you probably are not very affected by this. This is like the worst
+case possible. Right. And you are probably somewhere in this region. Right. In which case, the ZFS
+is slower, but not by much. So that's one thing you need to consider when
+interpreting the benchmark results and applying them to your application. Right.
+But one thing I'd like to mention is that throughput is not the whole story. Right. I mean,
+if you only get information about like how many transactions you can get per second, that doesn't
+actually, you know, fully explain or fully describe the database or like the performance of
+any system. The other thing that you need to look at is latency. Right. Because if you get like
+very different latencies, like one, one request gets handled in one millisecond, the other request
+gets handled in five, five minutes. It's like in, on average, it's probably not very good performance.
+Right. So what I did is I actually show behavior over time, not just for the whole
+two hour run, but I show how actually the performance changes over time. And this is
+like the throughput. And you can see that EXT4, one thing I want to say, don't look at the numbers.
+Right. The numbers, you may not even be able to read them from the back. That doesn't matter.
+You can look at the slide later. What matters is that you can compare the charts visually.
+Yeah. You can, you can look at the first row and that's the small data set, which is the data set
+that fits into shared buffers. The other row is the medium, which is like fits into memory,
+but doesn't fit into shared buffers. This doesn't, the third one, large one, doesn't fit into
+memory at all. But that's the read write. And this is read only. Right. All these, this is small
+read write, medium read write, large read write, large read only. Sorry, there is a mistake here.
+And this shows like how that actually behaves over two hours. And you can visually compare
+each row. Right. So you can, for example, see here that EXT4, XFS are really, really stable.
+Right. You get really, very similar throughput over time. BTRFS is a bit slower. ZFS also
+very stable. And then once you get larger and larger data sets, the behavior changes. Not for
+EXT4, XFS, of course, you get like slower, lower performance. But for example, for BTRFS, you get
+like much more, much more jitter in, in the throughput for per second. Right. So, so that's
+not great. Also, you get like progressively slower throughput. She's not great for ZFS. It's similar.
+Right. I mean like, you get like more variants in, in the throughput. And ultimately, even for ZFS,
+you get like much lower throughput for read only. But I started talking about latency. This shows me
+still just throughput over time. It shows me like how, how it changes over like two hour period.
+It doesn't show me latency. Right. So, this is the result of percentiles of, of the same test. And
+ideally, you would see something like this. Right. I mean, this is, I think, 25%.
+50%. 75, 95, 99. And ideally, you would see like perfectly straight lines, which gives you very
+consistent performance over time. Right. So, this is really, really nice. I mean, like the
+throughput was fairly low. But this is really nice because it's very predictable for operation.
+Similar thing here. Right. You get some blips here, some, you know, spice latency and so on.
+But it's very short, very predictable, really nice. And you probably will not even see this
+in like a monitoring. For ZFS, it's not that great. It simply needs to do, I don't know, compression,
+whatever, do copy on write of the data. For BTRFS, it's unfortunately much worse. Right. This means
+that the, the latency spikes are pretty significant. I mean, if you look at the
+throughput, you can see that there are like a lot of fluctuations here. So, that's not great.
+I would definitely, as a DBA, I would like to see something like this. Right. Because it gives me
+nice smooth behavior. This is okay. This is not great.
+Okay. For the smaller machine, it's like a very similar, similar story, except that the
+differences are not as pronounced because simply the storage is not as powerful. Right. I mean,
+like you get similar performance for the smaller dataset, then as we are increasing the amount
+of random writes in random IO, it gets worse. And of course, similar, similar outcome for,
+for the latencies. Right. So, I use this as a visual way to compare the results.
+Not the exact numbers, but like how the chart looks like. Right.
+And I think I do have to say like a super large machine, which is, I don't know,
+100 cores, AMV epic with four NVMEs. And you can again see very similar
+pattern with like EXE4 XFS. There are some fluctuations here. I'm not sure what exactly
+that is. I need to look into that. But the, and I would say the ZFS behaves like better here.
+It's like nicer. You can see those are most likely checkpoints, these spikes.
+So there's probably a way to improve this.
+Similar for latency, right. Like these are really nice. Well, you can always improve that,
+but this looks really nice. ZFS is slower or worse. BTRFS has some latency spikes that
+would cause a lot of trouble in production. Right. So, there was just like looking at the file
+systems and with some basic tuning at the file system level. But there are also things that
+you could think about at the Postgres level. And the first level is, well,
+you need to be careful about, about filling the page cache. Right. Because what can happen in
+Linux and with the default configuration can happen quite easily is that you accumulate a lot of
+dirty data in the page cache because Postgres will just write stuff into the operating system and
+then eventually call fsync. Right. And if you accumulate like 10% of the RAM in the, in the
+page cache and then say, okay, write all these five gigabytes of data to disk at once that will
+inevitably affect the, the user activity. Right. So, you need to be careful about, for example,
+decreasing the background bytes. And I think I do have this here. This is
+EXT4 with the default, default here, which I think is one gigabyte for, for this machine.
+And this is the throughput for, if I decrease the, the dirty background bytes for 32 bytes,
+32 megabytes. And you can see that it's much, much more consistent. Right. Because here the, the gray,
+gray chart is essentially like per second throughput. And the red one is like average over 15 seconds.
+Right. So it's like a smoothed out. And you can see that it's like almost the same throughput,
+but this is like much more variable. And for the latencies with 32 megabytes, sorry,
+32 megabytes, one gigabyte, it's the same, same thing. The decreasing the, decreasing the dirty
+background bytes makes it much more consistent. Obviously, if it had just like benefits that
+would be the default. Right. Unfortunately, if you decrease this, you kind of like reduce the
+throughput of the machine, of, of, of the system. Right. How much, I don't know, you need to test it.
+Right. Or I do plan to do the test. I don't have the numbers yet. But in this case, obviously,
+the, the impact is like minimal. So that was one thing I want to talk about. Yeah. The other thing
+I wanted to talk about is full page rights, which unfortunately something Postgres has to do.
+It means that after each checkpoint, the first change to the page will write the whole eight
+kilobyte into, into the transaction lock. The problem with that is that it inflates the amount of,
+you know, data we write into transaction lock. And it can easily happen that you, you just,
+by doing the full page rights, you hit the next checkpoint. Right. Because you write so much wall
+that you are required to do the next checkpoint. And it's like infinite loop. Right. So you will do
+like a lot of full page rights. I do believe that ZFS actually allows you to disable this.
+Right. So in ZFS, you can actually optimize the Postgres to benefit from the feature of ZFS,
+which can be very beneficial. The problem with ZFS that I run into is that it's really difficult
+to configure prefetch like for, for sequential scans, for example. I mean like PGDOM, for example,
+if you do that on, on the database for me, it took like twice as long as on the other file systems.
+Right. I'm, if there is a good way to enable prefetch on, on ZFS, I'd like to know about that.
+But I found like, you know, 10 different options at different places in ZFS that should be configured.
+That's like very difficult for me. Right. So what about snapshots?
+I mentioned that with snapshots, you would probably expect lower performance. Right. Because the,
+the file system needs to do something else. Right. With ZFS and BTRFS, that's not really the case,
+because they do copy and write by default. So that's okay. But what is the impact of doing a
+snapshots on the EXT4 XFS in case you are using LVM? Well, these are, these are the results for
+EXT4 LVM snapshots, BTRFS with LVM, BTRFS when you do that natively in BTRFS, and ZFS
+with native snapshots. Right. And you can immediately see that if you are doing snapshots,
+the, the ZFS and BTRFS can easily compete with the EXT4, which can only do that through LVM.
+So that's like, if you need snapshots, if you want to benefit from snapshots, if you are willing to
+pay for snapshots, then ZTRFS or BTRFS can actually do a pretty good job. Like at least as good as
+the traditional file systems. Of course, there's still the problem with latency. In this case,
+once you start doing snapshots, snapshots on EXT4 and LVM, the latency gets much worse. And I would
+even say that the latency of ZFS is better. It's more predictable. BTRFS is still a bit slower.
+Or like, obviously the latency is much worse. In all those charts, the scales are always the same
+for all, you know, charts in the same row. So it's like easy to compare this. So you can see that
+the 95 percentile, which is the, you know, the violet here, is much higher than here.
+So this is from a different machine from the large AMD. And you can see that, of course,
+with, when you have like EXT4 with no snapshots, it's, it's really fast. Once you start doing
+snapshots on LVM, and by doing snapshots, I mean like having three snapshots at the same time.
+Right? So during the benchmarks, I just created like a snapshot every five minutes, and then
+deleted the snapshot after 15 minutes. Right? So there are always like three snapshots at the
+same time. You can see that this is like a massive impact on EXT4. And I'm not sure if you are
+willing to pay for that. And then, of course, like, BTRFS is better. ZFS, sorry, this is BTRFS
+with no snapshots with snapshots. And there is like no difference here, right, between those charts.
+So which is great. That's exactly what we expect from, from those file systems. And just to compare
+BTRFS and ZFS, again, ZFS no snapshots, ZFS snapshots. You can see there's like almost no
+difference when you enable and start doing snapshots, which is great. Exactly what we expect from
+copy and write file system. But the comparison between BTRFS and ZFS is pretty clear, especially
+for this scale, for example. So this is one of the reasons why I'm more like a favor, a fan of ZFS.
+So that's all I wanted to say today. If you want, you can find all the results, all the charts on
+GitHub. If you want the source data, or if you want the, the scripts that I used, I am very open to
+just providing them. I have no problem with that. It's multiple gigabytes of data. So that's why I
+didn't put it on, on GitHub. But I'm still going to do more benchmarks. I will publish it there.
+If you want to look at a very interesting paper, which I think explains a lot about like the
+challenges, how actually we need to saturate NVME storage. There is a very nice paper
+from VLDB. I highly recommend it. And yeah, I think that's all.

@@ -1,0 +1,442 @@
+Okay, so apologies for those who are expecting Mark Rhino to be speaking today. He couldn't
+make it, so I'm the stand-in for today. So you've got a stand-in speaker and a stand-in
+topic. So the topic is, we're actually going to talk about virtual threads, which is part
+of Project Loom. Charlie mentioned a bit of it in his previous talk, and we're going to
+talk about what we're working on in this area. So Project Loom, I'm not going to go through
+all of the project. There's a lot of material out there that you can actually search, and
+most of it is actually pretty good. At a high level, what Project Loom in OpenJDK is about
+is really about an upgrade to Java's concurrency model. It's about enabling much more higher-scale
+server applications with very easy to write code. So I'm not going to go through all of
+that, as I said, but the main thing I'm going to talk about is virtual threads, which is
+Charlie called them lightweight threads in the previous slide. It's all about having much
+more lighter weight type of threads for execution. So think about replacing tasks with thread,
+thread per task models, and thread per connection, that kind of thing. There's other things that
+we're working on, structuring currency and some other features, they're topics for other
+talks. So we've been working on this feature for a long time. This is one of these features
+that requires jacking up the house, replacing the foundations, putting the house back down
+without actually breaking anything. I think actually we've actually been mostly successful
+on that. It went through a couple of preview releases within 19 and 20. We made it a permanent
+feature in 21, being well received by the ecosystem in general. If you actually look at all of
+the frameworks and libraries out there, they've actually got something working with virtual
+threads in a very short period of time. That's one of the nice things about having things
+in preview for a couple of releases is it allows these frameworks to try things out and actually
+find issues. The big thing about it and why there's such an interest in it is because it allows
+applications and developers to move away from the world of scalability that they had before,
+where they had to go to async and reactive, which actually is incompatible with a lot of the things
+in the Java platform, particularly around things like debugging and just being able to
+get your right mental model of actually what code is executing. Overall, we're in a pretty good
+shape. Performance is actually in pretty good shape. Reliability is pretty good. There's a couple
+of rough areas around performance that we need to work on. We talk about that another time.
+What I do want to talk about is the other 90%. This is one of the things about these big features,
+is you get the first 90% done and then you've got to figure out how to get the other 90% done.
+We do have some quality of implementation issues. One of the compromises that was made in order
+to actually get this feature in is that we didn't do a nice job on Java monitors. I want to talk
+a bit about that today because that is by far the top pain point, the second top pain point,
+and the third top pain point that people actually trying out virtual threads for the last couple
+of years is running into. I'm guessing that anyone that actually has tried virtual threads,
+I've read some of the articles. People always have these gotchas type of sections in their blogs
+and articles and it's all about pinning. I want to talk a bit about that today. I also want to talk
+about a few things that we're doing around expanding the set of libraries that actually work
+well with virtual threads. There's other projects that we're actually working on, as I said,
+that's for another day. In order to actually understand some of the slides that I'm going
+through and the material that I'm going to talk about is, you have to have some little bit of
+understanding as to how virtual threads are actually implemented. There's an underlying concept in
+the hotspot VM which is support for delimited continuations. It's not something that's exposed
+generally, it's just something that's there for the underlying construct that virtual machines
+is actually built on. What happens is that a virtual thread essentially wraps one of these
+continuations so that when a thread needs to block because of a lock or an IO operation or
+something like that, that translates to the continuation yielding and then when it actually
+continues again, it's like the thread continues execution again. In order to be able to actually
+do a threading library in Java, you actually need to combine it with some kind of a scheduler.
+The scheduler that we're actually combining for now is the fork join thread pool that's been
+in Java for quite some time and that's actually a work stealing scheduler. We're using it in very,
+very different ways than it's used for things like parallel streams and we're using more kind of
+in FIFO mode but you get the obvious kind of default parallelism which is based on the number of
+cores although it is a little bit dynamic and I'll get into that in a few minutes.
+So mental model to think about anyway is that you've got this sort of magic with continuations,
+we're combining with a scheduler and that scheduler is managing a set of threads. The mental model
+to think about is walking around with a little kid on your shoulders. The platform thread or the
+carrier thread is carrying the little child around which is the virtual thread on the shoulders.
+When the child wants to stop and do something, you take them off, drop them down, some other
+adult comes along, the other guardian picks them up and moves them on their shoulders. So that's
+essentially sort of what to think about with virtual threads. Okay, so in order to talk through
+some of these slides, I'm going to use the kind of the same sort of layout in all of these slides
+and so what I'm going to have is, is there's going to be a little bit of code example on the left
+and then I'm going to show some stacks on the right side. They're color coded and I'll show you
+these just to give you an idea what's actually going to happen. The thread that is going to be
+the subject of this talk, we're actually just going to give it an ID, it's number 22. We've
+doubled down on thread IDs, quite a bit in the platform the last couple of years. So what we're
+going to do here is we're going to have a bit of code that's executed by virtual thread number 22.
+In this case, for the first example, we're actually going to use the same before. Just think about
+a semaphore as something that has a number of permits. You actually acquire a permit and,
+and when you're, and run some critical code and then when you're done with the permits,
+you actually return it back to the semaphore with a release. So typically the typical idea
+that you actually use is, is, is acquire and then release at the end and use it to try resources
+concept. Okay, so very, very simple. So let's see what actually happens when a virtual thread goes
+and executes this code. So the arrow here, just think that this is, this thing of the red arrow
+is kind of like a program point, program counter. That's kind of where we are. On the right side
+now we see our first sort of stack traces here. There's actually two threads in the picture here.
+What you actually see at the top, and by the way, the stacks are in this, in, in, in, in all of these
+slides grow from the top to top down. So the, the, the, the orange brownie frames that you see at
+the top there, they're actually the fork join pool thread that's, that's actually carrying the virtual
+thread. And the greens, the green frames that you see there are the virtual thread. And so I've
+just merged them there together because that's actually what you have on the native thread
+underneath the, the covers. So when we get to do, to doing a semaphore acquire, what we see is, is,
+is, is in green here. If you look down right at the bottom, the, the, the, the frame there is
+actually semaphore.acquire. So we're about to call this guy and we'll actually see what actually
+happens when we call semaphore acquire. Okay, so semaphore acquire gets to this point here. Now
+every, every good movie needs a villain and I need a villain here. So in this case, let us assume
+that the, the villain is Andrew and he actually has the permit for this summer for. So what's
+going to happen is this virtual thread has to go and park because it can't acquire a semaphore. So
+what we see here is, is we're going down through the Javiutil concurrent code to try to acquire
+the semaphore. There's no permits available. So the thread has to park. What actually happens is,
+it bottoms out at the bottom trying to do a park which will actually yield the continuation. And
+there, this is when the, this is, this is where the magic occurs is, is the, the, the, the, the,
+the thread is now parking and, and magically its frames get removed from the native thread stack.
+And the worker thread or the fork joint thread is able to go and do other work. So
+that's actually what happens sort of at a high level with, with, with, with virtual threads.
+Now Andrew is finished with his, the, the, the semaphore and is doing a release. So
+he's returning back the permit back to the, to the semaphore. So now we're actually going to
+look at what happens here now when the, when the, the, the virtual thread is actually going to
+continue. So remember a virtual thread is waiting to acquire the semaphore. Andrew is doing the
+release and that goes and triggers the, the, the, the, the, goes through the Javu-Tilkin
+current code and it'll bottom out then doing an unpark of the, of the virtual thread that's
+actually waiting, which will do the continue. What, and, and what it's actually really going to do
+is actually schedule the task that's associated with the virtual thread back to the scheduler
+so that it actually can continue again. Very, very, very kind of straightforward. It's just
+submitting the, the, the virtual thread back to the, to, to the scheduler so it can continue. So
+back to our slide again. So what happens is, is, is, is, we'll assume the scheduler has now
+started executing this code again. It'll return back from, from, from, from the park that we were
+on earlier on and magically we, we, the frames start popping off and we go into our tri block
+and we are done. So that's sort of thing, how, how, how things actually work with parking and
+unparking and how they actually integrate with the scheduler. Now we get into the sort of the,
+the problem areas and where we have the pain points with, with virtual threads today. So I'm
+going to go through two, two, two, two scenarios. One of them is, is parking while holding a
+monitor. I mentioned about all these, these blogs that have these gotchas at the end. This is
+essentially what they're actually trying to show you in, in, in, in these blogs. So we've taken
+the same example but we've actually put it into a synchronized block. So the synchronized block
+here is, is, so that's kind of, think of that as a monitor enter, here's a monitor exit. Same thing
+if this was a, a synchronized method. The code that we had in the previous, the previous section
+is, is, is exactly the same. So what happens is, is we're going to do the, going to do the, the
+choir here. Andrew R. Villan again is actually holding the, the, the, the permit for the semaphore.
+So this virtual thread has to, has, has to go and park. So what happens this time is we're going
+to try to park but we're actually holding a monitor. So, so this yield down the bottom fails. Why
+does it fail? Well, we, we get into why it actually fails in, in, in a second. But something, we're
+not able to actually go and release the, the, the, the, the, the, the, the, the, the, the, the, the
+carrier thread to do other work here. This is actually why we have, you get performance issues
+and, and why we say that monitors lead to a quality implementation issue is because of this, this,
+this issue here. Now what actually happens in this particular case is, is that instead of
+actually failing, it actually falls back to actually to park on the carrier and the, the, the, the,
+the semaphore in this case works exactly the same as, as, as, as this would if, if, if you were able
+to unmount, we're just not able to unmount. We can't let the, the, the carrier go away and, and, and,
+and do other work. And right, why, why do we have this problem? And so we have this problem
+because of the way that monitors are implemented in, in the, in, in the Java VM. There's different,
+there's different kind of locking modes. A lot of this is sort of beyond where, where I typically
+work. But in, in, in Roman's talk earlier on, he actually, actually shows some of this where, where,
+the fast locking type is essentially, is essentially putting a pointer into the object back into a
+lock record that's actually in the, in the stack. Oh, if we, that, then we can't actually start removing
+frames that, when, when, when we, when we unmount. There's also these inflated cases where, where,
+you're actually building up a waiter list of who's actually waiting for the monitor. And what,
+what goes on to that waste list is, it's actually, it's actually the, the VM's internal Java thread,
+which is, is essentially the, the carrier thread in this case. So these are the reasons why, at least
+in this particular locking mode, that you cannot release the, the, the carrier at this point. And so
+there's, there's, there's, there's magic in the implementation to actually to track monitor usage
+to prevent this happening. There's another locking mode, which, which is, which is the, the, the, the
+newer one, the lightweight one where there's a, a, a per, per, per thread little stat lock. And that's
+got issues as well, because that's actually associated with the carrier thread, not with the
+virtual thread. So what we do about this, so there is a, there, there's a sort of larger,
+longer term effort that has, has kind of been underway. I think I saw Robin Ian here at one
+point. He actually started this work to actually completely re, re, reexamine and do a new implementation
+of Java monitors. Do it in Java, rather than actually in the VM. Because a lot of legacy code
+and a lot of, there's, there's a lot of history there. Now that is a longer term effort. There's
+a lot of unknowns, there's a lot of exploration. Both, we needed a plan B and, and, and plan B
+involved a hero and the hero in this case is, is, is, is, is, is Patricio in, in, in the hot spot team
+decided to go and have a go at actually trying to do a plan B, which is change the existing
+object, object monitor implementation to work with virtual threads. So, so what he actually did was,
+was, he's, he's, he's come up with a, well, there's, there's, there's several steps in this and this is,
+this is, this is by the way, this work is all actually in the, in the, in the Loom repo.
+So what he actually does is, is for the, for the StackLock cases, is he just, just, just inflates
+and then for the inflated state, he's actually for the moment has, has the VM actually doing
+a, a, a, a, a, a StackWalk to actually replace the owner so that it's actually not the, the, the, the
+Java thread, it gets, it, it, it, so the, the VM's view of the thread is actually the, the, the Java
+thread. And so that's a little bit expensive, but it actually does work. And, and here's a solution
+for the lightweight, locking mode as well, where the, the, the lock stack actually moves at, at, at,
+the, the, the mount and the unmount time. There's other work that's actually going on in parallel,
+some of the work they're calling Fillmore is actually doing about changing the, the, the, the,
+the lock ownership to be the thread ID. Once that work actually comes in, that means that you
+actually can eliminate the StackWalk, you eliminate all the GC overhead, you eliminate all of the
+actual overhead there of, of, of this, which is actually quite nice. So a lot of pieces from a
+lot of people are coming, coming, coming together, which, which is nice. So this is working in the,
+in the Loom repo for the moment. So we'll go back to our, our, our, our slides again and what would
+happen with, with that example, if we actually run it with the, some of the bills that we have from,
+from the Loom repo today. So when we do, we actually do our acquire, we bottom out again at the,
+at the, at the yield as, as before, but this time it actually succeeds. The, we release the
+carriage, go off and do other work, all very positive. So that is good. So that's one of the
+pain points with pinning and it'll be wonderful actually to, to, to, to, to, to get that in.
+Second scenario then is, is the contended monitor case. And that one is, is, is, is you have an
+example like this. In this case, this is, I've got rid of the, the, the, the, the, the, the, the
+semaphore from this example. And, but I'm actually going to block here. So we assume again now that
+Andrew is actually holding a lock this time, rather than the semaphore. And, and, and here we have our
+virtual thread number 22 is going to attempt to do a monitor enter at, at this point. And what happens
+today is, is it actually just, it actually blocks when at that monitor, at that, at that, essentially
+at that, at that, that monitor enter. So what's going on here is, is, is, is a contended monitor
+is, is, is actually a call into the runtime. It's essentially parking in the runtime. And, and,
+this is something that has to be, we have to remove that and essentially pop all those frames in
+order to be able to actually, to, to, to, to deal with this. So the way things are actually working
+at the moment is, is, is what, what, what Patricia has come up with is, is, is that essentially allows
+the VM to do a yield while it's from, from, from in the runtime. So normally we actually would do
+these yield from, from, from the, from the Java site. So it copies the frames off the, off, off,
+off the stack into the heap, just like we would with, with, with, with, with a, with a normal and,
+and, and, we would do it a normal yield and, and freeze. And what it does is, is it actually puts the,
+the virtual thread onto the wait list for the, for, for, for the, for the lock. And at a high level,
+it's as if we're actually doing a yield at that point. There's a bit of, there's a bit of magic
+that goes on with where it actually has to, has to return back as, as if it hold the, hold the lock
+and then you've got to run the, the, the stub that actually goes and actually does some fix up some,
+and there's, there's VM magic that actually happens. But essentially you're turning back to Java in a,
+kind of a blocking mode and then we can actually fix up the state and, and, and move it to its
+block mode so that the, the thread is actually blocked. So what I've put here is, is just to give
+you, just to kind of, you can visualize how this works. We do our monitor enter, which this could
+be a, a, a synchronized method as well. And it's as if we're actually calling into yield at that
+point. So that's actually very, very nice. That actually can work. So when Andrew releases the,
+the lock, then we, we just continue on and we're, and when we do that, what happens is, is Andrew
+releases the lock. We've now got no, no, wait for virtual thread 22. How do we actually get,
+how do we actually integrate back into the scheduler to get that to, to, to run again? And the way it
+actually works is it actually just moves the, the thread into, into, into a, into a list and, and
+unblocker thread will, will actually unblock it. This, so for those that have, understand how, how
+reference processing work in the GC, this is essentially kind of like another reference handler.
+It's the, it's, it's, it's, it's, it's, it's essentially queuing up, queuing up objects that
+are, get handled by, by, by Java thread. So the unblocker then just, it, it, it just snapshots the,
+however that, that, that list and, and then it just wakes up those threads, which puts it back into the,
+to the scheduler's queue. So that's all very nice. So when our example here is, is that Andrew has
+released the lock and we, we, we, we, we, we queue up that virtual thread to actually continue
+and it gets scheduled and it's a continuous execution inside the synchronized block. Very,
+very nice. So okay, high level question then, does this actually solve all of our pinning issues?
+And the answer is no. There's always work to do. We've got, we've got, there's, there's issues with
+native frames. You can't, you can't actually yield with the native frame on the continuation stack.
+That's not a problem. I think that, that we, we, we, we will ever, ever, ever address this, a lot of
+unsolvable issues there. There are other things that go along with monitors. There's object weight
+and it's important that we actually make progress on, on, on that one. There's ideas on how to, how to
+improve that one. And then there's the other more difficult one, which is class initializers.
+And, because class initializers is, is, will require more surgery in the VM in order to be able to
+address it. So these are things that are not addressed in what's in the Loom repo now,
+but are things that have to be addressed over the next while in order to eliminate these, these,
+these problems. Okay, moving on. I'm going to talk about IO now because there's a whole other set
+of this that, that, that, that, that goes along with, with, with, with IO. So let's talk a bit about
+SOCAs first because networking is, is, is actually, is, is, is actually straightforward.
+So here we have our virtual thread is actually going to try, attempt to make, establish a TCP
+connection. This case is Fosn port 443. So it's the SSL port. Okay, what happens there? So same,
+same, same diagram as before. We've got our carrier at the top and then we've got our green, green
+frames for the virtual thread. We're doing a socket, we're in the socket constructor, which
+actually initiates the connect. What does the connect actually do when you're on a virtual thread?
+It's actually going to initiate the connection, arm the file descriptor and then do a yield and to,
+to, so, so that the, so that the, the, the, the carrier can be released to actually go and do
+other work. So this is what our stack would actually look like. It goes down through the, the, the,
+the IO code and, and IO code and, and does, does, does, does our, does our yield.
+Carrier gets released to go and do other work. We're all good.
+What we have then in the, in the background is, is, is the way things work for the moment
+is there is this thing called a polar thread. The polar thread interacts with whatever the
+IO mechanism is on, on the, on the platform. There's implementations for, for, for, for E-Pole and,
+and KQ. There's one that integrates with the, the Windows WinSock driver. And what it does is
+it's just listening for events. When there's events from the operating system to tell you that the,
+that these are already events, then it just unblocks the corresponding virtual thread
+by, well, what it does is it actually just, it, it, it unparks it and just queues its task to the
+schedule and things that work. That little diagram over there, did you see that it was spinning?
+I'm going to reuse that in a couple of slides just to make, essentially all that's doing is
+listening for events on parking throughout, listening for events on parking throughout,
+listening for events and so on. That's all it does.
+And so, but back to this, back, back, back, back to our example here is, is we're, we're trying to
+establish a connection. The connection is now established and because we've done a wake up,
+we pop all the frames, we're, we're, we're, we're gone past the socket and constructor now and
+we're, we're, we're all good. So this is kind of the way things work today in, in, in JDK 21.
+You've got this, you've got this thread that's picking up IO events. It's queuing up and
+the corresponding virtual threads to, to, to, to the schedule, in this case I should, I did,
+depict it as a, as, as a box full of carrier threads. That's actually not all that efficient
+because a lot, there's a number of issues with this one. You actually start scaling things,
+scaling things up and particularly is, is, is that you've got a, you've got a number of carrier
+threads that correspond to the number cores and then you've got these other polar threads that
+are actually trying to compete for CPU cycles. You've also got the issue where, where you're
+picking up IO events on one thread but it's actually going to end up being processed on a
+different thread. So this is the, the, the, the, there's room for, for, for efficiency on, on this.
+So one of the things we actually have done in, in, in, in, in JDK 22 is we magically move these
+polar threads at least on some platforms from being platform threads to being virtual threads.
+Now the implications for that is they actually integrate then with the schedule. You're only
+picking up, you're only picking up IO events and queuing up virtual threads to on-park
+when there's actually cycles to actually to go and do that. In addition, because of the way this
+polar thread is actually written is it will actually, most of the time, continue the IO
+operation on the same thread that picked up the event. So you avoid having to actually go and
+dealing with events to, going, going, going, going between threads. When you actually scale it up,
+this is actually kind of what it actually goes and looks like is there's actually in,
+in polar threads that are virtual threads are actually, and, and then there's this,
+there's this other gutter guy in the background which is when it has to wake up polar threads,
+when there's nothing else for them to, to, to go, to go and do. And this is actually quite nice.
+There's, there's a nice paper written by them. There's a, there's, there's, there's a team in the
+University of Waterloo that actually work in, in, in the sort of similar area on their own library
+of, of for lightweight threads in C++. And they've got an initial paper which deals with all the IO
+strategies. And this is kind of one of the IO strategies that, that they, they're, they're also
+using by default. So, so that's Martin, and Karinson's team in, in Waterloo. It's the paper is, is,
+have your cake and eat it, which is a great title for, for, for, for a paper.
+So, so this is actually turns out, and some, and some benchmarks turns out to be actually quite,
+very, very profitable. And because, and so this, this, this is just a, some random benchmark that's
+actually sending, sending a 1K request and getting a 16K response. It's, it's on the loop back.
+There's, there's a client and, and, and, and, and a server thread for each one of these. So there's
+a lot of parking actually going on. There's a lot of IO between them. But the nice thing is, is we
+actually see improvements, significant improvements on, on, on, on, on, on, on arranging systems,
+which is actually quite good. Okay. Mo, moving on a lot, I want to talk about a bit of file IO,
+because this is where we actually put on our sad face. Because it's, it's not as, not as, not as
+good a story. So the example I'm actually using on this one is, is, is, is, is, I'm, I'm opening a
+file. So this is actually, this is code executing on a virtual thread. There's, I'm, I'm doing a
+file open here and I'm doing a file read. So two, two, two file operations. Down on the right,
+I've got just, I've just showing the, the, the box with the, let's assume this is a four core
+system. This four carrier thread is actually sitting there. So what actually happens today,
+and it's, it's, it's a bit lame, but I'm just explaining with the way it actually works today,
+is when you attempt to do a file IO operation that may actually consume the thread, it temporarily
+increases the parallelism, which will trigger an additional worker thread to be available to do
+other work. So if you've ever seen fork joint pool manage blocker, this is essentially the same thing
+which your actual compensation that actually can happen in managed blocking operations. So you,
+you do your file open, your thread is actually not, unavailable to do other work. And then when,
+when, when the file IO operation completes, you decrement the parallelism again, and what happens
+is, is then is that the, the, the number of worker threads that are available reverts back to where
+it actually was. These additional extra worker threads that might get created for these, they
+might hang around for a little while, but they will eventually, they, they, they, they, they, they
+will eventually terminate once the system is acquiescent. So same thing, what happens when we
+had to, to do a file IO, or sorry, we do a read, same kind of thing, increase the parallelism,
+and we do our read, and the once, once the read is actually complete, we will decrement the
+parallelism again. So this is all kind of lame, and you say, well, why haven't we done any better
+on this? So this is one of the things that we actually have been playing around with for, for
+quite some time. There are asynchronous IO interfaces on different operating systems.
+I'll just talk about what, for IO, you ring today. I'm just talking about in the context of file,
+we've also looked at it in the context of, of, of, of Socus as well. So in the Linux operating
+system, there is, there's, there's a completely different type of, of interface to the operating
+system, which is, which is supports asynchronous IO operations, is essentially, essentially
+allows the trap into the kernel. And so you've actually, you, you, you can actually queue up
+submissions in, in, in, in memory, and any events that are associated with those when
+they're complete are actually queued up in a ring. That's also, so it's successful from both the,
+the kernel and, and, and user space. So there's, there's a lot of issues and a lot of complications
+trying to interface this to the, to, to, to the JDK to be able to support a lot of the, the, the
+libraries. So what we have been doing, and this is in the, in the open JDK sandboxes, we have an,
+we have a low level API, which sits on top of the work that Maurizio was talking about in the
+previous slide, a previous presentation with an FFM. And that will provide the lower level access
+to the, the, the submission and the, the, the, the, the completion rings. And it, it, it, it, it,
+it hides a lot of that, that, that, that kind of detail. Now, in order to be able to work through
+some virtual threads, we actually have to do, we have to do a bit more replacing of foundations
+around the place. So there's a lot of prototype re-implementation of a lot of the Java, Java
+I.O. classes. And to be able to work with this as well. And that actually allows the, the problem
+of file I.O. to be actually reduced down very significantly. None of this, none of the completed
+bits for this are in the Loom repo yet, but we will, we will get there eventually. There's a
+bunch of design choices that, that have to be worked out when you're actually interfacing with
+something like I.O. U-ring because as to which threads can actually access the, the, it's, I.O.
+U-ring is not kind of designed for, for multiple threads to be, to be accessing a ring at the
+same time. So what we will end up doing is, is, is, is, is, is, is having essentially multiple
+I.O. ring instances and one per, per carrier essentially. And that actually fixes the completion,
+the, the submission side. The completion side is a little bit more complicated and there's a
+number of design choices around that. So the main message here is, is that there's a lot going on
+in this area as well because all of that areas of the libraries have to, have, have to, have to play
+cleanly with them, with virtual threads as well. Okay, so I'm not going to go through all of the
+other things that are going on, but I'll just talk, just, just, just, just mention a few of them.
+So Professor Doug Lee who's the, the, the sort of the, the, the world expert on concurrency is
+doing quite a bit of work at the, exploration into fork joint pool at the moment. That is
+for scenarios where you have a smaller number of cores, because a lot of, a lot of container
+and, and, and the cloudy type systems you're running with two or you're running with four cores.
+And we've, we've observed in many scenarios where you get underutilization. And a lot of
+of that relates to just the time it actually takes to work for, well worker
+threads are parking and then they have to be unparked in order to actually to
+actually to do work. So he's exploring a number of things on that and
+we're trying to come up with good benchmarks to be able to actually to
+measure these kind of things but this should, if this turns out to be
+profitable then it'll help some of these scenarios where we appear not to
+be having full utilization on smaller systems. JVMTI makes me scream.
+It's a very very invasive API and it's very much challenged by
+features in the Java platform where you move them out of the VM into Java.
+So having a native tool interface where a lot of the runtime is actually in
+Java rather than the VM is a challenge. We have a very good story for JVMTI and
+virtual threads and debugging and for many other types of tool agents but it's
+not working well for profiler type tools that want to use JVMTI and because
+there's a there's it's having to coordinate with a lot of code that's
+actually executing in Java. So there's a lot of work going on there to try to
+solve some of the problems and it's one where there's been some progress made
+but it's one that's going to take more time. And there's other efforts that I'm
+not going to talk about today which is about scope values which is essentially
+allows us to communicate something to a remote callee without having parameters
+in the call frames. Andrew Haley is actually leading that effort in Project
+Loom. Then we have the other big area which is structured concurrency which is
+all about being able to coordinate multiple threads that are decomposed
+running some operation is be able to actually to deal with them as a single
+unit of work. So there's a lot of interesting things going on there that
+API is currently in preview and we will have to do another preview of this for
+the next release. So these are other kind of efforts that are actually going on in
+this project at the moment. So that's kind of it. I think I've actually made it
+in with few minutes to spare and this is sort of links to the current JEPs that
+we have, the repository. When I was talking about the work on the monitors and
+some of the other changes around fork joint pool is they're accumulating in
+the Loom repo now. And yeah, okay.
+You'll have to hand out microphones.
+Okay.
+Hello.
+Hello.
+Hello.
+Test. Yes.
+Hello.
+I have to take questions here first. I think.
+I had a question on, can you hear me at all?
+Okay.
+So you mentioned on the, from network IO, you said you had a good solution, right?
+And then you said for file IO things are much trickier.
+But what?
+I'm sorry.
+I'm sorry.
+Thank you.
+Yeah, I'm sorry. Would you mind repeating it?
+Yes. So I was saying, so you mentioned network IO and you said, yeah, we have a
+pretty good solution here, but for file IO things are much trickier.
+But what's the fundamental issue that save a solution from network IO cannot be
+used for file IO too?
+Okay. So the question is, is, is why is the solution for, why can't the solution
+for network IO be used for file IO? And that is because there isn't the
+equipment sort of readiness API that you get for file, for non-blocking IO.
+So the reverse works, but not, what we're able to do at the moment is we're
+able to actually to map onto multiple different 20 years of scalable IO
+mechanisms for networking IO. There isn't really the equivalent for file IO.
+Okay. I see. Thank you.
+So simple question. When, when you solve these problems and get a good implementation
+and it's all in the next version of Java and you've, you've solved all of these
+problems, what do you think is going to be the impact? What's, what, what, what are you
+aiming for?
+Okay. So, so, so the, the, the ultimate goal is this for Java developers to be
+able to write code that, that reads exactly how it actually executes.
+So we need, we want to avoid having complicated, hard to, hard to read, hard to
+debug code that you get to, that the people are actually forced to write today
+with a synchronous IO are, are, are reactive. That's sort of the, the ultimate
+goal with this. So get the scalability with, with, with very obvious easy to read
+code. And at the same time as harmonious with all the other parts of the platform,
+such as debugging and profiling and so on. Because one of the things you actually
+lose today when you start going down the async type route is you, you lose so much
+of the, of the, of the tooling, you lose your debugging, you lose your profiling.
+We want to bring all of that back so that everything just works. What we have today
+in 21 is actually, is actually, is actually pretty good. You have a large range of
+applications can actually be developed and, and scale very, very well. But there's,
+there's, there's quite a lot of other amount of code that we want to get working
+with, well with virtual threads too.
+First, thank you so much. I think like suffering of millions will end with this
+holy light. My question is, when you look at the mitigation techniques that are
+recommended against the shortcoming of monitors, one of, like the primary thing
+is you're just recommending people to replace those with locks. Just use a lock.
+Okay. That's a, okay. That's a good observation. So in JEP 444, which is the, the, the
+Java enhancement proposal that introduced virtual threads as a permanent feature is,
+it, it, it suggests that if you're running into issues with them, with, with pinning
+with object monitors, you can just replace them with Java till concurrent locks. And
+that was very much kind of short term, short term advice in order to actually take
+to avoid the quality of implementation issue. But we never, we never said we'd never
+fix this problem. It was, it's, it's, it was, it was, it was a tactical decision to,
+to make the feature permanent without addressing the, the monitors issue.
+No, I very well understand the solution. It was just felt to me like it sounds like
+something machine should be doing. Like why doesn't the VM replace it with a lock on
+behalf of me? Right. So this, so, so, so what you're asking is, is why don't the VM
+magically replace it? There's a lot of issues with, with, with, with, with doing something
+like that. So. Okay. Thank you. Okay. Oh, there's one other.
+So with all the work going into addressing issues with monitors and pinning will constructs
+living inside Java, you till concurrent also benefit from that work or is that isolated
+from each other? Okay. So Java till concurrent does not base itself on, on, on, on, does,
+does not base itself on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,

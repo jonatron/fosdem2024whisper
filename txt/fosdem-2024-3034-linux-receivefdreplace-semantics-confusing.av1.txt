@@ -1,0 +1,231 @@
+Okay, this is the kernel room.
+Keep repeating this.
+And our next talk is by Tykel about Linux receiveFD replace semantics.
+Oh, cool.
+Hi, my name's Tykel and I'm going to complain to you about kind of an esoteric
+corner of the kernel API.
+We had some patches on the mailing list about six months ago for this.
+They were done by my colleague Alok, who unfortunately could not be here.
+So he is, I think, in the chat room.
+If questions come up, I will try and read them or read his answer.
+So the actual hard stuff was done by him.
+I'm just kind of here to complain.
+So what do we actually want to do?
+We want to intercept, connect with seccomp, and then do some stuff with the file descriptor.
+So we want to put a file descriptor into a tasks file descriptor table.
+And that eventually does cause this function that I'm here to complain about.
+So if you've not seen the seccomp API before, basically what you can do with this API is
+capture a system call from a task and then forward it to some other user space
+statement to do arbitrary things and then return a result.
+So if you look at a typical application, they want to do some stuff.
+They want to listen on the network or they want to connect to some networks or something.
+So they create an ePoll socket.
+And then they put the socket in the ePoll thing and then they connect on the socket.
+And then they use ePoll to wait to say, is this socket connected or not?
+So this is like the JVM does this when you make a network connection or something.
+This is like an extremely common use case.
+So let's just look at what actually happens in the kernel when you do this.
+So when you make an ePoll call to add a particular socket to the ePoll instance,
+it creates a big table.
+And the table, I'm sorry, it creates a big tree.
+And the tree is a tree of tuples.
+The first element in the tuple is the file descriptor number.
+And the second element of tuple is the struct file pointer.
+And I'm using 0x5 here to know it's an arbitrary pointer.
+But originally it's the file descriptor pointer that maps to file descriptor 5.
+So that's what my notation here means.
+So it takes a copy of the file descriptor and the file, puts it in this tree,
+and then you go on your merry way.
+And then you add a second one and it does exactly the same thing except for this one's 0x6.
+And then if you did it again, you would get another element in your tree.
+And this is some RB tree or something.
+And so it's sorted in some way.
+But how it's sorted is not really important for this talk.
+So that's what ePoll does.
+When a socket receives data then, this is in user space.
+You are waiting for stuff.
+Data is received on file descriptor 5.
+You read file descriptor 5.
+It tells you, hey, there was data on 5.
+You read 5.
+And then you have your data and you're happy.
+So this is like the happy path what people expect how applications normally work.
+But remember, I said at the beginning that we are interested in using setcomp to do,
+to munch with the file descriptor table.
+So the reason you might be interested in doing this is for all manner of things.
+We do it for IPv4 to IPv6 migration.
+You can do it transparently to the application this way.
+So the application doesn't need to know.
+And also, it's not in the data plane.
+So the socket is connected from the right place.
+And so there's no IP table stuff that's making decisions based on every packet or whatever.
+So that's some motivation.
+There's a lot of other things you can do with this API.
+But that's what I'm doing with this right now.
+So we're in this normal world.
+Everything's happy.
+Now we want to mix in this setcomp addfd.
+So specifically, we're going to look at what happens when I do the connect call.
+So what happens is I connect.
+This side is going to be the user space side.
+And the other side is going to be the other user space side.
+This is the daemon that it's waiting for notify events.
+So it's waiting to say, hey, have I gotten a connect call yet?
+So this is how it waits.
+Then it creates a new socket using some magic, whatever it decides, like however it decides
+is appropriate.
+Does an addfd call.
+That eventually calls this receivefd replace thing.
+You can see here my new socket is really 0x8.
+So it's not 0x5.
+So there's physically different underlying files.
+But I'm replacing it at fd5.
+That ultimately does the actual replace.
+Oops, and then it returns back to the user.
+And if they did a read on file descriptor 5, now because of the result of this call, they
+would get the contents of file descriptor 8.
+But there's some things that don't happen.
+And maybe it's easier if we skip one ahead here.
+You remember our tree?
+In here we had file descriptor 5 paired with 5.
+What doesn't happen is that 5 does not get replaced.
+So in particular, this does not happen.
+So this 5 to 8 change, that does not happen.
+And so as a result, you're in a very weird state where if you read 5, you read struct
+5.
+But because the ePoll structure was not changed, it will report data on struct of this old
+file that was the one you replaced.
+So now you're reporting ePoll events on the wrong file descriptor, like things are all
+confused.
+In some cases, you will close the file descriptor from ePoll because it keeps a weak reference,
+and then you will report no events at all.
+So that is also bad.
+So what ideally would happen is exactly this, that we would fix this up so that ePoll works
+nicely when you use this API.
+So questions are how to fix this.
+So we have, and I'm not really going to go through this algorithm, but this is how we
+did it.
+I wrote a bunch of C to do it kind of the Cree way where you read and iterate over a bunch
+of stuff.
+And it works, and it's what we use today.
+So it's a good first crack.
+But you have to parse the FD info for every possible FD.
+And if you have lots of FDs, then individual system calls take a long time.
+That makes people sad.
+So we want to do something better.
+So one option would be with extra FD info.
+So the insight here is that the kernel actually knows if this particular file is attached
+to an ePoll instance.
+So it could tell you then you wouldn't have to iterate through all the files, but you'd
+still have to go and manually fix up and do this replace.
+You have to do all the string slinging and stuff that FD info requires.
+So this was where the kernel patches came in.
+So there was a patch series here by a lock.
+So Christian complained that this is a layer violation because the FD table is touching
+files inside of it, which is kind of backwards.
+And setcomp is the only user of this currently in the tree.
+So I suggest to do something else, which is this.
+So basically have setcomp specific flags for this fixup behavior.
+But I'm here to complain to you.
+This is sort of the end of my talk and maybe the beginning of the arguments.
+Because I don't think this is really that great because everybody who does receive
+replaced FD in the future has to then add their own flags.
+And it's, I think, pretty clear, at least to me, that the semantic that currently exists
+absolutely nobody wants.
+It's just we didn't think about it when we wrote all this.
+So I'm wondering if we add some arguments to receive replaced FD.
+If that's OK, go ahead.
+Yeah, I think the only, so the initial implementation was kind of a bit weird.
+I think it's not a problem if we extend, if we extend E-Poll to do the replace.
+So if you just have an E-Poll helper and you call it from your FD replace function to update
+E-Poll, that's sort of fine.
+I think that's sort of what we, the last version, I looked at it before exactly so that I could
+say something smart or look smart.
+What your last version kind of did, I think the only thing is the locking change for E-Poll.
+Yeah.
+Quite drastically, which makes it a bit more tricky.
+But I think other than that, like, it's sort of, I think it's probably doable.
+It's probably doable.
+The things that I'm not currently clear about, and I'm not an E-Poll expert, so is E-Poll
+has pretty advanced and complicated logic to check, for example, whether adding a specific
+file adds loops.
+So I think one thing that we need to do is we need to prevent replacing E-Poll FDs themselves,
+because then you have this sort of looping, basically you can have an E-Poll FD that you
+add to an E-Poll instance, and then you get notifications from another E-Poll instance,
+and sort of you need to take care that you don't get cycles and don't get deadlocks.
+So I think we need to stop that from happening.
+And there's some weird logic that I haven't yet figured out, where it sort of checks to
+limit the number of wakeups that you can get, and it sort of does that every time you add
+a file, and I'm not sure if that's specific to the file type that's added, or if this
+is just a generic sort of check.
+If it's just a generic sort of check, it doesn't matter, then updating the file point
+probably doesn't matter.
+The third thing is, is this race free in the sense that if you walk through the E-Poll
+instance and you update all of the file pointers, can we lock out everyone else using that E-Poll
+instance to not inject behind our back the old file again, and stuff like that?
+I think it can't happen, but...
+So I don't even look at the new locking.
+In the old locking, I think the answer to that was no.
+But in the new locking, I don't know.
+I could imagine that the answer might be yes.
+I just wanted to...
+I might not understand the full edge cases, because I only roughly played with this API,
+and I have a hard time understanding why it's a problem in the first place, like specifically
+for your use case, like APU-4 to APU-6.
+Why do you want to replace the socket after it was created?
+Why not sec-comp intercept the socket call when it creates it?
+Like you immediately duplicate the socket in your supervisor process, and then intercept
+connect of course, and then just replace the arguments from APU-4 to APU-6, but you already
+have the proper socket in the program, and probably duplicate in your supervisor, and
+kind of like that problem just doesn't exist.
+Yeah, the problem is you can actually change address families on the fly.
+So when you create a socket, you have to declare an address family, but if you use like send
+message in their connect API, you can change the address family of the socket on the fly,
+or you can declare it unspecified initially, and decide later.
+So when the socket is created, we don't actually know is this a socket we care about.
+So we can only reason about that when we actually connect.
+Yeah, but what I mean is like, what we care about is that the file descriptors and files
+respectively in some E-Poll instance, so what we need in the supervisor process is a duplicate
+of that file descriptor, and then when we later intercept other system calls, we kind
+of can match them and replace the arguments.
+What I mean is like we don't have to go and retroactively modify the E-Poll.
+I see, I see.
+We just track the socket through its lifetime.
+Yeah, yeah.
+So when a socket is created, you would dupe it, and then just keep a copy of all open
+sockets.
+Yeah, yeah, yes.
+Yeah, you can do that.
+We're ideally trying to do less like, you know, work, trying to intercept less things,
+not more.
+But this is, yeah, this could be another way to fix it.
+What I mean is like a more complex supervisor user space process sounds more preferable
+than more complex than inside the kernel.
+Yeah.
+I mean, the wider, one of the concerns I think that I uttered was, you do it for E-Poll now.
+What other parts of the kernel do we need to play the same game than eventually?
+Yeah, for example, we do not currently deploy this for applications that you select because
+it has exactly the same problem.
+So, yeah, we do not currently deploy this for applications that you select and general
+poll.
+And I think for selected would be even more difficult to do this, right, I guess.
+But I mean, you could probably say, fuck it, we don't care about select, block select,
+only allow E-Poll or whatever.
+But yeah, we've managed to get pretty far with just the E-Poll fixes.
+So, you know, at some point applications will start using IOU ring, but I hope at that
+point they'll also use IPv6 and then, you know, like the set of applications using IOU
+ring and IPv4.
+I guess you can have these fixed file descriptors, which is a whole nother can of worms that
+is kind of interesting.
+I wonder if this makes it more difficult.
+And I think IOU ring also has its own polling mechanism and so on.
+But again, like hopefully, at least for our use case, the set of applications that we
+want to do this on and that use IOU ring are disjoint.
+So, other questions?
+Oh, five minutes left.
+Why?
+It was easy.
+He said, OK, so maybe the talk's over.
+Cool.
+I had some other slides, but whatever.
+Thank you.

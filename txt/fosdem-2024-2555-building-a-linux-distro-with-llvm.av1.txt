@@ -1,0 +1,380 @@
+Alright, so welcome to my presentation.
+I'm Daniel Kulesa.
+I'm the founder and primary developer of the Kim and Arlenox project, which is a Linux
+distribution.
+It's a general purpose Linux distribution with a particular focus on desktop computers
+as well as different similar cases, I mean client computer kind of cases like single board
+computers and so on.
+But since it's a general purpose we are also implementing server purposes and other things
+basically like just about any Linux distribution.
+Its focus is to be robust as well as to have stronger security hardening than most standard
+Linux distributions as well as having good default for things being deterministic so
+that you can actually install things using a single process and then it will come out
+pretty much the same every time and it will pretty much work out of the box.
+It's also supposed to be lightweight and transparent as well as overall pragmatic so not really
+focused on one particular thing like many niche projects tend to do.
+It uses LLVM as its system tool chain.
+It's currently only has LLVM.
+Well we do have some GCC builds which are bare metal builds for building new boot for
+different single board computers.
+That is a general purpose GCC compiler we do not have any right now.
+I've actually started some work to introduce GCC as an option but so far I've run into
+this very annoying bootstrap back on PowerPC which prevents me from fully introducing it
+so far.
+So it uses tools from 3BSD as its core user-land which are hardened with the rest of the core
+system and it uses muscle as its ellipse of choice.
+I'll explain why at a later point.
+For package manager it uses APK tools which is known from Alpine Linux but it uses the
+next generation of APK tools which is currently under development and not deployed in any
+other system.
+It uses binary packaging obviously but it also has an option to compile things from source
+if you like to.
+It has from scratch made fresh build system which creates APK repositories.
+It's also sort of intention to have things be bootstrapable so you can compile the system
+from scratch from source and bring it up to the same state as it is in already using some
+other Linux system as a base.
+It can cross compile.
+We do not do cross compiling for any official repositories.
+All the packages we actually ship, 45 architectures we ship, they are native but there's the option
+to cross compile in the build system sort of transparently so it does a lot of things
+for you so you don't have to, generally the packaging template doesn't have to do much
+to be able to cross compile as long as the build system for the project itself doesn't
+have some weird cross compiling issues.
+It will sort of work by default.
+We do support many architectures including ARCH64, little and big end in 64-bit power
+PC, RISC-5 also in 64-bit version only right now and obviously also X8664.
+It includes system-wide link time optimization for pretty much all packages I think.
+Right now we have about 1500 packaging templates and only about 50 or so have LTO disabled
+and some of these are basically false positives like the kernel has a different way to enable
+LTO and standard some are things like scripted things and so on.
+We also enable subset of UBSAN in production builds set up in trapping mode so that it
+does not actually include any runtime in the resulting binaries.
+This is mainly used to mitigate signed integer overflows which should become hard crashes
+in pretty much all packages unless there are some exceptions where things are currently
+broken in a way which cannot be immediately fixed.
+We at least use this to keep track of everything which has these kind of issues and fix them
+later.
+We also try to deploy CFI or control flow integrity mitigation from Clank system-wide
+which is a lot harder task because a huge number of software breaks with that.
+This is mainly C software where the issue is that many C programmers tend to like having
+like a function pointer which has some signature and then they take some function and cast
+this function pointer to the original signature and CFI does not like that.
+In C this is undefined behavior and people tend to think that it's actually okay because
+for example your custom function which you are taking a pointer to is taking pointer
+arguments and the original thing is taking void pointer arguments and they think it's
+okay because it will get implicitly casted to void but this is like it's still undefined
+behavior you shouldn't do that.
+You should declare your function with the original signature the one you want to have
+and then cast these things within the implementation properly and then you will have no undefined
+behavior but people tend to avoid this because they are lazy or whatever.
+In any case to get started how I got started it was in early 2021 and it was I decided
+to create a build system for Linux distributions called C build which was originally a re-implementation
+of the XBPSSRC system from Void Linux which I was using at the time.
+It's written from scratch and it's implemented in Python because I sort of got tired of different
+distro build systems being written as massive bash scripts which both results in the system
+being slow and also the system being difficult to debug and track issues in and also it's
+hard to trust these kind of systems when it comes to actually being integrated so you
+usually want to delegate things like signing and so on to different places because it's
+sort of impossible to tell which things can interact with which other things and which
+things run in trusted context and which don't and so on.
+So I sort of wanted to avoid all this kind of nonsense and create a system from scratch
+which does not have these kind of issues.
+So my initial system was Void Linux as I said at the time on PPC64 early architecture.
+C build has a sandbox which means the environment in which everything is built is sort of a
+container implemented with Linux namespaces.
+We try to harden this container as much as possible to restrict what build systems and
+so on can do but at the same time allow common software to be built reasonably.
+So like there's no network access in the container after some point.
+The root file system of the container is read only and it will only write to directories
+where it's supposed to write that kind of stuff.
+So the sandbox also means that it can be run on any distribution even if the distribution
+is actually completely incompatible with ours so it's isolated.
+So what does the bootstrap process for the system look like and what it looked like back
+in 2021?
+There's four stages basically. Stage zero is to bring up the first version of the bootstrap
+or the build container which runs using the tool chain from the outside system and you
+basically use the outside tool chain to compile all the basic things you need to assemble
+the minimal build environment.
+This is done with sort of minimal features and also not many compiler flags and so on
+so things like LTO are disabled at this point.
+We cannot make too many assumptions about what kind of compiler is used on the outside
+so we try not to and just assemble sort of an environment which is good enough that it
+can be used to build more things.
+For stage one we use these generate packages from stage zero built to actually assemble
+the container and build the same thing again but using the new packages.
+We repeat this twice more. For stage two we enable LTO and basically all the flags we
+need which will match the final environment so the result of that is basically what you
+want basically equivalence to the final but just for a good measure we use these good
+final or almost final binaries to rebuild once more and get a clean environment which
+can be used to build everything afterwards.
+So what does the environment look like? It's sort of bare minimum packages to build itself
+so the container is small enough so it can build itself but also you can install more
+dependencies into it depending on what you are building and so on.
+Have some build graph and build it over time and so on.
+So there's a Lipsy obviously and there's the compiler which is in our case Clank and the
+rest of the LWIM suite.
+There's the core user and different utilities basically that makes up basically the system
+because build systems need to run these and so on.
+And there's the package manager which is used to manipulate packages installed within the
+build container for different purposes.
+It's a small chimera Linux system just containerized.
+The containerization is done using the bubble wrap tool which is also used for example by
+Flatpak and it provides a minimal interface to the Linux namespace kernel feature which
+lets us make these small sandbox containers without requiring much other infrastructure.
+The outside host system needs to provide only Python for running C build itself, bubble wrap
+and a potentially static build of APK and that's basically all it needs to provide.
+Anything else is sort of set up by us.
+It runs completely unprivileged.
+There's nothing which needs root and you cannot run it as root.
+So why use LWIM?
+It's a more modern compiler design in GCC and it has many implications.
+It has state of the art sanitizers which are in a better shape than in GCC.
+GCC does have some of these sanitizers but it tends to be more out of date and things
+like CFI for example not present in GCC at all.
+It's also much easier to build and bootstrap with it has a relatively standard build system
+compared to GCC which is sort of completely custom.
+Half auto tools have some other cursed thing.
+Also cross building with LWIM is much easier because you only have one compiler and you
+only need the specific run times for the different C-sroutes for different arcs.
+It also has FIN LTO which actually enables us to deploy LTO system-wide and not fear
+it will actually be much of a problem.
+It uses far less resources this way.
+It's much faster, it's slower than non-LTO build obviously but the overhead is not so
+big that we cannot do it.
+It also has actually better performance these days which didn't always used to be a thing
+but nowadays it tends to be that client tends to perform about 5% faster on average in resulting
+binaries than GCC does.
+And often it tends to be less buggy in my experience.
+As for why not to use LWIM, very occasionally there's worse compatibility with things.
+Some things will not compile well with LWIM especially things with very cursed linker
+scripts and so on sometimes run into trouble with LWIM.
+Some of the supported architectures are kind of less maintained than in GCC which supports
+an impressive amount of architectures and overall there's fewer architectures supported.
+The LWIM suite as a whole also takes much longer to build because it's in C++ and it's
+sort of idiomatic C++.
+So on most architectures this is not an issue but for example now RISC-5 Builder which is
+not real hardware actually.
+We built in QMU user emulation because it's like seven times faster than the best next
+real hardware.
+It's still very slow and it takes like maybe 10 to 15 hours to actually build a new version
+of the toolchain so it's not great.
+And very rarely there's worse performance in like runtime performance in some things
+so like I think in maybe in some open MP things the state of that is still a little bit worse
+and so on.
+But it's not a big deal.
+Now let's take a look at the toolchain structure of a typical Linux distribution.
+We have CRC library which is usually these days almost always G-Lipsy or Muscle.
+Other Lipsies do exist but they are very rarely used.
+Pretty much nobody uses things like UCLipsy and so on these days.
+You have GNU Benutils which provides things like assembler and delinker and manipulation
+tools for else files and so on.
+Then you have GCC itself which is a CNC++ compiler, plus a compiler frontend for many
+different languages, plus a core runtime or well a portion of core runtime because some
+of the core runtimes provided by Lipsy, some is provided by GCC.
+You have LibGCC also and LibGCCS for the unwinder and so on.
+You have the C++ and the library called FlipSTDC++ and that kind of stuff.
+You tend to have one build of Benutils and GCC per target.
+The user-run API tends to look like you have the built-ins for fallbacks which are in LibGCC.a
+static linked plus the CRT and you have the unwinder plus dynamic built-ins in LibGCCS
+and the C++ and the library and so on.
+And with LVM it looks a little bit different.
+You have the compiler linker, assembler, Benutils and everything all in one, all in one suite.
+You just compile it all.
+The only separate component is the Lipsy which tends to be again G-Lipsy or Muscle.
+For G-Lipsy being problematic still so that's the main reason we went with Muscle.
+You have one compiler for all your targets and then you only compile the runtimes for
+the others.
+The API also looks a little bit different but this is not used in most distros because
+in most distros LVM acts as a drop-in compiler for GCC.
+But with native LVM style ABI you have the built-ins which provide all the LibGCC.a plus
+a portion of LibGCCS which is also static linked in this case and lipanwinder.so.1 only
+provides the unwinder ABI part of LibGCCS.
+So you also have the C++ library which is different but it can live in one process with
+LibSTD C++ because LibC++ uses anonymous namespaces in a clever way and that allows
+these symbols to mangle differently so it can actually live in one process.
+As for ABI compatibility, as I said, lipanwinder implements most of LibGCCS.
+So to make a makeshift LibGCCS you basically have to create a shared library of LibClank
+built-ins and then link it to lipanwind and this will implicitly pull in all these symbols
+and at least in a muscle environment which has no version symbols this will work.
+In a G-Lypsy environment it might not.
+As I said, LibC++ might be able to live in one process but this actually is only in theory
+because you might have to make LibSTD C++ use LibC++ ABI as a base.
+It will still conflict otherwise.
+G-Lypsy could not build with Clank until recently, now it does but it's still incompatible
+with native LVM style ABI because it dynamically openslipslipgccs and therefore we cannot use
+it.
+Muscle just works and always works so that's okay.
+There's another very neat thing in LVM as the allocator called SCUDO.
+It's the default allocator on Android and it's a hardened allocator but still a very
+high performance allocator.
+It has a modular design which is very different from most allocators so it makes very few
+assumptions about the environment you can run it in.
+We can mix and match these components and configure them differently.
+Most allocators tend to assume that you have LSTLS available at this point and they can
+just use third local variables.
+You cannot do this with Muscle in LibC.so because the dynamic linker doesn't set things up until
+later and the dynamic linker and the LibC are the same file so you have to be a little
+bit clever about it.
+We replaced the standard allocator with SCUDO in our system because it's much faster.
+For example, LTO linking of Useld takes third of the time now so that's quite a big difference.
+The main reason for this is because Muscle's stock allocator uses a global lock for consistency
+but this sort of pegs it to one thread so it's not great.
+We have no LSTLS so we just put a pointer directly in the P-thread structure and implement
+a custom thing around it and that works.
+The main drawback is very high virtual memory with the standard primary allocator is about
+8 GB of process which is kind of insane but with the primary 32 allocator we use it's
+only about 120 GB which is still a lot more than most allocators but I have plans to try
+to tune it further.
+Cross compilation, well C-built can cross compile.
+Cross targets need cross runtimes which we do compile but it has a little bit tricky
+bootstrap if you need to do it without pre-existing system.
+The cross compiling environment needs to include compiler RT, Muscle, Lipanwine and
+Libc++ and its ABI library.
+This is all installed into one directory which is treated as the system route for the cross
+target and that's how you use it.
+It's pretty much standard.
+To bootstrap this kind of thing you first build compiler RT or well a small part of
+compiler RT the built-ins plus CRT begin and end files.
+You do this by telling CMake to force static lips only to get rid of compiler executable
+checks which will not work at this one because it doesn't have the complete toolchain available
+and you disable the sanitizers so you can compile them later but to this early point
+you only have to compile these built-ins and the CRT base.
+It requires lipcy headers for that still so you just give it some lipcy headers, you
+just take Muscle and tell it to install lipcy headers in a temporary directory and then
+give it to that and that works.
+Then once you have this you can actually build and install a lipcy itself.
+It needs only the above parts.
+Once you are done with that you can build and install lipanwines plus lipcy plus plus
+together which is best to do it together because you can do it together and if you do it together
+you actually remove yourself some trouble of having these things interact at build time
+so you just let it to build all three components and you're good to go.
+Once you still need to explicit no STD lip and CXS flags because you don't have the STD
+lip available at this point and the build system will otherwise assume it and break.
+Now once you have this you can actually compile the rest of compiler RT.
+This is mainly the sanitizers that's what you typically want.
+Once you have all this in assist route this is the full cross-run time you need and you
+can happily cross-compile anything for this target.
+As for practical experiences with LVM as I already mentioned before it makes system
+wide LTO actually possible.
+It has far lower resort usage this way compared to GCC LTO.
+For example at work I'll come currently on a break but I'm coming back to work soon.
+At work I work on webkit and when I compile webkit with GCC LTO it climbs the memory usage
+climbs to 80 gigabytes of RAM and it runs out of memory and crashes.
+So with thin LTO and clang this does not happen.
+The resort usage stays firmly within some 30% extra overhead compared to standard build
+so that's very nice.
+Of course there's the security hardening side which I already mentioned we deploy a subset
+of UBSAN and CFI is used to where we can use it.
+Other things we market as to do and maybe fix things later but the entire core user
+run is harder in this way for example.
+As for toolchain patching in the distribution this is mostly in line with GCC but still
+more than I would really like it's about 30 patches we maintain downstream.
+I would like to upstream some of them but I need to clean them up first.
+Distributions tend to be geared towards GCC style runtimes so LLVM is often reduced
+to being sort of a drop in compiler for GCC which is a bit of a shame.
+I think more people should use the native runtimes and actually test these properly
+on Linux not just on systems where they are native.
+And also the build system of LLVM can unfortunately sometimes be a big unpenetrable mass.
+It's partially due to CMake itself being kind of terrible but it could still be a bit better.
+Also major releases of LLVM can be kind of daunting to update to because they pretty
+much universally and always break some compilation of something.
+This is usually for good reasons.
+For instance recently LLVM actually switched some invalid function pointer cache to be
+errors by default as well as disable KNR style function declarations without return type
+and so on.
+This would be fine and this is actually a very good thing which should have happened
+20 years ago but it didn't.
+Now when this happened we actually still run into tons of projects which break on this
+and worse it actually breaks in ways which we do not like.
+Particularly for example GNU Auto Tools.
+Lots of projects with GNU Auto Tools tend to be generated with ancient versions of Auto
+Tools because they ship these pre-generated config files.
+Once these use KNR style functions for different checks and when this happens the compilation
+of the const test will fail and it will get treated as not having some feature which will
+happen implicitly and you will lose that feature and this might sort of you know.
+So what we did is basically switched to always regenerating Auto Tools files on any project
+where we can do it.
+Just to never trust these pre-generated config files because it's really bad to trust them.
+This kind of stuff happens and as I said it's usually for a good reason and it's a really
+good thing that LLVM is actually pushing these things which should have been done 20 or 30
+years ago but yeah it's still a little bit of a pain.
+On the other hand the community of LLVM has been very good and helpful in my experience
+and especially shout outs to Math Gray who has been writing very nice blog posts about
+all sorts of things and also has been extremely helpful on IRC and in different places with
+actually figuring out different issues of the tool chain and so on.
+Well in conclusion it's generally a really nice tool chain and there are some pain but
+in general it's nice and practical.
+It can build just about any Linux software which is neat especially given how many extensions
+and so on GCC has and it should not be reduced to just the drop in thing for GCC use on Linux
+it should be treated as a standalone thing more I think.
+Thank you for listening and if you have any questions now is the time to ask.
+How do you schedule package fields on your builders because if you remember a thing I
+would tell you it may have been client-based oil and fuel or something like that.
+Yeah basically what happens is that you push your thingy or change to the C-port GitHub
+repo and then we have a build bot which will pick up these changes and then schedule them
+all into the different workers which will build them and then upload them to the final
+repo server.
+So one worker is just building one package at a time?
+Yeah basically yeah it's good enough for the time being it's sort of it may receive a
+batch and the build system will sort of sort it and then do the thing it needs to do.
+Yeah?
+Do we have any idea about the size of the thing?
+The minimum build how big is the question and what kind of unit are you using?
+The size of what?
+Of the system?
+Yeah.
+Do you have the minimal system?
+A minimal container kind of system?
+Oh yeah sure.
+So he was asking about the size of the minimal system and it depends on the case really like
+a very minimal container kind of build is about 7 megabytes while a bootable system is
+maybe I don't know 50 or 60 if you really make it small but then you pull in Linux firmware
+and then it grows to 500.
+So yeah there was one more question in there.
+If you get significant, do you think the performance drop is enabled like a partial
+input?
+The question was if there's any significant performance drop to enable in these sanitizers?
+No there isn't because most of UBSAN is very cheap and incurs basically practically no
+runtime overhead in practice.
+As for CFI it depends on the specific software but in most cases also not.
+As for other things it really depends on the sanitizers but the stuff we need is pretty
+much always very lightweight.
+Yeah?
+There's a question in the matrix room so coming from somewhere online I'll just read out now.
+I wonder how many, which packages happened to avail if you have no network access at
+all in the build container after your preparation step?
+Well.
+All build apps from a known mirror and especially before starting any upstream provided scripts?
+Pretty much anything written in CRC++ tends to be okay and require no network access when
+you build it.
+What does require network access is pretty much anything written in Rust Go or like some
+JavaScript stuff or save some big software like LibreOffice density download things from
+Internet by default.
+We do have workarounds for that.
+For Rust we have a step which is run immediately after installing other dependencies which
+will pre-download and pre-vendor all these dependencies into the three and then from
+that point onwards which will disable network access for the rest.
+Anything else?
+Oh yeah, here.
+I have a question about system-wide LPO.
+Is that also included in providing a bitcode for 10 libraries?
+So the question was about bitcode for static libraries.
+Yes, we do ship static libraries in bitcode format.
+The main issue with that is they tend to be fairly big because you cannot strip the back
+info from them.
+But what we do is split static libraries into individual sub-packages so you don't install
+them by default unless it's needed.
+But you can still install these static libraries when you want them.
+Anything else?
+Yeah?
+Well, is this version not for a daily driver?
+Well, I'm running it on this laptop, for example.
+I'm running it on my workstation and my other workstation which are Arch64 and PP64LE systems.
+There's other people who run this and have the main issue.
+It's really like a lack of some software at this point.
+It's still much bigger than any niche distribution or has been at this point.
+There's 1500 or 1600 templates which is one template for one software.
+And we even include some really major big things like LibreOffice or Chromium and Firefox
+and basically all this kind of stuff.
+Okay, thank you.
+Thank you.

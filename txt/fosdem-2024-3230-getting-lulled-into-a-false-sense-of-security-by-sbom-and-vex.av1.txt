@@ -1,0 +1,326 @@
+Good afternoon everybody.
+I hope you hear me well.
+My name is Henrik and I'm going to talk about S-Bom and VEX or better about all the problems of collecting high quality data that are required to be part of those documents.
+So it's nice that we have those data formats, that we can sign them and exchange them and merge them, but I think it's very important for the consumers to know about all the problems related to vulnerability database, quality, dependency management, all of those problems leading to actually wrong data being encoded in VEX and S-Bom documents.
+A little bit about two minutes about myself.
+I'm a security researcher at Ender Labs.
+Previously I've been working at SAP Security Research where I started around about 10 years ago to work on the detection, assessment and mitigation of known open source vulnerabilities.
+I think the most noteworthy outcome of that activity was Eclipse Steady, which I co-authored, which is basically combining static and dynamic programming analysis techniques in order to basically determine the reachability of vulnerable code.
+And kind of hand in hand with Eclipse Steady is another project, which is called Project KB, which is a data set of fixed commits, right?
+Fixed commits that tell you which are actually the vulnerable functions in the different open source projects.
+A little later on I was interested by this increase of supply chain attacks, the more and more malicious packages showing up.
+And again, two open source projects I was involved in, which I co-authored was the Backstabbers Knife Collection, which is a collection of around about 4,000 malicious packages that have been published on PIPI and NPM and RubyGems and so forth,
+which is helping researchers to kind of develop new detective measures.
+And have also contributed to the risk explorer, which is kind of a comprehensive taxonomy about all the different ways and techniques at the disposal of attackers in order to inject malicious payloads or code into open source packages to infect downstream users.
+All right. The outline of this call, this talk is as follows.
+I mean, in order to produce accurate S-bomb and VEX documents, you basically need to link applications to all the components and component versions, right?
+And we heard a little bit in earlier presentations about this.
+And from there on, you need to link those component versions to vulnerabilities.
+And then in the next step, you need to link this to the vulnerable code functions, code snippets, right, in order to have all the information required for VEX documents.
+And what I would like to do in this talk is to provide your kind of systematic, structured overview about all the problems that appear that exist when wanting to establish this link,
+and which make that those links are pretty brittle and weak in many cases.
+And I will exemplify this by vulnerabilities, CVEs, most of the time that you can consume from OSV.
+A very important note, and I put a star so that I do not forget.
+I mean, OSV is a great, let's say, project. They do a great job.
+They just aggregate vulnerability information.
+They provide you this nice API to read vulnerability information.
+And so this is just so much better than what we did or what we had a couple of years earlier with NVD and the CPEs in order to identify affected components, right?
+Because those names didn't really match at all to the identifiers of the packages that you find in NPM and all the package registries.
+So this is a great step forward, OSV, but still there's some data quality issue that I want to point out.
+Again, they are just aggregating other vulnerability databases like the GitHub advisory database, Python security advisories and so forth.
+And so my goal for today is basically make you take S-bombs and VEX documents with one or maybe a couple of more grains of salt
+and make you aware that there may be wrong information represented there and that you may be missing out a lot of stuff.
+I'd like you to choose the right application when you're going to evaluate the next S-bombs or VEX generator and basically ask the right questions.
+So a quick recap of the vulnerability exploitability exchange format.
+So they can be distributed as part of an S-bomb document or separately, and I think separately makes more sense, right?
+Because they are changing more frequently as the analysis of the vulnerabilities going on and as patches are provided.
+And really at the heart, the need of the VEX document is that they assert the status of a certain product identifier or product in regards to a given vulnerability identifier.
+And so this is basically a quote from the CISA minimum requirements for VEX published last year.
+And therefore see a status which must be either under investigation, probably at certainly at the beginning of the analysis by the product vendor,
+then and then it will switch to not affected, affected, and if it is affected hopefully to fixed at some point in time.
+Now also from the CISA requirements, if you say you're not affected, the CISA requirements basically ask you to provide additional reasoning
+about why you're not affected, right?
+And so either you provide what they call an impact statement, which is a free text, or kind of a justification.
+And for the justification, they have five possible values, which is component non-present, the vulnerable code is not present,
+the vulnerable code is not on the execution path, or it cannot be controlled by the adversary.
+The cycle in the X-gamer is kind of very comparable.
+They have nine values, again code not reachable or code protected at the parameter.
+And so whether it's nine or five or seven, that doesn't really matter at this point in time.
+What they have in common is that they talk about vulnerable code.
+And so you should ask yourself, how do we know which function is vulnerable or not?
+And so this is basically what we want to know to produce a VEX document, right?
+For a given application with direct and transitive dependencies, hundreds, God knows how many,
+is there any vulnerable code?
+Can it run in my application context?
+And when I say can it run in my application context, it's basically meaning can I execute the program with input in such a way that this
+vulnerable function is executed?
+And there are different ways to do this, static analysis, dynamic analysis, for example.
+And the last question is can it be exploited?
+Which is another question, because even maybe it is reachable, but there are some mitigations in place,
+or I don't know in the specific deployment, the software is not internet facing and so forth.
+And so in my talk, I will focus more on the first bit.
+Is there any vulnerable code?
+A little bit on the second and I will skip the third part, right?
+Because this is very much depending on kind of the system, the environment where the thing is deployed,
+whereby the first two questions can be answered to some extent by the application developer analyzing this thing in his environment.
+Now the ideal situation would be my wish list for the research community,
+if we had a kind of a fingerprint or a signature or so of vulnerable functions
+that would allow us to find a vulnerable function no matter where it is rebundled,
+somewhere in my Python environment, in my Java class path and so forth.
+Right? And that lets us distinguish this vulnerable function and its function body from the fixed function body.
+But we don't have this.
+And because of that, we basically take a long detour where we go from applications to component versions.
+We try to get this bill of materials on the level, on the granularity of components.
+We link the components or component versions to vulnerabilities.
+And then we have vulnerable code functions linked to the vulnerabilities, at least sometimes.
+And so this is the link that we want to establish and it can basically break at all those cases.
+And I'm, yeah, this is what I basically do in the next couple of minutes.
+The first bit is in most of the cases established through many FEST files.
+We had talked about them, requirements, setup.py, POM, and you name it.
+And the rest here, the lower parts, they are basically covered by a vulnerability databases.
+Public ones like NVD, OSV, and the things that OSV aggregates, right?
+Or private ones.
+And what is important here is that the vulnerable code, in fact, is not, at least not comprehensively covered by any of the public vulnerability databases, right?
+NVD, OSV, they all stop here.
+They just say vulnerability is linked to a component version.
+They don't give you the vulnerable code.
+The vulnerable code is in private vulnerability databases.
+So how does the happy path look like?
+If everything works well, the happy path, right?
+So we would have a manifest file with dependency declarations, pinned, maybe.
+And so it's easy because there's a lot of tooling to identify the direct and transitive dependencies, right?
+So that link is covered, let's say.
+Mapping the vulnerability to the component version on the easy path is basically if,
+if there's a project which just has a single artifact with maybe one supported release branch,
+not multiple release branches for which the fix could look different,
+or maybe some release branches not being supported any longer, end of life, and nobody looks at them any longer.
+And you have a security web project maintainers.
+They communicate very clearly in their security advisory, this and that is the version that is vulnerable or not.
+So that would be covered as well.
+And then the last bit, the easy path to identify the vulnerable code is basically if there's a trivial patch in a function,
+let's say in a law list or a denialist, done in one commit,
+and the commit message kind of mentions the vulnerability identifier.
+In such cases, it's easy to understand what that's the method, right?
+And then more on the reachability part.
+On the easy part, you basically have a static dispatch,
+meaning the function to be called is known at compile time, right?
+And so there's no doubt about which method will be invoked.
+There's no dynamic dispatch as common in object-oriented languages.
+There's no reflection. There's no eval.
+There's no inversion of control where the framework calls into your application rather than you calling into the library.
+And of course, the happy path is existing, right?
+So if you plump all those components together, you will catch a lot of cases.
+But you will also miss out on kind of the obscure parts on how dependencies are established
+or maybe whether anything went wrong here.
+So this happy path is reminding me a little bit of this joke here about the, I think it is called the street light phenomenon or so,
+which is where people basically prefer to search where there is light, right?
+Because this is where it's easy to find something.
+Right, and then now I will try to give you some insights into where there is no light and what are the problems.
+The first one is, and you have heard, I mean, some of you heard the term earlier on,
+is these phantom dependencies, and they basically affect the first link here, right?
+So how do you determine what are the component versions used by an application?
+Again, manifest file is the easy path, but then there, as Yorgo's mentioned earlier on,
+there are these kind of dependencies not expressed in manifest files,
+but kind of described in readme files and kind of manually or scripted in the runtime environments, right?
+I won't go into detail because they were covered in the previous talk, or in fact, two talks behind,
+but I would like to mention this other nice flavor, which is dynamic installation,
+a la try, except install, which I came across.
+It's typically a pattern that I found in malware, because malware, you know, they require requests,
+the Python package request in order to exfiltrate information,
+but they don't want to necessarily ship their component so that it is obvious in their requirements,
+but they do this dynamically.
+So we have kind of patterns to detect this, and I was surprised that this is also a technique used by legitimate packages.
+So what you see here is, again, a try import, we have seen this earlier on,
+and then if the import fails, it's basically making an operating system call, calling pip install sigopt.
+This is with pip install, right?
+Another pip install, and another variation, I like that, it's aptget install, right?
+And so, you know, there is no limit to developer creativity, right?
+And these are not some random packages, right?
+So these are well-known machine learning and used machine learning libraries.
+I'm not talking about the thing that has three downloads.
+Good. This was kind of the first link, second link is here,
+and I guess I need to hurry up a little bit.
+Name changes.
+You had this probably in the panel session earlier on.
+The thing is that projects get renamed and forked,
+and then there are also some strange distribution channels that change the name when you deploy your jar, for example, right?
+I found a nice example here.
+It's a eBix Java client.
+It's a tiny project.
+It has been developed on SourceForge originally, I think in the 2000s or so.
+Has been moved to GitHub, has been renamed, has been forked,
+and every time, basically, the artifacts, the Java archives are deployed with a different identifier, right?
+So in order to make sure that your vulnerability, your CVE identifier, or GitHub security advisory,
+you need to actually, in this case, mark those three group ID, artifact ID, identifiers,
+because otherwise it will not be highlighted as vulnerable.
+So this is one of the first orc copy eBix.
+If you build it from the GitHub sources, this is what is written in the POM.
+The second one, if they kind of choose a strange, at least strange to me,
+I didn't know it, distribution channel, they don't deploy on central.
+They deploy using JITPEG, and if you deploy to JITPEG,
+it basically doesn't take the POM values, but it takes the value from the GitHub repository.
+And so you see here, com GitHub, eBix, Java, blah, blah, blah.
+And the third is the group ID, artifact ID of the fork that deployed on central.
+So this is kind of all the names you would need to catch.
+OSD, in this case, doesn't get any of those.
+They only say it's in the GitHub repo.
+Next problem, again, same link here.
+There is this problem of multi-module projects, right?
+So you have a repository that is producing not only one jar with one identifier,
+but multiple ones.
+Crazy case here, Bouncy Castle, it's a pretty well-known crypto library.
+They have 84 different artifacts with a group ID, ork, Bouncy Castle on central.
+So if you do the search, right?
+They all ork Bouncy Castle and then they have various names.
+They do this to cover FIPS compliant crypto libraries,
+support for different Java version, God knows what, there's a reason for this, I suppose.
+The thing is, this vulnerability is affecting 28 or so of those Java archives,
+but OSD is only marking two.
+And we know this because we looked up the vulnerability, the vulnerable function,
+in the commit that they use to fix the problem and the research for the class, right?
+Another one is this one, Microsoft Common Data Model.
+It's an interesting case, they have one GitHub repository
+that they use to produce artifacts for four different ecosystems,
+NPM, PyPI, NuGet and Java.
+However, somehow the OSD is only marking three ecosystems, so they miss out completely on NPM.
+So if you use the artifact for NPM, your kind of scanner wouldn't get it.
+Now we move on from multi-module projects to rebundling, it's a well-known problem,
+I think I've heard it earlier on, which is where basically the archives,
+the packages contain artifacts from other projects, right?
+This could be binaries, like in many of the Python machine learning libraries,
+but this could also be just Java classes.
+In this case, it's a vulnerability in the spring framework,
+the vulnerable method is called Reset Default Subscription Registry.
+OSV is marking kind of the wrong artifact from spring,
+but interestingly, and this moves on to rebundling,
+this class is also contained in an orc Apache service mix, blah, blah, blah, blah,
+which is not caught by OSV.
+I have, there are some studies about rebundling in Java,
+rebundling in Python.
+This is an interesting case here, this is a WebP image codec,
+I think this was a C component which was vulnerable,
+included also in the Chrome browser,
+but it was also rebundled in 50 different Python packages, right?
+The people just, it's for coding and decoding this image format that I don't know,
+and so 50 projects contained that binary, they were vulnerable,
+OSV covers just six out of those.
+The guy who wrote this analysis, you have the link here,
+also did the job to find the most top rebundled binaries,
+and he found that here, the GCC runtime is 920 different Python packages.
+So it's really hard to keep track of all this,
+because developers just copy code, include code in whatever possible ways.
+This is another one, again Azure functions something that I found myself.
+Typically you would say you declare your dependency and then it is pulled from the repository.
+In this case, they basically included the third party right away in the, what is it now?
+NPM, I think here, no, Python as well.
+And so basically they bundled this verktzorg,
+pretty well-known Python project in the Python package from Azure functions.
+They also took some random, not random,
+they also took some single Python file from some GitHub repository that they included here.
+Again, hard to track.
+Rebundling in JavaScript, I won't go into this,
+it's yet another kind of catastrophic stuff.
+Here I did some statistics about how often do we agree with OSV
+on what are the affected components.
+And we're just talking about the components, not yet the versions, which is again the next link.
+And for a couple of thousand vulnerabilities, Java vulnerabilities,
+it turns out that we only agree in 57% of the vulnerabilities on what are the affected components, right?
+Meaning that in 43%, we have a different opinion on what is affected or not.
+It's a pretty big difference, I find.
+And so how can you read the chart?
+So this is basically where we agree.
+This is where we list one more package than OSV.
+This is where we list 26 more packages.
+This is bouncy castle, right?
+This is where OSV lists more than we do.
+And so forth.
+So it's really interesting statistics that you can get out of it.
+And yeah, which really, I mean, it's really hard to tell also who's right
+because there's so much manual work involved.
+All right.
+That is about version identifiers.
+Here I want to just highlight one thing maybe, two things.
+First, Tomcat, they had a vulnerability not so long ago.
+But 80, the release branch 80, is end of life.
+It was not checked by anybody, right?
+The vulnerable function, though, that I looked up, it existed as long as 2012.
+I think I traveled back in time.
+I found it in 5.5, 2012.
+But nobody kind of marked this as vulnerable.
+This one here is, again, pretty recent.
+Again, they didn't mark old versions, even though the advisory from Apache said they are vulnerable.
+And indeed, the vulnerable code is not there, but I tested.
+The exploit still worked on the old releases as well.
+So I was filing a change and the GitHub security advisory database kind of adjusted the affected version range.
+But all this is a super high-touch manual effort.
+You need to dig down into the code.
+When was it introduced?
+How has it been renamed?
+It's awful.
+I don't go to this example for lack of time, though.
+Last link to go, as I said, you need for this reachability magic.
+No matter how you do it, dynamic static doesn't matter at this point in time.
+You need to know the vulnerable function, the vulnerable code.
+Happy path was one function changed in one commit, in one release branch,
+and you had the CVE identifier and the commit message.
+Beautiful.
+It's not always the case.
+For this component, I think it's Python or so, the guys needed 18 fixed commits.
+They touched 14 functions, and there was no vulnerability identifier.
+And so I hope we caught all of those functions.
+But again, it's a very time-consuming task.
+This was here about validation of SSL certificates,
+and so they didn't do this across the whole code base,
+and so they had to change a lot.
+So this is where the last bit of the link basically breaks.
+This is kind of a summary, right?
+We didn't go into Wendat code, where the people just copy the stuff in your own repository.
+This will be for another talk.
+So this is just about the link, right?
+And now, yeah, for once I'm in time.
+And now we come to the reachability analysis.
+Again, easy path was static dispatch.
+And then the difficulties add up, right?
+You have reflection, you have eval, you have these framework dependency,
+where spring is basically calling into the application,
+then rather than the application calling an easy library.
+Then of course there are vulnerabilities which are all about configuration.
+Cannot do much in that case.
+Cross language calls.
+I think we had this early on.
+So if you have a Python machine learning library that calls into C,
+these cross language stuff is really hard from a program analysis point of view.
+And then of course you have this dynamic dispatch,
+megamorphic call sites where a call, the type of a call target is only known at runtime,
+and you need to do a crazy limbo dance to figure out all the types.
+And sometimes you just over-acproximate crazily.
+Right, takeaways.
+Those links are super brittle, and a high quality vulnerability database
+requires a lot of manual work.
+And, well, let's say, let's see it a little bit more positive.
+The opportunities, I think the industry and the open source community
+benefit greatly from having kind of a comprehensive code level
+on the level of vulnerable functions database to use as input for all this reachability stuff.
+But I don't see it nowhere, which is a pity.
+Actually, the starting, it's starting.
+There's ways of starting, okay?
+Especially with the software heritage as a source of starting points.
+All right.
+And then also when it comes to reachability,
+there's no reliable way to identify the vulnerable code, right?
+So this is what I was mentioning in the beginning.
+It would be nice to have signatures of fingerprints of the code
+rather than doing this stuff with component names and versions,
+and you just can't get it wrong.
+You only get it wrong.
+And so my advice when you talk to your SCA dealer the next time,
+do not only choose a happy path application for your product validation, right?
+Use one that has a little bit of complexity.
+And then also ask for kind of details and statistics,
+what I would say are three critical areas.
+This dependency identification on the top of this thing,
+the vulnerability database, how do they maintain this?
+How do they ensure it is high quality?
+And this reachability bit, how do they actually figure out
+whether the function can be invoked or not?
+And that's it.

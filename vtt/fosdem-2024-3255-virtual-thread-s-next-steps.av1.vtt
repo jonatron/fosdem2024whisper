@@ -1,0 +1,1328 @@
+WEBVTT
+
+00:00.000 --> 00:10.340
+Okay, so apologies for those who are expecting Mark Rhino to be speaking today. He couldn't
+
+00:10.340 --> 00:14.980
+make it, so I'm the stand-in for today. So you've got a stand-in speaker and a stand-in
+
+00:14.980 --> 00:18.900
+topic. So the topic is, we're actually going to talk about virtual threads, which is part
+
+00:18.900 --> 00:23.900
+of Project Loom. Charlie mentioned a bit of it in his previous talk, and we're going to
+
+00:23.900 --> 00:29.600
+talk about what we're working on in this area. So Project Loom, I'm not going to go through
+
+00:29.600 --> 00:36.720
+all of the project. There's a lot of material out there that you can actually search, and
+
+00:36.720 --> 00:41.360
+most of it is actually pretty good. At a high level, what Project Loom in OpenJDK is about
+
+00:41.360 --> 00:48.160
+is really about an upgrade to Java's concurrency model. It's about enabling much more higher-scale
+
+00:48.160 --> 00:54.360
+server applications with very easy to write code. So I'm not going to go through all of
+
+00:54.360 --> 00:58.320
+that, as I said, but the main thing I'm going to talk about is virtual threads, which is
+
+00:58.680 --> 01:03.680
+Charlie called them lightweight threads in the previous slide. It's all about having much
+
+01:03.680 --> 01:10.680
+more lighter weight type of threads for execution. So think about replacing tasks with thread,
+
+01:10.680 --> 01:16.480
+thread per task models, and thread per connection, that kind of thing. There's other things that
+
+01:16.480 --> 01:20.920
+we're working on, structuring currency and some other features, they're topics for other
+
+01:20.920 --> 01:26.720
+talks. So we've been working on this feature for a long time. This is one of these features
+
+01:26.760 --> 01:30.680
+that requires jacking up the house, replacing the foundations, putting the house back down
+
+01:30.680 --> 01:35.880
+without actually breaking anything. I think actually we've actually been mostly successful
+
+01:35.880 --> 01:40.560
+on that. It went through a couple of preview releases within 19 and 20. We made it a permanent
+
+01:40.560 --> 01:46.240
+feature in 21, being well received by the ecosystem in general. If you actually look at all of
+
+01:46.240 --> 01:50.600
+the frameworks and libraries out there, they've actually got something working with virtual
+
+01:50.600 --> 01:54.480
+threads in a very short period of time. That's one of the nice things about having things
+
+01:54.520 --> 01:59.240
+in preview for a couple of releases is it allows these frameworks to try things out and actually
+
+01:59.240 --> 02:05.560
+find issues. The big thing about it and why there's such an interest in it is because it allows
+
+02:06.560 --> 02:13.040
+applications and developers to move away from the world of scalability that they had before,
+
+02:13.040 --> 02:18.240
+where they had to go to async and reactive, which actually is incompatible with a lot of the things
+
+02:18.240 --> 02:24.040
+in the Java platform, particularly around things like debugging and just being able to
+
+02:24.680 --> 02:29.200
+get your right mental model of actually what code is executing. Overall, we're in a pretty good
+
+02:29.200 --> 02:35.120
+shape. Performance is actually in pretty good shape. Reliability is pretty good. There's a couple
+
+02:35.120 --> 02:40.640
+of rough areas around performance that we need to work on. We talk about that another time.
+
+02:40.640 --> 02:47.480
+What I do want to talk about is the other 90%. This is one of the things about these big features,
+
+02:47.480 --> 02:52.200
+is you get the first 90% done and then you've got to figure out how to get the other 90% done.
+
+02:52.400 --> 02:59.400
+We do have some quality of implementation issues. One of the compromises that was made in order
+
+02:59.400 --> 03:08.280
+to actually get this feature in is that we didn't do a nice job on Java monitors. I want to talk
+
+03:08.280 --> 03:14.680
+a bit about that today because that is by far the top pain point, the second top pain point,
+
+03:14.680 --> 03:20.440
+and the third top pain point that people actually trying out virtual threads for the last couple
+
+03:20.480 --> 03:25.720
+of years is running into. I'm guessing that anyone that actually has tried virtual threads,
+
+03:25.720 --> 03:30.000
+I've read some of the articles. People always have these gotchas type of sections in their blogs
+
+03:30.000 --> 03:34.120
+and articles and it's all about pinning. I want to talk a bit about that today. I also want to talk
+
+03:34.120 --> 03:39.880
+about a few things that we're doing around expanding the set of libraries that actually work
+
+03:39.880 --> 03:44.400
+well with virtual threads. There's other projects that we're actually working on, as I said,
+
+03:44.600 --> 03:52.240
+that's for another day. In order to actually understand some of the slides that I'm going
+
+03:52.240 --> 03:55.520
+through and the material that I'm going to talk about is, you have to have some little bit of
+
+03:55.520 --> 04:01.280
+understanding as to how virtual threads are actually implemented. There's an underlying concept in
+
+04:01.280 --> 04:07.640
+the hotspot VM which is support for delimited continuations. It's not something that's exposed
+
+04:07.640 --> 04:12.440
+generally, it's just something that's there for the underlying construct that virtual machines
+
+04:12.480 --> 04:19.520
+is actually built on. What happens is that a virtual thread essentially wraps one of these
+
+04:19.520 --> 04:26.760
+continuations so that when a thread needs to block because of a lock or an IO operation or
+
+04:26.760 --> 04:32.920
+something like that, that translates to the continuation yielding and then when it actually
+
+04:32.920 --> 04:40.160
+continues again, it's like the thread continues execution again. In order to be able to actually
+
+04:40.200 --> 04:43.520
+do a threading library in Java, you actually need to combine it with some kind of a scheduler.
+
+04:43.520 --> 04:51.960
+The scheduler that we're actually combining for now is the fork join thread pool that's been
+
+04:51.960 --> 04:56.360
+in Java for quite some time and that's actually a work stealing scheduler. We're using it in very,
+
+04:56.360 --> 05:00.680
+very different ways than it's used for things like parallel streams and we're using more kind of
+
+05:00.680 --> 05:05.680
+in FIFO mode but you get the obvious kind of default parallelism which is based on the number of
+
+05:05.720 --> 05:10.400
+cores although it is a little bit dynamic and I'll get into that in a few minutes.
+
+05:10.400 --> 05:17.920
+So mental model to think about anyway is that you've got this sort of magic with continuations,
+
+05:17.920 --> 05:23.600
+we're combining with a scheduler and that scheduler is managing a set of threads. The mental model
+
+05:23.600 --> 05:28.680
+to think about is walking around with a little kid on your shoulders. The platform thread or the
+
+05:28.680 --> 05:33.240
+carrier thread is carrying the little child around which is the virtual thread on the shoulders.
+
+05:34.240 --> 05:40.120
+When the child wants to stop and do something, you take them off, drop them down, some other
+
+05:40.120 --> 05:45.080
+adult comes along, the other guardian picks them up and moves them on their shoulders. So that's
+
+05:45.080 --> 05:52.680
+essentially sort of what to think about with virtual threads. Okay, so in order to talk through
+
+05:52.680 --> 05:56.400
+some of these slides, I'm going to use the kind of the same sort of layout in all of these slides
+
+05:56.400 --> 06:01.560
+and so what I'm going to have is, is there's going to be a little bit of code example on the left
+
+06:01.800 --> 06:08.360
+and then I'm going to show some stacks on the right side. They're color coded and I'll show you
+
+06:08.360 --> 06:14.240
+these just to give you an idea what's actually going to happen. The thread that is going to be
+
+06:14.240 --> 06:18.880
+the subject of this talk, we're actually just going to give it an ID, it's number 22. We've
+
+06:18.880 --> 06:24.800
+doubled down on thread IDs, quite a bit in the platform the last couple of years. So what we're
+
+06:24.800 --> 06:29.200
+going to do here is we're going to have a bit of code that's executed by virtual thread number 22.
+
+06:29.400 --> 06:34.360
+In this case, for the first example, we're actually going to use the same before. Just think about
+
+06:34.360 --> 06:39.160
+a semaphore as something that has a number of permits. You actually acquire a permit and,
+
+06:39.160 --> 06:43.720
+and when you're, and run some critical code and then when you're done with the permits,
+
+06:43.720 --> 06:47.240
+you actually return it back to the semaphore with a release. So typically the typical idea
+
+06:47.240 --> 06:52.120
+that you actually use is, is, is acquire and then release at the end and use it to try resources
+
+06:52.120 --> 06:57.200
+concept. Okay, so very, very simple. So let's see what actually happens when a virtual thread goes
+
+06:57.240 --> 07:03.240
+and executes this code. So the arrow here, just think that this is, this thing of the red arrow
+
+07:03.240 --> 07:08.440
+is kind of like a program point, program counter. That's kind of where we are. On the right side
+
+07:08.440 --> 07:12.400
+now we see our first sort of stack traces here. There's actually two threads in the picture here.
+
+07:12.400 --> 07:17.200
+What you actually see at the top, and by the way, the stacks are in this, in, in, in, in all of these
+
+07:17.200 --> 07:24.120
+slides grow from the top to top down. So the, the, the, the orange brownie frames that you see at
+
+07:24.160 --> 07:29.040
+the top there, they're actually the fork join pool thread that's, that's actually carrying the virtual
+
+07:29.040 --> 07:35.280
+thread. And the greens, the green frames that you see there are the virtual thread. And so I've
+
+07:35.280 --> 07:38.880
+just merged them there together because that's actually what you have on the native thread
+
+07:38.880 --> 07:45.600
+underneath the, the covers. So when we get to do, to doing a semaphore acquire, what we see is, is,
+
+07:45.600 --> 07:50.880
+is, is in green here. If you look down right at the bottom, the, the, the, the frame there is
+
+07:50.920 --> 07:55.200
+actually semaphore.acquire. So we're about to call this guy and we'll actually see what actually
+
+07:55.200 --> 08:02.560
+happens when we call semaphore acquire. Okay, so semaphore acquire gets to this point here. Now
+
+08:02.560 --> 08:08.880
+every, every good movie needs a villain and I need a villain here. So in this case, let us assume
+
+08:08.880 --> 08:13.400
+that the, the villain is Andrew and he actually has the permit for this summer for. So what's
+
+08:13.400 --> 08:19.200
+going to happen is this virtual thread has to go and park because it can't acquire a semaphore. So
+
+08:19.240 --> 08:23.760
+what we see here is, is we're going down through the Javiutil concurrent code to try to acquire
+
+08:23.760 --> 08:28.520
+the semaphore. There's no permits available. So the thread has to park. What actually happens is,
+
+08:28.520 --> 08:33.360
+it bottoms out at the bottom trying to do a park which will actually yield the continuation. And
+
+08:33.360 --> 08:39.440
+there, this is when the, this is, this is where the magic occurs is, is the, the, the, the, the,
+
+08:39.440 --> 08:44.480
+the thread is now parking and, and magically its frames get removed from the native thread stack.
+
+08:44.480 --> 08:49.160
+And the worker thread or the fork joint thread is able to go and do other work. So
+
+08:49.200 --> 08:54.480
+that's actually what happens sort of at a high level with, with, with, with virtual threads.
+
+08:54.480 --> 09:02.080
+Now Andrew is finished with his, the, the, the semaphore and is doing a release. So
+
+09:02.080 --> 09:07.280
+he's returning back the permit back to the, to the semaphore. So now we're actually going to
+
+09:07.280 --> 09:11.480
+look at what happens here now when the, when the, the, the virtual thread is actually going to
+
+09:11.480 --> 09:16.080
+continue. So remember a virtual thread is waiting to acquire the semaphore. Andrew is doing the
+
+09:16.120 --> 09:21.880
+release and that goes and triggers the, the, the, the, the, goes through the Javu-Tilkin
+
+09:21.880 --> 09:26.240
+current code and it'll bottom out then doing an unpark of the, of the virtual thread that's
+
+09:26.240 --> 09:30.760
+actually waiting, which will do the continue. What, and, and what it's actually really going to do
+
+09:30.760 --> 09:34.920
+is actually schedule the task that's associated with the virtual thread back to the scheduler
+
+09:34.920 --> 09:39.800
+so that it actually can continue again. Very, very, very kind of straightforward. It's just
+
+09:39.800 --> 09:45.640
+submitting the, the, the virtual thread back to the, to, to the scheduler so it can continue. So
+
+09:45.680 --> 09:52.000
+back to our slide again. So what happens is, is, is, is, we'll assume the scheduler has now
+
+09:52.000 --> 09:56.720
+started executing this code again. It'll return back from, from, from, from the park that we were
+
+09:56.720 --> 10:02.080
+on earlier on and magically we, we, the frames start popping off and we go into our tri block
+
+10:02.080 --> 10:07.720
+and we are done. So that's sort of thing, how, how, how things actually work with parking and
+
+10:07.720 --> 10:12.160
+unparking and how they actually integrate with the scheduler. Now we get into the sort of the,
+
+10:12.360 --> 10:19.080
+the problem areas and where we have the pain points with, with virtual threads today. So I'm
+
+10:19.080 --> 10:23.400
+going to go through two, two, two, two scenarios. One of them is, is parking while holding a
+
+10:23.400 --> 10:27.240
+monitor. I mentioned about all these, these blogs that have these gotchas at the end. This is
+
+10:27.240 --> 10:31.680
+essentially what they're actually trying to show you in, in, in, in these blogs. So we've taken
+
+10:31.680 --> 10:35.520
+the same example but we've actually put it into a synchronized block. So the synchronized block
+
+10:35.520 --> 10:39.960
+here is, is, so that's kind of, think of that as a monitor enter, here's a monitor exit. Same thing
+
+10:40.000 --> 10:45.840
+if this was a, a synchronized method. The code that we had in the previous, the previous section
+
+10:45.840 --> 10:52.800
+is, is, is exactly the same. So what happens is, is we're going to do the, going to do the, the
+
+10:52.800 --> 10:57.880
+choir here. Andrew R. Villan again is actually holding the, the, the, the permit for the semaphore.
+
+10:57.880 --> 11:04.880
+So this virtual thread has to, has, has to go and park. So what happens this time is we're going
+
+11:04.920 --> 11:12.000
+to try to park but we're actually holding a monitor. So, so this yield down the bottom fails. Why
+
+11:12.000 --> 11:18.120
+does it fail? Well, we, we get into why it actually fails in, in, in a second. But something, we're
+
+11:18.120 --> 11:22.000
+not able to actually go and release the, the, the, the, the, the, the, the, the, the, the, the, the
+
+11:22.000 --> 11:27.320
+carrier thread to do other work here. This is actually why we have, you get performance issues
+
+11:27.320 --> 11:33.000
+and, and why we say that monitors lead to a quality implementation issue is because of this, this,
+
+11:33.120 --> 11:38.280
+this issue here. Now what actually happens in this particular case is, is that instead of
+
+11:38.280 --> 11:43.720
+actually failing, it actually falls back to actually to park on the carrier and the, the, the, the,
+
+11:43.720 --> 11:49.000
+the semaphore in this case works exactly the same as, as, as, as this would if, if, if you were able
+
+11:49.000 --> 11:55.320
+to unmount, we're just not able to unmount. We can't let the, the, the carrier go away and, and, and,
+
+11:55.320 --> 12:02.000
+and do other work. And right, why, why do we have this problem? And so we have this problem
+
+12:02.040 --> 12:09.760
+because of the way that monitors are implemented in, in the, in, in the Java VM. There's different,
+
+12:09.760 --> 12:14.360
+there's different kind of locking modes. A lot of this is sort of beyond where, where I typically
+
+12:14.360 --> 12:20.040
+work. But in, in, in Roman's talk earlier on, he actually, actually shows some of this where, where,
+
+12:20.040 --> 12:28.080
+the fast locking type is essentially, is essentially putting a pointer into the object back into a
+
+12:28.160 --> 12:32.720
+lock record that's actually in the, in the stack. Oh, if we, that, then we can't actually start removing
+
+12:32.720 --> 12:37.920
+frames that, when, when, when we, when we unmount. There's also these inflated cases where, where,
+
+12:37.920 --> 12:43.520
+you're actually building up a waiter list of who's actually waiting for the monitor. And what,
+
+12:43.520 --> 12:48.640
+what goes on to that waste list is, it's actually, it's actually the, the VM's internal Java thread,
+
+12:48.640 --> 12:55.040
+which is, is essentially the, the carrier thread in this case. So these are the reasons why, at least
+
+12:55.120 --> 13:01.200
+in this particular locking mode, that you cannot release the, the, the carrier at this point. And so
+
+13:01.200 --> 13:05.200
+there's, there's, there's, there's magic in the implementation to actually to track monitor usage
+
+13:05.200 --> 13:09.680
+to prevent this happening. There's another locking mode, which, which is, which is the, the, the, the
+
+13:09.680 --> 13:15.920
+newer one, the lightweight one where there's a, a, a per, per, per thread little stat lock. And that's
+
+13:15.920 --> 13:19.280
+got issues as well, because that's actually associated with the carrier thread, not with the
+
+13:19.280 --> 13:24.800
+virtual thread. So what we do about this, so there is a, there, there's a sort of larger,
+
+13:24.800 --> 13:29.120
+longer term effort that has, has kind of been underway. I think I saw Robin Ian here at one
+
+13:29.120 --> 13:35.120
+point. He actually started this work to actually completely re, re, reexamine and do a new implementation
+
+13:35.120 --> 13:39.520
+of Java monitors. Do it in Java, rather than actually in the VM. Because a lot of legacy code
+
+13:39.520 --> 13:44.000
+and a lot of, there's, there's a lot of history there. Now that is a longer term effort. There's
+
+13:44.000 --> 13:51.760
+a lot of unknowns, there's a lot of exploration. Both, we needed a plan B and, and, and plan B
+
+13:51.760 --> 13:57.680
+involved a hero and the hero in this case is, is, is, is, is, is Patricio in, in, in the hot spot team
+
+13:57.680 --> 14:01.760
+decided to go and have a go at actually trying to do a plan B, which is change the existing
+
+14:01.760 --> 14:08.400
+object, object monitor implementation to work with virtual threads. So, so what he actually did was,
+
+14:08.400 --> 14:15.280
+was, he's, he's, he's come up with a, well, there's, there's, there's several steps in this and this is,
+
+14:15.280 --> 14:18.560
+this is, this is by the way, this work is all actually in the, in the, in the Loom repo.
+
+14:19.440 --> 14:24.560
+So what he actually does is, is for the, for the StackLock cases, is he just, just, just inflates
+
+14:24.560 --> 14:29.680
+and then for the inflated state, he's actually for the moment has, has the VM actually doing
+
+14:29.680 --> 14:35.040
+a, a, a, a, a, a StackWalk to actually replace the owner so that it's actually not the, the, the, the
+
+14:35.120 --> 14:41.120
+Java thread, it gets, it, it, it, so the, the VM's view of the thread is actually the, the, the Java
+
+14:41.120 --> 14:47.360
+thread. And so that's a little bit expensive, but it actually does work. And, and here's a solution
+
+14:47.360 --> 14:54.320
+for the lightweight, locking mode as well, where the, the, the lock stack actually moves at, at, at,
+
+14:54.320 --> 14:58.880
+the, the, the mount and the unmount time. There's other work that's actually going on in parallel,
+
+14:58.880 --> 15:03.520
+some of the work they're calling Fillmore is actually doing about changing the, the, the, the,
+
+15:03.600 --> 15:09.200
+the lock ownership to be the thread ID. Once that work actually comes in, that means that you
+
+15:09.200 --> 15:12.960
+actually can eliminate the StackWalk, you eliminate all the GC overhead, you eliminate all of the
+
+15:12.960 --> 15:17.920
+actual overhead there of, of, of this, which is actually quite nice. So a lot of pieces from a
+
+15:17.920 --> 15:22.240
+lot of people are coming, coming, coming together, which, which is nice. So this is working in the,
+
+15:22.240 --> 15:27.040
+in the Loom repo for the moment. So we'll go back to our, our, our, our slides again and what would
+
+15:27.040 --> 15:31.920
+happen with, with that example, if we actually run it with the, some of the bills that we have from,
+
+15:31.920 --> 15:36.560
+from the Loom repo today. So when we do, we actually do our acquire, we bottom out again at the,
+
+15:36.560 --> 15:43.360
+at the, at the yield as, as before, but this time it actually succeeds. The, we release the
+
+15:43.360 --> 15:47.600
+carriage, go off and do other work, all very positive. So that is good. So that's one of the
+
+15:47.600 --> 15:52.160
+pain points with pinning and it'll be wonderful actually to, to, to, to, to, to get that in.
+
+15:53.440 --> 15:58.880
+Second scenario then is, is the contended monitor case. And that one is, is, is, is you have an
+
+15:58.880 --> 16:05.360
+example like this. In this case, this is, I've got rid of the, the, the, the, the, the, the, the
+
+16:05.360 --> 16:10.400
+semaphore from this example. And, but I'm actually going to block here. So we assume again now that
+
+16:10.400 --> 16:15.120
+Andrew is actually holding a lock this time, rather than the semaphore. And, and, and here we have our
+
+16:15.120 --> 16:20.160
+virtual thread number 22 is going to attempt to do a monitor enter at, at this point. And what happens
+
+16:20.160 --> 16:26.000
+today is, is it actually just, it actually blocks when at that monitor, at that, at that, essentially
+
+16:26.000 --> 16:32.800
+at that, at that, that monitor enter. So what's going on here is, is, is, is a contended monitor
+
+16:32.800 --> 16:38.160
+is, is, is actually a call into the runtime. It's essentially parking in the runtime. And, and,
+
+16:38.160 --> 16:43.760
+this is something that has to be, we have to remove that and essentially pop all those frames in
+
+16:43.760 --> 16:48.480
+order to be able to actually, to, to, to, to deal with this. So the way things are actually working
+
+16:48.480 --> 16:54.560
+at the moment is, is, is what, what, what Patricia has come up with is, is, is that essentially allows
+
+16:54.560 --> 17:00.240
+the VM to do a yield while it's from, from, from in the runtime. So normally we actually would do
+
+17:00.240 --> 17:05.680
+these yield from, from, from the, from the Java site. So it copies the frames off the, off, off,
+
+17:05.680 --> 17:09.840
+off the stack into the heap, just like we would with, with, with, with, with a, with a normal and,
+
+17:10.560 --> 17:18.320
+and, and, we would do it a normal yield and, and freeze. And what it does is, is it actually puts the,
+
+17:18.720 --> 17:25.200
+the virtual thread onto the wait list for the, for, for, for the, for the lock. And at a high level,
+
+17:25.200 --> 17:31.280
+it's as if we're actually doing a yield at that point. There's a bit of, there's a bit of magic
+
+17:31.280 --> 17:36.160
+that goes on with where it actually has to, has to return back as, as if it hold the, hold the lock
+
+17:36.160 --> 17:40.080
+and then you've got to run the, the, the stub that actually goes and actually does some fix up some,
+
+17:40.080 --> 17:45.200
+and there's, there's VM magic that actually happens. But essentially you're turning back to Java in a,
+
+17:45.200 --> 17:50.480
+kind of a blocking mode and then we can actually fix up the state and, and, and move it to its
+
+17:50.480 --> 17:56.080
+block mode so that the, the thread is actually blocked. So what I've put here is, is just to give
+
+17:56.080 --> 18:00.480
+you, just to kind of, you can visualize how this works. We do our monitor enter, which this could
+
+18:00.480 --> 18:06.080
+be a, a, a synchronized method as well. And it's as if we're actually calling into yield at that
+
+18:06.080 --> 18:12.560
+point. So that's actually very, very nice. That actually can work. So when Andrew releases the,
+
+18:12.720 --> 18:19.680
+the lock, then we, we just continue on and we're, and when we do that, what happens is, is Andrew
+
+18:19.680 --> 18:25.120
+releases the lock. We've now got no, no, wait for virtual thread 22. How do we actually get,
+
+18:25.120 --> 18:30.800
+how do we actually integrate back into the scheduler to get that to, to, to run again? And the way it
+
+18:30.800 --> 18:36.960
+actually works is it actually just moves the, the thread into, into, into a, into a list and, and
+
+18:36.960 --> 18:43.920
+unblocker thread will, will actually unblock it. This, so for those that have, understand how, how
+
+18:43.920 --> 18:48.320
+reference processing work in the GC, this is essentially kind of like another reference handler.
+
+18:48.320 --> 18:53.040
+It's the, it's, it's, it's, it's, it's, it's essentially queuing up, queuing up objects that
+
+18:53.040 --> 18:59.040
+are, get handled by, by, by Java thread. So the unblocker then just, it, it, it just snapshots the,
+
+18:59.040 --> 19:04.800
+however that, that, that list and, and then it just wakes up those threads, which puts it back into the,
+
+19:05.440 --> 19:11.520
+to the scheduler's queue. So that's all very nice. So when our example here is, is that Andrew has
+
+19:11.520 --> 19:18.400
+released the lock and we, we, we, we, we, we queue up that virtual thread to actually continue
+
+19:18.400 --> 19:23.600
+and it gets scheduled and it's a continuous execution inside the synchronized block. Very,
+
+19:23.600 --> 19:28.960
+very nice. So okay, high level question then, does this actually solve all of our pinning issues?
+
+19:28.960 --> 19:33.600
+And the answer is no. There's always work to do. We've got, we've got, there's, there's issues with
+
+19:33.600 --> 19:37.840
+native frames. You can't, you can't actually yield with the native frame on the continuation stack.
+
+19:37.840 --> 19:43.360
+That's not a problem. I think that, that we, we, we, we will ever, ever, ever address this, a lot of
+
+19:43.360 --> 19:48.080
+unsolvable issues there. There are other things that go along with monitors. There's object weight
+
+19:48.080 --> 19:52.160
+and it's important that we actually make progress on, on, on that one. There's ideas on how to, how to
+
+19:53.360 --> 19:59.280
+improve that one. And then there's the other more difficult one, which is class initializers.
+
+19:59.840 --> 20:05.760
+And, because class initializers is, is, will require more surgery in the VM in order to be able to
+
+20:05.760 --> 20:09.760
+address it. So these are things that are not addressed in what's in the Loom repo now,
+
+20:09.760 --> 20:14.240
+but are things that have to be addressed over the next while in order to eliminate these, these,
+
+20:14.240 --> 20:20.880
+these problems. Okay, moving on. I'm going to talk about IO now because there's a whole other set
+
+20:20.880 --> 20:27.200
+of this that, that, that, that, that goes along with, with, with, with IO. So let's talk a bit about
+
+20:28.160 --> 20:32.800
+SOCAs first because networking is, is, is actually, is, is, is actually straightforward.
+
+20:32.800 --> 20:37.280
+So here we have our virtual thread is actually going to try, attempt to make, establish a TCP
+
+20:37.280 --> 20:44.160
+connection. This case is Fosn port 443. So it's the SSL port. Okay, what happens there? So same,
+
+20:45.280 --> 20:49.520
+same, same diagram as before. We've got our carrier at the top and then we've got our green, green
+
+20:49.520 --> 20:54.480
+frames for the virtual thread. We're doing a socket, we're in the socket constructor, which
+
+20:54.480 --> 20:59.600
+actually initiates the connect. What does the connect actually do when you're on a virtual thread?
+
+20:59.600 --> 21:07.200
+It's actually going to initiate the connection, arm the file descriptor and then do a yield and to,
+
+21:07.200 --> 21:14.000
+to, so, so that the, so that the, the, the, the carrier can be released to actually go and do
+
+21:14.000 --> 21:17.840
+other work. So this is what our stack would actually look like. It goes down through the, the, the,
+
+21:17.920 --> 21:23.600
+the IO code and, and IO code and, and does, does, does, does our, does our yield.
+
+21:24.800 --> 21:27.600
+Carrier gets released to go and do other work. We're all good.
+
+21:28.880 --> 21:33.120
+What we have then in the, in the background is, is, is the way things work for the moment
+
+21:33.120 --> 21:37.040
+is there is this thing called a polar thread. The polar thread interacts with whatever the
+
+21:37.040 --> 21:42.800
+IO mechanism is on, on the, on the platform. There's implementations for, for, for, for E-Pole and,
+
+21:42.800 --> 21:48.080
+and KQ. There's one that integrates with the, the Windows WinSock driver. And what it does is
+
+21:48.080 --> 21:52.240
+it's just listening for events. When there's events from the operating system to tell you that the,
+
+21:52.240 --> 21:58.000
+that these are already events, then it just unblocks the corresponding virtual thread
+
+21:58.720 --> 22:02.880
+by, well, what it does is it actually just, it, it, it unparks it and just queues its task to the
+
+22:02.880 --> 22:06.880
+schedule and things that work. That little diagram over there, did you see that it was spinning?
+
+22:07.600 --> 22:11.120
+I'm going to reuse that in a couple of slides just to make, essentially all that's doing is
+
+22:11.120 --> 22:13.680
+listening for events on parking throughout, listening for events on parking throughout,
+
+22:13.680 --> 22:15.040
+listening for events and so on. That's all it does.
+
+22:17.040 --> 22:23.120
+And so, but back to this, back, back, back, back to our example here is, is we're, we're trying to
+
+22:23.120 --> 22:28.880
+establish a connection. The connection is now established and because we've done a wake up,
+
+22:28.880 --> 22:33.360
+we pop all the frames, we're, we're, we're, we're gone past the socket and constructor now and
+
+22:34.400 --> 22:40.720
+we're, we're, we're all good. So this is kind of the way things work today in, in, in JDK 21.
+
+22:41.120 --> 22:45.440
+You've got this, you've got this thread that's picking up IO events. It's queuing up and
+
+22:47.440 --> 22:52.880
+the corresponding virtual threads to, to, to, to the schedule, in this case I should, I did,
+
+22:52.880 --> 22:58.960
+depict it as a, as, as a box full of carrier threads. That's actually not all that efficient
+
+22:58.960 --> 23:02.720
+because a lot, there's a number of issues with this one. You actually start scaling things,
+
+23:02.720 --> 23:07.760
+scaling things up and particularly is, is, is that you've got a, you've got a number of carrier
+
+23:07.760 --> 23:11.120
+threads that correspond to the number cores and then you've got these other polar threads that
+
+23:11.120 --> 23:15.600
+are actually trying to compete for CPU cycles. You've also got the issue where, where you're
+
+23:15.600 --> 23:19.360
+picking up IO events on one thread but it's actually going to end up being processed on a
+
+23:19.360 --> 23:24.640
+different thread. So this is the, the, the, the, there's room for, for, for efficiency on, on this.
+
+23:25.520 --> 23:31.120
+So one of the things we actually have done in, in, in, in, in JDK 22 is we magically move these
+
+23:31.120 --> 23:37.040
+polar threads at least on some platforms from being platform threads to being virtual threads.
+
+23:37.760 --> 23:42.000
+Now the implications for that is they actually integrate then with the schedule. You're only
+
+23:42.000 --> 23:46.480
+picking up, you're only picking up IO events and queuing up virtual threads to on-park
+
+23:46.480 --> 23:51.440
+when there's actually cycles to actually to go and do that. In addition, because of the way this
+
+23:51.440 --> 23:57.040
+polar thread is actually written is it will actually, most of the time, continue the IO
+
+23:57.040 --> 24:01.760
+operation on the same thread that picked up the event. So you avoid having to actually go and
+
+24:02.480 --> 24:07.920
+dealing with events to, going, going, going, going between threads. When you actually scale it up,
+
+24:07.920 --> 24:11.040
+this is actually kind of what it actually goes and looks like is there's actually in,
+
+24:11.760 --> 24:15.760
+in polar threads that are virtual threads are actually, and, and then there's this,
+
+24:15.760 --> 24:20.720
+there's this other gutter guy in the background which is when it has to wake up polar threads,
+
+24:20.720 --> 24:25.200
+when there's nothing else for them to, to, to go, to go and do. And this is actually quite nice.
+
+24:25.200 --> 24:30.800
+There's, there's a nice paper written by them. There's a, there's, there's, there's a team in the
+
+24:30.800 --> 24:36.240
+University of Waterloo that actually work in, in, in the sort of similar area on their own library
+
+24:36.240 --> 24:41.840
+of, of for lightweight threads in C++. And they've got an initial paper which deals with all the IO
+
+24:41.840 --> 24:45.760
+strategies. And this is kind of one of the IO strategies that, that they, they're, they're also
+
+24:45.760 --> 24:51.280
+using by default. So, so that's Martin, and Karinson's team in, in Waterloo. It's the paper is, is,
+
+24:51.280 --> 24:54.960
+have your cake and eat it, which is a great title for, for, for, for a paper.
+
+24:55.200 --> 25:02.560
+So, so this is actually turns out, and some, and some benchmarks turns out to be actually quite,
+
+25:04.000 --> 25:10.240
+very, very profitable. And because, and so this, this, this is just a, some random benchmark that's
+
+25:10.240 --> 25:17.280
+actually sending, sending a 1K request and getting a 16K response. It's, it's on the loop back.
+
+25:17.280 --> 25:22.240
+There's, there's a client and, and, and, and, and a server thread for each one of these. So there's
+
+25:22.240 --> 25:26.480
+a lot of parking actually going on. There's a lot of IO between them. But the nice thing is, is we
+
+25:26.480 --> 25:30.720
+actually see improvements, significant improvements on, on, on, on, on, on, on arranging systems,
+
+25:30.720 --> 25:36.880
+which is actually quite good. Okay. Mo, moving on a lot, I want to talk about a bit of file IO,
+
+25:36.880 --> 25:41.440
+because this is where we actually put on our sad face. Because it's, it's not as, not as, not as
+
+25:41.440 --> 25:45.920
+good a story. So the example I'm actually using on this one is, is, is, is, is, I'm, I'm opening a
+
+25:45.920 --> 25:50.480
+file. So this is actually, this is code executing on a virtual thread. There's, I'm, I'm doing a
+
+25:50.480 --> 25:55.520
+file open here and I'm doing a file read. So two, two, two file operations. Down on the right,
+
+25:55.520 --> 25:59.920
+I've got just, I've just showing the, the, the box with the, let's assume this is a four core
+
+25:59.920 --> 26:04.000
+system. This four carrier thread is actually sitting there. So what actually happens today,
+
+26:04.000 --> 26:07.760
+and it's, it's, it's a bit lame, but I'm just explaining with the way it actually works today,
+
+26:08.400 --> 26:15.680
+is when you attempt to do a file IO operation that may actually consume the thread, it temporarily
+
+26:15.680 --> 26:22.640
+increases the parallelism, which will trigger an additional worker thread to be available to do
+
+26:22.640 --> 26:28.640
+other work. So if you've ever seen fork joint pool manage blocker, this is essentially the same thing
+
+26:28.640 --> 26:33.440
+which your actual compensation that actually can happen in managed blocking operations. So you,
+
+26:33.440 --> 26:38.160
+you do your file open, your thread is actually not, unavailable to do other work. And then when,
+
+26:38.160 --> 26:44.480
+when, when the file IO operation completes, you decrement the parallelism again, and what happens
+
+26:44.480 --> 26:50.480
+is, is then is that the, the, the number of worker threads that are available reverts back to where
+
+26:50.480 --> 26:56.000
+it actually was. These additional extra worker threads that might get created for these, they
+
+26:56.000 --> 26:59.760
+might hang around for a little while, but they will eventually, they, they, they, they, they, they
+
+26:59.760 --> 27:05.040
+will eventually terminate once the system is acquiescent. So same thing, what happens when we
+
+27:05.040 --> 27:10.720
+had to, to do a file IO, or sorry, we do a read, same kind of thing, increase the parallelism,
+
+27:10.720 --> 27:17.840
+and we do our read, and the once, once the read is actually complete, we will decrement the
+
+27:17.840 --> 27:22.960
+parallelism again. So this is all kind of lame, and you say, well, why haven't we done any better
+
+27:22.960 --> 27:26.000
+on this? So this is one of the things that we actually have been playing around with for, for
+
+27:26.000 --> 27:30.480
+quite some time. There are asynchronous IO interfaces on different operating systems.
+
+27:30.480 --> 27:36.160
+I'll just talk about what, for IO, you ring today. I'm just talking about in the context of file,
+
+27:36.160 --> 27:42.160
+we've also looked at it in the context of, of, of, of Socus as well. So in the Linux operating
+
+27:42.160 --> 27:49.040
+system, there is, there's, there's a completely different type of, of interface to the operating
+
+27:49.040 --> 27:54.400
+system, which is, which is supports asynchronous IO operations, is essentially, essentially
+
+27:54.400 --> 28:00.560
+allows the trap into the kernel. And so you've actually, you, you, you can actually queue up
+
+28:01.280 --> 28:05.760
+submissions in, in, in, in memory, and any events that are associated with those when
+
+28:05.760 --> 28:09.760
+they're complete are actually queued up in a ring. That's also, so it's successful from both the,
+
+28:09.760 --> 28:17.440
+the kernel and, and, and user space. So there's, there's a lot of issues and a lot of complications
+
+28:17.440 --> 28:23.680
+trying to interface this to the, to, to, to the JDK to be able to support a lot of the, the, the
+
+28:23.680 --> 28:29.040
+libraries. So what we have been doing, and this is in the, in the open JDK sandboxes, we have an,
+
+28:29.120 --> 28:34.640
+we have a low level API, which sits on top of the work that Maurizio was talking about in the
+
+28:34.640 --> 28:42.240
+previous slide, a previous presentation with an FFM. And that will provide the lower level access
+
+28:42.240 --> 28:48.080
+to the, the, the submission and the, the, the, the, the completion rings. And it, it, it, it, it,
+
+28:48.080 --> 28:53.200
+it hides a lot of that, that, that, that kind of detail. Now, in order to be able to work through
+
+28:53.280 --> 28:59.280
+some virtual threads, we actually have to do, we have to do a bit more replacing of foundations
+
+28:59.280 --> 29:02.800
+around the place. So there's a lot of prototype re-implementation of a lot of the Java, Java
+
+29:02.800 --> 29:07.840
+I.O. classes. And to be able to work with this as well. And that actually allows the, the problem
+
+29:07.840 --> 29:13.520
+of file I.O. to be actually reduced down very significantly. None of this, none of the completed
+
+29:13.520 --> 29:17.680
+bits for this are in the Loom repo yet, but we will, we will get there eventually. There's a
+
+29:17.760 --> 29:23.200
+bunch of design choices that, that have to be worked out when you're actually interfacing with
+
+29:23.200 --> 29:29.040
+something like I.O. U-ring because as to which threads can actually access the, the, it's, I.O.
+
+29:29.040 --> 29:34.000
+U-ring is not kind of designed for, for multiple threads to be, to be accessing a ring at the
+
+29:34.000 --> 29:40.560
+same time. So what we will end up doing is, is, is, is, is, is, is having essentially multiple
+
+29:40.560 --> 29:45.920
+I.O. ring instances and one per, per carrier essentially. And that actually fixes the completion,
+
+29:45.920 --> 29:50.160
+the, the submission side. The completion side is a little bit more complicated and there's a
+
+29:50.160 --> 29:54.880
+number of design choices around that. So the main message here is, is that there's a lot going on
+
+29:54.880 --> 30:00.560
+in this area as well because all of that areas of the libraries have to, have, have to, have to play
+
+30:00.560 --> 30:05.600
+cleanly with them, with virtual threads as well. Okay, so I'm not going to go through all of the
+
+30:05.600 --> 30:09.440
+other things that are going on, but I'll just talk, just, just, just, just mention a few of them.
+
+30:09.440 --> 30:17.120
+So Professor Doug Lee who's the, the, the sort of the, the, the world expert on concurrency is
+
+30:17.120 --> 30:22.880
+doing quite a bit of work at the, exploration into fork joint pool at the moment. That is
+
+30:22.880 --> 30:28.880
+for scenarios where you have a smaller number of cores, because a lot of, a lot of container
+
+30:28.880 --> 30:33.360
+and, and, and the cloudy type systems you're running with two or you're running with four cores.
+
+30:33.360 --> 30:39.200
+And we've, we've observed in many scenarios where you get underutilization. And a lot of
+
+30:39.200 --> 30:46.020
+of that relates to just the time it actually takes to work for, well worker
+
+30:46.020 --> 30:49.020
+threads are parking and then they have to be unparked in order to actually to
+
+30:49.020 --> 30:53.420
+actually to do work. So he's exploring a number of things on that and
+
+30:53.420 --> 30:55.860
+we're trying to come up with good benchmarks to be able to actually to
+
+30:55.860 --> 31:01.220
+measure these kind of things but this should, if this turns out to be
+
+31:01.220 --> 31:06.060
+profitable then it'll help some of these scenarios where we appear not to
+
+31:06.100 --> 31:12.780
+be having full utilization on smaller systems. JVMTI makes me scream.
+
+31:12.780 --> 31:22.540
+It's a very very invasive API and it's very much challenged by
+
+31:22.540 --> 31:27.580
+features in the Java platform where you move them out of the VM into Java.
+
+31:27.580 --> 31:31.060
+So having a native tool interface where a lot of the runtime is actually in
+
+31:31.380 --> 31:38.300
+Java rather than the VM is a challenge. We have a very good story for JVMTI and
+
+31:38.300 --> 31:43.860
+virtual threads and debugging and for many other types of tool agents but it's
+
+31:43.860 --> 31:50.100
+not working well for profiler type tools that want to use JVMTI and because
+
+31:50.100 --> 31:53.740
+there's a there's it's having to coordinate with a lot of code that's
+
+31:53.740 --> 31:56.900
+actually executing in Java. So there's a lot of work going on there to try to
+
+31:56.940 --> 32:03.380
+solve some of the problems and it's one where there's been some progress made
+
+32:03.380 --> 32:07.580
+but it's one that's going to take more time. And there's other efforts that I'm
+
+32:07.580 --> 32:12.820
+not going to talk about today which is about scope values which is essentially
+
+32:12.820 --> 32:19.900
+allows us to communicate something to a remote callee without having parameters
+
+32:19.900 --> 32:23.240
+in the call frames. Andrew Haley is actually leading that effort in Project
+
+32:23.280 --> 32:28.120
+Loom. Then we have the other big area which is structured concurrency which is
+
+32:28.120 --> 32:36.080
+all about being able to coordinate multiple threads that are decomposed
+
+32:36.080 --> 32:41.160
+running some operation is be able to actually to deal with them as a single
+
+32:41.160 --> 32:43.920
+unit of work. So there's a lot of interesting things going on there that
+
+32:43.920 --> 32:49.280
+API is currently in preview and we will have to do another preview of this for
+
+32:49.280 --> 32:53.000
+the next release. So these are other kind of efforts that are actually going on in
+
+32:53.080 --> 32:57.280
+this project at the moment. So that's kind of it. I think I've actually made it
+
+32:57.280 --> 33:01.520
+in with few minutes to spare and this is sort of links to the current JEPs that
+
+33:01.520 --> 33:05.160
+we have, the repository. When I was talking about the work on the monitors and
+
+33:05.160 --> 33:08.880
+some of the other changes around fork joint pool is they're accumulating in
+
+33:08.880 --> 33:13.600
+the Loom repo now. And yeah, okay.
+
+33:23.000 --> 33:30.000
+You'll have to hand out microphones.
+
+33:30.000 --> 33:33.000
+Okay.
+
+33:33.000 --> 33:36.000
+Hello.
+
+33:36.000 --> 33:46.000
+Hello.
+
+33:46.000 --> 33:52.000
+Hello.
+
+33:52.000 --> 33:58.000
+Test. Yes.
+
+33:58.000 --> 34:05.000
+Hello.
+
+34:05.000 --> 34:19.000
+I have to take questions here first. I think.
+
+34:19.000 --> 34:24.000
+I had a question on, can you hear me at all?
+
+34:24.000 --> 34:29.000
+Okay.
+
+34:29.000 --> 34:35.000
+So you mentioned on the, from network IO, you said you had a good solution, right?
+
+34:35.000 --> 34:40.000
+And then you said for file IO things are much trickier.
+
+34:40.000 --> 34:42.000
+But what?
+
+34:42.000 --> 34:45.000
+I'm sorry.
+
+34:45.000 --> 34:50.000
+I'm sorry.
+
+34:50.000 --> 34:51.000
+Thank you.
+
+34:51.000 --> 34:53.000
+Yeah, I'm sorry. Would you mind repeating it?
+
+34:53.000 --> 34:58.000
+Yes. So I was saying, so you mentioned network IO and you said, yeah, we have a
+
+34:58.000 --> 35:03.000
+pretty good solution here, but for file IO things are much trickier.
+
+35:03.000 --> 35:07.000
+But what's the fundamental issue that save a solution from network IO cannot be
+
+35:07.000 --> 35:10.000
+used for file IO too?
+
+35:10.000 --> 35:15.000
+Okay. So the question is, is, is why is the solution for, why can't the solution
+
+35:15.000 --> 35:20.000
+for network IO be used for file IO? And that is because there isn't the
+
+35:20.000 --> 35:27.000
+equipment sort of readiness API that you get for file, for non-blocking IO.
+
+35:27.000 --> 35:33.000
+So the reverse works, but not, what we're able to do at the moment is we're
+
+35:33.000 --> 35:41.000
+able to actually to map onto multiple different 20 years of scalable IO
+
+35:41.000 --> 35:46.000
+mechanisms for networking IO. There isn't really the equivalent for file IO.
+
+35:46.000 --> 35:52.000
+Okay. I see. Thank you.
+
+35:52.000 --> 35:57.000
+So simple question. When, when you solve these problems and get a good implementation
+
+35:57.000 --> 36:01.000
+and it's all in the next version of Java and you've, you've solved all of these
+
+36:01.000 --> 36:06.000
+problems, what do you think is going to be the impact? What's, what, what, what are you
+
+36:06.000 --> 36:08.000
+aiming for?
+
+36:08.000 --> 36:15.000
+Okay. So, so, so the, the, the ultimate goal is this for Java developers to be
+
+36:15.000 --> 36:21.000
+able to write code that, that reads exactly how it actually executes.
+
+36:21.000 --> 36:27.000
+So we need, we want to avoid having complicated, hard to, hard to read, hard to
+
+36:27.000 --> 36:31.000
+debug code that you get to, that the people are actually forced to write today
+
+36:31.000 --> 36:37.000
+with a synchronous IO are, are, are reactive. That's sort of the, the ultimate
+
+36:37.000 --> 36:43.000
+goal with this. So get the scalability with, with, with very obvious easy to read
+
+36:43.000 --> 36:46.000
+code. And at the same time as harmonious with all the other parts of the platform,
+
+36:46.000 --> 36:50.000
+such as debugging and profiling and so on. Because one of the things you actually
+
+36:50.000 --> 36:55.000
+lose today when you start going down the async type route is you, you lose so much
+
+36:55.000 --> 37:00.000
+of the, of the, of the tooling, you lose your debugging, you lose your profiling.
+
+37:00.000 --> 37:05.000
+We want to bring all of that back so that everything just works. What we have today
+
+37:05.000 --> 37:11.000
+in 21 is actually, is actually, is actually pretty good. You have a large range of
+
+37:11.000 --> 37:15.000
+applications can actually be developed and, and scale very, very well. But there's,
+
+37:15.000 --> 37:18.000
+there's, there's quite a lot of other amount of code that we want to get working
+
+37:18.000 --> 37:22.000
+with, well with virtual threads too.
+
+37:27.000 --> 37:32.000
+First, thank you so much. I think like suffering of millions will end with this
+
+37:32.000 --> 37:38.000
+holy light. My question is, when you look at the mitigation techniques that are
+
+37:38.000 --> 37:44.000
+recommended against the shortcoming of monitors, one of, like the primary thing
+
+37:44.000 --> 37:49.000
+is you're just recommending people to replace those with locks. Just use a lock.
+
+37:49.000 --> 37:55.000
+Okay. That's a, okay. That's a good observation. So in JEP 444, which is the, the, the
+
+37:55.000 --> 37:59.000
+Java enhancement proposal that introduced virtual threads as a permanent feature is,
+
+37:59.000 --> 38:05.000
+it, it, it suggests that if you're running into issues with them, with, with pinning
+
+38:05.000 --> 38:10.000
+with object monitors, you can just replace them with Java till concurrent locks. And
+
+38:10.000 --> 38:14.000
+that was very much kind of short term, short term advice in order to actually take
+
+38:14.000 --> 38:19.000
+to avoid the quality of implementation issue. But we never, we never said we'd never
+
+38:19.000 --> 38:28.000
+fix this problem. It was, it's, it's, it was, it was, it was a tactical decision to,
+
+38:28.000 --> 38:33.000
+to make the feature permanent without addressing the, the monitors issue.
+
+38:33.000 --> 38:39.000
+No, I very well understand the solution. It was just felt to me like it sounds like
+
+38:39.000 --> 38:44.000
+something machine should be doing. Like why doesn't the VM replace it with a lock on
+
+38:44.000 --> 38:49.000
+behalf of me? Right. So this, so, so, so what you're asking is, is why don't the VM
+
+38:49.000 --> 38:53.000
+magically replace it? There's a lot of issues with, with, with, with, with doing something
+
+38:53.000 --> 39:06.000
+like that. So. Okay. Thank you. Okay. Oh, there's one other.
+
+39:06.000 --> 39:16.000
+So with all the work going into addressing issues with monitors and pinning will constructs
+
+39:16.000 --> 39:22.000
+living inside Java, you till concurrent also benefit from that work or is that isolated
+
+39:22.000 --> 39:28.000
+from each other? Okay. So Java till concurrent does not base itself on, on, on, on, does,
+
+39:28.000 --> 39:35.000
+does not base itself on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+
+39:35.000 --> 39:41.000
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+
+39:41.000 --> 39:47.000
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+
+39:47.000 --> 39:53.000
+on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on, on,
+

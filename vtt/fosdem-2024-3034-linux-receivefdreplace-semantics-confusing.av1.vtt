@@ -1,0 +1,695 @@
+WEBVTT
+
+00:00.000 --> 00:20.280
+Okay, this is the kernel room.
+
+00:20.280 --> 00:23.320
+Keep repeating this.
+
+00:23.320 --> 00:28.360
+And our next talk is by Tykel about Linux receiveFD replace semantics.
+
+00:28.760 --> 00:31.160
+Oh, cool.
+
+00:31.160 --> 00:36.680
+Hi, my name's Tykel and I'm going to complain to you about kind of an esoteric
+
+00:36.680 --> 00:39.800
+corner of the kernel API.
+
+00:39.800 --> 00:43.240
+We had some patches on the mailing list about six months ago for this.
+
+00:43.240 --> 00:47.560
+They were done by my colleague Alok, who unfortunately could not be here.
+
+00:47.560 --> 00:50.720
+So he is, I think, in the chat room.
+
+00:50.720 --> 00:56.240
+If questions come up, I will try and read them or read his answer.
+
+00:56.240 --> 01:00.280
+So the actual hard stuff was done by him.
+
+01:00.280 --> 01:03.160
+I'm just kind of here to complain.
+
+01:03.160 --> 01:05.200
+So what do we actually want to do?
+
+01:05.200 --> 01:13.880
+We want to intercept, connect with seccomp, and then do some stuff with the file descriptor.
+
+01:13.880 --> 01:21.280
+So we want to put a file descriptor into a tasks file descriptor table.
+
+01:21.280 --> 01:24.960
+And that eventually does cause this function that I'm here to complain about.
+
+01:25.000 --> 01:31.600
+So if you've not seen the seccomp API before, basically what you can do with this API is
+
+01:31.600 --> 01:35.640
+capture a system call from a task and then forward it to some other user space
+
+01:35.640 --> 01:41.000
+statement to do arbitrary things and then return a result.
+
+01:41.000 --> 01:46.200
+So if you look at a typical application, they want to do some stuff.
+
+01:46.200 --> 01:49.120
+They want to listen on the network or they want to connect to some networks or something.
+
+01:49.120 --> 01:53.520
+So they create an ePoll socket.
+
+01:53.560 --> 01:59.040
+And then they put the socket in the ePoll thing and then they connect on the socket.
+
+01:59.040 --> 02:02.840
+And then they use ePoll to wait to say, is this socket connected or not?
+
+02:02.840 --> 02:07.880
+So this is like the JVM does this when you make a network connection or something.
+
+02:07.880 --> 02:09.880
+This is like an extremely common use case.
+
+02:12.440 --> 02:17.240
+So let's just look at what actually happens in the kernel when you do this.
+
+02:17.240 --> 02:26.560
+So when you make an ePoll call to add a particular socket to the ePoll instance,
+
+02:26.560 --> 02:28.560
+it creates a big table.
+
+02:28.560 --> 02:32.440
+And the table, I'm sorry, it creates a big tree.
+
+02:32.440 --> 02:34.640
+And the tree is a tree of tuples.
+
+02:34.640 --> 02:38.560
+The first element in the tuple is the file descriptor number.
+
+02:38.560 --> 02:42.520
+And the second element of tuple is the struct file pointer.
+
+02:42.520 --> 02:46.480
+And I'm using 0x5 here to know it's an arbitrary pointer.
+
+02:46.480 --> 02:51.920
+But originally it's the file descriptor pointer that maps to file descriptor 5.
+
+02:51.920 --> 02:55.000
+So that's what my notation here means.
+
+02:55.000 --> 03:00.240
+So it takes a copy of the file descriptor and the file, puts it in this tree,
+
+03:00.240 --> 03:02.320
+and then you go on your merry way.
+
+03:02.320 --> 03:08.600
+And then you add a second one and it does exactly the same thing except for this one's 0x6.
+
+03:08.600 --> 03:13.480
+And then if you did it again, you would get another element in your tree.
+
+03:13.480 --> 03:15.320
+And this is some RB tree or something.
+
+03:15.320 --> 03:16.640
+And so it's sorted in some way.
+
+03:16.640 --> 03:22.080
+But how it's sorted is not really important for this talk.
+
+03:22.080 --> 03:24.400
+So that's what ePoll does.
+
+03:24.400 --> 03:27.040
+When a socket receives data then, this is in user space.
+
+03:27.040 --> 03:28.840
+You are waiting for stuff.
+
+03:28.840 --> 03:32.840
+Data is received on file descriptor 5.
+
+03:32.840 --> 03:35.000
+You read file descriptor 5.
+
+03:35.000 --> 03:38.160
+It tells you, hey, there was data on 5.
+
+03:38.160 --> 03:39.160
+You read 5.
+
+03:39.160 --> 03:41.680
+And then you have your data and you're happy.
+
+03:41.720 --> 03:49.560
+So this is like the happy path what people expect how applications normally work.
+
+03:49.560 --> 03:55.320
+But remember, I said at the beginning that we are interested in using setcomp to do,
+
+03:55.320 --> 03:57.360
+to munch with the file descriptor table.
+
+03:57.360 --> 04:01.960
+So the reason you might be interested in doing this is for all manner of things.
+
+04:01.960 --> 04:08.320
+We do it for IPv4 to IPv6 migration.
+
+04:08.320 --> 04:10.560
+You can do it transparently to the application this way.
+
+04:10.560 --> 04:12.360
+So the application doesn't need to know.
+
+04:12.360 --> 04:14.480
+And also, it's not in the data plane.
+
+04:14.480 --> 04:18.600
+So the socket is connected from the right place.
+
+04:18.600 --> 04:23.400
+And so there's no IP table stuff that's making decisions based on every packet or whatever.
+
+04:23.400 --> 04:25.520
+So that's some motivation.
+
+04:25.520 --> 04:27.200
+There's a lot of other things you can do with this API.
+
+04:27.200 --> 04:30.360
+But that's what I'm doing with this right now.
+
+04:30.360 --> 04:32.840
+So we're in this normal world.
+
+04:32.840 --> 04:33.840
+Everything's happy.
+
+04:33.840 --> 04:36.880
+Now we want to mix in this setcomp addfd.
+
+04:37.000 --> 04:44.680
+So specifically, we're going to look at what happens when I do the connect call.
+
+04:44.680 --> 04:47.280
+So what happens is I connect.
+
+04:47.280 --> 04:50.800
+This side is going to be the user space side.
+
+04:50.800 --> 04:58.480
+And the other side is going to be the other user space side.
+
+04:58.480 --> 05:01.240
+This is the daemon that it's waiting for notify events.
+
+05:01.240 --> 05:04.960
+So it's waiting to say, hey, have I gotten a connect call yet?
+
+05:05.000 --> 05:09.720
+So this is how it waits.
+
+05:09.720 --> 05:16.760
+Then it creates a new socket using some magic, whatever it decides, like however it decides
+
+05:16.760 --> 05:19.520
+is appropriate.
+
+05:19.520 --> 05:22.160
+Does an addfd call.
+
+05:22.160 --> 05:27.200
+That eventually calls this receivefd replace thing.
+
+05:27.200 --> 05:31.040
+You can see here my new socket is really 0x8.
+
+05:31.040 --> 05:33.280
+So it's not 0x5.
+
+05:33.280 --> 05:36.120
+So there's physically different underlying files.
+
+05:36.120 --> 05:40.560
+But I'm replacing it at fd5.
+
+05:40.560 --> 05:44.520
+That ultimately does the actual replace.
+
+05:44.520 --> 05:49.880
+Oops, and then it returns back to the user.
+
+05:49.880 --> 05:54.040
+And if they did a read on file descriptor 5, now because of the result of this call, they
+
+05:54.040 --> 05:59.240
+would get the contents of file descriptor 8.
+
+05:59.240 --> 06:04.560
+But there's some things that don't happen.
+
+06:04.560 --> 06:09.760
+And maybe it's easier if we skip one ahead here.
+
+06:09.760 --> 06:12.640
+You remember our tree?
+
+06:12.640 --> 06:16.920
+In here we had file descriptor 5 paired with 5.
+
+06:16.920 --> 06:23.640
+What doesn't happen is that 5 does not get replaced.
+
+06:23.720 --> 06:29.520
+So in particular, this does not happen.
+
+06:29.520 --> 06:32.960
+So this 5 to 8 change, that does not happen.
+
+06:32.960 --> 06:39.200
+And so as a result, you're in a very weird state where if you read 5, you read struct
+
+06:39.200 --> 06:40.200
+5.
+
+06:40.200 --> 06:46.960
+But because the ePoll structure was not changed, it will report data on struct of this old
+
+06:46.960 --> 06:51.520
+file that was the one you replaced.
+
+06:52.000 --> 06:56.360
+So now you're reporting ePoll events on the wrong file descriptor, like things are all
+
+06:56.360 --> 06:57.760
+confused.
+
+06:57.760 --> 07:03.680
+In some cases, you will close the file descriptor from ePoll because it keeps a weak reference,
+
+07:03.680 --> 07:06.520
+and then you will report no events at all.
+
+07:06.520 --> 07:10.080
+So that is also bad.
+
+07:10.080 --> 07:16.480
+So what ideally would happen is exactly this, that we would fix this up so that ePoll works
+
+07:16.480 --> 07:20.920
+nicely when you use this API.
+
+07:20.920 --> 07:23.760
+So questions are how to fix this.
+
+07:23.760 --> 07:27.800
+So we have, and I'm not really going to go through this algorithm, but this is how we
+
+07:27.800 --> 07:28.800
+did it.
+
+07:28.800 --> 07:34.000
+I wrote a bunch of C to do it kind of the Cree way where you read and iterate over a bunch
+
+07:34.000 --> 07:35.520
+of stuff.
+
+07:35.520 --> 07:37.600
+And it works, and it's what we use today.
+
+07:37.600 --> 07:39.920
+So it's a good first crack.
+
+07:39.920 --> 07:47.400
+But you have to parse the FD info for every possible FD.
+
+07:47.400 --> 07:53.000
+And if you have lots of FDs, then individual system calls take a long time.
+
+07:53.000 --> 07:56.560
+That makes people sad.
+
+07:56.560 --> 07:58.200
+So we want to do something better.
+
+07:58.200 --> 08:02.560
+So one option would be with extra FD info.
+
+08:02.560 --> 08:08.040
+So the insight here is that the kernel actually knows if this particular file is attached
+
+08:08.040 --> 08:09.640
+to an ePoll instance.
+
+08:09.640 --> 08:13.360
+So it could tell you then you wouldn't have to iterate through all the files, but you'd
+
+08:13.360 --> 08:18.520
+still have to go and manually fix up and do this replace.
+
+08:18.520 --> 08:25.960
+You have to do all the string slinging and stuff that FD info requires.
+
+08:25.960 --> 08:28.080
+So this was where the kernel patches came in.
+
+08:28.080 --> 08:31.640
+So there was a patch series here by a lock.
+
+08:31.640 --> 08:37.680
+So Christian complained that this is a layer violation because the FD table is touching
+
+08:37.680 --> 08:41.440
+files inside of it, which is kind of backwards.
+
+08:41.440 --> 08:45.480
+And setcomp is the only user of this currently in the tree.
+
+08:45.480 --> 08:50.760
+So I suggest to do something else, which is this.
+
+08:50.760 --> 08:57.200
+So basically have setcomp specific flags for this fixup behavior.
+
+08:57.200 --> 08:58.400
+But I'm here to complain to you.
+
+08:58.400 --> 09:02.280
+This is sort of the end of my talk and maybe the beginning of the arguments.
+
+09:02.280 --> 09:08.000
+Because I don't think this is really that great because everybody who does receive
+
+09:08.000 --> 09:11.760
+replaced FD in the future has to then add their own flags.
+
+09:11.760 --> 09:16.440
+And it's, I think, pretty clear, at least to me, that the semantic that currently exists
+
+09:16.440 --> 09:19.160
+absolutely nobody wants.
+
+09:19.160 --> 09:22.720
+It's just we didn't think about it when we wrote all this.
+
+09:22.720 --> 09:28.480
+So I'm wondering if we add some arguments to receive replaced FD.
+
+09:28.480 --> 09:31.080
+If that's OK, go ahead.
+
+09:31.080 --> 09:38.000
+Yeah, I think the only, so the initial implementation was kind of a bit weird.
+
+09:38.000 --> 09:45.160
+I think it's not a problem if we extend, if we extend E-Poll to do the replace.
+
+09:45.160 --> 09:51.320
+So if you just have an E-Poll helper and you call it from your FD replace function to update
+
+09:51.320 --> 09:53.400
+E-Poll, that's sort of fine.
+
+09:53.400 --> 09:58.120
+I think that's sort of what we, the last version, I looked at it before exactly so that I could
+
+09:58.120 --> 10:00.040
+say something smart or look smart.
+
+10:01.040 --> 10:06.360
+What your last version kind of did, I think the only thing is the locking change for E-Poll.
+
+10:06.360 --> 10:08.360
+Yeah.
+
+10:08.360 --> 10:12.680
+Quite drastically, which makes it a bit more tricky.
+
+10:12.680 --> 10:17.280
+But I think other than that, like, it's sort of, I think it's probably doable.
+
+10:17.280 --> 10:18.280
+It's probably doable.
+
+10:18.280 --> 10:25.240
+The things that I'm not currently clear about, and I'm not an E-Poll expert, so is E-Poll
+
+10:25.240 --> 10:33.320
+has pretty advanced and complicated logic to check, for example, whether adding a specific
+
+10:33.320 --> 10:36.120
+file adds loops.
+
+10:36.120 --> 10:41.320
+So I think one thing that we need to do is we need to prevent replacing E-Poll FDs themselves,
+
+10:41.320 --> 10:44.600
+because then you have this sort of looping, basically you can have an E-Poll FD that you
+
+10:44.600 --> 10:48.200
+add to an E-Poll instance, and then you get notifications from another E-Poll instance,
+
+10:48.200 --> 10:52.240
+and sort of you need to take care that you don't get cycles and don't get deadlocks.
+
+10:52.240 --> 10:55.640
+So I think we need to stop that from happening.
+
+10:55.640 --> 11:01.800
+And there's some weird logic that I haven't yet figured out, where it sort of checks to
+
+11:01.800 --> 11:07.040
+limit the number of wakeups that you can get, and it sort of does that every time you add
+
+11:07.040 --> 11:12.240
+a file, and I'm not sure if that's specific to the file type that's added, or if this
+
+11:12.240 --> 11:15.080
+is just a generic sort of check.
+
+11:15.080 --> 11:18.360
+If it's just a generic sort of check, it doesn't matter, then updating the file point
+
+11:18.360 --> 11:20.000
+probably doesn't matter.
+
+11:20.040 --> 11:26.360
+The third thing is, is this race free in the sense that if you walk through the E-Poll
+
+11:26.360 --> 11:33.280
+instance and you update all of the file pointers, can we lock out everyone else using that E-Poll
+
+11:33.280 --> 11:37.040
+instance to not inject behind our back the old file again, and stuff like that?
+
+11:37.040 --> 11:39.560
+I think it can't happen, but...
+
+11:39.560 --> 11:41.280
+So I don't even look at the new locking.
+
+11:41.280 --> 11:44.080
+In the old locking, I think the answer to that was no.
+
+11:44.160 --> 11:48.200
+But in the new locking, I don't know.
+
+11:48.200 --> 11:50.240
+I could imagine that the answer might be yes.
+
+12:02.480 --> 12:04.720
+I just wanted to...
+
+12:04.720 --> 12:10.840
+I might not understand the full edge cases, because I only roughly played with this API,
+
+12:10.840 --> 12:17.200
+and I have a hard time understanding why it's a problem in the first place, like specifically
+
+12:17.200 --> 12:21.000
+for your use case, like APU-4 to APU-6.
+
+12:21.000 --> 12:24.640
+Why do you want to replace the socket after it was created?
+
+12:24.640 --> 12:29.200
+Why not sec-comp intercept the socket call when it creates it?
+
+12:29.200 --> 12:34.240
+Like you immediately duplicate the socket in your supervisor process, and then intercept
+
+12:34.240 --> 12:39.560
+connect of course, and then just replace the arguments from APU-4 to APU-6, but you already
+
+12:39.600 --> 12:45.040
+have the proper socket in the program, and probably duplicate in your supervisor, and
+
+12:45.040 --> 12:47.200
+kind of like that problem just doesn't exist.
+
+12:47.200 --> 12:52.760
+Yeah, the problem is you can actually change address families on the fly.
+
+12:52.760 --> 12:56.440
+So when you create a socket, you have to declare an address family, but if you use like send
+
+12:56.440 --> 13:02.760
+message in their connect API, you can change the address family of the socket on the fly,
+
+13:02.760 --> 13:06.840
+or you can declare it unspecified initially, and decide later.
+
+13:06.840 --> 13:11.720
+So when the socket is created, we don't actually know is this a socket we care about.
+
+13:11.720 --> 13:14.320
+So we can only reason about that when we actually connect.
+
+13:14.320 --> 13:20.160
+Yeah, but what I mean is like, what we care about is that the file descriptors and files
+
+13:20.160 --> 13:25.560
+respectively in some E-Poll instance, so what we need in the supervisor process is a duplicate
+
+13:25.560 --> 13:30.000
+of that file descriptor, and then when we later intercept other system calls, we kind
+
+13:30.000 --> 13:33.200
+of can match them and replace the arguments.
+
+13:33.320 --> 13:37.160
+What I mean is like we don't have to go and retroactively modify the E-Poll.
+
+13:37.160 --> 13:38.160
+I see, I see.
+
+13:38.160 --> 13:40.960
+We just track the socket through its lifetime.
+
+13:40.960 --> 13:41.960
+Yeah, yeah.
+
+13:41.960 --> 13:47.440
+So when a socket is created, you would dupe it, and then just keep a copy of all open
+
+13:47.440 --> 13:48.440
+sockets.
+
+13:48.440 --> 13:49.440
+Yeah, yeah, yes.
+
+13:49.440 --> 13:51.400
+Yeah, you can do that.
+
+13:51.400 --> 13:58.480
+We're ideally trying to do less like, you know, work, trying to intercept less things,
+
+13:58.480 --> 13:59.480
+not more.
+
+13:59.480 --> 14:01.880
+But this is, yeah, this could be another way to fix it.
+
+14:01.880 --> 14:08.880
+What I mean is like a more complex supervisor user space process sounds more preferable
+
+14:08.880 --> 14:11.880
+than more complex than inside the kernel.
+
+14:11.880 --> 14:12.880
+Yeah.
+
+14:12.880 --> 14:22.040
+I mean, the wider, one of the concerns I think that I uttered was, you do it for E-Poll now.
+
+14:22.040 --> 14:25.640
+What other parts of the kernel do we need to play the same game than eventually?
+
+14:25.640 --> 14:29.640
+Yeah, for example, we do not currently deploy this for applications that you select because
+
+14:29.640 --> 14:31.120
+it has exactly the same problem.
+
+14:31.480 --> 14:35.680
+So, yeah, we do not currently deploy this for applications that you select and general
+
+14:35.680 --> 14:36.680
+poll.
+
+14:36.680 --> 14:40.680
+And I think for selected would be even more difficult to do this, right, I guess.
+
+14:40.680 --> 14:43.920
+But I mean, you could probably say, fuck it, we don't care about select, block select,
+
+14:43.920 --> 14:45.520
+only allow E-Poll or whatever.
+
+14:45.520 --> 14:49.880
+But yeah, we've managed to get pretty far with just the E-Poll fixes.
+
+14:49.880 --> 14:54.920
+So, you know, at some point applications will start using IOU ring, but I hope at that
+
+14:54.920 --> 14:59.480
+point they'll also use IPv6 and then, you know, like the set of applications using IOU
+
+14:59.480 --> 15:00.480
+ring and IPv4.
+
+15:00.840 --> 15:06.000
+I guess you can have these fixed file descriptors, which is a whole nother can of worms that
+
+15:06.000 --> 15:07.000
+is kind of interesting.
+
+15:07.000 --> 15:08.840
+I wonder if this makes it more difficult.
+
+15:08.840 --> 15:14.120
+And I think IOU ring also has its own polling mechanism and so on.
+
+15:14.120 --> 15:18.480
+But again, like hopefully, at least for our use case, the set of applications that we
+
+15:18.480 --> 15:22.000
+want to do this on and that use IOU ring are disjoint.
+
+15:22.000 --> 15:25.960
+So, other questions?
+
+15:25.960 --> 15:29.200
+Oh, five minutes left.
+
+15:30.160 --> 15:31.160
+Why?
+
+15:31.160 --> 15:32.440
+It was easy.
+
+15:32.440 --> 15:36.320
+He said, OK, so maybe the talk's over.
+
+15:40.800 --> 15:41.800
+Cool.
+
+15:41.800 --> 15:44.600
+I had some other slides, but whatever.
+
+15:44.600 --> 15:45.600
+Thank you.
+
