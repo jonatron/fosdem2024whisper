@@ -315,6 +315,10 @@ files = \
     "title": "ML Guided Optimizations in LLVM\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2820-practical-introduction-to-safe-reinforcement-learning.av1.webm",
+    "title": "Practical Introduction to Safe Reinforcement Learning\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3754-dynamic-explainability-through-dynamic-causal-modeling.av1.webm",
     "title": "Dynamic Explainability through Dynamic Causal Modeling\n"
   },
@@ -447,6 +451,10 @@ files = \
     "title": "Open Source in 2024: boundaries, burnout, business\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-1690-where-are-the-limits-of-open-communities-.av1.webm",
+    "title": "Where are the limits of open communities?\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2751-the-state-of-funding-free-open-source-software.av1.webm",
     "title": "The State of Funding Free & Open Source Software\n"
   },
@@ -523,6 +531,10 @@ files = \
     "title": "Kubernetes Operators: Expanding Automation in Containerized Applications\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3033-libamicontained-a-low-level-library-for-reasoning-about-resource-restriction.av1.webm",
+    "title": "libamicontained: a low-level library for reasoning about resource restriction\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3063-using-chroots-in-a-single-linux-container-as-an-alternative-to-docker-compose.av1.webm",
     "title": "Using chroots in a single Linux Container as an alternative to docker-compose\n"
   },
@@ -549,6 +561,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3220-zero-touch-infrastructure-for-container-applications.av1.webm",
     "title": "Zero-touch Infrastructure for Container Applications\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3398-modern-build-systems-for-containers.av1.webm",
+    "title": "Modern Build Systems for Containers\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3402-from-containers-to-unikernels-navigating-integration-challenges-in-cloud-native-environments.av1.webm",
@@ -1071,6 +1087,10 @@ files = \
     "title": "Zeroing and the semantic gap between host and guest\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2329-bespoke-containers-with-jlink-and-openshift.av1.webm",
+    "title": "Bespoke containers with Jlink and OpenShift\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-2460-a-beginner-s-guide-to-backports.av1.webm",
     "title": "A beginner's guide to Backports\n"
   },
@@ -1399,6 +1419,10 @@ files = \
     "title": "More flexible user namespaces\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-3141-linux-kernel-tpm-security-and-trusted-key-updates.av1.webm",
+    "title": "Linux Kernel TPM security and Trusted Key updates\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub5132/fosdem-2024-3222-linux-matchmaking-helping-devices-and-drivers-find-each-other.av1.webm",
     "title": "Linux Matchmaking: Helping devices and drivers find each other\n"
   },
@@ -1577,6 +1601,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-2538--jmap-intro-to-ltt-rs-a-jmap-client-for-android.av1.webm",
     "title": "[JMAP] Intro to Ltt.rs a JMAP client for Android\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-2731--servers-exchanging-microsoft-implementing-27-ms-exchange-protocols-apis-in-oss-with-grommunio.av1.webm",
+    "title": "[Servers] Exchanging Microsoft: Implementing 27 MS Exchange Protocols & APIs in OSS with grommunio\n"
   },
   {
     "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-2642--servers-aerogramme-a-multi-region-imap-server.av1.webm",
@@ -2131,6 +2159,10 @@ files = \
     "title": "TrenchBoot - project status update\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1126/fosdem-2024-3586-open-source-firmware-bmc-and-bootloader-devroom-outro.av1.webm",
+    "title": "Open Source Firmware, BMC and Bootloader devroom - outro\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ud2120/fosdem-2024-3598-beyond-joins-and-indexes.av1.webm",
     "title": "Beyond Joins and Indexes\n"
   },
@@ -2493,6 +2525,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3172-spdx-3-0-a-migration-journey.av1.webm",
     "title": "SPDX 3.0 - a migration journey\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3096-overview-of-spdx-tooling-and-how-spdx3-gets-adopted.av1.webm",
+    "title": "Overview of SPDX tooling and how SPDX3 gets adopted\n"
   },
   {
     "href": "https://video.fosdem.org/2024/k4401/fosdem-2024-3276-foss-for-foss-dejacode-is-your-new-foss-control-center-for-sboms.av1.webm",

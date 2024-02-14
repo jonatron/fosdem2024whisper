@@ -1,0 +1,659 @@
+So welcome to our next speaker, James will talk about TPM.
+Please.
+Hi everybody. This is completely different from the TPM talk I gave yesterday.
+But for those of you who didn't see yesterday, this is all my contact details.
+So I've got the usual email, a Fediverse link.
+I have been working on the kernel for a long time.
+I began in SCSI. I've gone through doing architecture maintenance for PA RITS.
+I had a long spell doing containers for parallels.
+And finally, I've become a reluctant TPM coder.
+And pretty much everybody who codes for the TPM always describes themselves as a reluctant TPM coder.
+As far as I can tell, there's no one who actually wants to be known as somebody who actually likes to code for the TPM.
+All my contact details are here.
+My blog site is about the best source of information for most of the stuff that goes on in the TPM.
+Unfortunately, I'm very sort of gadfly stream of consciousness.
+So you'll find a ton of stuff on my blog that you're probably not interested in, like legal stuff, Android phones,
+whatever else I happened to be working on last week.
+But I do try and tag it all.
+So there is a TPM tag if you're looking for TPM stuff you can go through.
+It's my matrix ID.
+And if you need my GPG key, I don't need to do a fingerprint anymore because I do overdain,
+which is a DNS sec extension for securely actually identifying me from the domain address of my email.
+This is the exact command I was arguing with Linus over about last week when my key had expired
+and you couldn't find the new one.
+So if we go to the basics of a TPM, it's effectively a separate shielded memory processing device.
+This is what one looks like.
+This here is actually the TPM chip.
+And this big thing here is the low pin count bus connector.
+So the chip itself is really tiny.
+And often it's actually sold it onto the motherboard.
+And they've been around for quite a long time.
+TPM 2.0 has agile cryptography.
+TPM 1.2 is actually obsolete.
+But a lot of you in this room will still have TPM 1.2 in your laptops.
+All you have to remember is don't use it.
+The actual TPM functions are shielded or asymmetric key handling,
+which is where you have a private key.
+The private key is only visible to the inside of the TPM and it never comes out, which is why it's shielded.
+They can do things like measurements.
+So you've seen things like EIMA on various slides.
+That's measurement that we do within the kernel.
+They can do data sealing, which is effectively for symmetric keys.
+The TPM is over such a slow bus and it's such a slow processing engine
+that it can do asymmetric primitives itself, but not fast enough for things like disk encryption.
+So the way we do disk encryption is if you use a key sealed to the TPM,
+it's in a TPM shielded blob, when the conditions are right,
+the TPM will actually give the symmetric key to the kernel
+and the kernel does all the symmetric primitives, meaning we can do it fast enough.
+And this is called data sealing.
+And then the final function a TPM has is attestation.
+If you're using a TPM for measurements,
+you have to prove to somebody else the measurements for what they thought
+that's done by an attestation function.
+The kernel itself really only does measurement and data sealing.
+And actually I got a question yesterday from Ignat Kochagin, who I think is here,
+demanding to know why the hell we didn't do shielded key handling in the kernel,
+because the kernel has a crypto subsystem, which actually now does asymmetric keys.
+So it would be a candidate for actually using the TPM functions for that.
+The truth really is that I've put it on my to-do list,
+and if we actually get lifetime expanding medical care, I will have time to do it,
+but otherwise it's probably not going to happen unless somebody else does it.
+Because my to-do list is about a million items long now, but I'm thinking about it.
+Let's see.
+Oh yeah, the reason you shouldn't use TPM 1.2 is because it had SHA-1,
+which is now a fully compromised hash.
+TPM 2 generates what's called an internal seed instead of a key.
+So usually with TPM 1, when you turned it on,
+it generated an RSA, public-private key pair for its root key.
+TPM 2.0 doesn't do that.
+It generates what's called an internal seed, which is just a long string of random numbers.
+And then what it does is it uses a key derivation to go from that long string of random numbers to an actual key pair.
+And the point about a key derivation function is it takes one number as an input and outputs a key pair.
+And the point is that as long as you use the same number as the input, it always outputs the same key pair.
+So for RSA, this means that what you're actually doing is trying to find primes,
+which actually makes the thing really slow.
+So this is why we tend to use elliptic curve keys with TPMs rather than RSA keys,
+because they actually have difficulty finding it.
+One function actually the kernel uses the TPM for is secure random number generators.
+All TPMs have to have a cryptographically secure random number generator,
+because one of their usual functions is actually generating key pairs, generating these seeds.
+And so we actually use, on boot, the TPM's random number generator to add entropy to the kernel entropy pool.
+If you re-own the TPM, it actually changes its storage seed.
+And this is useful because a key is hanging off the root, the storage key sits at the top of the hierarchy.
+Every other key you use in the TPM, sealed data, hang off this.
+And by hang off, what I really mean is the encryption wrapping for that key,
+when it's reduced to, comes outside the TPM, is a function of that storage seed.
+If that changes, all of the wrappings are unreadable by the TPM,
+and effectively all of those keys are shredded.
+So every time you re-own a TPM, you destroy all the keys that were created for that TPM previously.
+And so, like me, you use your TPM for, you know, not quite hundreds of keys, but definitely tens of keys.
+And, you know, I'm just giving away my laptop.
+It's a single operation to shred all of those keys as though they never existed.
+Keys to be inserted into the TPM are based on this parent thing.
+Actually, that's pretty much what I just explained.
+And only the TPM can decrypt them.
+So this gives, and the encryption algorithm for TPM 2 is AES 256.
+So it's got 256 bits of security as long as AES isn't compromised, it should be pretty good.
+State of play is that the TPM itself is really hard to use and really hard to program.
+We currently have two completely different library implementations.
+They're actually based on two different TPM standards.
+Both produced by the TCG, the Trusted Computing Group, but at different levels.
+So the Intel library conforms to the sort of upper library specification,
+and the IBM one conforms to the lower TPM library specification.
+But they're both in user space, so when I did the kernel coding, I couldn't use them anyway.
+So this is why I'm a really reluctant TPM coder,
+because effectively I had to rewrite all of these library functions.
+Now, I don't really want to get into which standard is better, war,
+but I actually followed the same standard the IBM one used,
+because for low level functions it's much simpler.
+And if there's one thing I can't stand, it's being overly complicated,
+because it just generates scads of code and I really don't have the time for it.
+But that means I also had to rewrite all the cryptographic primitives in this.
+And so I have a TPM session handler file that actually contains
+all of these cryptographic primitives for the TPM to use.
+One of the useful things to go back to the original question about shielded key handling
+is that with all of this cryptographic crap in the kernel now,
+it will actually be much easier to write shielded key handling for the kernel crypto routines,
+because they can piggyback off all of this, which is going to be quite useful.
+So the kernel TPM currently is used as well as the random number generator.
+It's used for I'm a measurement, entropy seeding, and this thing called trusted keys.
+So trusted keys are effectively TPM sealed data blobs that you can pass into the kernel,
+and the kernel will give you back as a TPM sealed data blob if you really want.
+And the good thing is that Lux disk encryption can actually use these sealed data blobs.
+The reason you'd want to use this is for key protection,
+because if you keep a TPM shielded key in user space,
+and at some point you're going to pass it into the kernel along with its authority,
+the point is that key is only ever unwrapped in the kernel,
+which is the most trusted entity in an entire Linux system.
+It means you don't get it unwrapped in user space and then have the risk that
+if you get a user space compromise, they can run off with your disk encryption key.
+In order to get at your disk encryption key, they actually have to compromise the kernel.
+So it improves the security boundaries.
+And the kernel itself exports a TPM device to user space,
+and all user space programs use this to send commands over.
+The original device was Dev TPM 0, but TPM 2.0 requires something called a resource manager.
+It actually technically virtualizes the keys in the TPM,
+because a TPM 2.0 has a really, really tiny internal key store.
+It can actually store three keys only.
+And so if you have multiple users of the TPM, each trying to insert their own keys for use,
+you'd rapidly run out of memory.
+And so we have a resource manager that basically allows one user at a time to use the TPM.
+And they don't see it, but behind the scenes when we switch between those users,
+we just take all of the keys out and store them in memory, in the computer's main memory,
+so that every user effectively gets an empty TPM to insert their keys in,
+so we don't run out of keys, key slots.
+And this has been built into the kernel for a long time.
+It's called Dev TPM Resource Manager, RM0,
+and pretty much every TPM library uses this to communicate with the kernel,
+so they don't get out of memory key clashes.
+And it works just fine, except for the Intel TPM people complain about it doesn't do session de-gapping.
+It's also on my list. I will get around to it, provided medical science comes up with a stretch for at least two lifetimes.
+Or somebody from Intel could actually submit the patches and we just do it.
+The only reason the current...
+So this session de-gapping means that you can't context save sessions for a long period of time,
+because if the TPM runs around what's called its sessions clock, it hits a gapping error and nothing works again.
+The way around it is you actually have to save and restore the session.
+We just don't do that. We could, but I mean nobody's written the patches.
+So TPM security.
+There's lots of sensitive information going on to the TPM.
+So if you're concerned about cryptographic randomness,
+the random number we got from the TPM should be a secret.
+If anybody snoops that, they can figure out what the kernel's entropy pool looks like,
+and therefore all of the secrets that it was generating itself.
+If you're doing data sealing, the data will come back to you over the TPM bus in raw format,
+and anybody snooping the bus will see the key you sealed, which is pretty bad.
+And the point is that you cannot necessarily be assured of a secure channel to the TPM.
+Most of them sit on this low-pin count bus, and attacks actually exist that snoop this bus.
+So a Canadian company came up with a little dongle that you just simply plug into a laptop,
+and helpfully most laptops have a little LPC slot in them, so you just slot this thing in,
+and it will snoop the TPM bus. Pretty bad, but it's an evil maid attack in theory,
+because you actually have to have physical access to the laptop to see it.
+And so I'd probably notice if someone were actually trying to insert that in my laptop.
+The problem is the LPC bus contains a lot of weird and wonderful devices,
+like keyboard, mice, other weird things, that are actually programmable.
+And one of the fears we have is that this attack has been generated,
+and you could actually, instead of having to plug a snooping dongle into my LPC bus,
+just reprogram one of these reprogramable devices to do the snooping for you,
+and what we think is a local attack suddenly becomes a remote attack.
+So securing the TPM bus has been priority number one for pretty much everybody doing TPM work for quite a while.
+The problem is that the way the Linux kernel currently uses the TPM is completely insecure,
+so we're vulnerable to these snooping attacks.
+And this is done by using something called TPM sessions.
+It makes handling the TPM in the kernel much more complicated,
+but I have written all the patches, I'm just trying to get them upstream at the moment.
+What it really does is just an ECDH, elliptic curved if you helman key exchange with the TPM,
+and then pretty much everything goes over an encrypted channel using this.
+I mean, it's not difficult to describe, it's just difficult to do.
+And one of the useful things we get once I add sessions to the kernel to do this encryption
+is we can also use the sessions now to do key policy.
+Key policy is actually a very interesting thing that I'll come to later,
+but it does make the whole thing way, way more complicated.
+And like I said, the kernel is currently insecure when it uses the TPM.
+And these patches I actually did first write in 2018,
+so they have technically been around for almost six years.
+Trying to get them upstream has been a long, long slog.
+I'm hoping that the end is currently almost in sight,
+or at least the TPM maintainer has been making positive noises,
+which he hasn't for the last six years.
+So, you know, if the wind's in the right direction, we might get this.
+One of the patches I got up early was standardizing key file format.
+So the format that the kernel uses for TPM keys is exactly the same as the format
+that all of the user space tools use.
+So you can actually use any of the user space key sealing tools
+to generate a sealed key for the kernel, which is really useful,
+because now we don't have to have religious wars about what tool is best.
+Anybody can choose any tool.
+And the idea behind this is that since we've had all of these schisms
+over what TSS, what library should you use,
+as long as the key format is the same,
+I honestly don't have to care about all of this crap.
+So, you know, anybody can use any tool, any tool chain.
+You know, you can be partisan for the Intel one or the IBM one.
+It doesn't matter.
+They'll still produce keys in the same format.
+It will still just work.
+This is great.
+And all producers and consumers except System D have agreed to standardize on this.
+And the key standard is actually sitting there.
+Sorry.
+Should have put my phone on to do not disturb.
+That was bad of me.
+And this standard is actually patchable.
+So if you see something that's missing or you want to use,
+you just send a patch to the...
+It's actually the OpenSSLTPM Engine list,
+and I'll just add it if it looks useful.
+And we're hoping it will eventually become an RFC.
+Becoming an RFC is very difficult.
+A guy called David Woodhouse, who's also a kernel programmer,
+is currently going through the pain of doing it for a different standard.
+And I'm just waiting to see what happens to him.
+And if he comes back in less than three pieces,
+I will try the process as well.
+So like I said, the kernel trusted keys already use this key format,
+so we're fully interoperable, which is useful.
+And one of the things this interoperability gives us
+is actually the ability to seal kernel keys
+without having access to the kernel's TPM.
+This is actually a function of a TPM called import and export of a key.
+So as long as I know the public storage root key of my TPM,
+I can actually create a key that's cryptographically sealed
+and the TPM itself can import it,
+and I don't even need access to the TPM to create the key.
+Because usually the format of the TPM key is very specific to the TPM.
+You can't create it because it's symmetrically encrypted.
+So these exportable keys actually have to be asymmetrically encrypted
+with the public-private key pair,
+making them slightly more difficult to use by the TPM,
+more complicated, more difficult to unwrap.
+But it gives you the advantage that if you're,
+let's say, your use case is in the cloud,
+and one of the things you're trying to do is release keys to a cloud TPM,
+you can just in your key release program say,
+okay, so the storage root key of this TPM is this.
+I'll wrap the key to that, just hand it off to the TPM,
+and the kernel will just boot.
+So, future patches.
+What are we going to do with this TPM in future?
+Once I've finally finished getting session encryption upstream,
+which is sort of the number one priority,
+because it's really hot right now that the kernel is the only thing
+which is insecure when using the TPM.
+And the first one is going to be key policy,
+which is a natural follow-on,
+because I already had to put all of the session handling code
+and the TPM to do encryption.
+Policy is just a fairly simple add-on to this.
+So the patches are only, I think,
+my current cryptographic patch for the kernel expands over a thousand lines.
+The policy patch on top of this looks like a couple of hundred lines,
+so it should be pretty easy to do.
+Once we have policy, the nice thing we can then do
+is create keys that can never leave the kernel by policy.
+And the way we do this is by using a feature of a TPM,
+oh, can do this, so we can use a feature of a TPM called a locality,
+which means that the TPM actually,
+TIS TPM has registers mapped at several different locations.
+When you use a location,
+each of these locations is called a locality.
+When you use the mapping of that locality,
+the TPM is sits of that locality.
+The way you're supposed to use it is just to block out the mapping
+so that nobody can use it,
+and the TPM is sealed of that locality.
+For the kernel, it's really easy,
+because all user space uses the kernel device.
+They can't talk to the TPM directly,
+so all user space only talks to the TPM at locality zero.
+The kernel ensures this.
+And if the kernel talks to the TPM at a different locality,
+we know whether your kernel or user space
+by the locality you're talking at,
+and we can have a policy that says
+this key can only be unwrapped at kernel locality,
+which means if I try to unwrap it in user space,
+the TPM will give me an error.
+So effectively, it gives you a key
+that can never actually leave the kernel,
+which is another useful property for security boundaries.
+The problem with this locality scheme,
+we thought it was brilliant and easy,
+and actually, I'm not the only person who's pissed off about this.
+The other thing that I think is really garrulous about
+is Intel locked all of the localities apart from zero
+unless you do a trusted execution launch, TXT launch,
+which is really, really annoying,
+because pretty much no one in the world does this.
+So we all have these TPMs that have the locality shut off,
+and nobody's using TXT, and you just look at Intel and go,
+well, nobody uses this crap feature.
+Can you just unlock the localities because it serves no purpose?
+But unfortunately, we can't get to it.
+Today, if I get... Yeah, I should get around to the demo.
+I blew through my demo time yesterday.
+I'm actually... I have a kernel that operates at locality 2,
+and I will demo it, but pretty much it won't work on any of your laptops,
+and we have to use alternative means for sealing the keys.
+So the alternative way that I'm thinking of doing this
+is to reserve a range of NV indices for kernel access only.
+Because you can only communicate from user space to the kernel
+using the TPM device,
+we can snoop the commands,
+and if you try and access these NV indices,
+we can just say, no, you can't do that.
+So effectively, we're behaving like a locality, but for NV indices.
+And then what I can do is I can get the kernel to take one of those NV indices
+and just put a random password in that index that's known only to the kernel,
+and then seal a TPM key that says,
+only the person who knows this NV index password can unseal the key,
+only the kernel knows that password,
+only the kernel will be able to seal the key.
+So even if we can't get Intel to cooperate on localities,
+which would be the cleanest and best way of doing this,
+we have alternative ways of actually enforcing
+that only the kernel would be able to unwrap the key.
+And this hopefully will be in future patches as well.
+And let's see.
+Key policy.
+TPM2.0 really supports a very rich policy language.
+I'll demonstrate some of it.
+It can have policies on time of day, reset count,
+you know, how many times this thing been rebooted,
+what are the values of certain PCRs,
+what are the secrets embedded in this object,
+what is our value of an NV index, and so on.
+This policy can be both AND based and OR based,
+so you can have these sort of huge lists of do this and this and this
+or do this and this and this or etc.
+Problem with this policy is it's described by a single hash value,
+which means it's burned into the key at creation time.
+And if you think about the way you might use policies
+if locking to PCRs, one of the things you do is
+I only want a certain set of kernels to boot
+and then unlock my root key,
+so I'm trying to lock the policy to the PCRs of the kernels,
+but I can't predictably know in the future
+what the hash value of a kernel will be, you know,
+because it hasn't been created yet,
+so I need a way of actually updating the policy after the fact,
+and this single hash burned into the key doesn't quite cut it for that.
+But fortunately, the TPM actually has...
+Sorry, this is all about hash construction you don't need.
+The TPM actually has a thing called policy secrets,
+which allows you to actually execute a signed policy
+and add it after the fact to the key,
+because the burned-in policy says,
+and any other policy that is signed with this key
+you shall accept as well,
+and then you just keep adding these signed policies to the key,
+and hopefully I should be able to demonstrate that as well.
+So, let's see, I have 15 minutes left for a demo.
+Let's see if I can actually do this.
+So, let's get that out of the way.
+So, this is...
+Everybody can read that.
+I don't think I can blow it up much further.
+Start the...
+So, in user space, I'm going to start the...
+TPM server, because I need a TPM for this,
+and then I'm going to go into a UFI TPM-based boot.
+So, this is actually booting a kernel, hopefully.
+And if I just check, yep,
+it's actually communicating with the TPM.
+It's always wise to check these sort of things.
+Okay, so that's my thing.
+I can log into it as root.
+So, there we go.
+I have a TPM that I'm emulating.
+This means that I have a non-standard patch here,
+because the kernel that I'm booting
+actually has these locality patches in it.
+So, the TPM I ran is actually now running
+at two separate localities.
+The user space of this kernel will be in locality zero,
+and the kernel is actually in locality two.
+So, I can demonstrate the keys that can't be unwrapped,
+except at the kernel in locality two.
+And let me also get a...
+So, this is a user login as me to this thing,
+and this is me...
+So, this actually just gives me a user space
+login to the software TPM in my home directory here.
+And so, what I can try and do is actually,
+if I get my demo scripts and remind myself
+what I was supposed to be doing,
+let's just do a very simple...
+So, this will just take a piece of data
+and seal it for the TPM.
+And, sorry.
+The data is actually 32 bits long.
+The problem with the TPM sealed data
+can be anything between one and 128 bytes long.
+But the kernel trusted key subsystem
+is assuming that you're passing in AES keys.
+So, it expects a key length of between 32 and 64 bytes.
+So, I just did that sort of randomly.
+If I go back to the user space login on the root,
+I should just be able to...
+Let me...
+Before I do this...
+We have to have trusted keys actually working
+before I can actually do them.
+And then...
+Oh, yes.
+There is another problem with the trusted keys.
+So, when I created that key,
+I created it...
+as effectively a PEM file
+because it's really used for the cryptography systems
+for OpenSSL.
+The kernel key system doesn't read PEM files.
+So, one of the things you can do is convert this to a dir file.
+So, if I did...
+If I looked at the dir file,
+that's the standard ASN1 format of a TPM key.
+Very easy.
+Problem, the kernel doesn't read these either.
+The way the kernel key system works
+is it actually wants a hex dump of the dir file.
+So, I have to do a reverse hex dump into a key file.
+So, that string of binaries is effectively
+exactly the same as the dir file.
+But this is the file that I now actually have to pass into the kernel.
+And so, inside the virtual machine,
+I can actually...
+I've inserted that key into the kernel.
+And the fact that I got a number back
+means that the...
+I can just look at the user key ring
+and you can see that I've got this key
+actually inserted into the kernel.
+So, I wrapped a key outside the kernel
+and I inserted it into the kernel.
+The usual way you do this is you actually get the kernel
+to create its own random key and then pass it back.
+And the problem with this format is
+the only way the kernel will pass the key back to you
+is by this thing called pipe.
+And for reasons best known to the kernel,
+it only pipes back hex strings.
+This is why you have to do the stupid conversion
+from PAM to dir to hex string,
+which is sort of one of the most annoying things of this.
+But let's get on to demoing a key policy.
+So, I created the key here.
+But what I'm now going to do is seal it to a PCR.
+And there's a very useful PCR, which is PCR 16,
+which is never used by anything because it's...
+Sorry.
+We'll use the SHA-256 on 16.
+It's always...it begins life as zero,
+nobody ever uses it because it's resettable.
+And resettable means I can wind it back.
+PCRs aren't supposed to be able to be wind back.
+But if I seal the key to this...
+Sorry.
+That's a PCR lock.
+So now I've locked this key to that PCR.
+I can actually unlink the...
+That key and I can just demo that it will re...
+Sorry.
+Forgot to go through the conversion dance again.
+Right.
+So I can demonstrate that I can load this key.
+But now what I'm going to do is extend that PCR.
+As you can see, the user space options for these commands
+are very friendly.
+And, by the way, this is the same...
+The same thing is true of the Intel and the IBM TSS.
+They're both equally unfriendly,
+just in completely different ways.
+But anyway, I extended this PCR and the point is,
+if I got this right, I'm not allowed to load the key anymore.
+And if I look at what the kernel said,
+it said trusted key unsealed failed because of a TPM policy failure,
+because I've extended the PCR.
+So what I can do now is actually...
+Let's demonstrate some signed policy.
+So I'm actually going to create a key that is now sealed
+to a public policy key.
+This key would insert.
+I'm going to lock it to the PCR.
+Which has a weird value.
+I'm going to do the conversion dance again.
+And this key I should also now be able to insert, I hope.
+Yep, so the key inserted.
+Now what I'm going to do is unlink it.
+I'm going to move that PCR on again.
+So I've now spoiled the value of the PCR,
+try and load it and it again refuses to load
+because it has a failure of the policy,
+because I just moved the PCR on to a different value.
+But now what I'm going to try and do for this key
+is I'm going to add another signed policy
+that locks it to the new value of the PCR.
+So this is adding the policy after the fact.
+I burned the policy into the key,
+but I'm now adding an existing signed policy to that key
+with the new PCR value and conversion dance.
+This new key should actually now load.
+There it goes.
+So I took a key that I created earlier.
+I didn't know what the PCR value would be,
+but thanks to signed policies I was able to add a signed policy
+to that key that now accepted the new PCR value.
+This is how you would keep the keys up to date
+with the state of your laptop.
+So the final thing I'll demonstrate is a key
+that can never be unsealed except in the kernel.
+So let's...
+So I'm just going to create a new key.
+I'm not going to bother with any of the policy stuff.
+I'm going to lock it to...
+It looks like locality 4, but this is a bitmap.
+So it's actually locality 2 only.
+So the way you lock it is just all the complex things.
+All the complexities of the TPM.
+But the point about this key is
+if I try to unseal it in user space,
+which is where I am now,
+it gives me a locality error
+because I'm not in the correct locality to use it.
+And now I just do the conversion dance.
+And if I try and insert this...
+I have to unlink the previous one, don't I?
+If I try and insert this into the key, into the kernel,
+it works because the kernel is at the right locality too.
+So this is finally a demo of
+using localities to protect keys
+because the data I seal to that key, I can't get back.
+And the point is if I got the kernel to generate this key
+and I'd sealed it to a locality,
+it can give me the key file back,
+but nobody can unwrap that key file.
+That key file can only be unwrapped by the kernel.
+It adds an additional layer of security
+to your disk encryption keys or something.
+So with that, I think we'll probably go back
+to the presentation demo over.
+And I'll just come to brief conclusions,
+which are the kernel TPM subsystem is evolving
+way more slowly than I'd like, but at least it's evolving.
+And we hopefully will eventually get
+at least to encryption in the kernel,
+which means that we should be using the TPM securely,
+and hopefully shortly after that,
+sort of policy and all of the other wonderful bells and whistles.
+And with that, if you like this presentation,
+it's all a web page using impres.js,
+which of course makes me a web developer,
+which is not something most kernel people admit to.
+And I'll say thank you and call for questions.
+APPLAUSE
+No. What a recording.
+So, James, I wonder if you can say a few words
+about the interaction between the TPM
+and virtualization and containers.
+So how does it work to keep, like a hypervisor,
+from seeing the keys of a virtual machine
+or from two containers, seeing the keys of one another?
+Well, so the question was,
+what do you do about TPMs and virtualization systems,
+both containers and virtual machines?
+Well, obviously, you saw my demo was using a software TPM.
+The traditional way of actually running a TPM
+is that you trust the host of the virtualization system.
+So the virtual TPM that I was running was running in the host,
+and then you make contact with the virtual machine.
+The way I was doing it, I was actually using a patched version of QMU
+because I don't quite like the Vproxy TPM that we have.
+But that's just because I don't like running the software TPM
+because I need to run the TPM reference implementation.
+The way you're supposed to do it is you have a bank of TPMs running in the host,
+one software TPM per virtual machine that needs to use it,
+with the ability to save and restore their states.
+The state can also follow the virtual machine image,
+and this means that you have a virtual machine that actually can use a TPM.
+Now, you alluded to the fact that if they don't trust you,
+the same thing works for a container as well
+because containers can also communicate with the TPM
+through basically by mounting the TPM device,
+which is quite easy as well.
+So you can do all of this if you trust the host quite easily.
+If you don't trust the host, you're in a confidential computing environment,
+you have a lot more problems.
+But the way we're actually trying to solve this
+is to put a virtual TPM implementation inside a layer of a confidential virtual machine
+that is protected from user space.
+So currently only AMD SEV does this.
+It has these virtual machine privilege levels.
+And when it boots up, it starts an SVSM,
+something virtual machine service module.
+I always forget what it is, secure virtual machine service module.
+And inside that is a TPM.
+This TPM effectively initializes itself each time it boots.
+So when it powers on, it has a different seed.
+But the public keys of that TPM are part of the SVSM attestation report.
+That's what binds the TPM to the confidential computing attestation report.
+And then the user space of this virtual machine
+can use the TPM running securely in the virtual machine
+as its own TPM for measured boot, key handling, everything else.
+And because it's running in a protected area of the SVSM,
+neither the kernel nor the user space can actually get at the contents of that TPM.
+It's fully protected from them.
+And it's inside the confidential envelope,
+so it's completely protected from the host as well.
+So effectively we can run a software TPM per virtual machine
+inside the confidential computing envelope.
+And Intel TDX is also coming up with something like this.
+So we should have a solution that works regardless of confidential computing technology.
+Does that answer the question fully?
+I think I understood it was pretty specific.
+Okay, sorry.
+Ignat is asking, can you wrap a key to a TPM endorsement key?
+Can you wrap a key to a TPM endorsement key?
+So the question is, can you wrap...
+This is a very technical thing about hierarchies.
+The answer is, of course, yes.
+Every hierarchy can support keys.
+But the usual...
+So a TPM actually has a split permission model.
+So usually TPMs have four hierarchies.
+They have the endorsement hierarchy, the storage hierarchy or owner hierarchy,
+the null hierarchy and the platform hierarchy.
+So the platform hierarchy is always owned by the firmware and you can never use it.
+The null hierarchy actually changes its seed every time it boots
+so it's not useful for key sealing.
+But the other two are the endorsement and the owner hierarchy.
+The problem is when you take owner of a TPM,
+you get ownership of the owner hierarchy,
+the storage hierarchy, not the endorsement hierarchy.
+And in certain TPMs, the endorsement hierarchy is designed
+so that it will only work if you know the endorsement password.
+And for some split TPM implementations,
+the owner might not know the endorsement password.
+So what you're asking me is, yes, it's theoretically possible,
+but there can be ways that the TPM is set up that it won't work
+because you don't know the password to do the key insertion.
+Okay, thank you. We're out of time.
+Okay, thank you very much.

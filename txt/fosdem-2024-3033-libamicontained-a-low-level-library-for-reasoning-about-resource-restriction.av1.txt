@@ -1,0 +1,214 @@
+Hi, so I'm Tycho Anderson. This is my colleague Sebastian Dabdupe and we work. I don't know,
+is this, is that, I don't know, we'll see. Oh, did I bump it now? Oh, that off. Okay.
+All right, so we work at Netflix on the multi-tenant container platform there. And I want to point
+out that the name for this is not in any way related to Jesse Frazell's library we break out.
+In fact, I didn't realize that when I cooked up this name that there was that name space collision.
+And I think there's some thought that we will probably merge this into a Linux containers project soonish.
+So that disclaimer, this won't be this particular name may not be that long lived. So with that,
+I just kind of want to go into kind of a basic question. How many CPUs do you have? And this is a question
+that it seems very simple. You know, you could call one function that would return an integer and tell you the answer.
+But as we'll see in a little bit, people have screwed it up in a large variety of ways. So the way that we do this today is
+typically with C groups, I'll go over some of the other interfaces in a bit. But if I just did like a, so I'm in, I'm in this
+C group here, I've just created it. There's no limit right now. So this anything tasks in this C group can run on any CPU.
+So there's no tasks in the C group right now. So what I'm going to do is put this shell in that C group. So now the things you'll
+see the first pit there is the task, the shell and the second one is cat. So now those tasks are in this C group, but there's still no restrictions.
+So I'm going to, so now I've restricted this particular shell can only run tasks on CPU zero and one. So this is like every
+container engine that you talk to has a way to do this. And it's, this is how they do it. The problem then is if that container itself,
+for example, suppose that you were running system D in that container, that can just container may create a sub C group. So now I'm in some sub C group.
+And in fact, the container engine will then grant the container the ability to manage C groups. So, so now I'm, now I'm here and I can see that I'm in a sub C group.
+And I have CPU set that CPU is that effective that tells me what things in this sub C group can what processes, I'm sorry, what processors they could run on.
+But if you look, if I look at the CPU set that CPU's file, which is the one that you use to control stuff with that files empty. So in particular, if you are a naive run time,
+you might look at this file and say like, Oh, hey, I can run on lots of CPU's. And the reality is you can't because there's this other file that ends in dot effective that tells you here's what the some total of all of the restrictions up the tree are.
+But you have to know to look at this right file. And this is only one of the, the whatever four different interfaces we have. So there's the kernel has a command line you can use to do this.
+This is what I still see pieces what people who really care about this stuff like HPC people use. The second one is, honestly, it's what libc's used to use. Then there's prox that prox CPU info all of the system prox of s's are emulated by Alex CFS.
+So in some container environments, you will get a view in prox that of the right thing, but in other container environments, you won't. And then on top of all of that, we also have this is called sked get affinity, which gives you some combination of the above results, but does not, for example, containing
+I sold CPUs. So if you know, based on all of these interfaces, how to answer this simple question of how many CPUs do I have, you can leave. And if you don't know that's okay, because the whole point of this talk is that we're going to try and fix that for you.
+So, so what's missing from this, in particular, you can do stuff like CFS quotas. So you're not even really worried about the number of CPUs you have, you may be able to run on any CPU, but you may have like a very small shared quota.
+And so in large multi tenant systems like we have at Netflix, we're trying to move away from assigning specific people to specific CPU sets with the goal being that if there is a CPU that somebody can run on somebody should be running on that CPU.
+So even even the original question is not necessarily correct. So it's hard to answer. I'm just going to kind of give you an overview of all the funny stuff that we found.
+So TC Malik, if you use non sequential CPU assignments, it will seg fault. That's bad. The JVM's implementation. This is a bug that we filed. So it queries CPU set that CPUs not effective, which was the demo I showed you.
+If you just look at the wrong file, you'll get the wrong answer. The other thing is that we care about other resources besides CPU. So we also care about memory and other network things.
+And the problem is that this effective file is really nice for CPUs, but it doesn't exist for memory. So if you want to do it for memory, you have to walk the whole C group through yourself as opposed to doing what the kernel already knows.
+So answering this question is also kind of annoying for other resources that aren't the, you know, the most obvious one, which is CPUs.
+So what we would end up with in production is a two CPU job would allocate 384 gigs of heap, which is half of an R5. And then, you know, that's not very good. So, so this, this kind of annoying. There's a longer explanation that one of my colleagues wrote about, you know, how to compute this correctly in the face of C groups, but again, doesn't take into account I sold CPUs or other things.
+So there's more bugs. So G libc used to use.
+CIS devices system node, which is a CISFS file. And so we could with LXCFS mask that value, but then they switched to sked get affinity. So now we can no longer do that.
+So the reason that it's important to think about what G libc does is lots of people use this CISCFS.
+Or if you use the nprox command line tool to do make dash j nprox or whatever that uses G libc, which uses sked get affinity.
+So if you are restricting resources in a, in a strange way, you may get the wrong answer and you'll spawn the wrong number of worker threads and you'll context switch into oblivion and get less work done.
+So one, one of the G libc maintainers pointed out that this particular problem should be solved by the kernel. That's a bug that he filed that I think nobody from the kernel side at redhead has ever looked at.
+Musil for just for completeness does the same thing. Sked get affinity.
+So we also saw crashes in lib uv reasoning about this incorrectly, which is no jazz, which is important because that's what serves on Netflix.com.
+Even Alex CFS, which was written by some of the people in this room, myself included, I guess maybe nobody else in this room now, but some of the people on the program committee for this containers thing wrote this code and it was wrong.
+We have, we found a couple of bugs there.
+So this caused crashes in lots of places. That was also bad.
+So even the people who are supposed to know how to do this don't know how to do it.
+So, yeah, they also though, I mentioned this thing earlier about if you use shares and quota, you know, then you really get the wrong answer. Alex CFS has a solution for this, which is kind of cool.
+It's called the CPU future.
+So there's a question about where should this computation live?
+One of the G-lib C developers said that it should live in the kernel, but the kernel people, you know, haven't really worried about this. They continue to add interfaces for figuring this out.
+So, you know, one answer is it should live nowhere. We should just keep allocating large heaps and crashing stuff and whatever.
+Unfortunately, my boss doesn't like that answer.
+So the next thing is we should fix that in the container runtime.
+So this is the traditional way that we did with Alex CFS.
+So you bind mounts and file. It's a fuse file system. It looks at when you make a fuse file request, it looks at that process ID.
+It goes and looks in the C group tree for that process ID and then tells you it lies to you and it basically says, hey, there's this many CPUs online.
+So this is the traditional way it worked for a very long time until libc started switching away from looking at proc and cysfs files and started using cyscalls, which makes sense because parsing proc and cysfs is kind of annoying.
+So, you know, if there's a cyscall that can do the thing, they want to use it. So that makes sense.
+The kernel people often will say this thing that's mechanism not policy.
+So they will give you the mechanism to reason about the thing and it's up to you to make a policy about how many threads or whatever you want to spawn.
+And so in principle, they have given us the mechanism because the mechanism is these 40 interfaces that are all can do very different things.
+And so if you look at all the right places, you can do it correctly.
+So in some sense, the kernel already did it. It's just sort of complicated.
+So yeah, there's lots of them.
+And the other thing is that there's a new patch series allowing ebpf to do scheduling.
+So right now, if you think about cfs and cfs quotas, cfs is hard coded in the kernel, very well understood by lots of people.
+If you, the user can load an ebpf program that will now decide which tasks to schedule, the algorithm for determining how many CPU equivalents this thing has is now dynamic.
+It depends on the results of this ebpf program.
+So the kernel also can't tell you necessarily anymore.
+So that's, I guess, the goal of our presentation here today is to have this library exist in user space.
+So it's one place so that everybody can go and ask this question in one location.
+So it should have no dependencies because Golang doesn't want to link against libc, but also, you know, run times generally don't want to include a lot of other stuff because they're supposed to be small.
+If you think about JVM or whatever.
+So it should also be correct.
+So correct in two senses.
+One is, you know, we should give you the right number of CPUs.
+So we should do the math correctly.
+And the other senses, we shouldn't do like terrible memory corruption or other things like that.
+So it should be safe in the programming languages execution model sense.
+And with that.
+So what we're proposing is this library called live mi contained.
+And the idea is that, well, it'll be a container aware API that like calculates like with the resources you have.
+In this talk, we're mostly focusing on CPU count.
+And it'll be statically linked with the CBI and we're writing it in Rust for, you know, safety guarantees.
+And the idea is that it's meant to be used by like language run times and applications instead of like trying to figure out which is the right interface for resources.
+And here's a link to our repo.
+So.
+So why do run times ask?
+And like, and we hit all those bugs before.
+The idea is that they mostly do this to size their thread pools and specifically like their GC threads.
+And they want to size their arenas and allocator threads as well.
+And how can this go wrong to give kind of a maybe so much of a sense of what's going on in the future.
+So how can this go wrong to give kind of a maybe simplified example.
+Let's say you have 10 containers on a host and just to make the math easy that host has 100 CPUs and we assign each container 10% CPU quota.
+Okay.
+All right back.
+So again, 10 containers, 100 CPUs, 10% quota each.
+Now what happens is those run times in each container, they're all going to see 100 CPUs and they're going to start 100 threads that they expect to do like a CPU's worth of work.
+So what happens they eat through their quota right away.
+And you get a ton of starvation right GC pauses.
+Everything starts spiking.
+So what should they do?
+Well, call our API.
+So what we have first is kind of your classic.
+This is a classic num CPU.
+So we're going to call a skedget affinity and this takes into account CPU sets, affinity masks, online CPU sets, affinity masks, online CPU sets.
+So we're going to take num CPUs like all this stuff.
+But our real value add is this recommended threads calculation.
+So this will take num CPUs and constrain it with like quota, for example, and compute.
+It's not a rocket science algorithm.
+It's basically just quota over a period gives you like a number of like how many threads you should be running.
+This is what like system D and Alex CFS do.
+So it's like a well known calculation.
+And so let's do that example again, but with recommended threads, right?
+We've got 10 containers.
+We've got our 100 CPU hosts with quota.
+Now each one is going to get when they call recommended threads, they're going to get 10 CPUs and problem solved forever.
+So what have people done in the past, including ourselves?
+So every language runtime implemented themselves, like they call it, you know, pass a container aware flag to JVM.
+But usually as we've seen, they get it wrong or sometimes Alex CFS does it does the right calculation, but it can only do the the proc file system mounting.
+It doesn't do like doesn't take care of like skedget affinity.
+So what we did at Netflix was we use Alex CFS and then using set comp would intercept this skedget affinity to like do this calculation.
+So this is kind of our follow up to say we're like, there must be a better way to do this.
+And there's lib which is in the Alex project today, but it's not container aware.
+So that's actually the we go for and then the next thing we do is we do a set comp.
+And the next thing is I wanted to throw out some like some additional like issues we ran into, which is a lot of things assume like static like a static resource size, right?
+But in kind of a containers world and you can when you can do you can like edit C groups, like for a running process, we don't think that that's no longer a correct assumption.
+Right. So like you're allowed to change C groups on live process and nothing seems to take that into account.
+So other things we're thinking about are like, what if thread pools were dynamically sized?
+It would periodically check like, Hey, do I still have 10 CPUs or now do I have 20?
+You can resize your thread pool that way.
+But that's not the way it works today.
+So we're that's future work, but more like food for thought.
+And that's it. Thank you.
+For sure there's overhead.
+But the reality is like if you want to lie to people about the right answer to this question, like you have to do something.
+And so that's like the best stop gap.
+I think like, is there a less over heady way like the real solution writers for just applications to get it right.
+So they don't have to worry about it.
+And so that's sort of how we arrived at this particular solution is what if people just actually knew how to do this correctly.
+The overhead of getting it wrong is probably worse than this.
+Right.
+Yeah.
+I'm not sure.
+So checkpoint restore will do C groups.
+So like the majority of the way people do this is with C groups.
+So I think one problem could be is if you restored an application to a larger or a smaller number of CPUs than originally had today, like mayhem.
+So if you if you have 100 CPU application, then you restore it onto a two CPU box.
+It's still going to think it has 100 CPUs.
+It's going to allocate 100 memory arenas free like one for each physical thread so that it can do, you know, threadless locking to do memory allocations quickly and stuff.
+And so 98 of those 100 arenas will be wasted.
+So for you guys, if you want to dynamically change CPU size, you have the same problem, but actually on steroids because you really want application run times to resize their thread pools, which is Sebastian's last point.
+For us, it's mostly like just get it right the first time, please.
+Like let's figure it out later.
+Other questions.
+It's a good question.
+We should right now.
+Our set comp stuff is not open source, but there's no reason it could be.
+We just has to like turn the crank to do the work.
+Just just for the offline folks.
+Yeah.
+So it's a good question.
+So your question is sort of what is the roadmap for this workload like this was basically stop zero of like, do people think this is a good idea?
+So it sounds like you think is a good idea.
+It would be nice to have your collaboration.
+One of the questions I have for the LXC project leaders, are you interested in having this code in LXC?
+Because I'm thinking step two would be, you know, we can centralize the code in a place where the container people like it.
+And then step three would be, as you say, go hat and hand to each front time.
+And it probably involves submitting a pull request and then flying to the Golang conference and the JVM conference and the Node.js conference.
+And you know, like it's going to be a long road, but what we have now is bad.
+So anyway, to point question to.
+Yeah, we talked about it.
+So the reason why the thing that exists right now has been developed by all of us is because it could probably make sense to have something that's more generic, that actually covers what needs and that hopefully is bad.
+So I think it's a good place to have the community that's working as a project because we're really not famous enough for that.
+We've got like CFS with a lot of those things there that are already used by others.
+It's a good place for it.
+And as I was talking with Tiger in the past about this, this is a long game.
+It's something we've been wanting for a lot of decades.
+Nobody really did anything about it that we wanted to finally do something about.
+So in a lot of decades we can have sites on our great every means instead of having to fill it out.
+And in the end, there's going to be the end point in the budget of different things.
+So I mean, the obvious one is that for things like the good things, especially the good right time, those kind of things that's almost right, I go to the back of the crowd.
+Those definitely need this kind of information because right now they're trying to do it differently, they wouldn't be wrong for different reasons.
+So that's what makes sense.
+But we can also go to...
+... like you know, whatever it's using, it's not taking a lot of resources to use that kind of system.
+We've got that very common misconception in an activity that starts, you know, load up, rate, and then something.
+Which is really important because once you've got things that are mixed, you can easily create a lot of like 5,000 on the machine.
+That's how we did it all, by just creating a secret room that's got almost no resources on the media and then link that to the media.
+It's a pretty effective whole in right now, in order to do it, it's a great way to figure out what's actually going on.
+You can get some stuff, you can get some stuff on other bases, but if you want the full picture, you can have many different stuff.
+I'm getting really tired of having project passing next slide.
+It's just extremely hard to approach the material that they want.
+Sounds like the answer is yes. You're interested.
+Yes.
+I was just like, I'm not a project manager.
+I'm a group that people call, I don't know what it is.
+Because I'm a group that's a student.
+Yeah, yeah, memory is actually worse than CPU.
+I don't know what it is.
+I'm just trying to make it very easy to do in place.
+Yeah, so I would say I am certainly not opposed to this.
+I think this basically shouldn't live under some Netflix repo, Netflix repo, because nobody will take us seriously.
+It's much better to live upstream, whether it's Linux containers, U2 Linux or whatever.
+The biggest thing is I'm guessing that U2 Linux people aren't that into Rust.
+Rust is like a little bit of a weird thing, because you want to convince people that stuff is safe,
+but also adding a Rust tool chain to your build time is kind of painful.
+I'd be happy to talk if...
+Yeah, I have a question.
+He's a computer engineer, he's a employee of my company, so...
+Yes, yeah, we should talk after this, for sure.
+Yeah, yeah, where it lives is like, I don't want to make another talk in ten years with this same number of bug reports on the top.
+Other questions?
+Cool, thank you.
+Thanks for watching.

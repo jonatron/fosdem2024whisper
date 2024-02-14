@@ -1,0 +1,179 @@
+Alright, good afternoon. My name is Jonathan Dowland. I'm a principal software engineer
+at Red Hat. I work on OpenJDK, in particular on containers. And I'm going to present some
+work for you today, which is a project team myself and Josh and Jay, who sadly can't be
+here today. I'm going to present some work we've been doing to look at integrating Java
+module technology with OpenShift. So I suspect you're all very familiar with Java modules,
+introduced to the JDK in 9 with Project Jigsaw, and perhaps less aware of what Red Hat OpenShift
+is. So OpenShift is Red Hat's enterprise distribution of Kubernetes, which is the de facto standard
+tool for doing container orchestration. So talking about containers. Red Hat, obviously
+probably heard of REL, Red Hat Enterprise Linux. Another project we have is the universal
+base image. And it's based on REL, and so it has some similar design principles, such
+as focus on quality and suitability for the enterprise. But it's different in the sense
+that it's available under the terms of a different end user license agreement. There's a short
+link at the top there to the full gory legal details. But unlike REL, you can, anybody without
+any kind of relationship to Red Hat can access UBI images, pull, push them and build upon
+them and distribute derivatives. So effectively it's a free image, and it's been designed
+to be useful as a base for any kind of containerized application. There's three flavors of the
+main UBI images. So there's UBI as it's called, and then there's minimal and then there's
+micro, and they're decreasing order size. So the full UBI image is about 200 megabytes
+uncompressed, and the minimal one's about 90, and the micro one, which is really small,
+has almost nothing in it, is about 20 megabytes, 20 megabytes of nothing somehow. You can get
+these, I mean those particular UBI containers are available, widely available, places like
+Docker Hub, but most or many Red Hat containers are not available from Docker Hub, and I'm
+not sure if you can see it in the room because of the positions of the tables, but the Red
+Hat ecosystem catalog is the place to go for Red Hat containers. So you can browse all
+of the UBI ones there. And the open JDK containers then, the thing I work on, they're part of
+the UBI family, so they're available under the same user license agreement, and you
+can pull and pull them freely without needing to be a customer or to have a developer subscription.
+I haven't included the full matrix of JDK containers we have now because it's grown
+too big for a slide. I think we have about 16 at last count, but the general URI form
+for the containers is there's two variants. There's build of images which contain the
+full JDK and developer tooling, the Java compiler and Maven, and that's the top one.
+And the second flavor we have is the runtime variants, which effectively suffix runtime,
+you get that. That has a slightly smaller subset of the JDK and doesn't include build
+tooling. I've included a link, which is probably at a better height now, to some, this is a
+page really, but we have a Gitub auto-generated documentation for all of the containers that
+we've shipped in recent times, so that's the place to go to see what's available. It has
+jumping off points to the ecosystem catalog, but it also includes information on how to
+actually configure the containers and to tailor them to your needs.
+So OpenShift has value add on top of Kubernetes. One of the concept ads is something called
+a build config and an instance of that is source to image. What OpenShift source to image
+is a process which allows you to define a workflow to consume an application source
+and produce a running deployable container automatically and automate the put-back process.
+By running a command like that, that's OC is the main OpenShift command line tool. You
+can create a whole load of objects inside OpenShift, which are interconnected to each
+other with triggers, so that in this particular example, if your application source URI is
+changes, if you push and you commit, or the base image upon which you're using for this
+process changes, then the workflow will pick that up and event up and automatically rerun
+and build a new deployment application, a deployment container. It's quite a simple
+workflow and the output image from this process is layered on top of the input image, which
+is the builder. The problem with that is the builder image is pretty big and customers
+want small containers and size of side, it also has stuff in you don't want necessarily
+in a runtime context, so the compiler, Maven, etc. So people with strong security concerns
+or with audit requirements want something else. The current state of the art in OpenShift
+for achieving that is multi-stage pipelines. You can chain these things together. The top
+part of this diagram is from the previous slide and you can chain that into a second
+build. In this case, the second build is using a different build conflict strategy called
+Docker strategy and basically it's a Docker file, which you may be familiar with. In this
+case, the output of the first stage is an intermediate image, which is used as one of the ingredients
+for the second stage and what we do basically, there we are. YAML, if you've ever dealt with
+Kubernetes, OpenShift is exactly the same, YAML, lots of YAML. The key piece here for
+that second stage is a Docker file, which in this case is embedded deep in the middle
+of YAML territory and it's a reasonably simple one. That's the state of the art today. I'm
+using Qwakus, I think you mentioned it on the side. For what follows, I've used Qwakus
+mostly for my experiments and for the examples. How big is it when you finish that process?
+It's pretty big. Unfortunately, the savings over the straightforward S2I process these
+days is pretty small, about 5%, not very good. If you look at the pie chart there, the thinnest
+slice on the slide is the application itself. The cost of doing business with this is quite
+high. The largest slice of the pie is the JDK itself and therefore that's the place
+we're focusing on trying to make space and size reductions. You can see another of the
+second biggest slice is the minimal base image itself. The open JDK container images based
+upon the UBI minimal image and that's about a quarter of the final payload for the application
+container here. First focus then is on trying to shrink the JDK and the second focus is
+to take a look at this base image. Our approach, what we're exploring is effectively the same
+basic shape of the workflow as before except we're going to extend the two build phases.
+The first extension is we're going to add at the application build stage, a post build,
+an analysis of the application using J-Link or J-Dep to determine which Java modules it
+uses. I should probably stress that the application itself does not need to use Java modules for
+this to function. We're looking at the Java modules that the application touches within
+the JDK. Then we use J-Link to strip the RedTap Open JDK that's provided in the container
+and create a bespoke VM which we then stash in the intermediate image. The second stage,
+the cherry picking stage then, we extend what we did before where we copied the application
+jar over into the runtime image and we additionally copy over the stripped JVM and a run script,
+basically the shell script entry point for the container which does some of the configuration
+at runtime and a small number of system dependencies we need to make the whole thing work. The reason
+we need to do these additional cherry picking things is because we've also switched out
+the image which we're layering on top of and we're now able to target the UBI micro image.
+I'm going to attempt something approximating a demo here. Let's have a look. If I was super
+brave, I would fire up an open shift cluster and give you a full blown web based exploration
+of that going on. I'm not that brave and subject to the constraints of operating on a laptop
+and FOSDEM Wi-Fi. I hope they'll forgive me for that. I mulled over exactly what I should
+show you and I could run through some of those build stages in isolation because in development
+we could do each of those stages separately. I figured perhaps what I'll do is I'll just
+show you the end stage if you like. What I have on this machine is a set of containers
+that have been built already. Scrolling off the bottom, let me fix that. Give the terminal
+a bit more read and state. I've got three containers here, container images on my machine.
+The first one running through the normal one stage S2I process has resulted, I've highlighted
+on the other window, perils of multi-mono. Here we are. So the plain S2I image then,
+this is a quarkus quick start and it ended up being 421 megs according to the podman.
+The multi-stage image, the current state of the art was a little bit smaller at 384. Actually
+that's better than the slides. Then the final image which has gone through our proof of
+concept jailing integration is down to 146. Let's run it.
+Run it, plonk, so that starts the app. Am I typing the right numbers here? Let's find
+out. I'm unable to connect, obviously not. Let me just borrow that window, fix it and
+put it back. Okay, there we go. Right, yeah, there you go, so the app works. So perhaps
+not the most exciting time you've seen today. That one, there we go. So yeah, in slightly
+more detail in the first phase when we extend the build process, this is opt in. We won't
+be doing it necessarily for every container build, so you have to enable it with an environment
+variable. As I said earlier, the general gist of it is run JDEPS and then JLink and there's
+an awful lot of pre- and processing going on to make that work. We're at the stage
+of this project where we're exploring a wider variety of applications to find all the edge
+cases. We have to add some modules that aren't picked up for whatever reason. We have to
+do some path fudging around when the class path is a bit unusual, et cetera. I've got
+a link to the source later if anyone really wants the gory details. So after this first
+stage, the intermediate image is pretty large. This is the second stage, the Docker file. Do
+not attempt to read this slide. The takeaway really is that it's grown more complicated
+than it was before. It was one or two lines before and we're doing quite a lot more work
+now. But yeah, there's four distinct things we copy in. We copy in the application, the
+stripped JVM, a run script and some system dependencies. At the moment, that's just
+grep and orc actually. But that might grow as we expand this. The results are pretty good.
+We're exploring a range of apps. This is not the best result. I've had all the worst. I've
+tried to be fair. It's about 43% the size of doing the multi-stage build. We've thrown
+away close to 70%. We're very happy with that. The new JVM is half the size of the older
+and the other significant saving is switching out to the micro-base image. We're happy with
+this and we're going to pursue it. A few bits and there are caveats. We've got to determine
+how, whether we're already serious blockers for real-world applications, more complicated
+applications than just quick starts. We've got some fun with JDK 11. At the moment, it
+grows the image. You get something twice as big instead of half the size. We know why
+and that's in trying to be fixed. Missing features. The reason it's getting smaller is
+because we're throwing stuff away. If you want FIPS support, if you're going to do stuff
+with time zone information or locales or you want debugging tools, that all needs to be
+added back in. We're trying to figure out a way that that would be practical for customers
+to actually do. The whole thing, our development works all in the open. If you want to do
+it, you can go to that address there and see all the gory details. It's on the bottom
+of that slide too. That's it. Thank you.
+I've got five minutes. I can't start the next one early. We've got five minutes of questions
+if anyone would like to. I don't know. I think the recording schedule would be broken. Any
+questions? Thank you. Sorry. Thanks.
+Sorry, I just want to hear me. Your previous slide there, you just talked a couple of things.
+You listed down TZD, locales, debugging information. One thing just to know is the TZD is actually
+in the base module. You don't get a choice. That will always be there. With your locales,
+there's actually a jailing plugin that actually allows you to select the locales. Maybe on
+your next step is something like that. By default, you just get US English. You can actually
+with the dash include locales, you can actually list out the locales that you want. That plugin
+will actually just take the resource data for those specific locales. That actually might
+be useful for you. More generally, the reason that locales are an issue for you is that
+it's what's called a service module. It's a service provider. There's nothing that directly
+depends on it. When you run JGEPs, you basically just sort of work out. That's basically doing
+static analysis to actually tell you what references there are. You never see static reference
+to something that's in a service provider module. Security providers is something you
+could actually list down there as well. J&DI providers is actually a bunch of those in
+the JDK that you never actually see a static reference to.
+Okay, thank you. That is really useful. I think we've made things... One of the modifications
+we do to the JDK in RHEL is to use the system time zone data. I think actually we've introduced
+this problem which you probably wouldn't have upstream. The information about the system
+data module is very useful. Thank you very much. Is there one right at the back?
+So, nice presentation, by the way. My question is, this seems to be optimizing for disk size.
+What about memory usage and stuff like that?
+Yes, so that's true. Size was the driver. I don't think it should make an appreciable
+difference to memory usage. I don't believe the Java will page in the modules it's not
+actually using or they'll page that out. I don't know, actually. We'll have to do some
+measurements. It's not been a driver for the project, but I wouldn't expect this to make
+significant gains in memory usage.
+Do you foresee that this could have a side effect on the memory side of things or not?
+Not loading stuff obviously consumes less memory. The fact that you don't load some
+stuff might make the system slower or something like that.
+I think... I don't know. We could add some measurements to our testing matrix, I think,
+and see what happens. For memory usage, the focus... The driver for that exploration is
+not in and Red Hat seems to have been towards Quarkus and Native Image. We've stuck to
+OpenJDK and the JVM for this work. We haven't really looked at memory, so it would be interesting
+to see. Thank you.
+Maybe I could just add to your reply just to that question. One of the side effects of
+having fewer modules in the runtime image is that you're actually memory mapping, you're
+mapping a smaller... It's called the G-image file. What actually happens is that that's
+actually completely memory mapped. You're not going to touch all the pages, so you may
+actually get some positive memory footprint benefits just because you're only going to
+have a small number of modules in the target image. It may help there.
+Great. Thank you.
+Cool. Okay. Thank you very much. Right. Next one.
+Thank you.

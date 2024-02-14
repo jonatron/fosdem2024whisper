@@ -1,0 +1,249 @@
+Thank you very much. Yeah, so my name is Adrian. I work for Chingard but I'm a technical community
+advocate or DevRel. I do have a minor issue in that there's a rugby match on right now.
+I'm Scottish and Scotland is playing Wales right now so somebody scheduled my talk for
+the exact time of the rugby match. So I'm quite serious if somebody can go and look
+up the scores and let me know what's happening I would appreciate it. And you're all laughing
+I'm looking at me like I'm joking but I am actually quite serious. Okay so so this is
+one of my favourite quotes about containers. Docker is doing to apt what apt did to tar.
+That's by Brian Cantrell or I guess a lot of you know he works at Oxide now but he used
+to be at Sun and Giant and has done a whole bunch of stuff with containers and operating
+systems and so on. But the point is in the old days I guess we used tar balls like 20
+years ago people were shipping software around by handing people sending people tar balls
+and it kind of worked especially like if you you know it's building from source but you
+typically got into problems with dependencies and he tried to ship a binary well good luck
+frankly. So then we got package managers and package managers really kind of solved a whole
+bunch of these problems right they took care of getting you the right dependencies. And
+I think we kind of take package managers for granted now but they are pretty cool and people
+still have to put a lot of work into them so if there's any sort of package manager
+containers out there thank you. But having said that all a package manager really is or all
+package really is is a tar ball plus some metadata about dependencies right. And then
+if you take a docker build or docker or a container image well that's really just an
+app or so on plus some metadata about how to run it. But now we're containing all the
+dependencies down to the operating system level. So that's kind of what Brian was talking
+about here. And container images really are just the same right they're just a file system
+plus some metadata. There's OCI standards on exactly what the file system should look
+like. It's not too complicated. Some of the metadata does get a bit confused and admittedly
+it's just a few levels of indirection. But it's not that complicated. Running and maintaining
+containers okay I will grant you that can get a lot more complicated. But that would
+be a very different talk to this one. So back in the early days of Docker and so on this
+is how we built container images. And this is a pretty typical build. And people still
+do this kind of thing today. And it's okay and it works. Yeah we're just using Golang
+copying in a source code running go build and set an entry point. There are some problems
+with this. Primarily you've got a big image here. I ran a build very similar to this one
+yesterday and it was 892 megabytes. It's also got CVE's. A Golang image is based on build
+tools which is based on Debian. And that base image the scanners at least. Scanners being
+like Trivys, Sneak, Grite, things like that. They complain that it does have CVE's. With
+or not those are at Trivys. Well I'll let you figure out. There's also poor reproducibility.
+I've not helped things here by writing from Golang. You could put a digest there and that
+would specify a specific image. But at the minute each time you run this you're going
+to get a very different build out. So one thing we can do that makes things a lot better
+is use a multi stage build. So here we've got practically the same build as this one
+at the top. But what we're doing is taking the artifact out and copying it on top of
+a production image. Now for the production image in this case I've used this to this
+image. This one has a chain guard static image. You could also totally use the Google
+disk to this image and you'll get pretty much the same thing. So what we're doing here,
+the other thing I had to do was set C go enabled to zero which tells go to produce a static
+binary in most cases. There are a couple of gotchas. But we copy that binary and copy
+onto this static image. So why can't I copy it onto a scratch image which is completely
+empty? Well typically you'll find that a lot of Linux applications do require a few things
+to be available. For example CA certificates we're talking to TLS to other web services.
+What often applications expect things like slash temp, slash home to be available and
+that's basically what static and the disk list images give you. They give you sort of bare
+minimum to run the typical statically compiled application. And if you do that you get a
+much, much smaller image. Like I did that yesterday that resulted in an 8.5 megabyte
+image as compared to the 892 megabyte image that's based on top of Golang. So that's an
+enormous saving. And that's not good just for security, it's also good just for transferring
+it about and reproducibility and so on. This is still not completely reproducible because
+Docker build tends not to be completely reproducible. There is ongoing work on that. There was a
+great talk at DockerCon last year on exactly that subject. There is an issue with disk
+to list. So in this example that we saw we used a static image which is for statically
+compiled binaries. So if you have a project that's run in say Rust, Go or something like
+that where you can produce a static binary that's perfect. But you can't use that for
+something like Java, Ruby or Node. In that case you're going to need a different base
+image that has the runtime you need in it at least. Now Google disk to list project does
+have a few of these. I believe they've got a Python one and a Java one at least. A Ching
+we've got a whole bunch more. But yeah, even if you find a base image you may still find
+that you need one or two more dependencies. Which brings you to the point well can I create
+my own sort of disk to list base images with absolute minimum in them. And I should like
+make the point that these images are so minimal they don't have like shells or package managers
+in them. They really are stripped down to just what you need at runtime.
+A quick aside there is a project called KO. We're cool, I'm not quite sure of which.
+And this is like a really easy way to build a go application into a disk to list image.
+So instead of an go build you're literally running a code build and it builds your container
+image. And you don't even need Docker. It's just because like all it's really doing is
+producing a file system there's no Docker involved. Yeah, so that's really trivial to
+use. There's no configuration literally. It's literally just code build. And yeah, you might
+be thinking well hang on how do you make these disk to list images if you're not using Docker
+build and so on. And can you make your own disk to list images. And the answer is you
+totally can. It's not that simple though. If you look at how the Google container tools
+disk list images are made they actually use Bazel which as some of you probably wear is
+the open source version of Blaze which is the internal Google build system which is
+understandably quite complex. But basically you know Google container tools disk list
+is debian with almost everything stripped out. A chain guard we did things a different
+way. We've got app code which builds our container images and you have to pair that with an operating
+system or package repository such as Wolfie which is our one or Alpine also works. You
+can't mix it though like Wolfie is based on G-Lib C and Alpine is based against Muzzle.
+So you can't mix packages at all. Okay, so we'll see if this works. I did it. Here
+is the repository for the go example for building with Bazel. So if you want to create a Docker
+image with Bazel this is the simplest example for creating one's go. And there's basically
+two you know there's like a go program here. We won't bother looking at that. But we can
+look at I think two interesting ones are module and build. So we have module here. I think
+somewhere we'll see we specify the base image. So we're building on top of a distrust base
+image and we're specifying the platforms. This bit's kind of interesting. If you use
+rules OCI in Bazel to build a container image you do have to specify a base image. Just kind
+of a bit annoying because when you're using something like Bazel you really want to specify
+everything down to the ingredients. Part of the whole point of Bazel is to completely
+specify where everything comes from but we have to pull in an image here. And there's
+no reason you couldn't create everything completely from scratch. Because again, container image
+is just a file system really. Okay, let's see if I can go back. And the other file is
+a build file. And okay there's not too much in it but there's a bit. And this is literally
+just to build that single very simple go application. So there is when you decide to use Bazel you
+suddenly got to bring in a whole bunch of stuff. But it does buy you a lot. There's a reason
+people like Google use it. There's excellent reproducibility. You run it twice. You get
+exactly the same binary artifact out. It is fast. There's a lot of levels of caching
+going on here. I think the main reason people use it though is for like provenance and so
+on. So provenance and reproducibility are sort of essential to your organization. That's
+when you want to be looking at something like Bazel. Yet you can build totally minimal
+images with it but as we saw there it is a bit of a beast. You're bringing in a lot
+of stuff just to build a simple go application in this case. So it's something you want to
+do for larger, more complicated systems. Probably not for like a small open source project.
+Yeah and there's the other issue about having to bring in a base image if you're using something
+like rules OCI. I think you can chain images though. And if you compare this to what we
+do at ChainGuard this is like how we build the Wolfie base image. This is the entire
+app code for the Wolfie base image. If you run this you'll get something very similar
+to the Wolfie base image you can download. So what we're saying is first thing is we
+got to point it at the package repository. In this case I'm pointing at the Wolfie package
+repository. Could also use Alpine. And then I'm saying what packages I want to install
+in my image. So I'm saying we need C certificates and Wolfie base. And if you do that you end
+up with an image that's basically got busybox and a few other things in it and not a lot
+else. And glibs too. Yeah then you set some metadata on your image things like entry point
+cmd and so on. And that's all you can do in app code. Right there's none of this like
+in Docker where you have run commands and you run arbitrary commands. You also can't
+add outside files in. Everything has to be in an APK package from a repository somewhere.
+That's all you can do. But because of that it's a lot simpler. Hopefully that example
+was simpler to understand than for example the Basel build. It's declarative. You're
+saying what you do and you can't do all this run imperative stuff. It's reproducible. I've
+done it twice. I will get the same result with the assumption that these packages haven't
+changed in the meantime. You can specify the exact version of packages as well and there
+is support for getting like a lock file out with exact versions of packages that you use.
+You do tend to get very low CV images from using this if you use Wolfie just because
+we're really aggressive at keeping the Wolfie packages up to date and they tend to have
+no CV use. The other thing is it composes well with Docker files. So like I said all
+you can do in app code is add in APKs. So if you want to add your own application in
+well you can use something like melange which is what we use internally to build APKs or
+you can take an existing you can build a base image of app code and then use it like Docker
+or something to copy in your application on top of it which is basically exactly what
+you're doing when you're using a multi-stage build with the train guard static image.
+Drawbacks I guess you are dependent on Alpine or Wolfie so if you want a package that's
+not in there you're going to have to create it yourself. What you totally can do you
+can use APK tools or you can use melange which is the train guard version of APK tools.
+As an aside there is also roles app code for Bazel which does kind of help with that issue
+I mentioned before about being able to build images in Bazel completely from scratch. So
+you can also check that out if you're interested. Oh yeah what's the score?
+That was unexpected thank you. Who scored? No don't worry.
+Yes I want to mention canonical chiseled containers so I spent a little while looking at this.
+There are resources you can't totally download it and play with it but there's not that much
+out there to be honest. So this is the canonical version of this chiseled containers. They
+do seem to have produced minimal low CV images and they do look good but it seems to be a
+very limited number of images they've created with this chisel mechanism. I could only find
+3.net images and a GRE image. You can create your own images but it does seem a little bit
+complex. Basically the app is the idea of slices or the idea that you can, I guess that's
+where the name chisel comes from so you take an apt package and your chisel bits out that
+you're interested in or you're not interested in. It does feel a bit like the app packages,
+the problem is app packages are large as opposed to with APK and other package managers where
+you have the idea of sub packages. So we haven't had this problem in Molfi because we just
+defined sub packages if you want a package that just has libraries for example. I don't
+know enough about app to say if that would have been a reasonable pathway to do it but
+this chisel mechanism does look very manual. You end up having to specify paths etc. The
+other thing is it's very much part of the canonical ecosystem. You start seeing things
+like snapcraft and charms and so on and very much ties into all that. Build packs, I didn't
+spend too long looking at this one. A lot of you are probably aware of build packs from
+the old Heroku days which is where it all started and then Pivotal did their version
+and then they merged them together again and now we have cloud native build packs that
+build OCI images. The main selling point seems to be that it's easy to use and sort of automatic.
+So your build packs, well look at your project, they'll see you've got a Python requirements
+dot text or you've got a node package dot jason and try to automatically configure a build
+pack to build on top of that so you automatically get a container image out. From playing with
+it, it didn't seem to produce very small images. Maybe that was me holding it wrong.
+I don't think there's any reason it shouldn't produce small images. It just seems to be,
+that's all based on this idea of stacks and the stacks by default aren't that small. It
+does definitely feel to me about one size fits all. But yeah, have a look if you like.
+One thing I really do like that came out recently is Buildkit and well Buildkit didn't come out
+recently, but Dagger came out recently. So Buildkit is the sort of engine behind Docker
+build and Buildkit is a lot more powerful than it appears from looking at Docker file.
+There's a whole bunch of stuff you can do here about dependencies and resolution and
+caching that's really quite powerful. And I think when they built Buildkit, they were
+hoping that there'd be much more front ends created on top of Buildkit rather than just
+Docker file. But that's not really happened until now with Dagger. And Dagger really tries
+to take advantage of the power of Buildkit. I would say Dagger is much more designed for
+CI CD. So the selling point of Dagger is to solve this problem that you have in CI CD when
+I'm sure you all had like GitHub actions where your action isn't working. So you like chicken,
+try this and then try three, try four and you end up with try 26 of commits. Yeah, you've
+all been there? Yeah, it's a pain. And that's kind of what Dagger is trying to solve. The
+idea being that you can run Dagger locally and it'll build the same as it does locally
+as in a GitHub action or Circle CI, et cetera. I don't think this example is very fair to
+Dagger because it's actually really large and powerful, but I want to give you some
+flavor at least. So in this example, we're building a container, we're giving it a base
+image, we're telling it like a directory from the host to include. In this case, we're just
+including the MD files, markdown files, sitting the work directory, then telling it to execute
+LS and I put in the, I put from LS. So that's kind of what Dagger workflows look like. We're
+just half built a container, it's also done something with it. To me, it kind of feels
+similar in some ways to Bazel, but a lot simpler, right? Because now we have a build system that
+will build an entire sort of organization, my project if you like. I'm sure it does not
+offer the same providence and so on guarantees. What I really mean is just that it's designed
+for a team to use as opposed to a single person. There is also a bunch of plugins. So the
+Dagger working on something called the Daggerverse and that includes plugins, including one for
+AppCo. However, having played with it, you're actually better off with a plugin for APKs.
+So Dagger can effectively recreate AppCo because you can create a file system or image from
+scratch and then just add an APKs using the plugin. In some ways, it will be better than
+AppCo because you'll get caching and rebuilds really much faster. So there's quite a strong
+argument for using Dagger there instead of AppCo.
+Next, how am I doing for time?
+Okay, we should be okay. So you don't need to understand all of Nix or even install it
+to play with Nix to build Docker images or container images. There's effectively two
+approaches. You can use packages to Docker tools or you can use flakes and copy them
+into an image. And I should say I have definitely not understood very much of Nix and I didn't
+install it. Here is packages.docker tools. So again, it's somewhat similar to Bazel
+or something like that. We're specifying the name of the image. We're saying we want the
+reddest package inside it and that it should be available at slash bin and mountain of
+volume, et cetera. Now, you should be able to build that. I tried building it on my Mac
+and it told me it wouldn't build because it required KVM. I don't want to understand
+if that's, if there's something I could work around that. Now, I believe we'll create something
+that's fully reproducible. So I run twice and it will give me a bit wise identical result.
+You should be able to create minimal images. I'm not 100% sure in that one. It takes a
+full programming language and you do sort of need to buy into the whole Nix ecosystem,
+but it does seem quite a powerful solution. Nix Flakes. So this is entirely stolen from
+Mitchell Hashimoto's blog, but it was really quite interesting. So the idea with Nix is
+when you install an application, you also get all of the dependencies or particular
+version of all its dependencies along with it so that it always works wherever you put
+it. So there's no reason that you can't just take the whole file system tree and put it
+in a container and it should just work and it does. So the idea is to create a flake
+and copy it into an image using a Docker file and that's a pretty simple method and it does
+work on my Mac. The whole sort of method is written up by Mitchell Hashimoto at this blog
+post. I could show you, but by the time, it is a little bit frustrating because now we
+put Docker into the mix, it's reduced the level of reproducibility. I think you should
+be able to take minimal images, but there is an issue in that it creates a slightly weird
+file system. The app or the entry point is a shell script which includes all the dependencies.
+So I guess you get forced to include bash or something. I'm not quite sure that's always
+the case or there's a workaround for that. I really need to play more with it. But you
+do end up with a weird file system. So the problem with this solution is if you give
+it to somebody else and they try and debug it, they might well hit problems because you
+do a file system and you've got app and you've got next door. You don't have your usual Etsy
+and BIN directors. Okay, so to wrap up, what would I recommend? If you want a big organization
+wide solution, if you need provenance, reproducibility and so on, you can totally do that. But do
+be aware it can be a bit of a beast. I really like Dagger. I hope it does well. It is a
+new solution. So do be aware that it's still being built out. Yeah, it certainly seems
+a good solution if you feel a pain in CI CD and I think everybody does. If you have a
+smaller project, the first thing I would genuinely look at is like ecosystem specific build
+tooling. So like co for go for example. Because that's really simple and you're pretty sure
+it's going to work and be low config. There is jib for Java. I've not tried that one,
+but that would probably be the first thing I would try if I was doing Java again. Otherwise,
+there's nothing wrong with doing a multi-stage Docker build with this full of images. I totally
+would recommend looking at this full of images though to get a fully minimal production image.
+App Co, yeah, if you want to, if you need a bit more flexibility and creating your sort
+of base image, please go and have a look at App Co. And then finally the next stuff, yeah,
+that could well be a solution totally if you understand Nix and you've bought into that
+ecosystem. Okay, what's the score?
+Pretty good there, thank you.
+All right.
+Thank you.
