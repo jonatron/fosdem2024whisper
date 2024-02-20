@@ -1,0 +1,665 @@
+WEBVTT
+
+00:00.000 --> 00:11.800
+Hi, everyone. I'm Alex. You may know me from hits such as Flatpak and my work on GNOME,
+
+00:11.800 --> 00:17.600
+but recently I've been doing this work on this thing called ComposeFS. And this talk
+
+00:17.600 --> 00:22.160
+is going to be partly about what it is and how it works, but also how it slots into the
+
+00:22.160 --> 00:28.920
+container ecosystem. So the tagline I use is an operatively sharing verified image file
+
+00:28.960 --> 00:34.000
+system. It's a mouthful, but like image file system, you can imagine it's about mounting
+
+00:34.000 --> 00:38.960
+a file system. That's an image. Like the container image could be, but it could also be a system
+
+00:38.960 --> 00:45.240
+image for a full system thing or any kind of image you wish to share and then reuse.
+
+00:45.240 --> 00:52.360
+And sharing is about having multiple of these images and they share resources in some way.
+
+00:52.360 --> 00:57.200
+So there's a little more efficient of multiple of them than each individual. And very far
+
+00:57.200 --> 01:01.440
+is that we want to in some way guarantee that we're reading what we're expecting to read.
+
+01:01.440 --> 01:09.880
+So the easiest way to explain how it works is by example. Suppose we have this image. I mean,
+
+01:09.880 --> 01:15.920
+it's not much of an image, but it's basically it's files, right? And a structure, a metadata and
+
+01:15.920 --> 01:22.560
+all that. And you run the MK ComposeFS command and you give it the directory that you want to create
+
+01:22.600 --> 01:28.360
+from. You give it an example of CFS. That's a file name. And then you pass in a digest store,
+
+01:28.360 --> 01:36.760
+which is a directory name. And when you run this, you get this. You get the image file and you
+
+01:36.760 --> 01:42.240
+get the objects directory that has a bunch of weird looking things in it. Those things are
+
+01:42.240 --> 01:48.040
+just files. And if you go back to the original thing, we had a food attacks, the barl attacks.
+
+01:49.000 --> 01:56.640
+And those weird looking objects just have the content of those files in them. And the names are
+
+01:56.640 --> 02:03.400
+like check sums. And then you can, from this again, you can mount it. You're specifying the objects
+
+02:03.400 --> 02:09.920
+directory and the example file. And then you get back the same results. It doesn't sound all that
+
+02:09.920 --> 02:14.080
+exciting because you could as well use to use a loopback mount for whatever kind of files you
+
+02:14.160 --> 02:22.160
+want to. The interesting thing is this particular objects directory. As I said, it has the backing
+
+02:22.160 --> 02:28.200
+data for these files. And if we were to change one of them to not be what it was supposed to be,
+
+02:28.200 --> 02:34.480
+and then you mount again, you can and you will see the new change data. So basically, this directory
+
+02:34.480 --> 02:42.800
+contains all the backing files of the entire file system. So the interesting thing happens, if you
+
+02:42.840 --> 02:50.760
+have multiple of these images that share the same base directory, because these names are actually
+
+02:50.760 --> 02:55.560
+check sums. So any two files that happen to have the same content will have the same check sum,
+
+02:55.560 --> 03:02.240
+will use the same file. So that's what called content addressing. It's common in getting
+
+03:02.240 --> 03:08.720
+whatever was not. And that's what you would get what I call opportunistic sharing, as opposed to
+
+03:08.760 --> 03:15.040
+explicit sharing like docker layering, for example. You have to be very careful about managing your
+
+03:15.040 --> 03:19.040
+dependencies, such that you used exactly the right base image and whatnot, and then you get
+
+03:19.040 --> 03:27.040
+sharing. But here you get wherever, for whatever reason, if you happen to have two identical files,
+
+03:27.040 --> 03:33.800
+they will be shared. And they're not only shared on disk, because of the way composite has worked,
+
+03:33.800 --> 03:37.800
+when you mount this thing, if you mount two things, they use the same file, and something
+
+03:37.880 --> 03:45.760
+M-apps it or whatever, or just in the cache. They would only store once in the cache. And you can
+
+03:45.760 --> 03:52.600
+easily see how you could use this to update to a new version of an image and not have to download
+
+03:52.600 --> 03:57.240
+all the data. Like you can just download the image, list all the objects and see which one you don't
+
+03:57.240 --> 04:06.160
+have and download those. So it's like an automatic way to do delta downloads, basically. And then to
+
+04:06.200 --> 04:13.200
+get into these verifying part, we have to look at something called fsverity. fsverity is a feature
+
+04:13.200 --> 04:20.000
+of the Linux kernel. It's been around for some time now. It's actually both a feature of the VFS
+
+04:20.000 --> 04:26.400
+itself and the individual file system. So it has to be implemented in each file system, and most of
+
+04:26.400 --> 04:33.800
+them are. Or actually XFS is not yet supporting it, but it does work on that. But basically you
+
+04:33.840 --> 04:39.920
+enable this on a file, and that makes the file in mutable in the sense that the VFS will not allow
+
+04:39.920 --> 04:47.720
+you to do any operation on this that changes its content. You will get basically permission denied
+
+04:47.720 --> 04:56.880
+when you try to write to it or whatever. But also, if you modify the file directly on the block
+
+04:56.920 --> 05:03.840
+device or whatever, Cosmic Ray hits your drive and it flips a bit somewhere, when you read it back,
+
+05:03.840 --> 05:10.600
+there's a checksum, that's like a recursive Merkle 3 checksum across the entire thing. So whenever you
+
+05:10.600 --> 05:19.360
+read a block from a file that has been modified, you will get an error, an IO error basically. So that's
+
+05:19.400 --> 05:27.800
+pretty cool, but unfortunately it has some weaknesses. Yes, you cannot change the file, but you can
+
+05:27.800 --> 05:33.880
+change the metadata. You can rename the file, you can make it set UID or whatever. You can create a
+
+05:33.880 --> 05:38.320
+new file, you can delete it and replace it with a new one with the same name. Basically it doesn't
+
+05:38.320 --> 05:45.280
+validate what we want, which is the image. The thing we want to validate is the entire image, the
+
+05:45.320 --> 05:53.160
+file names, the structures, the metadata, everything. So that's where we go back to the buzz events. And if
+
+05:53.160 --> 06:00.160
+you actually look at the measure of the FHRT measure of this file, which is the digest basically,
+
+06:00.160 --> 06:06.120
+like the checksum of thing, it actually has the digest for name. Basically we're using FHRT already
+
+06:06.120 --> 06:14.240
+on all these objects. And not only that, we also record the expected digest inside the image
+
+06:14.280 --> 06:21.120
+itself. So whenever the file system opens a backing file, it can verify that it's actually the right
+
+06:21.120 --> 06:27.360
+thing. And then once you've opened it, each individual read from the file will be verified by the
+
+06:27.360 --> 06:34.760
+kernel. So if you mount it with Verity on, but you might not want this, you might want to use the
+
+06:34.760 --> 06:40.600
+sharing without Verity, if for example your file system doesn't support Verity. But if you do have it,
+
+06:40.720 --> 06:46.160
+what just enable it, and then when you read the file that we changed before, now we get some kind of
+
+06:46.160 --> 06:57.680
+error because it's not, it doesn't have the very digest we expected it to. So that helps a bit. But
+
+06:57.680 --> 07:02.240
+what we wanted was to protect the entire file system, right? And you could potentially write in the
+
+07:02.240 --> 07:07.120
+metadata's image file and change the name of the file by modifying the file. And to avoid that, we
+
+07:07.160 --> 07:14.720
+enabled the Verity on the entire image itself. And then we passed the digest that we got. I mean,
+
+07:14.720 --> 07:20.120
+ideally this digest isn't, you're not supposed to just read it from the file when you mount it, but at
+
+07:20.120 --> 07:27.680
+build time, you record the digest and then via some kind of secure mechanism, a channel, secure
+
+07:27.680 --> 07:34.240
+signatures, what have you. For some reason, you trust this digest. And if you pass it to the mount
+
+07:34.280 --> 07:41.000
+command, if the mount command succeed, then every successful IEU operation on this thing will be
+
+07:41.000 --> 07:51.360
+guaranteed to return the same data that was built. Basically, this is a root of trust. If you have a
+
+07:51.360 --> 07:59.960
+reason to trust it, you can guarantee the thing. There are some technical details about it. This
+
+08:00.040 --> 08:07.200
+talk is more about explaining the high level parts. Initially, it was completely a new kernel
+
+08:07.200 --> 08:13.760
+process. Actually, I did a presentation on the kernel dev room last year at FOSSTEM about this. But
+
+08:13.760 --> 08:19.320
+during the upstreaming process, it was changed. So now it's using some existing technologies,
+
+08:19.320 --> 08:25.720
+overlay FS in particular and E-RUFS that were already in the kernel, but they have been
+
+08:26.160 --> 08:33.400
+extended a bit, so they support this use case too. And overlay FS is normally a way to layer
+
+08:33.400 --> 08:40.520
+things, but it actually has already a way for a file in an upper level to have a different name in
+
+08:40.520 --> 08:46.600
+the lower level. Normally, you use that for renaming a file across layers. But we use it instead to
+
+08:46.600 --> 08:53.800
+redirect to the baseter. And then we introduce this thing called data only lower base structures or
+
+08:53.880 --> 09:01.800
+layers. So we basically hide the lowest level of use redirects to the files in there. And then we
+
+09:01.800 --> 09:08.520
+have a new FS, which is an ISO file or a squash FS. It's just a read-only file system that we use
+
+09:08.520 --> 09:15.240
+to record the entire directory structure of the loader and the overlay FS, including the final
+
+09:15.240 --> 09:20.840
+names and whatnot and the overlay FS ex-adders that do the redirects to the lower directories. And
+
+09:20.920 --> 09:27.080
+then we use bind mount, or loopback mount as thing and set up an overlay FS combined thing to use it.
+
+09:27.960 --> 09:34.680
+We had to add a couple of things, data only lower directories to hide the lower directory. The FS
+
+09:34.680 --> 09:40.200
+is very devalidational. We had an add a new ex-adder to overlay FS to validate the redirects.
+
+09:41.080 --> 09:46.040
+And then there's some nested stuff where you have overlays and overlay FS. That's kind of weird,
+
+09:46.040 --> 09:53.480
+but we had to add that too. But it's all in now. And we have a final version release that has a
+
+09:53.480 --> 09:59.720
+stable format that you can use and we're supposed to work forever. We also have integration with
+
+09:59.720 --> 10:09.160
+OS tree. I will not spend too much time on this, but OS tree is our like red hats image-based
+
+10:09.160 --> 10:14.600
+entire system, like atomic immutable operating system used by things like Fedora Cyliblu.
+
+10:15.400 --> 10:20.440
+And the current version of OS tree has experimental support for just creating these
+
+10:20.440 --> 10:29.720
+composifest images. So we create them at build time and sign them. And then if you validate it during
+
+10:29.720 --> 10:35.960
+boot, like it validates the signature in the in the FS. And if it's valid, you can mount the
+
+10:35.960 --> 10:43.160
+composifest image and everything is just guaranteed to be whatever is right. And if you're using
+
+10:43.240 --> 10:49.080
+something like secure boot to make sure you boot the right kernel and you're right in it,
+
+10:49.080 --> 10:56.360
+RAMFS, then you basically have an entire time approved boot signed by your buyers key, basically.
+
+10:57.560 --> 11:03.320
+But this talk a little about containers. And composifest has two major targets,
+
+11:04.120 --> 11:11.880
+as the OS tree use case and OCI images. And the actual work on podman and the back ends is done
+
+11:11.880 --> 11:18.040
+not by me, but by Giuseppe, who is one of the podman and C-RAM developers.
+
+11:19.640 --> 11:25.800
+It's based on his work on CS3 shunt, which I'm not going to go into too much details here, but it's
+
+11:25.800 --> 11:33.800
+basically a new compression format for OCI images that allows adding an index to the file. And the
+
+11:33.800 --> 11:38.120
+index has the check sum of the files. We can avoid downloading them if you already have them.
+
+11:39.080 --> 11:44.600
+But also the fact that we have these digest is the perfect way to introduce the
+
+11:44.600 --> 11:52.360
+the objects directory kind of thing that composifest uses. So if you look at container storage,
+
+11:53.160 --> 12:00.840
+which is the goal library for storing local images that podman uses, the latest version has basic
+
+12:00.920 --> 12:06.520
+composifest support. And we used have to wait until they vendor in the latest version
+
+12:07.560 --> 12:13.080
+into podman and then it should just work out of the box. And if you have this, we'll get some of
+
+12:13.080 --> 12:20.840
+the advantages of composifest, like higher density. If you have any images in your cluster happen to
+
+12:20.840 --> 12:30.440
+share files, those files will be stored only once on disk per whatever node you're using. And
+
+12:31.000 --> 12:38.280
+once in memory. And we can also use the validation to make sure we don't accidentally get modifications.
+
+12:38.840 --> 12:42.040
+But also in the future, this is not this is something that needs a bit more work.
+
+12:42.760 --> 12:49.480
+We could have a list of signatures or a list of keys and like limit the amount of
+
+12:51.160 --> 12:57.800
+limit the types of images run to only those that have a signed composifest digest by these public
+
+12:57.800 --> 13:08.200
+keys. So how do you use this? There are some options in the storage.conf. You have to enable
+
+13:08.200 --> 13:13.560
+all of these currently. Actually, the convert images is not strictly necessary. That's for
+
+13:13.560 --> 13:20.280
+converting images that are in this new CSDD shunt format. So it works with any. If you
+
+13:20.280 --> 13:28.200
+pull any image, it will convert it to the format and then use composifest for mounting it. So
+
+13:28.200 --> 13:38.840
+it will work for anything, basically. But if you want maximum performance and not have to do the
+
+13:38.840 --> 13:47.000
+conversion, it's good to use CSDD shunt in your image repositories. But that's something you
+
+13:47.000 --> 13:52.120
+want anyway in the future at least because you get to download less as well.
+
+13:54.200 --> 14:00.920
+If you ever looked inside the container storage, this is how it looks, a traditional one.
+
+14:02.040 --> 14:07.720
+Actually, I deleted some stuff. But the important thing is this per back end directory called
+
+14:07.720 --> 14:12.440
+overlay because we're using the overlay back end. And every directory in there is a layer.
+
+14:13.400 --> 14:18.120
+And every layer has a diff directory that has all the files that are introduced in that layer.
+
+14:18.840 --> 14:24.280
+And then you use overlay fs to combine all of these. Plus at the end, it adds your empty
+
+14:24.280 --> 14:30.520
+directory that is the writable directory for your container. But instead, if you look at a
+
+14:31.480 --> 14:38.440
+composed fs using back end storage, it looks different. It has the same overall layout,
+
+14:39.000 --> 14:45.000
+but the diff directory contains basically the baster and then there's this extra data, the blob.
+
+14:45.800 --> 14:50.040
+So what happens is that when you set up the container, we mount all these composed fs
+
+14:50.040 --> 14:55.880
+directors, each producing a layer, and then we merge them in overlay fs plus your writable storage.
+
+14:57.960 --> 15:04.920
+So it looks slightly different, but it's basically the same. And to demonstrate how
+
+15:05.560 --> 15:13.320
+this will affect resource usage, I created 20, like, so this is a synthetic example,
+
+15:13.320 --> 15:19.240
+but I think it proves the point. I created 20 copies of Fedora image, and I changed one
+
+15:19.880 --> 15:26.440
+file in each and squashed them. So there are like single layer images that basically have all the
+
+15:26.440 --> 15:31.720
+same files in them. And then I run sleep in each of them. And sleep is a very small thing, but
+
+15:31.720 --> 15:37.880
+it will map glibc and it will do like some basic stuff that any app would do. And then I run them
+
+15:37.880 --> 15:46.360
+all in parallel. And we could look at how this looks in the storage. Every file here is, or every
+
+15:46.360 --> 15:52.520
+directory, every layer is the Fedora base image. So it's 180 megs, sum up for 20 up to three and a
+
+15:52.520 --> 16:00.920
+half gig. But if you look at the composed fs version, it's just 200 megs because only the things
+
+16:00.920 --> 16:07.960
+that are different use more space. And this might look weird that just one of them is larger,
+
+16:08.600 --> 16:15.240
+but actually what happens is that each individual layer has all the files that they refer to,
+
+16:15.240 --> 16:21.640
+but they're hard link across the directory. So there's like a tracking of which files are
+
+16:21.640 --> 16:26.920
+locally available. And instead of you making a copy of them, they're all like hard link of each
+
+16:26.920 --> 16:33.400
+other. So that's pretty cool. I mean, I can imagine, it depends of course on your workload,
+
+16:33.400 --> 16:40.840
+but it's not implausible that different images share files because most images are based on
+
+16:40.840 --> 16:50.520
+rbms or devs, whatever. And if you have the same dev of a GeoOopZee package, then it will have the
+
+16:50.600 --> 16:56.680
+same file, even if you're using a completely different build of your image. So this is pretty cool.
+
+16:58.520 --> 17:06.360
+We're working on trying to finalize this, make it work by default in Podman. I think it's going to
+
+17:06.360 --> 17:13.400
+miss the 4.9 release, so it's probably going to be in the next release. Also, the Podman people
+
+17:13.400 --> 17:20.360
+themselves are trying to work on making CSV chunks be more of a default thing or at least
+
+17:21.080 --> 17:27.800
+more widely used because it has advantages not only for Composite Fest, but also for used
+
+17:28.760 --> 17:38.600
+faster pulling of images. And then we need to look into signing images. I mean, there are ways to
+
+17:38.600 --> 17:46.840
+sign manifests already. And you can imagine if you add Composite Fest digest into the manifest,
+
+17:46.840 --> 17:52.760
+and you sign the manifest, if you can validate that the manifest is signed, you can trust the
+
+17:52.760 --> 17:56.760
+digest, and you can mount the thing and know you have the right thing. But there are outstanding
+
+17:56.760 --> 18:02.760
+questions like, yeah, but what kind of keys are you using, where do you store them, how do you know
+
+18:02.840 --> 18:08.920
+which one you trust, you know, there has to be some kind of rule set to specify what you're allowed to,
+
+18:08.920 --> 18:15.880
+which keys are golden or whatever, or are we using the kernel hearing or the secure boot keys,
+
+18:15.880 --> 18:20.680
+like, throughout sending questions. But the technical side is not really that complex.
+
+18:21.880 --> 18:27.960
+If you can validate using some kind of mechanism that the digest or the manifest is okay,
+
+18:28.120 --> 18:37.160
+then we can just mount this thing and be able to trust it. And I guess...
+
+18:47.160 --> 18:50.680
+Hi, thank you for your talk. I am one of the...
+
+18:51.480 --> 19:00.840
+One of the things that the design of your choice in PuzzleFS is different than Composite Fest is that
+
+19:00.840 --> 19:06.840
+the files are split along file boundaries, instead of along sharing boundaries. It makes
+
+19:06.840 --> 19:12.200
+easier to get cool graphs with USS, but harder to then share if you change small
+
+19:12.200 --> 19:17.640
+important portions of a file. I'm curious if you have any... Like, is that part of your future work?
+
+19:18.120 --> 19:27.160
+I've thought about it. And I'm not... I don't know, do I work on that? Because it would be...
+
+19:27.160 --> 19:32.200
+It would require so much work on the kernel side that just, like, fundamentally change how
+
+19:32.200 --> 19:38.600
+page should track. That's not gonna happen. I mean, it's a choice you have to make if you want to
+
+19:39.480 --> 19:45.960
+focus on disk space use or in memory use. I think this is sort of like a Goldilocks zone, but
+
+19:46.280 --> 19:47.960
+yes, it depends on your use case.
+
+19:47.960 --> 19:52.760
+Yeah, also PuzzleFS was written in Russian, so it was his practical forever reason.
+
+19:52.760 --> 20:15.560
+I didn't get the question.
+
+20:16.520 --> 20:29.800
+Yeah, it doesn't really like... CSD Nishant is a way to extend the header of a layer
+
+20:29.800 --> 20:35.880
+torbol with information about what goes in it. And it's not strictly needed for Composite Fest.
+
+20:36.680 --> 20:43.320
+Like, you can untar the torbol and compute the checksum of every file if you want to.
+
+20:43.320 --> 20:51.080
+But if it's there, you can avoid that and it's just better performance. So it's not necessary.
+
+20:53.080 --> 20:56.040
+Another question about the compression...
+
+20:56.760 --> 21:02.760
+The compression of the CSD, I think, is the only choice.
+
+21:02.760 --> 21:08.760
+I think it belongs to the CSD compression of the torbol.
+
+21:08.760 --> 21:12.760
+But the G-Face is one issue more than the normal G-Face.
+
+21:12.760 --> 21:19.960
+So, and then, like, in next image format, like, the CSD Nishant.
+
+21:20.680 --> 21:27.880
+Yeah, well, G-Face is the standard, right?
+
+21:34.760 --> 21:39.880
+Yeah, there's this E-Star GC thing that you could use for that.
+
+21:40.680 --> 21:45.640
+Like, I haven't spent any time trying to make that work. I mean, it will work.
+
+21:46.360 --> 21:50.440
+It just introduces a conversion layer, a computation of these things.
+
+21:50.440 --> 21:54.520
+But I mean, I think it could be done. I think it could be done. And if you have that kind of
+
+21:54.520 --> 22:01.560
+format, but you still, you can't... you would still have to create an index for your GSD files
+
+22:01.560 --> 22:07.960
+as well. And, like, I don't know if E-Star GC is better supported than CSD Nishant.
+
+22:08.920 --> 22:14.440
+It's unfortunate, like, the apartment people did the CSD D thing a long time ago,
+
+22:14.440 --> 22:19.400
+but it took a long time until Docker merged it. But then the latest version, like,
+
+22:19.400 --> 22:25.000
+a year or so, they merged the pull request to add it. So, it is actually supported by Docker now.
+
+22:25.000 --> 22:32.440
+So, the hope is that eventually we will get wider acceptance. But it isn't perfect right now.
+
+22:34.440 --> 22:35.000
+Hello.
+
+22:44.680 --> 22:47.000
+So, why would you run 20 sleep commands?
+
+22:47.000 --> 23:15.400
+So, why would you run 20 sleep commands? Was that a question? Or...
+
+23:15.640 --> 23:16.200
+Yes.
+
+23:16.680 --> 23:22.840
+Yeah. I mean, obviously, you wouldn't. You would run, on your node, a hundred different containers.
+
+23:24.120 --> 23:33.720
+But any containers that happens to ship the Fedora 232-2 glibc-rpm would have the same
+
+23:33.720 --> 23:40.200
+binary for glibc. And then that would be passed to the same file. So, everything that maps
+
+23:40.280 --> 23:47.640
+glibc would use the same file. I mean, this demo is just a demo to expose the sharing.
+
+23:49.560 --> 23:54.680
+It would be less extreme in the real case, but it would still happen.
+
+23:59.160 --> 23:59.560
+Thank you.
+
+23:59.560 --> 24:06.600
+So, I think it might be a long use case, but this object storage,
+
+24:06.600 --> 24:12.840
+there is a way to continue after leaving the closest client?
+
+24:15.000 --> 24:21.000
+It's not currently, but we have some issues around about adding tooling around that,
+
+24:21.000 --> 24:26.280
+like an FSEKA for it and a garbage collect for it and things like that.
+
+24:27.240 --> 24:33.400
+That's things. All the code is there to read back from an image file and extract a list of
+
+24:33.400 --> 24:39.320
+objects in it. So, it should be... Currently, it's possible by doing some scripting to do it,
+
+24:39.320 --> 24:43.000
+but yeah, we would like to add some tooling that automates that.
+
+24:48.040 --> 24:50.760
+We have five more minutes, so there's a question.
+
+24:56.280 --> 25:18.120
+Yeah, I mean, it works fine. It's into the word now and you can install it.
+
+25:18.120 --> 25:30.520
+Whoa. No, I mean, it requires, for all of the features, it requires the latest kernel,
+
+25:31.960 --> 25:37.640
+but if you have six, five or later, then it just works on any system. It's just a
+
+25:37.640 --> 25:43.480
+user space tool. It doesn't need any special anything.
+
+25:43.480 --> 26:01.320
+Okay.
+
+26:05.640 --> 26:13.320
+It just works.
+
+26:13.480 --> 26:15.480
+Thank you.
+
+26:15.480 --> 26:17.480
+Thank you.
+
+26:17.480 --> 26:19.480
+All right.
+

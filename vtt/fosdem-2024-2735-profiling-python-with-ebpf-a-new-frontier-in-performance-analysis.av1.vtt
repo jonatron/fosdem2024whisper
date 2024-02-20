@@ -1,0 +1,965 @@
+WEBVTT
+
+00:00.000 --> 00:08.360
+Well, everyone, we're about to start the next session.
+
+00:08.360 --> 00:14.760
+So we have here Kemal Okoyom, who's going to be speaking about profiling Python with
+
+00:14.760 --> 00:22.880
+EBF, profiling certainly one of the most challenging parts I had with Python in the last 20 years
+
+00:22.880 --> 00:25.360
+when I've been coaching with the programming language.
+
+00:25.360 --> 00:28.760
+So I really can't wait to hear what you have to share with us.
+
+00:28.760 --> 00:36.440
+Thank you very much and welcome.
+
+00:36.440 --> 00:37.440
+Hello everyone.
+
+00:37.440 --> 00:41.120
+So let's start with some questions.
+
+00:41.120 --> 00:45.360
+Who does anyone here like knows anything about EBF?
+
+00:45.360 --> 00:49.240
+Okay, quite a lot of people.
+
+00:49.240 --> 00:51.880
+Have you ever used profiling?
+
+00:51.880 --> 00:53.880
+Wow, nice.
+
+00:53.880 --> 00:57.880
+Do you know anything about Python?
+
+00:57.880 --> 01:00.520
+Great, everyone.
+
+01:00.520 --> 01:01.520
+That's nice.
+
+01:01.520 --> 01:05.000
+Okay, first, who I am.
+
+01:05.000 --> 01:09.400
+I'm not Prometheus, but I'm a Prometheus maintainer.
+
+01:09.400 --> 01:11.800
+Do you know or use Prometheus?
+
+01:11.800 --> 01:15.080
+Okay, that's also great.
+
+01:15.080 --> 01:18.480
+So I'm a maintainer of Prometheus.
+
+01:18.480 --> 01:23.520
+I'm also a maintainer of Thanos and recently I'm a maintainer of Parkout Project.
+
+01:23.520 --> 01:28.480
+These are all open source projects and they are all focused on observability.
+
+01:28.480 --> 01:36.720
+And I think I know something about observability, so today I will tell you about that.
+
+01:36.720 --> 01:39.760
+So let's start always with why.
+
+01:39.760 --> 01:43.640
+Why do we need profiling?
+
+01:43.640 --> 01:47.320
+It's either for some performance optimization.
+
+01:47.320 --> 01:49.280
+This graph can be anything generic.
+
+01:49.280 --> 01:51.000
+This could be CPU.
+
+01:51.000 --> 01:52.440
+This could be memory.
+
+01:52.440 --> 01:59.160
+When you see some spikes and you try to understand what's going on actually on those spikes.
+
+01:59.160 --> 02:02.440
+Or this could be something about an incident.
+
+02:02.440 --> 02:08.120
+This is graph is specifically for a umkil that your process and you don't know what
+
+02:08.120 --> 02:13.560
+that happened at that certain point and you would like to know about like who, what function
+
+02:13.560 --> 02:20.960
+or which component of your process actually allocates the memory in that particular moment.
+
+02:20.960 --> 02:28.800
+So some of you already know that there exists some profiling solution in Python.
+
+02:28.800 --> 02:34.000
+This is not an exhaustive list, but most of the libraries or projects that you see in
+
+02:34.000 --> 02:37.720
+here you actually need to instrument your code.
+
+02:37.720 --> 02:43.120
+So either you need to import a library or you need to specifically write some code and
+
+02:43.120 --> 02:48.400
+then start profiling your application, Python application.
+
+02:48.680 --> 02:54.680
+This is not always the ideal case because you would like sometimes you don't have access
+
+02:54.680 --> 02:58.960
+to code itself and sometimes you would like to do this from outside.
+
+02:58.960 --> 03:01.800
+So how do you do that?
+
+03:01.800 --> 03:07.440
+This is where eBPF actually comes into place and helps us.
+
+03:07.440 --> 03:14.520
+So eBPF is a, it's originally for networking applications.
+
+03:14.520 --> 03:21.120
+It's called Berkeley package filtering, but now eBPF totally something else.
+
+03:21.120 --> 03:27.040
+It's basically an event-based system where you can hook into some events that Linux kernel
+
+03:27.040 --> 03:31.680
+issues and then you can just run code as a reaction to those events.
+
+03:31.680 --> 03:37.480
+There is a runtime, there's a virtual machine inside and there's a verifier before you load
+
+03:37.480 --> 03:42.280
+your program that verifier needs to check your program that it doesn't do anything harmful
+
+03:42.320 --> 03:45.840
+like infinite loops whatnot in the kernel space.
+
+03:45.840 --> 03:52.760
+Then compiler kicks in and compile your provided code and you actually run those code against
+
+03:52.760 --> 03:55.320
+any events that you issue.
+
+03:55.320 --> 04:00.120
+That's the one fancy part of the solution.
+
+04:00.120 --> 04:06.240
+So then it comes another subsystem of Linux which is super cool is the perf event.
+
+04:06.240 --> 04:08.680
+You can have perf subsystem.
+
+04:08.680 --> 04:15.040
+From the perf subsystem you can have, you can hook into various parts of your stack
+
+04:15.040 --> 04:18.600
+and you can run code against these events.
+
+04:18.600 --> 04:23.560
+In this particle talk we are going to talk about the CPU events, but you don't need to
+
+04:23.560 --> 04:26.680
+use only the CPU events necessarily.
+
+04:26.680 --> 04:32.480
+You can do this for the IO events, you can do this for the memory allocation.
+
+04:32.480 --> 04:36.920
+Practically anything that you see in here, you can run, hook into that event and run
+
+04:36.960 --> 04:39.800
+a code piece to that.
+
+04:39.800 --> 04:42.880
+So what makes perf events special?
+
+04:42.880 --> 04:45.440
+It's actually performance monitoring units.
+
+04:45.440 --> 04:51.120
+These are very efficiently implemented units in the Linux kernel so that they keep track
+
+04:51.120 --> 04:59.440
+of the cycles and then like you can actually take measurements and you can react to those
+
+04:59.440 --> 05:00.440
+measurements.
+
+05:00.440 --> 05:07.840
+That's why EVPF plus perf events is actually faster than the other solutions that we have
+
+05:07.840 --> 05:09.640
+in basically ecosystem.
+
+05:09.640 --> 05:16.280
+Because with the Linux you can already have some syscalls, you can just hook into that
+
+05:16.280 --> 05:22.600
+introps and do all these things that I'm going to tell you in a minute in the user space.
+
+05:22.600 --> 05:28.880
+But the most of the things we do is using the PMUs and because the PMUs are efficient
+
+05:28.880 --> 05:35.440
+and EVPF codes also efficient and run in the kernel space, this gives us a bit of a headroom
+
+05:35.440 --> 05:38.000
+for the performance.
+
+05:38.000 --> 05:41.720
+So we are not the only ones that actually implemented that.
+
+05:41.720 --> 05:44.680
+This is quite a journey.
+
+05:44.680 --> 05:51.160
+I don't remember when is the first time that it actually introduced the PyPerf code inside
+
+05:51.160 --> 05:52.160
+the Linux kernel.
+
+05:52.160 --> 05:57.160
+You can check out, these are actual links and I'm going to share the slides and you
+
+05:57.160 --> 06:03.560
+can see basically the git comments against that.
+
+06:03.560 --> 06:09.680
+There's a set of tools called BCC tools in the EVPF space and there's also another implementation
+
+06:09.680 --> 06:12.640
+of PyPerf in there.
+
+06:12.640 --> 06:16.920
+But what is the downside of all these tooling?
+
+06:16.920 --> 06:19.160
+These are first, they are dated.
+
+06:19.160 --> 06:24.640
+They don't cover all the recent changes in the Python runtime itself and they are just
+
+06:24.640 --> 06:25.640
+one of tools.
+
+06:25.640 --> 06:32.000
+So I'm going to show you some cool things that you can actually do profiling in the
+
+06:32.000 --> 06:37.240
+production itself in a continuous manner, which we call continuous profiling.
+
+06:37.240 --> 06:40.440
+We're going to come to that in a minute.
+
+06:40.440 --> 06:46.080
+So to make the tools work, you need to just wrap your Python interpreter around with these
+
+06:46.080 --> 06:49.600
+tools and then collect your profiles.
+
+06:49.600 --> 06:53.840
+So that gets us to the Parker project.
+
+06:53.840 --> 06:55.360
+It's an open source project.
+
+06:55.360 --> 07:00.320
+It's a continuous profiling project using EVPF and perf events.
+
+07:00.320 --> 07:07.320
+We can run your profiling workloads directly in production and there is no runtime, nearly
+
+07:07.320 --> 07:11.760
+none of the runtime overhead in this approach.
+
+07:11.760 --> 07:16.320
+There's a tiny bit, but it's really negligible.
+
+07:16.320 --> 07:22.240
+So how does the Parker EVPF agent actually work?
+
+07:22.240 --> 07:29.080
+Other things that I mentioned previously, the hook into perf events, we have some unwinded
+
+07:29.080 --> 07:35.600
+programs that actually unwinds the stack, which I will tell you about.
+
+07:35.600 --> 07:43.040
+And we then keep track of what happens in the CPU for that stack.
+
+07:43.040 --> 07:48.680
+And then we aggregate those information and put in an EVPF map, which are the special
+
+07:48.720 --> 07:54.200
+data structures that you talk between Kernel and the user space.
+
+07:54.200 --> 07:59.560
+And then we read that data, we convert that some open profiling formats and push that
+
+07:59.560 --> 08:06.560
+in a server site where we can just aggregate and visualize that and let the users actually
+
+08:08.160 --> 08:11.240
+make sense of their programs.
+
+08:11.240 --> 08:14.880
+So this is how that whole thing actually works.
+
+08:15.840 --> 08:21.480
+There are a lot of details, but this talk is not actually about the internals of Parker,
+
+08:21.480 --> 08:28.480
+but we are doing a lot of cool stuff to make the stack collection and symbolization very
+
+08:28.480 --> 08:29.960
+efficient.
+
+08:29.960 --> 08:33.960
+And then the end result is a UI like this.
+
+08:33.960 --> 08:40.960
+In a continuous timeline, you can see that what's going on on your CPU for each process.
+
+08:40.960 --> 08:47.760
+Then we collect a lot of metadata and enrich those information for you so that you can
+
+08:47.760 --> 08:53.280
+query, compare, and see how you can improve your program.
+
+08:53.280 --> 08:57.840
+And the agent is kind of super cool because you can just install any host machine and
+
+08:57.840 --> 09:02.480
+any process that you have on that machine, we can just collect data and send to the server
+
+09:02.480 --> 09:05.400
+and you can see that in the UI.
+
+09:05.400 --> 09:11.520
+This doesn't necessarily, it's not scoped to the Python itself, but it does a lot of
+
+09:11.520 --> 09:14.400
+cool stuff with the Python as well.
+
+09:14.400 --> 09:21.000
+So there's not a Python stack, but we will see some examples, but this is some, I think
+
+09:21.000 --> 09:28.000
+this is a Go one, but you can see that the stacks are easily getting really deep.
+
+09:28.040 --> 09:30.560
+So what is the stack unwinding?
+
+09:30.560 --> 09:36.680
+This is the next critical thing that we need to talk about because the whole, like the
+
+09:36.680 --> 09:41.760
+what makes profiling challenging, especially from the Python side, is actually to be able
+
+09:41.760 --> 09:43.920
+to unwind the stack.
+
+09:43.920 --> 09:52.920
+So when a program gets executed, probably you all heard these in your start of your education.
+
+09:53.520 --> 09:58.720
+There are specific structures when the process actually allocates in the memory, which is
+
+09:58.840 --> 10:04.320
+one is stack and one is heap and the stack actually tracks the execution of the program
+
+10:04.320 --> 10:10.560
+and whenever you call a function, you open a frame and you change the states of your
+
+10:10.560 --> 10:16.840
+registers and then you keep adding everything to the stack and when one of the functions
+
+10:16.840 --> 10:23.320
+that returns from the leaf, you just go back and return the data to your user.
+
+10:23.320 --> 10:33.320
+So I might be oversimplified that, but it's a diagram just to show you how it looked like,
+
+10:33.320 --> 10:38.800
+but the end result when you unwind the stack and aggregate all these function addresses,
+
+10:38.800 --> 10:40.480
+you get something like that.
+
+10:40.480 --> 10:46.480
+It's just the machine addresses and now you need to find a way to translate those machine
+
+10:46.480 --> 10:49.880
+addresses to the human readable format.
+
+10:49.920 --> 10:55.560
+So all these parts for the native code, so anything that actually runs on your CPU.
+
+10:55.560 --> 11:01.240
+So that brings us actually the next step.
+
+11:01.240 --> 11:08.720
+So this is a state where we didn't implement the Python unwind for parka and you can actually,
+
+11:08.720 --> 11:10.560
+this is an interactive one.
+
+11:10.560 --> 11:16.320
+So you can see anything that gets from like your kernel, there's a start thread, this
+
+11:16.320 --> 11:23.160
+is coming from libc and all these green things that you see, these are coming from the Python
+
+11:23.160 --> 11:28.520
+interpreter itself because Python interpreter is written in C and it's compiled and then
+
+11:28.520 --> 11:36.200
+directly gets executed on the CPU, but probably this is not useful for you, right?
+
+11:36.200 --> 11:37.520
+You are Python developers.
+
+11:37.520 --> 11:42.480
+You actually want to see what's happening in the Python process itself, not the underlying
+
+11:42.480 --> 11:44.920
+infrastructure.
+
+11:44.920 --> 11:50.240
+That being said, we also know that most of the Python applications also rely on the
+
+11:50.240 --> 11:59.240
+C bits and the native code bits and it could be calling some C function here and there.
+
+11:59.240 --> 12:04.320
+Then when that happens, these are actually, gets like super important, right?
+
+12:04.320 --> 12:09.480
+For example, PyTorch, it's very popular nowadays in the machine learning workload, but it's
+
+12:09.480 --> 12:15.040
+actually funneling everything into a native code and when you want to see what's going
+
+12:15.040 --> 12:19.040
+on the native code, parka actually can do that as well.
+
+12:19.040 --> 12:22.720
+And we do that in a very efficient way.
+
+12:22.720 --> 12:28.480
+You don't need to have, there's a whole concept of frame pointers and that actually helps us
+
+12:28.480 --> 12:29.920
+to unwind the stack.
+
+12:29.920 --> 12:36.920
+We just gave another talk in the observability room like why frame pointers are cool, but
+
+12:36.920 --> 12:40.800
+you don't have to have a need to have the frame pointers itself because there's also
+
+12:40.800 --> 12:45.600
+another facility with the devolve debug information, you can unwind the stack.
+
+12:45.600 --> 12:48.240
+So parka actually utilizes that.
+
+12:48.240 --> 12:53.960
+This is important because most of the packages that you can find on any of the Linux distribution,
+
+12:53.960 --> 12:58.120
+you wouldn't find frame pointers.
+
+12:58.120 --> 13:01.160
+But with the devolve information, you can actually unwind the stack and you can see
+
+13:01.160 --> 13:03.200
+all these goals.
+
+13:03.200 --> 13:05.520
+So, but we want more, right?
+
+13:05.520 --> 13:09.320
+We want to see the Python code, so how we do actually do that.
+
+13:09.320 --> 13:16.240
+So this is where it comes to, where we unwind the stack virtually, with virtual stack, we
+
+13:16.240 --> 13:22.440
+mean that anything that gets executed in the Python interpreter, we need to find those
+
+13:22.440 --> 13:29.040
+stacks and put those things in our flame graphs so we can see that like where is the problematic
+
+13:29.040 --> 13:32.760
+areas in our Python code itself.
+
+13:32.760 --> 13:40.040
+So everything starts with opening the Python runtime and reading the code.
+
+13:40.040 --> 13:48.200
+This is the huge structure, like if you know the Python internals, like it's long.
+
+13:48.200 --> 13:54.240
+There are a lot of comments, but it's not the easiest code to read and it's not the
+
+13:54.240 --> 13:57.560
+easiest code to reason about.
+
+13:57.560 --> 14:00.920
+Let's focus on like what is the important bits, right?
+
+14:00.920 --> 14:09.720
+We care about the interpreter state and from that bit, we want to capture what's going
+
+14:09.720 --> 14:11.200
+on in each thread, right?
+
+14:11.200 --> 14:18.120
+It comes from the interpreter state and then we try to find the PyState itself.
+
+14:18.120 --> 14:24.800
+The PyThread structure, it's like a link list, so whenever you have multiple threads running
+
+14:24.800 --> 14:33.320
+in an interpreter, you need to traverse the whole link list and for each thread, you actually
+
+14:33.320 --> 14:35.240
+need to do that.
+
+14:35.240 --> 14:41.320
+But also you need to find out which thread actually captures the guild and globally interpreter
+
+14:41.320 --> 14:45.920
+luck so that that's the one actually executing the code.
+
+14:45.920 --> 14:52.480
+So from finding all those information from thread state, you check the thread state.
+
+14:52.480 --> 14:59.400
+Oh, yeah, it's another like pages long C code that we need to reason about.
+
+14:59.400 --> 15:04.120
+It's not the easiest thing, but this is how reverse engineering kind of works.
+
+15:04.120 --> 15:07.320
+And again, I extracted the important bits.
+
+15:07.320 --> 15:13.240
+So from that thread state, we need to find what is the current frame is actually executing
+
+15:13.240 --> 15:15.440
+so that we can online from there, right?
+
+15:15.440 --> 15:19.560
+That's actually the same thing that we are doing with the native stack, but rather than
+
+15:19.960 --> 15:24.920
+checking some registries and reading roll memory addresses, we are actually checking the Python
+
+15:24.920 --> 15:26.880
+in turn itself.
+
+15:26.880 --> 15:35.680
+So from the interpreter frame, it's actually easy, like whatever we need, it's here.
+
+15:35.680 --> 15:38.560
+So all the information we need is here.
+
+15:38.560 --> 15:42.640
+We have the pointers to the previous stack and we can actually do the same thing.
+
+15:42.640 --> 15:45.280
+So I'm going to speed things up.
+
+15:45.280 --> 15:46.280
+Yeah, we have the map.
+
+15:46.280 --> 15:49.000
+We know the source code, but where do we actually start?
+
+15:49.000 --> 15:54.400
+When we have an object file from the Python interpreter, we first need to find the where
+
+15:54.400 --> 15:56.760
+does all these tracks are actually live.
+
+15:56.760 --> 15:59.600
+So we check the entry point of a Python interpreter.
+
+15:59.600 --> 16:02.920
+We see that it's linked against a live Python.
+
+16:02.920 --> 16:08.760
+We go and check the names for one of these tracks symbols and we actually see that there
+
+16:08.760 --> 16:10.920
+are some offsets that are located there.
+
+16:10.920 --> 16:13.160
+But this is just from the binary.
+
+16:13.400 --> 16:17.440
+We don't know what these addresses mean when a process started.
+
+16:17.440 --> 16:25.440
+So this happens because this is just one of the reasons, but when you get a binary and
+
+16:25.440 --> 16:32.920
+run the process out of the binary, there is some address randomization and all those
+
+16:32.920 --> 16:35.880
+addresses need to be translated to that.
+
+16:35.880 --> 16:36.880
+So how do we do that?
+
+16:36.880 --> 16:42.320
+We just run a Python interpreter and check what's going on in the process.
+
+16:43.280 --> 16:48.560
+This is basically memory mappings and it shows you where actually Linux maps the certain
+
+16:48.560 --> 16:51.960
+objects and we check out the live Python.
+
+16:51.960 --> 16:56.560
+Grab the base address and from the addresses that we find from the symbol or draft, the
+
+16:56.560 --> 17:04.160
+morph information, we actually find where the structs are actually located in the memory.
+
+17:04.160 --> 17:06.040
+We are looking for those.
+
+17:06.040 --> 17:08.600
+And from that, now we need to read that data.
+
+17:08.600 --> 17:10.200
+So here comes the GDB.
+
+17:10.200 --> 17:17.480
+GDB is like an amazing debugging tool and we jump into the process and start to poke
+
+17:17.480 --> 17:22.840
+around, we define a macro and to calculate the offsets of a struct which reads from the
+
+17:22.840 --> 17:28.600
+devolve information, you say that, okay, give me this struct and this field and it gives
+
+17:28.600 --> 17:30.360
+you the offset of that.
+
+17:30.360 --> 17:34.400
+Since we already have the start address of the memory, we just calculate the next address
+
+17:34.400 --> 17:36.800
+and read the data from that.
+
+17:36.800 --> 17:39.280
+But as you can see, this is very manual labor.
+
+17:39.280 --> 17:44.080
+We cannot do this for each and every Python version or implementation out there.
+
+17:44.080 --> 17:47.720
+So we do this with another project ahead of time.
+
+17:47.720 --> 17:53.520
+We use Rust-Pyne-Gen for that which was super convenient because PySpy was using that.
+
+17:53.520 --> 17:58.480
+We just grabbed some offsets and generated all these things for a couple of versions.
+
+17:58.480 --> 18:02.120
+But we are also working on a devolve-based reader which is more scalable.
+
+18:02.120 --> 18:07.920
+You just grab any binary, read the debug information and calculate all the offsets.
+
+18:07.920 --> 18:12.280
+From those offsets, we generate this struct which we think over the kernel space.
+
+18:12.280 --> 18:16.640
+It's like a map, where to find the fields and everything.
+
+18:16.640 --> 18:22.320
+And the nice part that the whole things that we are working on, it's going to be deprecated
+
+18:22.320 --> 18:23.800
+soon because Python...
+
+18:23.800 --> 18:29.200
+This is life of a software engineer when you do reverse engineering.
+
+18:29.200 --> 18:34.480
+So something super cool happened in the Python main branch.
+
+18:34.480 --> 18:38.720
+Now they have this debug offset data structure value.
+
+18:38.720 --> 18:44.040
+They generate all those sets and put that in just the beginning of the py runtime.
+
+18:44.040 --> 18:47.880
+We just can grab the address and just read the first chunk of the thing.
+
+18:47.880 --> 18:52.920
+How we got those that we don't need to do this ahead of time things right now.
+
+18:52.920 --> 18:58.560
+So this is already a merge and it's going to be released with the Python 3.0 in 13.0.
+
+18:58.600 --> 19:03.320
+It's also huge, lots of stuff that you need to find out.
+
+19:03.320 --> 19:05.480
+Okay, actual unwinding stack.
+
+19:05.480 --> 19:09.520
+So these are where the EVPS comes from.
+
+19:09.520 --> 19:15.640
+We did all the magic, we got the offsets, we put that thing into interpreter info structure
+
+19:15.640 --> 19:20.720
+and put that in an EVPF map so that the EVPF program can read in the kernel.
+
+19:20.720 --> 19:22.840
+And this C code is in the kernel itself.
+
+19:22.840 --> 19:26.240
+You check something and get the interpreter info.
+
+19:26.240 --> 19:31.960
+This is the user space code where we actually calculate all the addresses and send and put
+
+19:31.960 --> 19:35.280
+to the EVPF map itself.
+
+19:35.280 --> 19:39.280
+And from that we also grab this offset data that we calculated.
+
+19:39.280 --> 19:47.880
+We just do check some versions and find the runtime version of that particular Python interpreter,
+
+19:47.880 --> 19:51.480
+read the offsets and from that offsets we calculate that.
+
+19:51.480 --> 19:56.000
+But again, like 3.13, this is, this will be futile.
+
+19:56.000 --> 20:05.840
+So then we read, try to read the, oops, rate data from the thread state, find those structures
+
+20:05.840 --> 20:10.120
+and read the pointers and try to find out where to go from there.
+
+20:10.120 --> 20:13.360
+Five minutes left, I need to be super quick.
+
+20:13.360 --> 20:19.720
+Okay, so we find the, we try to find the initial pointer for the virtual frames.
+
+20:19.720 --> 20:21.480
+This is how we do it.
+
+20:21.480 --> 20:24.640
+And then from that we start walking the stack.
+
+20:24.640 --> 20:32.000
+The key points here is just from the previous code that you can see, we actually put just
+
+20:32.000 --> 20:39.080
+line 13, put something into a state frame pointer and we then read that frame pointer
+
+20:39.080 --> 20:41.160
+from another EVPF program.
+
+20:41.160 --> 20:50.000
+And from that pointer we basically find the offset of the frame object where the code
+
+20:50.000 --> 20:57.520
+points to, read that row address with some VPF helper code.
+
+20:57.520 --> 21:04.360
+And from that we read the symbol because like the addresses that we saw that they don't
+
+21:04.360 --> 21:05.360
+mean anything to us.
+
+21:05.360 --> 21:09.200
+We are humans and we need some human readable data.
+
+21:09.200 --> 21:16.320
+And from that to be efficient because we keep seeing the same stack traces, we just like
+
+21:16.320 --> 21:20.560
+hash it and put that symbol somewhere so that if we see that we don't need to send
+
+21:20.560 --> 21:24.440
+that same symbol to the user space because it's costly.
+
+21:24.440 --> 21:30.360
+And then we also encode the line number because like symbols just represents a class, then
+
+21:30.360 --> 21:34.840
+a function and then there's a line number in that function that is different.
+
+21:34.840 --> 21:37.720
+This API also recently stabilizing the Python.
+
+21:37.720 --> 21:43.280
+So for the old Python versions this line number could be wrong but the read after 3.10 it's
+
+21:43.280 --> 21:45.960
+actually, it should be accurate.
+
+21:45.960 --> 21:51.120
+And then we encode that as well and send it to the user space.
+
+21:51.120 --> 21:53.400
+This is the reading the symbol parts.
+
+21:53.400 --> 21:55.760
+Like the code is like super complicated.
+
+21:55.760 --> 22:00.080
+I just highlighted the GDP outputs because it's like easier to read.
+
+22:00.080 --> 22:05.520
+So you read this nested structures and find the actual type name, then the file name, then
+
+22:05.520 --> 22:10.800
+the name of the object code and the first line in that function and put an encode that
+
+22:10.800 --> 22:15.360
+is a symbol so that it means something for the humans.
+
+22:15.720 --> 22:20.840
+Voila, now we finally have Python unwinded stack.
+
+22:20.840 --> 22:26.520
+But as you can see there are lots of things going, happening and most of the things are
+
+22:26.520 --> 22:29.800
+interpreters and it doesn't make any sense.
+
+22:29.800 --> 22:35.880
+But we have this cool UI, you can actually, these are like color coded, you can, from
+
+22:35.880 --> 22:40.080
+the color code you can actually highlight like what's going on in the interpreter, what
+
+22:40.080 --> 22:43.960
+happens to the libc, libpython, you can see everything.
+
+22:44.400 --> 22:46.760
+Again, we want to focus on the Python bits, right?
+
+22:46.760 --> 22:54.520
+You can just filter out the Python code and see that it's recursively calling and calculating
+
+22:54.520 --> 22:55.960
+some Fibonacci numbers.
+
+22:55.960 --> 22:59.680
+Apparently, yeah, it's inefficient so you need to optimize this.
+
+23:01.680 --> 23:06.240
+Yeah, you can just tell by like that list of the stack, okay, yeah.
+
+23:06.240 --> 23:10.360
+You don't need to know the details of how to read the flame graph.
+
+23:10.360 --> 23:13.040
+But good thing for you, we also have a blog post for that.
+
+23:13.280 --> 23:14.920
+You can check it out.
+
+23:14.920 --> 23:18.360
+So I guess we are nearly out of time.
+
+23:18.360 --> 23:24.280
+So we support a couple of interpreters like 2.7, we still support that.
+
+23:24.280 --> 23:29.880
+So if you happen to have that, we support everything until 3.11.
+
+23:29.880 --> 23:37.160
+We are working on the 3.12 because 3.12 changes where the actual trade state also stored,
+
+23:37.160 --> 23:39.520
+which is the trade local storage.
+
+23:39.520 --> 23:44.080
+We are working on the facilities to read the state from the trade local storage.
+
+23:44.080 --> 23:48.120
+It shouldn't take more than a couple of weeks to be that support actually landed.
+
+23:48.120 --> 23:55.280
+And 3.13 will be there so we don't need to do this again, basically, for the next version of the Python.
+
+23:55.280 --> 24:01.680
+So everything you can see, please try, install and give us a feedback.
+
+24:01.680 --> 24:03.320
+There's this QR code.
+
+24:03.320 --> 24:04.840
+It's a GitHub discussion.
+
+24:04.840 --> 24:07.560
+You can just like engage with us and report bugs.
+
+24:07.560 --> 24:13.680
+And we can try to help you to profile and optimize your Python workloads.
+
+24:13.680 --> 24:18.200
+All the things that you see here, there's also a blog post if you want to catch up.
+
+24:18.200 --> 24:20.760
+You can check the company's blog post.
+
+24:20.760 --> 24:26.440
+And also we find the DevoreFind on winding bits like super cool because it's a niche thing that we do.
+
+24:26.440 --> 24:33.240
+And if you especially like the, if you have an application that follows everything to the native code,
+
+24:33.240 --> 24:35.120
+this will be super useful.
+
+24:35.120 --> 24:37.000
+Thank you for listening.
+
+24:37.000 --> 24:45.880
+Thank you very much, Camille.
+
+24:45.880 --> 24:55.040
+I'm afraid we're quite tight on the schedule, but please feel free to reach out to him with any questions.
+
+24:55.040 --> 24:56.200
+And thank you very much.
+
+24:56.200 --> 24:57.200
+Thank you.
+

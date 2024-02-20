@@ -1,0 +1,878 @@
+WEBVTT
+
+00:00.000 --> 00:09.880
+We're going to get back.
+
+00:09.880 --> 00:14.960
+So next up we're going to have Daniel and Dave talking to us about orchestrating eBPF
+
+00:14.960 --> 00:17.080
+applications in Kubernetes.
+
+00:17.080 --> 00:19.240
+Hi, everyone.
+
+00:19.240 --> 00:22.520
+I'm Dave.
+
+00:22.520 --> 00:25.480
+This is my colleague Daniel.
+
+00:25.480 --> 00:31.320
+We both work at Red Hat and we're here to talk to you about BPFman, quoted in Pheronics
+
+00:31.320 --> 00:36.520
+as the world's worst superhero.
+
+00:36.520 --> 00:39.520
+So what is eBPF?
+
+00:39.520 --> 00:40.520
+Show of hands.
+
+00:40.520 --> 00:41.520
+Let's do a show of hands.
+
+00:41.520 --> 00:43.000
+Who knows anything about eBPF?
+
+00:43.000 --> 00:50.040
+That's the best I've had in any room talking about eBPF.
+
+00:50.040 --> 00:53.280
+I should have qualified that question, shouldn't I?
+
+00:53.280 --> 01:00.160
+Very quickly then, BPF is a cool technology that allows you to do crazy stuff in the kernel.
+
+01:00.160 --> 01:05.120
+So if you weren't a kernel developer before and didn't know how to maybe do something
+
+01:05.120 --> 01:10.080
+crazy with networking, BPF works as a nice little programming toolkit for you to be
+
+01:10.080 --> 01:18.240
+able to go and do scary things or sensible things with code inside the kernel.
+
+01:18.240 --> 01:22.800
+So there are use cases in networking, security, observability.
+
+01:22.800 --> 01:28.560
+There's a whole bunch of projects out there that allow you to do all of these things.
+
+01:28.560 --> 01:35.160
+Essentially you load code into the kernel, runs inside a virtual machine if you like.
+
+01:35.160 --> 01:38.560
+The code is verified not to crash the kernel when it gets loaded in there, which is a good
+
+01:38.560 --> 01:43.000
+thing so it's a little bit safer than things like kernel modules.
+
+01:43.000 --> 01:45.680
+And yeah, I think that's about it.
+
+01:45.680 --> 01:49.360
+So you have your kernel space code that does the thing in the kernel.
+
+01:49.360 --> 01:53.160
+You typically have some code that runs in New Zealand as well that does things like
+
+01:53.160 --> 02:00.560
+reading data that you've exfiltrated from the kernel which gets stored in eBPF maps.
+
+02:00.560 --> 02:04.600
+So you can do all sorts of cool things.
+
+02:04.600 --> 02:06.800
+So why do we need a BPF manager?
+
+02:06.800 --> 02:18.640
+Is it better now?
+
+02:18.640 --> 02:19.640
+Hello?
+
+02:19.640 --> 02:20.640
+Awesome.
+
+02:20.640 --> 02:21.640
+Thank you.
+
+02:21.640 --> 02:22.640
+Okay, let's recap.
+
+02:22.640 --> 02:24.800
+So eBPF manager, what do we mean by an eBPF manager?
+
+02:24.800 --> 02:29.880
+So these days we are getting and seeing a lot of different eBPF related projects or these
+
+02:29.880 --> 02:32.880
+days say eBPF at some point within their documentation.
+
+02:32.880 --> 02:37.080
+So you may see that we got Calico, we got Silium.
+
+02:37.080 --> 02:42.880
+You can also see a lot of different monitoring projects such as Pixi, we know Kepler, you
+
+02:42.880 --> 02:44.080
+know a lot.
+
+02:44.080 --> 02:47.800
+So basically what is happening is at some point we need to, for the end projects to
+
+02:47.800 --> 02:50.920
+coexist a little bit without being broken all along.
+
+02:50.920 --> 02:56.200
+So what could happen, let's say you want to run an eBPF program, it goes as route, there
+
+02:56.200 --> 03:01.520
+it goes, and then it runs another one, it overrides what we would as a route and so on.
+
+03:01.520 --> 03:07.800
+And we wanted to have something that could make this a little bit more sense.
+
+03:07.800 --> 03:13.320
+So getting back to there, I was saying that every eBPF program needs route access, so
+
+03:13.320 --> 03:17.960
+you could either, okay you may say that okay but we got the capabilities.
+
+03:17.960 --> 03:21.640
+So is there anyone here that is aware of CAP BPF?
+
+03:21.640 --> 03:25.440
+Okay, not any, okay, we got one there.
+
+03:25.440 --> 03:26.440
+Okay, thank you.
+
+03:26.560 --> 03:33.080
+So far that's some kind of a trick because in the kernel, CAP BPF maps to CAP route,
+
+03:33.080 --> 03:36.520
+so it's a nice naming but not that much on that.
+
+03:36.520 --> 03:41.800
+Basically also you don't have any way currently of making sure that what you are running as
+
+03:41.800 --> 03:46.280
+BPF, it's like it, so you can run what it is there and you're going to trust what you
+
+03:46.280 --> 03:50.360
+have in mind.
+
+03:50.360 --> 03:55.360
+Also getting back to networking, so this is your idea of running a CNI plugin such as
+
+03:55.400 --> 03:57.400
+Cillium.
+
+03:57.400 --> 04:03.200
+Those Cillium, those kernel ABPF hooks are explosive and the same happens for monitoring
+
+04:03.200 --> 04:04.600
+for some of those.
+
+04:04.600 --> 04:09.280
+So basically you need to get into that and see a little bit of priority.
+
+04:09.280 --> 04:13.360
+We are going to be seeing that later about having two different ABPF programs with different
+
+04:13.360 --> 04:16.800
+priorities and see how can we handle those with BPF man.
+
+04:16.800 --> 04:19.040
+BPF man, getting back to there.
+
+04:19.040 --> 04:24.920
+So originally this was named BPFD, we changed it because it's no longer a demon and we wanted
+
+04:24.960 --> 04:27.760
+for people to somehow get used to that.
+
+04:27.760 --> 04:34.760
+Everybody knows Portman and we want to basically people to get to know BPF man as well as we
+
+04:34.800 --> 04:36.800
+know Portman.
+
+04:36.800 --> 04:40.800
+Then goes to BPF man, Prudette.
+
+04:40.800 --> 04:48.800
+So, BPF man is a nice source for that, surprise surprise.
+
+04:48.800 --> 04:52.800
+It started in the room I worked in the Red Lab, the version of theologies.
+
+04:52.800 --> 04:55.800
+So, we are starting to get some of the issues outside.
+
+04:55.800 --> 04:57.800
+It's absolutely awesome.
+
+04:57.800 --> 05:05.800
+So, as Daniel said, the BPF stuff is a privileged operation and what we really wanted to do
+
+05:05.800 --> 05:10.800
+was to train people on privileged stuff outside containers if possible because then we don't
+
+05:10.800 --> 05:16.800
+have to have containers that have privileges around like ages where the privileged stuff
+
+05:16.800 --> 05:18.800
+just happened very quickly.
+
+05:18.800 --> 05:20.800
+So, privileged stuff is down in the text.
+
+07:19.800 --> 07:22.800
+So, you can actually just write out your intent.
+
+07:22.800 --> 07:26.800
+I want this program to appear on all of my notes or only on notes.
+
+07:26.800 --> 07:29.800
+I have this set of labels or whatever.
+
+07:29.800 --> 07:34.800
+BPF man can then handle all of the orchestration for that for you.
+
+07:34.800 --> 07:41.800
+And very recently we also started digging into how we can take some of the stuff which is in the
+
+07:41.800 --> 07:43.800
+kernel which is really useful for hidden.
+
+07:43.800 --> 07:50.800
+So, the BPF audit logs which are in audit D and pulling those out into open to laboratory
+
+07:50.800 --> 07:52.800
+is log data.
+
+07:52.800 --> 07:57.800
+You can train them off to your log storage thing and figure out if there's something going on
+
+07:57.800 --> 08:00.800
+then maybe there's something that's happening in BPF at the same time.
+
+08:00.800 --> 08:02.800
+We have an idea of what's up there.
+
+08:02.800 --> 08:06.800
+And similarly with metrics as well, we're able to get metrics from the BPF system in the kernel
+
+08:06.800 --> 08:09.800
+and bring those up into open to laboratory as metrics as well.
+
+08:09.800 --> 08:12.800
+You can do the same graph, do whatever you like.
+
+08:13.800 --> 08:20.800
+And I can go next because so far we spoke about BPF, we spoke about the operator part of BPF man
+
+08:20.800 --> 08:23.800
+and so forth, but how about Fedora?
+
+08:23.800 --> 08:27.800
+We said we're concentrating on Fedora and there was no Fedora being done over here.
+
+08:27.800 --> 08:31.800
+So, first of all, how many, if there's any Fedora packages do we have in the room?
+
+08:31.800 --> 08:33.800
+Okay, awesome.
+
+08:33.800 --> 08:35.800
+You're going to be helping us.
+
+08:35.800 --> 08:41.800
+So, we established a new BPF group like I guess from the last month of the last year,
+
+08:41.800 --> 08:46.800
+2020-3 because basically we wanted to promote the usage of BPF
+
+08:46.800 --> 08:50.800
+and see how could we package BPF applications within Fedora.
+
+08:50.800 --> 08:53.800
+And we were thinking about, okay, BPF man is cool.
+
+08:53.800 --> 08:56.800
+Let's go and get BPF man package within Fedora.
+
+08:56.800 --> 09:03.800
+So, we identified it and started making the parts on how do we get BPF man in Fedora.
+
+09:03.800 --> 09:10.800
+BPF man is written mainly in Rust and there's a self-contained change to add that to Fedora 40.
+
+09:10.800 --> 09:12.800
+So, feel free to take a look if you want to.
+
+09:12.800 --> 09:14.800
+I mean, those slides will be available.
+
+09:14.800 --> 09:20.800
+But the thing is that currently you can go and start getting all the dependencies
+
+09:20.800 --> 09:25.800
+that we have for BPF man in Fedora that those are really in Rust.
+
+09:25.800 --> 09:30.800
+We are mostly using Rust to our PN, which you could say, okay, I'm getting a spec file.
+
+09:30.800 --> 09:32.800
+I can just find no way.
+
+09:32.800 --> 09:35.800
+We haven't been speaking at all about how do we handle that.
+
+09:35.800 --> 09:40.800
+When you're packaging Rust programs in Fedora, you could do those in two different ways.
+
+09:40.800 --> 09:43.800
+You could go the fast path, okay, let's bundle everything there.
+
+09:43.800 --> 09:45.800
+Pretty much like the go way.
+
+09:45.800 --> 09:50.800
+I'm not going to be caring at all about how the dependencies interact with all the packages in Fedora.
+
+09:50.800 --> 09:59.800
+Or I'm going to go packaging all the dependencies and I'm going to be creating packages for all the dependencies in Fedora.
+
+09:59.800 --> 10:02.800
+This goes with a few caveats though.
+
+10:02.800 --> 10:09.800
+So, let's say one of the dependencies we have, as you can see here, we got a few dependencies,
+
+10:09.800 --> 10:16.800
+meaning in Fedora, six store, Tony, we had a few packages in Fedora that were newer than what we were using.
+
+10:16.800 --> 10:21.800
+That's super fine because we can just bump the dependencies and patch BPF man to work.
+
+10:21.800 --> 10:23.800
+And we had also the other way around.
+
+10:23.800 --> 10:25.800
+We had some packages that were too old in Fedora.
+
+10:25.800 --> 10:31.800
+That means I can't just go by itself and bump them up in Fedora because I'm not a maintainer of those packages.
+
+10:31.800 --> 10:37.800
+I need to go see who's the maintainer, speak to him so they bump that,
+
+10:37.800 --> 10:41.800
+so those doesn't collide in Fedora at all with any of the packages we might be.
+
+10:41.800 --> 10:45.800
+But let's just grab one quick example that we run into here in Fedora.
+
+10:45.800 --> 10:49.800
+So, I wanted, let's say, one of those missing ones, six store.
+
+10:49.800 --> 10:53.800
+Let's say, let's go and create a Rust six store package in Fedora.
+
+10:53.800 --> 10:59.800
+If you start doing so, you'll see that you have like, let's say, ten more dependencies,
+
+10:59.800 --> 11:03.800
+those ten more dependencies, grab you 23 more dependencies, and so.
+
+11:03.800 --> 11:06.800
+So this been, let's say, a challenging issue.
+
+11:06.800 --> 11:12.800
+You could say the dependency held a little bit, but we plan to address those for the final release,
+
+11:12.800 --> 11:15.800
+even if we go to the bundle one in the beginning.
+
+11:15.800 --> 11:22.800
+For those, we have been having a lot of help, mostly from the Rusty Group,
+
+11:22.800 --> 11:26.800
+specifically Fabio Valentini, who's the Rusty Group maintainer.
+
+11:26.800 --> 11:32.800
+He's been having a lot of help to us, but we are still missing a lot of Rust packages.
+
+11:32.800 --> 11:36.800
+So if you have time to spur, please go and help us review all the Rust packages that we are maintaining.
+
+11:36.800 --> 11:40.800
+Also, we also have another guy called Miquelon Sagasti.
+
+11:40.800 --> 11:42.800
+He's also a good friend of Spain.
+
+11:42.800 --> 11:45.800
+I mean, he does not do too much of a box-it-up job.
+
+11:45.800 --> 11:47.800
+So thank you for that guy.
+
+11:48.800 --> 11:55.800
+This is that. Of course, we are also open to anybody who would like to join the ABPFC Group
+
+11:55.800 --> 12:00.800
+and who would like to join us helping on this effort, as much as maintaining
+
+12:00.800 --> 12:08.800
+way more EBPF programs that could go in Fedora, such as Scribbr, Kepler, who's going to go next probably.
+
+12:08.800 --> 12:11.800
+So basically, thank you for that.
+
+12:11.800 --> 12:13.800
+Let's give them more time.
+
+12:13.800 --> 12:15.800
+So let's see if we can go for that.
+
+12:16.800 --> 12:18.800
+You want to come and do that?
+
+12:25.800 --> 12:26.800
+Okay.
+
+12:28.800 --> 12:29.800
+Okay.
+
+12:33.800 --> 12:37.800
+So here is the DTF program.
+
+12:37.800 --> 12:39.800
+I hope you like it.
+
+12:42.800 --> 12:44.800
+It's totally clear, isn't it?
+
+12:44.800 --> 12:46.800
+Yeah, I think we'll have to do that.
+
+12:46.800 --> 12:48.800
+Any comments?
+
+12:48.800 --> 12:53.800
+So this is a very, very simple program.
+
+12:53.800 --> 12:58.800
+Effectively what's doing is counting packets that were received from a place.
+
+12:58.800 --> 13:04.800
+Now, in reality, you'd want to be deploying them before it's like a load bar.
+
+13:04.800 --> 13:08.800
+But just to say to them, oh no, this is a little bit more important.
+
+13:08.800 --> 13:13.800
+So we can then match them to the container models with us.
+
+13:13.800 --> 13:20.800
+So we have a base stage in our container file that exports the packages that we need to go to.
+
+13:20.800 --> 13:22.800
+The DTF bytecode.
+
+13:22.800 --> 13:30.800
+And then we have the user space part of the equation here, which packages up our user space application.
+
+13:30.800 --> 13:36.800
+So remembering the fact that when I said that we're like user space is the DTF, the kernel is the base space of the DTF,
+
+13:36.800 --> 13:38.800
+so user space is it.
+
+13:39.800 --> 13:41.800
+Yeah, I can't make it any bigger.
+
+13:41.800 --> 13:43.800
+I'll go with you.
+
+13:43.800 --> 13:45.800
+Sorry.
+
+13:45.800 --> 13:47.800
+We will share the link in the chat.
+
+13:47.800 --> 13:50.800
+We'll charge the link afterwards, I guess.
+
+13:50.800 --> 13:52.800
+Yeah, yeah.
+
+13:52.800 --> 13:56.800
+There is a user space, and there is a kernel space.
+
+13:56.800 --> 14:00.800
+The kernel space is basically a PID bytecode.
+
+14:00.800 --> 14:03.800
+It is just one file inside of that.
+
+14:03.800 --> 14:06.800
+And then some labels that we'll do.
+
+14:06.800 --> 14:11.800
+We have to be using them on whether this should be like half or more.
+
+14:11.800 --> 14:14.800
+An extension to the ASI is back on this example.
+
+14:14.800 --> 14:20.800
+I wouldn't read any of that in the DTF stuff, but that's something we'll be figuring out as we go along.
+
+14:21.800 --> 14:27.800
+Anything we can use our container engine of choice to go and build our things.
+
+14:27.800 --> 14:30.800
+This is amazing, but fast, because we were working on that at a time.
+
+14:30.800 --> 14:32.800
+What?
+
+14:32.800 --> 14:34.800
+We use a pop-up interface.
+
+14:34.800 --> 14:36.800
+We use whatever we can use.
+
+14:36.800 --> 14:41.800
+We'll then go and question these resulting images of how to make a container registration,
+
+14:41.800 --> 14:44.800
+because the other man's going to need to go and crash the machine.
+
+14:44.800 --> 14:51.800
+So you can deploy your machine here, or you can deploy off the machine anywhere as long as you can access the internet to be called.
+
+14:51.800 --> 14:55.800
+Programming container registry, that's a problem for us.
+
+14:55.800 --> 15:01.800
+So, from personal experience, trying to develop a BPF program has been pretty handy
+
+15:01.800 --> 15:04.800
+when we develop a BPF in the point of view.
+
+15:04.800 --> 15:08.800
+So we can ask the DTFNR here, what's up? Are there any programs?
+
+15:08.800 --> 15:11.800
+We'd be happy to say that at the moment.
+
+15:11.800 --> 15:15.800
+We'll let you know if you'd mind to say, well, here's the one that we made earlier.
+
+15:15.800 --> 15:20.800
+Please, you can go below this one in the department to get some things for me.
+
+15:20.800 --> 15:22.800
+We've given it a priority of 10.
+
+15:22.800 --> 15:24.800
+That's a meaningless variable.
+
+15:24.800 --> 15:30.800
+Priority, we've given it a 1, and I think it's been 1 on TCC5, so it's a good one to give you.
+
+15:30.800 --> 15:37.800
+That's what we used at the later part for sorting which programs should be running ahead of one another,
+
+15:37.800 --> 15:44.800
+because we have some magical XTP stuff in the background here that allows you to sort of order your network programs,
+
+15:44.800 --> 15:51.800
+which we've borrowed from a project called LiveX2P, which makes writing extra easy to use.
+
+15:51.800 --> 15:56.800
+So BPF man's got the latest on program for us,
+
+15:56.800 --> 16:02.800
+and now we're going to verify the list there, by listing it to this,
+
+16:02.800 --> 16:05.800
+and then we're going to run our user specs bit.
+
+16:05.800 --> 16:09.800
+We're not using any of the data just because the CD is just running here.
+
+16:09.800 --> 16:14.800
+It's going to have a look into single panels telling it how many packets we've received,
+
+16:14.800 --> 16:18.800
+how many bytes we've received, so we can see that the program is working.
+
+16:19.800 --> 16:23.800
+And then we can go ahead and load another program.
+
+16:23.800 --> 16:31.800
+At this time, it will be priority one, so we would go ahead and load that, but that's a little bit tricky,
+
+16:31.800 --> 16:33.800
+so we did it to sort of eliminate it.
+
+16:33.800 --> 16:39.800
+But in the end, yes, it's a loaded, and then you move to see the program here,
+
+16:39.800 --> 16:44.800
+which we want to run in first and the first, and then add a program.
+
+16:45.800 --> 16:46.800
+So there we go.
+
+16:46.800 --> 16:50.800
+So just to talk about how we can take a BPF program in here,
+
+16:50.800 --> 16:54.800
+how we can take it, deploy the CDF man on the client,
+
+16:54.800 --> 17:00.800
+like we could also do, so we wanted to make sure we had time to demo that as well.
+
+17:00.800 --> 17:01.800
+Yeah.
+
+17:06.800 --> 17:08.800
+All right, that's it.
+
+17:08.800 --> 17:14.800
+Yeah, so basically, I guess you like that thing here.
+
+17:14.800 --> 17:17.800
+I just wanted to basically introduce you to this new BBA program.
+
+17:17.800 --> 17:21.800
+Please, please, please help if you want to take a look at the rest practices.
+
+17:21.800 --> 17:25.800
+And I guess we didn't have one slide, but we can just go for the Q&A.
+
+17:25.800 --> 17:26.800
+Any questions, guys?
+
+17:39.800 --> 17:43.800
+Can you see the CDF man?
+
+17:43.800 --> 17:44.800
+Sorry?
+
+17:44.800 --> 17:46.800
+Can you see the CDF man?
+
+17:46.800 --> 17:51.800
+Because they have a lot of programs, examples of how you can get it from there.
+
+17:53.800 --> 17:54.800
+Can you see that?
+
+17:54.800 --> 17:55.800
+Yeah, I understand.
+
+17:55.800 --> 17:57.800
+I just don't have a microphone.
+
+17:57.800 --> 17:58.800
+Yeah, we'll go.
+
+17:58.800 --> 17:59.800
+Let's take a look back.
+
+17:59.800 --> 18:00.800
+Yeah.
+
+18:00.800 --> 18:02.800
+Yeah, take it.
+
+18:02.800 --> 18:13.800
+Right, so we, BPF man itself is written in Rust and is backed by a really awesome pure Rust library,
+
+18:13.800 --> 18:16.800
+which I also happen to maintain called IA, which is amazing.
+
+18:16.800 --> 18:19.800
+Hopefully there's some IA contributors here.
+
+18:19.800 --> 18:21.800
+Yes, thank you.
+
+18:21.800 --> 18:23.800
+All right, one, that was good.
+
+18:23.800 --> 18:26.800
+So our entire stack is Rust.
+
+18:26.800 --> 18:30.800
+However, the BPF program that you write, you can do in C with libbpf,
+
+18:30.800 --> 18:32.800
+you can do in Cillium with go.
+
+18:32.800 --> 18:38.800
+This example program that we've run is using Cillium, BPF and go, and BPF to go,
+
+18:38.800 --> 18:40.800
+and all of that tooling.
+
+19:00.800 --> 19:17.800
+Okay, that is a really, really good question.
+
+19:17.800 --> 19:22.800
+So I will preface this with I am not a lawyer, obviously.
+
+19:22.800 --> 19:30.800
+However, basically 99.9 ish percent of BPF code will be GPL.
+
+19:30.800 --> 19:37.800
+The reason for that is all of the useful BPF helpers that you will call are GPL only.
+
+19:37.800 --> 19:39.800
+Therefore, has to be GPL.
+
+19:39.800 --> 19:43.800
+But that is just the BPF code that gets run in the kernel.
+
+19:43.800 --> 19:49.800
+There is a really good document on kernel.org that explains BPF licensing,
+
+19:49.800 --> 19:54.800
+which was written by lawyers, and effectively you can load your code into the kernel,
+
+19:54.800 --> 19:59.800
+and anything that goes and talks to that doesn't effectively get touched by GPL,
+
+19:59.800 --> 20:02.800
+so you're basically fine.
+
+20:02.800 --> 20:08.800
+Can you please just have us load your program to then enter it into the copy?
+
+20:08.800 --> 20:09.800
+Yep.
+
+20:09.800 --> 20:11.800
+So the bit in the kernel will be GPL.
+
+20:11.800 --> 20:13.800
+You use the space bit, can be whatever you want.
+
+20:13.800 --> 20:17.800
+Obviously, if you're copying example code from Cillium or whoever else,
+
+20:17.800 --> 20:18.800
+double check the license.
+
+20:18.800 --> 20:24.800
+A lot of the Cillium examples, I think, are GPL plus BSD2, something permissive
+
+20:24.800 --> 20:26.800
+that allows sort of reuse and copying.
+
+20:26.800 --> 20:27.800
+So...
+
+20:27.800 --> 20:40.800
+We're just packaging, effectively.
+
+20:40.800 --> 20:41.800
+That's all we are.
+
+20:41.800 --> 20:46.800
+So, no, no, no, write your program however you want,
+
+20:46.800 --> 20:48.800
+and we'll just help with the packaging and deployment,
+
+20:48.800 --> 20:52.800
+whether it's on multiple Linux nodes, whether it's Kubernetes, whether it's anything else.
+
+20:52.800 --> 20:55.800
+So, the owners are still on you to write the code,
+
+20:55.800 --> 20:59.800
+and then we'll help you package and deploy it.
+
+20:59.800 --> 21:00.800
+So basically that depends.
+
+21:00.800 --> 21:06.800
+Just think of some kind of a proper tooling to go and run your code in an easy way.
+
+21:06.800 --> 21:09.800
+But whatever you run there, it depends on you.
+
+21:09.800 --> 21:12.800
+So if you want to go load, no.
+
+21:12.800 --> 21:18.800
+A non-GPL v2 or non-GPL whatever license you want to go, that depends on you.
+
+21:18.800 --> 21:25.800
+So we ourselves are GPL, but we call it a Pachi,
+
+21:25.800 --> 21:27.800
+and we call it a license, but that's a Pachi.
+
+21:27.800 --> 21:33.800
+But the thing is that besides that, it's like if you are just running whatever application
+
+21:33.800 --> 21:36.800
+on another program, that's a different thing.
+
+21:36.800 --> 21:41.800
+Yeah, so I'm saying that the tooling itself, ours, it's a Pachi.
+
+21:41.800 --> 21:45.800
+But whatever program you want to run into it, it's up to you.
+
+21:45.800 --> 21:49.800
+So in terms of licenses and so forth, that would depend on whatever you want to do.
+
+21:49.800 --> 21:53.800
+So if you want to run some sealant samples, that would depend on the sealant license.
+
+21:53.800 --> 21:57.800
+But if you just want to run some proprietary thing, that's up to you.
+
+21:57.800 --> 21:58.800
+Thanks very much.
+
+21:58.800 --> 21:59.800
+I'm sorry.
+
+22:05.800 --> 22:06.800
+Over there.
+
+22:11.800 --> 22:16.800
+It's all the way there.
+
+22:16.800 --> 22:18.800
+One way to go.
+
+22:22.800 --> 22:25.800
+I think we call it whatever you want to do with the other parts.
+
+22:42.800 --> 22:45.800
+We can hear it all, sorry.
+
+22:54.800 --> 22:58.800
+Sorry, maybe, maybe, yes, come over here, no worries.
+
+22:58.800 --> 22:59.800
+Yeah, come over here.
+
+23:11.800 --> 23:13.800
+Yep, thank you.
+

@@ -1,0 +1,1097 @@
+WEBVTT
+
+00:00.000 --> 00:16.120
+with the next talk, Eduardo is going to talk about streamlining your cluster with stuff.
+
+00:16.120 --> 00:18.720
+You continue to hate containers, no?
+
+00:18.720 --> 00:23.960
+So hey, big topic switch, big data just went out the room, now Kubernetes.
+
+00:23.960 --> 00:28.240
+So this is about, this is the first of three Kubernetes talks.
+
+00:28.240 --> 00:34.680
+The first time Kubernetes is making a big room in the HPC room, so I'm happy for that.
+
+00:34.680 --> 00:39.800
+Today I'm going to be talking about something that very much since I knew Kenneth, it's
+
+00:39.800 --> 00:45.960
+been something I care of and is how to properly create labels and annotations so we can properly
+
+00:45.960 --> 00:51.160
+set the workloads where they need to go and where they don't need to be.
+
+00:51.160 --> 00:54.160
+So let's talk about that.
+
+00:54.160 --> 00:58.400
+And I want to talk with this, everything that I'm going to be talking about, just thinking
+
+00:58.400 --> 01:00.080
+about automating.
+
+01:00.080 --> 01:04.240
+We are going to be automating how we use Kubernetes clusters.
+
+01:04.240 --> 01:06.760
+But then why this conversation?
+
+01:06.760 --> 01:12.040
+This Kubernetes and containers conversation that started like six, seven years ago in
+
+01:12.040 --> 01:18.400
+the HPC ecosystem, the promise was that once we implemented containers and Kubernetes,
+
+01:18.400 --> 01:24.080
+we could kind of like forget about infrastructure and we could just like jump into a new adventure,
+
+01:24.080 --> 01:26.560
+everything was going to be abstracted from us.
+
+01:26.560 --> 01:32.760
+It was kind of like billboard going into this adventure, but it took six movies to actually
+
+01:32.760 --> 01:36.280
+complete the adventure and I feel we are still in the hobbit.
+
+01:36.280 --> 01:40.320
+We haven't jumped into the Lord of the Rings kind of conversation in this topic.
+
+01:40.320 --> 01:42.480
+Who am I?
+
+01:42.480 --> 01:48.280
+I am doing containers for HPC since singularity, so since a long time ago.
+
+01:48.280 --> 01:54.720
+Currently I am working at NVIDIA trying to make everything Kubernetes and GPUs easier
+
+01:54.720 --> 01:55.960
+and better for everyone.
+
+01:55.960 --> 02:01.760
+So basically contributing to Kubernetes and all upstream projects to make it easier for
+
+02:01.760 --> 02:07.320
+you to run GPU workloads on any cloud-native ecosystem.
+
+02:07.320 --> 02:09.120
+So this is the agenda for today.
+
+02:09.120 --> 02:13.320
+I want to be talking about the no-fisher project and everything and all the amazing things
+
+02:13.320 --> 02:16.480
+that you can do with it.
+
+02:16.480 --> 02:21.760
+So just a quick, if you scan this, it will take you to the GitHub webpage of the no-fisher
+
+02:21.760 --> 02:22.760
+discovery.
+
+02:22.760 --> 02:27.880
+This QR code is going to be along other slides, so don't worry if you miss it once.
+
+02:27.880 --> 02:32.240
+So what is NFD as I call it or the no-fisher discovery?
+
+02:32.240 --> 02:34.760
+It's basically a Kubernetes 6 project.
+
+02:34.760 --> 02:41.720
+Kubernetes 6, so the 6 word there means is a special project that is under the Kubernetes
+
+02:41.720 --> 02:45.680
+umbrella and is managed by all the CNCF protocols.
+
+02:45.680 --> 02:50.520
+It's an add-on for detecting hardware and features in your system.
+
+02:50.520 --> 02:52.360
+That's what I will be talking about.
+
+02:52.360 --> 02:58.840
+And what I want to be doing this with the Hobbit and a lot of the RIMS conversation is because
+
+02:58.840 --> 03:07.160
+I really like the topic of Smaug talking with Bilbo and it's like they are always labeling
+
+03:07.160 --> 03:08.160
+themselves.
+
+03:08.160 --> 03:11.200
+I am the clue finder, I am the web cutter.
+
+03:11.200 --> 03:16.080
+They are always setting labels to themselves to make themselves bigger just to identify
+
+03:16.080 --> 03:22.160
+who is in the room because during that conversation Bilbo is invisible to his eyes.
+
+03:22.160 --> 03:23.840
+But what is NFD?
+
+03:23.840 --> 03:26.120
+So NFD basically four components.
+
+03:26.120 --> 03:30.800
+Is the NFD master worker, the topology of data, that is a new thing, and the garbage
+
+03:30.800 --> 03:31.960
+collector.
+
+03:31.960 --> 03:35.800
+So why this split and not just a single component?
+
+03:35.800 --> 03:37.720
+Four security reasons.
+
+03:37.720 --> 03:43.520
+So the NFD master is the only container running in your Kubernetes cluster that actually has
+
+03:43.520 --> 03:49.920
+all the permissions and privileges to label the nodes to create things, annotations, and
+
+03:49.920 --> 03:52.720
+all the features that I will be explaining today.
+
+03:52.720 --> 03:59.240
+And all the three other components communicate constantly with the NFD master to tell it
+
+03:59.240 --> 04:00.360
+what to do.
+
+04:00.360 --> 04:05.800
+So the NFD worker is the main component of NFD which is basically a demon set.
+
+04:05.800 --> 04:10.840
+A demon set in Kubernetes is a container that is running everywhere basically.
+
+04:10.840 --> 04:17.560
+And this container will go to your nodes and discover everything that is available to your
+
+04:17.560 --> 04:18.560
+container.
+
+04:18.560 --> 04:19.560
+Right?
+
+04:19.560 --> 04:21.080
+So I want to be very specific here.
+
+04:21.080 --> 04:23.400
+So everything that is available to the container.
+
+04:23.400 --> 04:28.960
+So if you are not by mounting something in the container or if you are not allowing your
+
+04:28.960 --> 04:34.920
+container to see things in your system, the NFD worker is not going to see that.
+
+04:35.040 --> 04:40.920
+Everything that is on the eyes of a container and the privileges of the NFD worker container
+
+04:40.920 --> 04:46.240
+is going to be advertised to NFD master and NFD master is going to advertise that to you.
+
+04:46.240 --> 04:51.880
+The topology updater is part of an ongoing effort to create topology aware scheduling
+
+04:51.880 --> 04:52.880
+in Kubernetes.
+
+04:52.880 --> 04:55.640
+So it's a very HPC related topic.
+
+04:55.640 --> 04:58.880
+This topic is undergoing development.
+
+04:58.880 --> 05:04.120
+The topology updater now has like two years and topology aware scheduling in Kubernetes
+
+05:04.160 --> 05:08.040
+is also now like a year and a half and it's getting very stable.
+
+05:08.040 --> 05:13.520
+So Kubernetes is getting very, very closely to having more and more HPC, like deep dive
+
+05:13.520 --> 05:15.000
+HPC workloads.
+
+05:15.000 --> 05:19.760
+And the garbage collector is for removing those things that maybe were removed.
+
+05:19.760 --> 05:24.320
+And a very good example for me that I work on NVIDIA is that some people turn on the
+
+05:24.320 --> 05:25.720
+systems.
+
+05:25.720 --> 05:33.800
+They start running Kubernetes and by some reason they remove the GPUs like manually.
+
+05:34.200 --> 05:39.880
+So we had to implement a component that like every minute goes and check back if everything
+
+05:39.880 --> 05:42.800
+is actually there and like update the labels.
+
+05:44.440 --> 05:46.240
+This is how the API looks like.
+
+05:46.240 --> 05:53.520
+So the API for no feature discovery for those that know how to define an API in Kubernetes
+
+05:53.520 --> 05:55.320
+is this is a custom resource definition.
+
+05:56.640 --> 05:58.520
+This is how the API looks like.
+
+05:58.520 --> 06:03.640
+And basically every component in Kubernetes, like even from another nice space, if you
+
+06:03.640 --> 06:09.720
+give them permissions to a deep to update patch or create new custom resource definitions,
+
+06:09.720 --> 06:17.240
+node feature, as we see here, you can actually create a sidecar containers for the NFD master
+
+06:17.240 --> 06:18.800
+of the no feature discovery.
+
+06:19.640 --> 06:24.880
+As an example, from NVIDIA, we have a sidecar container that we call the GPU feature
+
+06:24.880 --> 06:25.760
+discovery.
+
+06:25.760 --> 06:30.280
+And it's basically a container that knows about GPUs, the NVIDIA GPU, right?
+
+06:30.280 --> 06:32.600
+Like it become very specific.
+
+06:32.640 --> 06:36.720
+We have examples as Intel has a similar container.
+
+06:36.720 --> 06:39.280
+AMD is working in a similar container.
+
+06:39.280 --> 06:43.960
+So basically you have a container that is very specific to whatever you need.
+
+06:43.960 --> 06:47.360
+And it will communicate back to NFD master using this API.
+
+06:48.560 --> 06:54.680
+But when I say that the NFD worker is going to see everything you have in your system,
+
+06:54.680 --> 06:56.680
+I truly mean everything.
+
+06:57.640 --> 07:03.960
+If you enable everything that NFD can expose to you, it will become at least that you will
+
+07:03.960 --> 07:05.280
+never read.
+
+07:05.280 --> 07:09.560
+Basically, you will break it seeing your Kubernetes cluster and you will never get to use it.
+
+07:10.520 --> 07:12.800
+So let's trim it down.
+
+07:12.800 --> 07:14.680
+So we have automated node labels.
+
+07:15.560 --> 07:17.880
+So why automated node labels?
+
+07:17.880 --> 07:23.480
+It became a point where we were creating so many labels, features, and we were exposing
+
+07:23.480 --> 07:26.160
+so many information to the user in their Kubernetes clusters.
+
+07:26.680 --> 07:28.720
+That it was not usable.
+
+07:28.720 --> 07:30.480
+So we defined it rules.
+
+07:30.480 --> 07:32.960
+And we defined it rules for this same topic.
+
+07:32.960 --> 07:37.880
+When a cluster is so big, it has to label itself.
+
+07:37.880 --> 07:43.240
+So when a smoke goes around saying like I am a smoke that tremendous, I am a smoke
+
+07:43.240 --> 07:46.040
+the mighty, it's the same analog, right?
+
+07:46.040 --> 07:52.360
+So we have to tell the cluster like, OK, these are the only labels I want you to know from me.
+
+07:53.920 --> 07:55.000
+And this is how it works.
+
+07:55.040 --> 07:56.960
+So it's a node feature rule.
+
+07:56.960 --> 08:03.520
+So we created an API to communicate with the NFD master to tell the NFD master, OK, for
+
+08:03.520 --> 08:09.640
+all the information that you are getting from the NFD worker, only advertise the things
+
+08:09.640 --> 08:11.960
+that reach that match these features.
+
+08:11.960 --> 08:15.120
+And the match feature API is very rich.
+
+08:15.120 --> 08:17.000
+So we support rejects.
+
+08:17.000 --> 08:20.520
+We support match expressions.
+
+08:20.560 --> 08:25.200
+Just we say like if the operator exists, if the operator is true or false, if the operator
+
+08:25.200 --> 08:28.840
+is greater than, is smaller than, equals two.
+
+08:28.840 --> 08:32.600
+So we support rejects and match expressions.
+
+08:32.600 --> 08:37.600
+And this way we can tell NFD master, OK, for all that information you are getting, just
+
+08:37.600 --> 08:40.320
+create these three or four labels that I really care about.
+
+08:40.320 --> 08:43.760
+I don't care about all that other information that you are getting.
+
+08:44.960 --> 08:46.400
+Automated things.
+
+08:46.400 --> 08:48.960
+So this is another important topic.
+
+08:48.960 --> 08:54.600
+Let's say I have a big cluster, but only in this big cluster I have a specific side of
+
+08:54.600 --> 09:01.040
+the cluster that is like 10 super expensive GPUs and I don't want anyone to go into those
+
+09:01.040 --> 09:05.320
+GPUs unless I specifically say so.
+
+09:05.320 --> 09:11.040
+But I need to identify where the GPUs are and then taint the nodes and then create the
+
+09:11.040 --> 09:12.600
+labels.
+
+09:12.600 --> 09:17.800
+And if you start scaling that to HPC, right, like you start talking about thousands of
+
+09:17.840 --> 09:21.640
+nodes, that becomes a very hard manual label.
+
+09:21.640 --> 09:25.840
+So only the wordy shall pass, right?
+
+09:25.840 --> 09:33.440
+So in NFD we have a way of creating no official rules that will create taints instead of labels.
+
+09:33.440 --> 09:39.880
+So we can, using the same no official rule API, we can tell NFD master, OK, for the
+
+09:39.880 --> 09:45.520
+information that you are getting from the NFD worker, if a NFD worker tells you that
+
+09:45.560 --> 09:51.360
+a node in the system has this and this feature, please taint that node, right?
+
+09:51.360 --> 09:57.560
+So for those that use Qnettis, you know that once a node is tainted, the node gets drained
+
+09:57.560 --> 10:04.560
+and only workloads with the node selector and the tolerance will run into that node,
+
+10:04.880 --> 10:05.400
+right?
+
+10:05.400 --> 10:10.400
+So this way we can automatically taint nodes or any infrastructure to be free from users
+
+10:10.480 --> 10:14.480
+unless we actually define so.
+
+10:14.480 --> 10:16.480
+I have a node there.
+
+10:16.480 --> 10:17.480
+OK, yeah.
+
+10:17.480 --> 10:22.480
+Before enabling taints, we have to say this because it's an ongoing discussion for security
+
+10:22.480 --> 10:23.480
+reasons.
+
+10:23.480 --> 10:30.480
+We try to implement a feature for the NFD worker to auto kind of like remove himself from the
+
+10:33.760 --> 10:36.560
+picture when the node is being drained.
+
+10:36.640 --> 10:42.040
+A lot of the security people chime in and say that that is very unsecure.
+
+10:42.040 --> 10:49.040
+So now by default, when you use the taint featuring NFD, the NFD worker also gets removed
+
+10:49.040 --> 10:50.040
+from the node.
+
+10:50.040 --> 10:54.360
+So it's kind of like it goes, it creates a label, it creates the taints and Qnettis
+
+10:54.360 --> 11:01.360
+drain process actually takes NFD out of the node itself.
+
+11:01.520 --> 11:02.720
+Extended resources.
+
+11:02.720 --> 11:05.280
+You need to inventory what you have.
+
+11:05.280 --> 11:12.080
+Like I really like this scene when his entire grocery goes out in a single night.
+
+11:12.080 --> 11:16.920
+But we have to do the same for our nodes, right?
+
+11:16.920 --> 11:21.400
+Using the node featured rule again, so this is a very rich API.
+
+11:21.400 --> 11:25.160
+We can define resources, node labels.
+
+11:25.160 --> 11:30.560
+So as we can see here down, we can create allocable and capacity.
+
+11:30.600 --> 11:37.880
+So when you define a node in Qnettis, we can actually expose resources that are consumable.
+
+11:37.880 --> 11:44.160
+This feature was actually created for something that now became, for the first time became
+
+11:44.160 --> 11:47.480
+a Debrum that is the confidential computing.
+
+11:47.480 --> 11:53.360
+So when you are using confidential computing in Qnettis or in any cluster, by that matter,
+
+11:53.360 --> 11:59.360
+you are consuming some, let's call it tokens that every time you are running a confidential
+
+11:59.360 --> 12:05.000
+container, you have to consume one of these tokens to run the container, right?
+
+12:05.000 --> 12:10.560
+And watch, you reach a point where the node is out of these tokens, no more containers
+
+12:10.560 --> 12:14.680
+can run until one of the containers is actually killed, right?
+
+12:14.680 --> 12:21.680
+So this feature was created to expose how many tokens the node had left and we did this
+
+12:21.760 --> 12:24.000
+with NFD.
+
+12:24.040 --> 12:26.840
+Why this is a very specific use case?
+
+12:26.840 --> 12:32.680
+Because the tokens that you consume when using confidential computing, they are featured
+
+12:32.680 --> 12:33.840
+in the kernel.
+
+12:33.840 --> 12:36.440
+So they are always exposed to the container.
+
+12:36.440 --> 12:44.040
+So these extended resources doesn't replace what is a device plug-in for Qnettis, right?
+
+12:44.040 --> 12:48.680
+You cannot tell NFD, like, oh, go and identify all the GPUs and create extended resources
+
+12:48.680 --> 12:55.760
+for the GPUs because NFD will create extended resources but your containers won't get
+
+12:55.760 --> 13:01.440
+the buy mounts and won't get all the other things that a device plug-in does in Qnettis,
+
+13:01.440 --> 13:02.120
+right?
+
+13:02.120 --> 13:07.640
+So it's a very big caveat here that extended resources may be only used for the things that
+
+13:07.640 --> 13:13.000
+a regular container can see, right?
+
+13:13.080 --> 13:17.600
+And with that, I wanted to run short.
+
+13:17.600 --> 13:20.760
+And that's the whole introduction to NFD.
+
+13:20.760 --> 13:23.440
+It's been running for three or four years.
+
+13:23.440 --> 13:28.280
+It's an open source project and everyone is welcome to contribute.
+
+13:28.280 --> 13:31.960
+Right now, the only ones contributing to it really are hardware vendors.
+
+13:31.960 --> 13:38.960
+So Intel, AMD, NVIDIA, Melanox, now NVIDIA as well.
+
+13:39.040 --> 13:45.120
+But yeah, every hardware vendor is contributing to it so you can expose your hardware to Qnettis.
+
+13:45.120 --> 13:47.280
+And also, not hardware vendors, right?
+
+13:47.280 --> 13:53.560
+The confidential computing community has been also contributing to NFD to expose all the
+
+13:53.560 --> 13:58.440
+new things that go into the kernel so you can consume confidential computing.
+
+13:58.440 --> 14:03.440
+Now you can expose that to Qnettis using NFD.
+
+14:03.440 --> 14:06.440
+And with that, Kenneth, questions?
+
+14:08.960 --> 14:15.960
+Thank you.
+
+14:24.480 --> 14:30.480
+What about mic technology?
+
+14:30.800 --> 14:33.240
+What about mic technology?
+
+14:33.240 --> 14:38.560
+If I reconfigure my mic layout of my NVIDIA GPUs, how quickly will it be picked up that
+
+14:38.640 --> 14:41.280
+has changed?
+
+14:41.280 --> 14:46.720
+You can actually define that in the configuration of NFD when you're deploying it via Helm.
+
+14:46.720 --> 14:49.720
+So by default, it's every 60 seconds.
+
+14:49.720 --> 14:51.880
+But you can go to one second if you want.
+
+14:51.880 --> 14:54.480
+So that's up to you, right?
+
+14:54.480 --> 15:00.680
+We have been working a lot in NFD to make it CPU not intensive.
+
+15:00.680 --> 15:07.520
+So like a full runoff detecting everything in your node takes like 0.3 milliseconds
+
+15:07.520 --> 15:13.000
+and doesn't consume more than like 10% of a single-threaded CPU.
+
+15:13.000 --> 15:18.800
+So it's a very lightweight container given everything that it does.
+
+15:18.800 --> 15:21.240
+So we try to keep it optimized.
+
+15:21.240 --> 15:28.240
+But if you want, you can take it down to one second, but by default, it's every 60 seconds.
+
+15:29.240 --> 15:36.240
+I have a feeling the previous question might have answered this, but if I wanted to get
+
+15:38.640 --> 15:45.640
+GPU operator to say label an A or a V100 and say enable MIG on V100 after, does that mean
+
+15:46.560 --> 15:53.560
+that it will say go NFD through the NVIDIA stuff, my custom stuff, then back to the
+
+15:53.920 --> 15:54.840
+NVIDIA stuff?
+
+15:54.840 --> 15:56.240
+It's not a one-shot thing.
+
+15:56.240 --> 16:01.240
+Or is there an ordering basically?
+
+16:01.240 --> 16:03.360
+Yeah, it goes in order.
+
+16:03.360 --> 16:10.360
+So when you deploy the GPU operator that you mentioned, the GPU operator deploys the GPU
+
+16:11.320 --> 16:15.000
+Fisher discovery that is a side card to NFD.
+
+16:15.000 --> 16:21.000
+So what the GPU Fisher discovery does is that it utilizes the API of NFD.
+
+16:21.080 --> 16:25.720
+If the API doesn't exist, the GPU Fisher discovery doesn't work.
+
+16:25.720 --> 16:30.400
+So that's why you first need NFD to then deploy the GPU operator.
+
+16:30.400 --> 16:37.400
+Once you deploy the GPU Fisher discovery, it will call NFD with this API and it will
+
+16:38.000 --> 16:44.400
+tell like, hey, I realize this node is a V100 or a Grace Hopper.
+
+16:44.400 --> 16:48.880
+But that is going to be on the hands of the GPU operator, so you don't have to worry about
+
+16:48.880 --> 16:49.320
+that.
+
+16:49.320 --> 16:53.200
+That's why the GPU operator deploys a side card container for that.
+
+16:53.200 --> 17:00.200
+Because it's a container that is specialized on NVIDIA hardware.
+
+17:00.200 --> 17:04.800
+The same thing will happen if you deploy some specific Intel products.
+
+17:04.800 --> 17:10.920
+Intel will also deploy a side card container that is super knowledgeable in Intel infrastructure
+
+17:10.920 --> 17:15.920
+and it will communicate with NFD for Intel Fisher.
+
+17:15.920 --> 17:22.920
+That's why I'm asking, can you have NFD to discovery from one another and then deploy
+
+17:22.920 --> 17:26.920
+NFD to the discovery of a different pattern?
+
+17:26.920 --> 17:28.560
+Oh, yeah.
+
+17:28.560 --> 17:34.280
+The node Fisher rule is you can create cycles.
+
+17:34.280 --> 17:41.280
+If you define a rule that will create a label, you can have another rule that says once this
+
+17:42.720 --> 17:45.760
+label exists, do also this.
+
+17:45.760 --> 17:51.840
+So the node Fisher rule is you can stack on rules.
+
+17:51.840 --> 17:55.200
+We actually use that for confidential containers.
+
+17:55.200 --> 18:02.200
+We first define with a Fisher rule, we create some labels that if your node supports the
+
+18:02.640 --> 18:09.640
+cryptographic confidential stuff, and once those labels exist, we deploy another Fisher
+
+18:09.640 --> 18:14.640
+rule that reads those labels and does other stuff.
+
+18:15.080 --> 18:18.080
+Oh, hi.
+
+18:18.080 --> 18:21.080
+Being swapped to Kubernetes.
+
+18:21.080 --> 18:26.080
+Good use case for this.
+
+18:26.080 --> 18:29.080
+Figurations on nodes.
+
+18:29.080 --> 18:30.320
+Everything.
+
+18:30.320 --> 18:35.760
+So NFD will expose every kernel Fisher to the point that it will expose which kernel
+
+18:35.760 --> 18:39.600
+flags were used when booting the node.
+
+18:39.600 --> 18:41.560
+So everything is.
+
+18:41.560 --> 18:48.560
+As I said, unless you configure your cure net is not to expose certain things to a container,
+
+18:48.560 --> 18:51.640
+NFD is going to read it.
+
+18:51.640 --> 18:58.640
+But yeah, we try to keep it as big as possible and leave to the cure net is system administrator
+
+18:58.640 --> 19:05.640
+to restrain what goes and what doesn't go into the container.
+
+19:06.640 --> 19:09.640
+Oh.
+
+19:09.640 --> 19:16.640
+Very clearly the 60 seconds sounds very much like an infinity band subnet manager.
+
+19:19.360 --> 19:26.360
+And in slarm you would schedule jobs that's infinity band switch. Could you think of extending
+
+19:27.400 --> 19:34.400
+this to have Kubernetes scheduling on nodes which are close to each other than the fabric?
+
+19:34.400 --> 19:35.840
+Yes.
+
+19:35.840 --> 19:38.600
+Thank you for the question.
+
+19:38.600 --> 19:42.080
+Like a two step answer.
+
+19:42.080 --> 19:47.160
+At NVIDIA we also developed what we call the network operator that is basically an operator
+
+19:47.160 --> 19:52.320
+that you deployed in a cure net is closer. If you are using infinity band or any melanoc
+
+19:52.320 --> 19:56.000
+scar, it will configure your cluster for you.
+
+19:56.000 --> 20:01.120
+And it will deploy NFD to help him like himself do all of that.
+
+20:01.120 --> 20:06.840
+So the network operator will leverage NFD to set up your infinity band and all your
+
+20:06.840 --> 20:09.120
+network configuration.
+
+20:09.120 --> 20:15.040
+Now the topology of the nodes, that's something we have been working on.
+
+20:15.040 --> 20:22.040
+But yeah, we hope to have it this year in NFD because we first need to run like an MPI.
+
+20:22.760 --> 20:24.600
+We already have a proof of concept.
+
+20:24.600 --> 20:28.120
+And the proof of concept is running an MPI job.
+
+20:28.120 --> 20:34.160
+And this MPI job is going to help us identify the topology of the cluster so we can then
+
+20:34.160 --> 20:40.560
+create labels for like a wish node disclosure to wish node and you can then use that information.
+
+20:40.560 --> 20:47.560
+We actually, like if you reach to me after this, we publish a paper with Livermore University
+
+20:47.560 --> 20:51.840
+like two years ago where we did a proof of concept of this.
+
+20:51.840 --> 20:52.840
+And it works.
+
+20:52.840 --> 20:56.880
+But it's still like, we're still discussing how to implement it.
+
+20:56.920 --> 21:01.040
+But we can define the entire topology of the cluster using NFD.
+
+21:01.040 --> 21:04.600
+Yeah, thanks for the talk.
+
+21:04.600 --> 21:08.680
+Do you have like what misuses of NFD haunts you at night?
+
+21:08.680 --> 21:13.320
+Like did you see something, someone misusing it in a way that you didn't expect?
+
+21:13.320 --> 21:16.800
+Or do you have misuse cases that you came up by yourself?
+
+21:16.800 --> 21:17.800
+Maybe?
+
+21:17.800 --> 21:18.800
+Yeah.
+
+21:18.800 --> 21:24.600
+So the project was actually start by just Red Hat and Intel.
+
+21:24.640 --> 21:27.880
+It had grown bigger.
+
+21:27.880 --> 21:32.880
+We kept getting users from many, many projects using it.
+
+21:32.880 --> 21:37.480
+So it's not only just for like Intel and NVIDIA.
+
+21:37.480 --> 21:39.600
+We have banks using it.
+
+21:39.600 --> 21:45.240
+We have people that use their clusters as for like databases and things like that.
+
+21:45.240 --> 21:50.440
+And recently on the Slack channel, we got people that are using it for even for testing,
+
+21:50.440 --> 21:51.440
+right?
+
+21:51.440 --> 21:57.400
+And they are, you have a big cluster and you want to use taints and annotations to like
+
+21:57.400 --> 21:59.720
+create mini clusters inside your cluster.
+
+21:59.720 --> 22:02.000
+You can use NFD for that.
+
+22:02.000 --> 22:07.760
+So yeah, it's not just for a specialized hardware, but we more and more have seen people using
+
+22:07.760 --> 22:11.240
+it for even software features.
+
+22:11.240 --> 22:12.240
+But yeah, it's...
+
+22:12.240 --> 22:27.080
+Oh, yeah, NFD currently is being deployed in thousands of Kubernetes clusters today.
+
+22:27.080 --> 22:32.360
+It's a very well used Kubernetes project.
+
+22:32.360 --> 22:40.680
+And being a maintainer to that is a good responsibility.
+
+22:40.680 --> 22:45.400
+I would like to ask if the labors are standardized.
+
+22:45.400 --> 22:51.600
+So I'm wondering if I have this deployment in one cluster, then okay, if I have this
+
+22:51.600 --> 22:57.360
+deployment in two different clusters, then can I move my application from one to another
+
+22:57.360 --> 23:01.440
+transparently or do I have to change everything in the deployment side?
+
+23:01.440 --> 23:06.280
+Since pretty much three years ago, the labels haven't changed.
+
+23:06.280 --> 23:13.640
+So I think it's very small, but you can read that every label is going to be fissure.node.kernet
+
+23:13.640 --> 23:16.560
+is that I O slash your fissure, right?
+
+23:16.560 --> 23:19.160
+Like CPU or system kernel.
+
+23:19.160 --> 23:23.640
+Yeah, this list is pretty much infinite.
+
+23:23.640 --> 23:29.880
+The other thing that we are also trying to keep very stable is the sidecar APIs.
+
+23:29.880 --> 23:35.720
+So when NVIDIA going back to the example of the GPO operator communicates with NFD to create
+
+23:35.720 --> 23:41.360
+the labels, the label is reading NVIDIA.com slash something.
+
+23:41.360 --> 23:47.080
+And when Intel creates a label, it's Intel.fissure.io slash.
+
+23:47.080 --> 23:52.000
+So it's like we try to keep the same label so we can guarantee users that they can move
+
+23:52.000 --> 23:54.120
+from one cluster to another.
+
+23:54.120 --> 23:57.200
+Just redeploy NFD and everything will work back again.
+
+23:57.200 --> 23:58.200
+Okay, thanks.
+
+23:58.200 --> 24:01.280
+Yeah, we try to not touch the labels.
+
+24:01.280 --> 24:09.560
+In the last release of NFD, we added a fissure where you can define your predefined prefix,
+
+24:09.560 --> 24:14.160
+but it's at your own risk, right?
+
+24:14.160 --> 24:17.080
+Any more questions?
+
+24:17.080 --> 24:19.080
+No?
+
+24:19.080 --> 24:26.080
+Okay, sign speaker.
+
+24:26.080 --> 24:33.080
+All right, time to go.
+
+24:33.080 --> 24:36.080
+Yeah, I am.
+
+24:36.080 --> 24:39.080
+I'm just showing up.
+
+24:39.080 --> 24:40.080
+All time.
+
+24:40.080 --> 24:51.080
+Taking over the entire, taking over another person's talk.
+
+24:51.080 --> 24:58.080
+Yeah.
+
+24:58.080 --> 25:08.080
+Yeah.
+
+25:08.080 --> 25:28.080
+Yeah.
+
+25:28.080 --> 25:49.080
+Yeah.
+
+25:49.080 --> 26:00.080
+Yeah.
+
+26:00.080 --> 26:05.080
+So I thought I would open this talk by putting two words on the slide that are either going
+
+26:05.080 --> 26:07.080
+to make you very angry or very anxious.
+
+26:07.080 --> 26:11.080
+Those words are cloud and HPC.
+
+26:11.080 --> 26:15.080
+So probably the question on everyone's mind is what does the future look like?
+
+26:15.080 --> 26:19.080
+I'm going to answer this question by posing a question back to you.
+
+26:19.080 --> 26:21.080
+Where is the money going?
+
+26:21.080 --> 26:34.080
+Okay, I think I can still, oh, zoom died.
+
+26:34.080 --> 27:01.080
+He died there for a second.
+
+27:01.080 --> 27:07.080
+Yeah.
+
+27:07.080 --> 27:20.080
+So I.
+
+27:20.080 --> 27:21.080
+Okay, we'll do what we can.
+
+27:21.080 --> 27:22.080
+It's some.
+
+27:22.080 --> 27:25.080
+I'm surprised.
+
+27:25.080 --> 27:27.080
+Don't have a full room.
+
+27:27.080 --> 27:29.080
+So that's.
+
+27:29.080 --> 27:30.080
+Yeah.
+
+27:30.080 --> 27:32.080
+Yes.
+
+27:32.080 --> 27:42.080
+Yeah.
+
+27:42.080 --> 28:10.080
+Yeah.
+
+28:10.080 --> 28:34.080
+Yeah.
+
+28:34.080 --> 28:41.080
+Yeah.
+
+28:41.080 --> 28:42.080
+Hello.
+
+28:42.080 --> 28:43.080
+Hello.
+
+28:43.080 --> 28:45.080
+Who's going to get left behind?
+
+28:45.080 --> 28:51.080
+We can look at a paper from read Dan and Dagar from 2023 that identified some really interesting
+
+28:51.080 --> 28:52.080
+trends.
+
+28:52.080 --> 29:21.080
+Okay.
+
+29:21.080 --> 29:22.080
+Okay.
+
+29:22.080 --> 29:24.080
+Now we have Kevin who's going to tell us more.
+

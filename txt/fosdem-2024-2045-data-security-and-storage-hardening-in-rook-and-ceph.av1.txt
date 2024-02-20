@@ -1,0 +1,428 @@
+All right, welcome everybody.
+We'll continue with Ruf, Seth and Data Security.
+So I'll hand it over to our speakers.
+Thank you.
+Thank you.
+Well, it's very nice to be at FOSDEM.
+It's first for me.
+I'm glad to have made it here.
+We work for IBM, but as you can hear from my voice, I had a little bit of a tough time
+traveling.
+So instead of wearing my corporate circular 223.7 compliant blue shirt, you get my academic
+look instead, which for those of you that are local gives you a great joke because it
+took me as a Harvard graduate 10 minutes to find the stairs to this floor.
+So anyway, jet lag.
+Let's call it jet lag.
+So my marketing manager taught me an important lesson years ago, which is it's my practice
+not to introduce yourself.
+So the short version is had the privilege of spending my entire career in open source
+or nearly so.
+I spent the last 10 years working on Seth.
+Before that, I was the product person for Ubuntu Server.
+And before that, I was the very much feared systems management at SUSE.
+A bunch of other things that I worked on was the maintainer of man for about 10 years.
+A picture there with the clouds is because they wrote a book on AWS, stuff like that.
+I think that's enough for me.
+Hi, everyone.
+I'm Sage McTaggart and I use they them pronouns.
+I'm also at IBM and working on cybersecurity.
+I come from a decision to leave academia and work at Red Hat and then we move to IBM.
+And in terms of that side of my background, I've done everything from theoretical computer
+science, focusing on things like formal language theory, oblivious computation to just plain
+storage system security.
+I strongly support open source.
+I love implementing the principles in my work.
+And I am really excited to talk about sort of the work that we've been doing on a security
+side within IBM because it's not all writing little toy languages for provable security.
+It's solving practical problems.
+So you'll hear a lot about that for me later.
+So I think this being the SDS Dev Room, we're going to spare you the introduction to SAF
+and the introduction to Rook.
+But they're awesome.
+Let's just sum it up as that.
+So let's start with security.
+So security practices are hard in a specific point of the infrastructure.
+Cherry picking practices without a model of the threat in the attacker is not a viable
+strategy.
+The joke usually goes that to make a computer secure, you cover it in concrete, drop it
+at the bottom of the ocean and all that.
+But that's not a very useful computer.
+If you want to protect from all possible threats, you get a machine that is not very helpful
+in solving any of your problems.
+So what you do is that you define security in the context of your application and your
+users.
+Who are your adversaries?
+Who is most likely to attack you and you prioritize that?
+Yes, there are some theories of security that say patch everything, protect from everything.
+But the reality is if you don't pick your priorities, then you have no priorities.
+If you are trying to do everything, you're doing nothing.
+So some of these actors want to cryptologue you and hold you for ransom.
+Others are just happy to delete your data and cause a disruption.
+These are very different threats.
+Script kiddies, who knows what they're up to?
+Just some excitement.
+Organized crime wants money back.
+So you profile your adversary and you define what your threat model looks like and then
+you start hardening for that threat model.
+So let's dive right in.
+The public security zone, let's start from the network.
+The public security zone in SF network is an entirely untrusted area of the cloud.
+It could be the internet as a whole or just networks external to your cluster.
+You have no authority over.
+Data transmissions crossing this zone should make use of encryption.
+Note that the public zone, as I just defined it, does not include the storage cluster front
+end, the SF public underscore network, which defines the storage front end and properly
+belongs in the storage access zone.
+So don't confuse the two.
+The SF client zone refers to networks accessing SF clients like the object gateway, the SF
+file system, or block storage.
+SF clients are not always excluded from the public security zone.
+For instance, it is possible to expose the object gateways as three-year swift interfaces
+in the public security zone.
+Next, the storage access zone is instead an internal network providing SF clients with
+access to the storage network itself.
+Finally, the cluster zone refers to the most internal network providing storage nodes with
+connectivity for application, hard beat, backfill, recovery, and all that.
+This zone includes the SF clusters backend network called the clustered network in SF.
+Operators often run clear text traffic in the cluster zone relying on the physical separation
+or VLAN segregation of the network from other traffic.
+This would not be a valid choice going back to the previous point if your threat model
+includes privileged adversarial insiders.
+But it's perfectly fine if you're dealing with script kiddies.
+So again, threat profile.
+These four zones are separately mapped and combined depending on the use case and threat
+model on your actual physical and VLAN network.
+Components spanning the boundary of two security zones with different trust or authentication
+requirements must be carefully configured.
+These are natural weak points.
+Maybe they're not natural weak points, but they are natural targets in network architecture
+and should be always configured to meet the requirements of the highest trust level of
+the two zones or the two or three zones.
+Connected.
+In many cases, the security controls should be a primary concern due to the likelihood
+of probing for misconfiguration.
+Operators should consider exceeding zone requirements at integration points, which for a storage
+product is usually easier to accomplish than it would be for something more generic like
+an operating system.
+For example, the cluster security zone can be isolated from other zones easily because
+there is no reason for it to connect to other zones.
+Conversely, an object gateway in the client security zone will need access to the cluster
+security zones monitors 6789 OSDs on 6800 all the way to however many OSDs you have
+and will likely expose its S3 API to the public security zone ports 80 and 443.
+I think that's right.
+There we go.
+Thank you.
+Hi, everybody.
+So many people might be curious.
+We moved to IBM about a year ago.
+What's it like to move companies as an open source product?
+And the security of a product, we worry a lot about that.
+We're going to discuss that, of course.
+But how do we support it in a realistic way within industry?
+We can obviously find, we can make a fork of an open source product that's no longer
+supported, but do you really want to be in charge of maintaining that, updating all of
+its dependencies?
+Not necessarily.
+So I'll be discussing some aspects of IBM product security, how that's been going in
+practice and in theory, and I'll discuss some of our accomplishments and what we're
+planning going forward.
+So in terms of product security, we follow a secure development life cycle with the goal
+of reducing risk and improving security for Seth and Rook.
+We suggest improvements.
+We pen test.
+We manifest all of our dependencies.
+We review vulnerabilities.
+We track weaknesses.
+We review them at any exploits.
+We're approving all of our Arata releases, making sure all the details are correct so
+that anybody, customer or not, can look and say, okay, what does this release fix?
+And as a result, we've been trying to modify this to work within a different model from
+Red Hat to IBM.
+And one thing that we've done is we've manifested and documented all of our dependencies.
+That's a challenge.
+I'm not sure if I can officially call it an S-bomb.
+That would be a legal question.
+But getting there was a challenge.
+There are thousands and thousands of dependencies of dependencies, things like that.
+We've also automated things like security scanning.
+Customers want clean scans, and this is true also in open source.
+We get emails on the security list saying, hey, MEND found 200 vulnerabilities, 80% of
+them are false positives, half those CVEs have been rejected, but what are you going
+to do to fix it?
+So we're working to reduce even our lowest risk vulnerabilities as long as it's actually
+a vulnerability.
+We're onboarded fully with IBM P-Cert, and we're fixing all of our prior vulnerabilities
+no matter how low risk.
+That might seem silly, but it's a common compliance request.
+And in theory, somebody could find an exploit for even a very low CVE, and then it suddenly
+is no longer such a low risk CVE.
+Suddenly it's actually an implemented one.
+And we're also trying to make our lives easier for the programming team and my work easier
+as well by automating all most of our dependencies.
+We'll see how realistic it is to do all, but most is definitely true.
+This can oftentimes break builds though, because sometimes the code might have been refactored,
+details might change.
+It's not just as simple as update this number.
+So we're building that into our release cycle, and we're starting by prioritizing libraries
+and dependencies with many CVEs per release, which thankfully they're finding the CVEs,
+but we want to start with the known ones first.
+So we'll be doing that.
+We're continuing to do our work of reviewing existing vulnerabilities, regular security
+updates, and just improving our code security preemptively.
+We've gotten a lot of upstream engagement since moving to IBM, people emailing the
+stuff security list, multiple people with hundreds of vulnerabilities, lots of individual
+people emailing it with one or two that we investigate and we're signing CVEs.
+We're doing just a lot more there, and we've been implementing more changes based on customer
+and upstream requests, such as an update to the OS that the containers are running on.
+So we're eventually, in addition to all this, going to be following IBM standards to fix
+our vulnerabilities and ensure compliance.
+Currently we're fixing all of the backlog of very low risk bugs and vulnerabilities
+that we had, and we aim to be fully within IBM SLA and requirements by end of 2024.
+That should just give you an idea of how secure upstream stuff is going to be, because again,
+these are getting ported between Red Hat, upstream, and IBM.
+So how are we going to do this, given that we have a very small security team and a slightly
+larger but still very small build team?
+The answer is automation.
+A lot of this work has historically been very manual, very in-depth, and that's just not
+realistic when we're talking about the number of vulnerabilities, the number of people involved,
+and the product.
+By tracking dependencies, we're finding hundreds of things that we might not have even known
+about a while though, because we're like, oh, well, it doesn't really matter.
+It's just used in the build process.
+Actually it does matter.
+So we're trying to write our own internal software for a lot of this work.
+We're trying to figure out how to open source it so you aren't just like, hmm, this is some
+random IBM specific website that you have to log on to their VPN to get our container,
+and this code makes no sense.
+No, we want it to actually be available, and that's a challenge, but it's one that we are
+investigating, and our commitment remains open source.
+So where we're able to open source any of this internal software, it will be open sourced.
+If it is incredibly specific, it may not be very useful if it's public, but anything
+useful we want to share with industry.
+And we're also sharing that within IBM.
+For example, one software that we wrote is to find all of our dependencies for our licensing
+needs.
+So it's about sharing this ethos of open source within our company of, hey, take the software,
+you might licensing team, you're spending days filling out spreadsheets.
+This is something that by sharing and improving on, your work is easier.
+So we're sharing this open source ethos there.
+We've also, in terms of automation, we've automated most of our compliance scans via
+Jenkins and our build pipeline, reducing the work of incident response from a multi-person
+team to something that can be done by one person as part of their job.
+And we're documenting all the core parts of the role, trying to define it, and trying
+to define what a security process looks like.
+Similar to how we did a secure software lifecycle at Red Hat, we're trying to define now, what
+does this job look like, what does the documentation look like?
+And again, if anything is able to be open sourced or is of use to industry, we definitely
+want to share it.
+In terms of other new work, again, fixing all CVE fixes, they'll be ported.
+New collaboration produces many new challenges.
+But it's overall going really well.
+Some things that we've done, we've worked to improve the call home functionality and
+security for IBM support by applying open source principles.
+If a vulnerability is there, customer smells it, people will see it.
+Visible bugs are good.
+When we know a bug, we can fix it.
+So we're working on using stuff also as a back end for AI.
+We're happy to talk more, reach out to us, collaborate with us.
+What do you want to see with our collaboration with IBM?
+Feel free to discuss with us.
+I also want to briefly discuss some of our new cryptography work.
+So we've been working with IBM research here a bit.
+We've been talking with them about confidential and quantum computing.
+Now, those are two separate things.
+In terms of confidential computing, many of you may be aware of what that is.
+It uses a trusted computing module, so you don't necessarily have to trust the server
+that CEP is running on.
+You just have to trust the TCM within it.
+We're talking with IBM research about how would this best fit in with SAP?
+If it's viable, we'll be implementing it.
+With quantum computing, this is a priority for IBM, and they want to make a lot more
+software quantum safe, for example.
+So one thing that we're doing there is we're documenting all places where we use cryptography,
+determining if it's quantum safer because who the quantum safe requirements are coming
+out this year as are the libraries.
+We're seeing, are we using public key encryption?
+Are we using symmetric encryption, asymmetric encryption?
+Where exactly are we using it?
+And where can we plug and play in these open source quantum safe cryptography libraries
+as they become available?
+So those are some of our goals and things that we're working on collaborating with them with.
+These are not yet in CEP releases, but this is sort of a road map to the future of
+collaboration with IBM.
+And moving on to talk a little bit more about how CEP currently does encryption and key management.
+Currently, what we do is we encrypt our data at rest.
+We have a choice, but most people choose to encrypt their data at rest using the Linux
+unified key setup, aka Lux.
+All the data, metadata of a CEP storage cluster can be secured using a variety of DM
+encrypt configurations.
+Almost all of our customers choose to do that.
+We implement security best practices by locating our monitor, our Mons on a separate host from
+the OSDs that ensures anti-affinity of the keys in the data that they encrypt.
+This means that a driver host is physically separated from its decryption keys,
+which increases security and is just generally a best practice.
+Our object store gateway has some additional capabilities, including encryption at ingest
+in time, the use of per user keys, key rotation using tools like Vault.
+We support AWS, SS, E, KMS, and others.
+We have department of defense ciphers certified under FIPS 140-2 as supplied by reline appropriate
+versions.
+And for encryption and transit, we have network communication that can be secured by turning
+on the CEP protocol encryption and messenger version 2.1.
+We do allow clear text as a backup, but it isn't our only option.
+You can definitely certify your encryption and transit or use encryption and transit
+as well.
+And we also have the protocols where the CEP protocol is physically or logically isolated,
+but if you again want more security, messenger version 2.
+The back end protocols are not encrypted by default, but you absolutely can.
+And it gives it just a teeny little bit of latency.
+It doesn't really impact the performance that much, especially when CPU overhead is accounted
+for.
+Looking at more specific protocols for encryption and transit, S3 is usually secured between
+the RGW and the S3 client with TLS, port 443.
+You can also support plain HTTP on port 80, depending on the nature of your data.
+And if you want it to be secured or not, we have a special case with our TLS termination
+at HA proxy.
+And the link between HA proxy and RGW is in clear text, so it has to be located within
+the appropriate security zone.
+But as we saw earlier, the security zones are a great feature of Saffron Rook.
+So that makes it easier.
+And of course, with your network, you want to follow your best practices such as firewalling
+individual nodes.
+You only want to expose a clear list of ports.
+But assuming that you're doing that, that really covers a lot of our encryption and transit.
+And let's talk a little bit now about Rook specific and not just Saff.
+So Rook can use custom resource definitions to chain code many of these settings.
+We can configure our trust certificates for our RGW SWEB server.
+Rook supports at rest data encryption, as discussed earlier.
+And again, we have in-flight Saff protocol encryption as of 1.9.
+Kubernetes user permission system also applies to the persistent volumes here.
+Permissions, quotas, all that comes from Kubernetes.
+Nothing Rook needs to do here.
+And Rook also supports a key management software in the CSI driver, allowing individual volumes
+to be encrypted with their own key.
+This really limits the scope per key.
+Again, security best practices.
+So we can follow those like key rotation, revocation, limiting scope from each key.
+This really limits the scope of our unencrypted traffic, and it also limits the scope of each key.
+And going on to the control plane, as popular as by Ansible, SSH is used by Seth Edmund,
+Seth Ansible, and other deployment day one tools to provide a secure command line path
+for installation and upgrade operations as part of post management.
+We do this so that the dashboard is usually, unless you configure it specifically, is not
+exposed to the world.
+People can't even see our Grafana dashboard.
+It's great.
+And also, although we don't want our dashboard to be exposed to the world, it needs to be
+reachable by the operator's workstation to be of use.
+So that's our control plane here.
+And we're doing that with SSH and how we install Saff by default.
+The manager supports the whole infrastructure.
+It needs to be reachable on the storage access zone.
+So we use SSH for this.
+And you can see some of our details, such as our port ranges and details like that.
+Of course, the operator can modify this to have it suit your local threat model.
+But by default, we just try to make it as secure by default so people don't have to
+think too much about it.
+And with identity and access, Seth's use of shared secret keys protects clusters from
+man in the middle attacks by default.
+A good practice here is to grant key ring read and write permissions only for the current
+user and route.
+Limit your client admin user to be restricted to route only.
+You don't want all users to be root as per security best practices.
+And similarly with RGW, we want to treat the administrator's key and secret with appropriate
+respect.
+Use your number of administrative users.
+And to do so, we support AWS S3, the equivalent model for OpenStack, and the equivalent model
+for OpenStack Swift.
+Again, that helps your keys and secrets remain secure by using these external software for
+your key management.
+Your RGW user data is stored within Saff pools.
+These are secured previously discussed with data at risk.
+We also, in terms of keys, we can couple with OIDC providers such as Keycloak, and those
+can be backed with your organization's identity provider for an even more granular role or
+attribute access depending on the needs for your system and your threat model.
+So for identity and access, we also support LDAP and Active Directory users.
+We recommend secure LDAP and we support OpenStack Keystone to authenticate object gateway users
+in OpenStack Clouds.
+And for auditing, which is another important part of security, we of course support auditing.
+Operator actions against a cluster are logged.
+You need to periodically remove your logs and you can aggregate them to your log management
+system where's appropriate.
+Here's an example of what that might look like.
+You can see where they're stored.
+We can see this example here.
+And you know, an action might start on one node, it might propagate to others, and we're
+still logging everything.
+So I'm going to turn it over to Federico for the end.
+And here is data retention.
+Thank you.
+Yeah.
+Alrighty.
+Let's see if we can get it through to the end.
+So, once they raise the lead, it generally cannot be recovered for practical use.
+But like with everything, there are exceptions.
+RBD is a new facility called the Trashbin that makes use of spare capacity to preserve
+deleted images dynamically until the space is needed.
+There are a certain number of days that's elapsed.
+You can turn this on or off, but obviously this affects user data retention.
+Similarly, in RGW, RGW is an implementation of the S3 protocol in most use cases.
+S3 is versioned.
+So your data is versioned there unless you configure pools to be not versioned.
+So if you're storing user data in RGW, you need to watch that your configurations are,
+that your pool configurations are versioned according to the data retention that you want for that data.
+Otherwise, obviously the administrator can purge the versioning of RGW buckets, but that's one more thing that you have to account for to ensure compliance.
+Then there is explicit secure deletion.
+That's the other thing that we usually get asked about.
+The data is still on the clusters on the disk.
+And like in most storage systems, you cannot just go and say,
+I'm trying to overwrite everything to sanitize that.
+It won't even work on a standard SSD these days, at least not reliably, which is what you care about.
+In the distributed network system, obviously it's not going to work.
+So the solution there is doing the right thing from the beginning.
+Implement at rest encryption.
+When you want to sanitize your media, you forget the encryption key and you're done.
+Very easy, very simple.
+Also, this is other advantages.
+You may want to sanitize your media typically because you have to return them under an RMA policy to have a warranty replacement.
+If you try to replace a drive that's being shredded, shot with a shotgun,
+or done all sort of untoward things to physically destroy it,
+most likely your warranty provider will not send you a new drive for it.
+So again, using encryption is the right strategy here.
+Also, the majority of drives today does this on hardware for you, so you don't even need to manage.
+Set up an encryption key and set up a process to wipe it when the time comes.
+Then there is one more scenario, which is when you want to prevent sanitizing of data,
+aka ransomware.
+So the most interesting bit in CEPHER is that RGW is a second factor authentication thing,
+and you can deploy this as a protection against ransomware attacks
+so that you essentially ask for a second factor for actions that a ransomware attack would use to re-encrypt your data.
+Hardening is relating to binaries.
+Hardening options are highly vendor dependent.
+These are Red Hat and IBM choices.
+Other binaries from other vendors may be different.
+Now, we ship with a Silinox on by default, and I don't think that surprises anybody,
+given that it's our local religion at Red Hat, and we carried it over to IBM.
+FIPS 140, two ciphers like Sage was saying earlier are supported out of REL,
+so whenever REL is certified for FIPS 140 or two or now three with REL 9,
+those versions can be used with stuff.
+They're older versions of REL than the current ones.
+There is lag, CISA needs to do the certification, but the option is there.
+We're not going to go into these hardening options, but you should be aware that they exist,
+and you should be knowing what your vendor uses.
+And some bookmarks for you to close.
+There are some interesting resources on Kubernetes from Acura Security,
+and from a book from O'Reilly called Hacking Kubernetes.
+It goes into very much into detail about storage in Chapter 6.
+That's Michael Hausenblass' previous book.
+The Data Security and Hardening Guide comes from our product,
+and it's basically a written version of this talk,
+so if you want more, that's where you find it.
+Encrypted Secret Data at Rest is essentially another version
+of what's in Rani's article.
+And the last one is to decrypt those binary flags that I was describing one slide ago.
+If you don't know what the GCC flags look like,
+or what the kernel hardening options look like,
+there is a link there with the linker flags for GCC.
+There is also one, we ran out of space.
+There is a convenient page on Ubuntu Server project team page
+with all the kernel hardening options, so you can find what they are.
+And then you look for your vendor, what the setting for that specific option is.
+And that's it.

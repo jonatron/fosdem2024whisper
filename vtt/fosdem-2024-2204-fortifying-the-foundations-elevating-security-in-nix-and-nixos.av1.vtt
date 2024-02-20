@@ -1,0 +1,827 @@
+WEBVTT
+
+00:00.000 --> 00:07.200
+Okay, good morning everyone.
+
+00:07.200 --> 00:12.640
+I'm Dominic Mills-Holl and today I'll be presenting on fortifying the foundation's
+
+00:12.640 --> 00:15.480
+elevating security in Nixson and XOS.
+
+00:15.480 --> 00:20.800
+To give, well, before I get into the talk, I'll give a brief introduction to myself.
+
+00:20.800 --> 00:25.840
+I'm a software engineer that's broadly interested in application development, build system compilers,
+
+00:25.840 --> 00:27.840
+and algorithms.
+
+00:27.840 --> 00:33.760
+And I've served in varying capacities in different open source projects such as being a mentor
+
+00:33.760 --> 00:38.120
+under the Palasadus Foundation and Haskell.org under the Google Summer of Code program for
+
+00:38.120 --> 00:40.000
+three years.
+
+00:40.000 --> 00:45.280
+In addition to that, I've also been a participant of Google Summer of Code-like programs such
+
+00:45.280 --> 00:49.960
+as Summer of Haskell and Summer of Nix, which I both participated in last year.
+
+00:49.960 --> 00:52.960
+And now to get to the meat of the matter.
+
+00:52.960 --> 01:01.640
+Today I'll be presenting on this talk, which is about the various features that were implemented
+
+01:01.640 --> 01:06.040
+during the sovereign tech fund's Contribute Back Challenge, which occurred in the fourth
+
+01:06.040 --> 01:08.840
+quarter of last year.
+
+01:08.840 --> 01:14.200
+And the sovereign tech fund is essentially a fund mandated by the German government that
+
+01:14.200 --> 01:22.880
+seeks to support the development, improvement, and maintenance of open digital infrastructure.
+
+01:22.880 --> 01:30.800
+So Nix was one of the nine selected projects in 2023, and the focus was on three aspects.
+
+01:30.800 --> 01:35.360
+But this talk will be mainly focused on the first aspect, which is a proper boot security
+
+01:35.360 --> 01:37.240
+chain for Nix OS.
+
+01:37.240 --> 01:43.360
+This was chosen because it's easily the most expansive and arguably the more interesting
+
+01:43.360 --> 01:45.040
+of the three.
+
+01:45.040 --> 01:48.840
+So let's get into it.
+
+01:48.840 --> 01:57.680
+So I assume many of you use Linux, because why wouldn't you?
+
+01:57.680 --> 02:03.800
+And I know that when you first installed, like whenever that was, when you first installed
+
+02:03.800 --> 02:08.400
+Linux, you had to disable secure boot in order to proceed with installation.
+
+02:08.400 --> 02:16.800
+And it's a very common place for us to just disable secure boot and just completely relinquish
+
+02:16.920 --> 02:21.840
+that thought of ever having a dual booted Windows and Linux machine, because why would
+
+02:21.840 --> 02:23.200
+you?
+
+02:23.200 --> 02:29.280
+And essentially what we're interested in is implementing this boot security feature in
+
+02:29.280 --> 02:31.120
+Nix OS.
+
+02:31.120 --> 02:38.240
+And that consists of a number of different facets, but historically, there were two
+
+02:38.240 --> 02:46.400
+earlier implementations, Lands Boot and another one developed by the Terminet Systems, Boot
+
+02:47.160 --> 02:53.280
+Spec, Boot Spec Secure Boot.
+
+02:53.280 --> 02:57.920
+Yeah, sorry, it's literally on the screen.
+
+02:57.920 --> 03:02.760
+But there were a bit unsatisfactory in the sense that they required one to first install
+
+03:02.760 --> 03:10.080
+Nix OS in an insecure manner and then modify the configuration file in order to apply, well,
+
+03:10.080 --> 03:15.560
+Lands Boot in particular, in order to apply Lands Boot, then Nix switch rebuild and then
+
+03:15.600 --> 03:20.440
+you'd have secure boot after you've made the necessary configurations for your machine.
+
+03:20.440 --> 03:27.320
+And for you as an end user, that maybe is fine, but say you're using Nix OS on some kind of
+
+03:27.320 --> 03:33.760
+network or some kind of cloud server or you're trying to find a way to kind of determine
+
+03:33.760 --> 03:36.000
+if you could build some kind of server form.
+
+03:36.000 --> 03:38.960
+It's not really satisfactory because if you're providing some kind of service like that,
+
+03:38.960 --> 03:44.120
+then you pretty much leave yourself susceptible to things such as boot kits that can basically
+
+03:44.160 --> 03:48.280
+take control of your entire system from the boot process onwards.
+
+03:48.280 --> 03:56.560
+And essentially you kind of want to adapt yourself to a secure boot story in Nix OS in
+
+03:56.560 --> 03:59.680
+the sense that you want secure boot to be the default option.
+
+03:59.680 --> 04:04.440
+Once you get the Nix OS installed and put it in your device and you boot it up on a new
+
+04:04.440 --> 04:07.640
+machine, you don't really want to have to turn off secure boot.
+
+04:07.640 --> 04:13.000
+You want to essentially have an option where you can have secure boot by default on Nix
+
+04:13.000 --> 04:16.440
+OS the moment you've begun to install it.
+
+04:16.440 --> 04:19.160
+And this consists of a number of different steps.
+
+04:19.160 --> 04:25.760
+I mean, the secure boot is essentially just a chain of trust such that various components
+
+04:25.760 --> 04:32.200
+from the inception of the booting process just kind of sign one another.
+
+04:32.200 --> 04:37.000
+And the methodology that we kind of took in this approach was basically to use a unified
+
+04:37.000 --> 04:41.160
+kernel image because it would keep everything in one particular place.
+
+04:41.160 --> 04:49.480
+You won't really have to worry about booting any RD or MS-D on the kernel and whatnot.
+
+04:49.480 --> 04:52.320
+You basically have everything in one place and you just kind of have to sign that and
+
+04:52.320 --> 04:55.160
+then you go forward from there.
+
+04:55.160 --> 05:03.600
+And how that works is that essentially secure boots is a very Microsoft-centric thing.
+
+05:03.600 --> 05:13.320
+So you kind of have to adapt the Nix image that you're building to accommodate for that.
+
+05:13.320 --> 05:20.600
+And what that means is that you translate the language into the language of portable executables.
+
+05:20.600 --> 05:26.320
+So what that means is that you kind of have to create new structures in order to manage
+
+05:26.320 --> 05:32.720
+these portable executables in such a way that you can have Microsoft keys on your machine
+
+05:32.840 --> 05:33.840
+and secure boot will work.
+
+05:33.840 --> 05:36.480
+You don't necessarily have to have Microsoft keys per se.
+
+05:36.480 --> 05:38.560
+You can install your own personal keys.
+
+05:38.560 --> 05:43.120
+But the problem with that is that the chances of you breaking something are astronomically
+
+05:43.120 --> 05:45.720
+high.
+
+05:45.720 --> 05:50.160
+So it's probably best to have something that has Microsoft keys.
+
+05:50.160 --> 05:54.440
+And loosely speaking, what I mean by has Microsoft keys means that somewhere on your laptop there's
+
+05:54.440 --> 05:57.840
+like a sticker that says Microsoft somewhere.
+
+05:57.840 --> 05:59.960
+And that usually means the machine.
+
+05:59.960 --> 06:09.440
+The UFE has unified extensible firmware interface, has Microsoft keys in its database.
+
+06:09.440 --> 06:15.600
+And how this was done implementation-wise was that we essentially used something called
+
+06:15.600 --> 06:20.960
+a meta-writer structure because we couldn't think of a better name.
+
+06:20.960 --> 06:28.000
+And what this does is not necessarily modified portable executable in and of itself, but
+
+06:28.040 --> 06:34.720
+more or less kind of begins to recreate it from scratch, kind of looking at every single
+
+06:34.720 --> 06:40.560
+aspect of it and then modifying that accordingly to accommodate for what changes we want.
+
+06:40.560 --> 06:45.640
+So the reason why we had to do this is because portable executables are very, for lack of
+
+06:45.640 --> 06:46.960
+a better word, say volatile.
+
+06:46.960 --> 06:52.560
+It's not really meant to be cross-platform or anything like that.
+
+06:52.600 --> 06:56.840
+It's more or less meant to be made for just Microsoft-type products and Microsoft-type
+
+06:56.840 --> 06:58.520
+products only.
+
+06:58.520 --> 07:05.120
+And basically you kind of have to look at a lot of the headers and see how they're related
+
+07:05.120 --> 07:06.120
+to one another.
+
+07:06.120 --> 07:12.640
+If you mess up, if you write the wrong data to the wrong header or if you have a data
+
+07:12.640 --> 07:18.760
+section somewhere and it doesn't link to somewhere else, you've ripped your system again so you
+
+07:18.760 --> 07:22.280
+don't want to have this type of issue anymore.
+
+07:22.280 --> 07:27.640
+You basically want something that is already developed, quote-unquote, in-house and just
+
+07:27.640 --> 07:29.800
+works from the get-go.
+
+07:29.800 --> 07:33.320
+And essentially this was accomplished.
+
+07:33.320 --> 07:42.800
+If you actually look on the NixOS issue, you'll see that Linus Heckelmann, whose GitHub name
+
+07:42.800 --> 07:50.160
+is Linux Ackerman, and I often forget what his real name is, but actually did manage
+
+07:50.160 --> 07:54.480
+to construct a NixOS shim with an embedded self-signed certificate.
+
+07:54.480 --> 07:55.920
+So that part is done.
+
+07:55.920 --> 07:58.080
+But there are actually two aspects of the story.
+
+07:58.080 --> 08:03.680
+The second aspect is to send the shim to the shim review committee, which is basically
+
+08:03.680 --> 08:09.040
+a bunch of independent, well, they're affiliated with Microsoft in somewhere or another.
+
+08:09.040 --> 08:15.520
+And this allows one to kind of, by the way, for those, for the uninitiated, a shim is
+
+08:15.520 --> 08:17.080
+just a first-stage bootloader.
+
+08:17.080 --> 08:21.560
+So just a bootloader that can load an operating system or another bootloader.
+
+08:21.560 --> 08:27.560
+And what this essentially means is that once this gets reviewed by the shim review committee,
+
+08:27.560 --> 08:34.280
+it means that they say, yeah, okay, we can give you some Microsoft keys and you can sign
+
+08:34.280 --> 08:36.160
+the ISO and everything should work.
+
+08:36.160 --> 08:41.960
+So we're currently in that stage where we're able to construct a NixOS shim that can embed
+
+08:41.960 --> 08:43.560
+a self-signed certificate.
+
+08:43.560 --> 08:47.560
+But we haven't yet got the green light from the shim review committee, but there's nothing
+
+08:47.560 --> 08:50.640
+to indicate that we shouldn't.
+
+08:50.640 --> 08:57.800
+And more or less, this is so far the secure boot story in the broadest possible way.
+
+08:57.800 --> 09:06.920
+But more specifically, there are other aspects such as the boot spec specification.
+
+09:06.920 --> 09:09.840
+So this is boot spec version one.
+
+09:09.840 --> 09:16.920
+And a part of the work done during this project was creating a boot spec version two.
+
+09:16.920 --> 09:20.760
+So if you're probably wondering, why do we need a version two?
+
+09:20.760 --> 09:22.360
+Version one looks good already.
+
+09:22.360 --> 09:24.760
+It's not, there's nothing dynamic about it.
+
+09:24.760 --> 09:27.160
+It's just a JSON document.
+
+09:27.160 --> 09:29.160
+What could be wrong?
+
+09:29.160 --> 09:35.680
+Well, NixOS only has one, it can only take one argument, a string.
+
+09:35.680 --> 09:42.640
+When in actuality, that doesn't fill the entire gamut of the entire spectrum of, you
+
+09:42.640 --> 09:44.880
+could have multiple in-entities, essentially.
+
+09:44.880 --> 09:49.560
+And that's usually the case if you have, say, some global user settings, some specific user
+
+09:49.560 --> 09:53.160
+settings, some environment settings that you've changed.
+
+09:53.160 --> 10:00.880
+And usually these end up becoming some CPIO archive files somewhere.
+
+10:00.880 --> 10:03.960
+And so you essentially want it to be a list.
+
+10:03.960 --> 10:11.520
+And also you can also dynamically generate initRD from the EFS.
+
+10:11.520 --> 10:16.680
+So yet you could just end up with a lot of initRD files that just spring out of nowhere.
+
+10:16.680 --> 10:21.120
+So that one isn't very satisfactory because it doesn't consider all the use cases.
+
+10:21.120 --> 10:24.120
+And you also see initRD secrets.
+
+10:24.120 --> 10:26.240
+But here's the funny thing.
+
+10:26.240 --> 10:28.640
+There's actually nothing secret about initRD secrets.
+
+10:28.640 --> 10:31.600
+The secret in initRD secrets is a plain text file.
+
+10:31.600 --> 10:36.400
+So it doesn't actually provide any form of security.
+
+10:36.400 --> 10:42.600
+And ultimately this is what boot spec version two looks like.
+
+10:42.600 --> 10:46.600
+So initRDs now has, it's a list.
+
+10:46.600 --> 10:54.680
+You can add things to your list to eventually put them together and then that satisfies the
+
+10:54.680 --> 10:57.000
+most general case possible.
+
+10:58.000 --> 11:02.640
+FDT third, that's not really going to be discussed here, but essentially it's just to consider
+
+11:02.640 --> 11:05.840
+the case of using that's you boot.
+
+11:05.840 --> 11:09.440
+And device trees, we didn't have support for device trees previously.
+
+11:09.440 --> 11:12.440
+But we do now with boot spec version two.
+
+11:12.440 --> 11:19.840
+So what we've done with initRD secrets is that we've basically used a hashing method.
+
+11:19.840 --> 11:22.280
+It's a very boring hashing method.
+
+11:22.280 --> 11:24.720
+So it's now more secret.
+
+11:24.720 --> 11:25.720
+It's actually a secret.
+
+11:25.720 --> 11:28.120
+You don't have a plain text file anymore.
+
+11:28.120 --> 11:35.600
+And this is the difference between boot spec version one and boot spec version two.
+
+11:35.600 --> 11:39.840
+And this is somewhat of a segue from security.
+
+11:39.840 --> 11:44.480
+It's tangentially related, but it's still a very important feature nonetheless.
+
+11:44.480 --> 11:52.320
+So we define AB schema to refer to a type of primary and secondary boot partition, wherein
+
+11:52.400 --> 11:56.800
+if the primary partition fails, you'll switch to secondary.
+
+11:56.800 --> 12:01.600
+And then this is generalized into something that's called automatic boot assessment in
+
+12:01.600 --> 12:02.600
+NixOS.
+
+12:02.600 --> 12:08.600
+And what this means is essentially if I want to load a NixOS generation and it fails for
+
+12:08.600 --> 12:14.440
+some reason, and the most practical way this would fail, to give a concrete example, is
+
+12:14.440 --> 12:22.680
+if you went into Nix packages unstable and got that package AMD GPU and you realized you
+
+12:22.680 --> 12:27.560
+can't boot into your generation and notice from experience.
+
+12:27.560 --> 12:33.160
+So this is an example of where this would be useful.
+
+12:33.160 --> 12:41.200
+And essentially what it does is that it generalizes AB schema to NixOS generation.
+
+12:41.200 --> 12:47.120
+So in that case, you had a very simple case before, and it's designated as an indeterminate
+
+12:47.120 --> 12:48.560
+with a specific number of boot attempts.
+
+12:48.560 --> 12:52.520
+So you have some predeterminate number of boot attempts that you want to have.
+
+12:52.520 --> 12:59.400
+And then eventually, once you've gone past that, then it's no longer deemed as a good
+
+12:59.400 --> 13:00.400
+boot.
+
+13:00.400 --> 13:04.760
+You can't decryment it every single time, and then it's designated bad.
+
+13:04.760 --> 13:08.920
+And this is useful in the case that, say, you have some kind of procedure where you have
+
+13:08.920 --> 13:10.200
+unattended boot.
+
+13:10.200 --> 13:14.120
+So maybe you have some kind of build farm, maybe you have some kind of service where
+
+13:14.120 --> 13:17.000
+you have to boot into some specific NixOS generation.
+
+13:17.000 --> 13:20.640
+Maybe you're using NixOS as a replacement for Ansible.
+
+13:20.640 --> 13:29.560
+And you add things to NixOS, you add new services, maybe some of the services are from Nix packages
+
+13:29.560 --> 13:34.640
+unstable, and you just, it's more or less everything is automated.
+
+13:34.640 --> 13:38.400
+This is a use case where that would be useful.
+
+13:38.400 --> 13:43.360
+If somehow you magically find a way to upgrade things without you having to touch the Nix
+
+13:43.360 --> 13:49.560
+configuration file, then automatic boot assessment will take care of the fact that your generation
+
+13:49.560 --> 13:53.600
+may be corrupts and you may have to switch back to an earlier generation after certain
+
+13:53.600 --> 13:56.480
+more boot attempts.
+
+13:56.480 --> 14:02.920
+And this is an example for an authoritative DNS.
+
+14:02.920 --> 14:09.640
+The parameter boot.com specifies what you call a synchronization point.
+
+14:09.640 --> 14:12.920
+That means that it eventually just cycles back.
+
+14:12.920 --> 14:17.720
+So we haven't specified the number of boot attempts here.
+
+14:17.720 --> 14:18.840
+I don't believe it's a default.
+
+14:18.840 --> 14:24.680
+This work was actually driven by Julian Malka, who's giving a talk on this.
+
+14:24.680 --> 14:29.160
+I really hope it's not the same example he uses, because I didn't ask him before.
+
+14:29.160 --> 14:37.560
+But more or less, this is an example of where you would have a type of service that has
+
+14:37.560 --> 14:40.160
+a specific number of boot attempts that needs to be done.
+
+14:40.160 --> 14:44.520
+And you can use this automatic boot assessment to just count the number of times that it
+
+14:44.520 --> 14:49.360
+would be completed, and if not, your failure action is to reboot.
+
+14:49.360 --> 14:53.320
+You could also specify the number of times it could be rebooted, but I don't believe
+
+14:53.320 --> 14:56.320
+that's done here.
+
+14:56.440 --> 15:00.560
+And another feature is integrity checks for the next store.
+
+15:00.560 --> 15:07.920
+So when implemented secure boot and transitioning to stage two, limitations do arise.
+
+15:07.920 --> 15:15.240
+You can mess with the file system, essentially.
+
+15:15.240 --> 15:19.320
+If essentially you don't really have any place to prevent that from happening.
+
+15:19.320 --> 15:23.040
+And a number of different times things were tried.
+
+15:23.040 --> 15:28.600
+So for example, the invariant which works on the block device layer was used, but it
+
+15:28.600 --> 15:39.920
+was unsatisfactory in the sense that it basically creates an entire copy of your NixOS generation,
+
+15:39.920 --> 15:46.640
+which takes up a lot of space and doesn't really provide any means of flexibility to
+
+15:46.640 --> 15:47.640
+work around that.
+
+15:48.080 --> 15:54.920
+FS very to works on the file system level, but it doesn't...
+
+15:54.920 --> 15:56.440
+The invariant is also read only.
+
+15:56.440 --> 16:00.720
+That's the reason why it takes the entire NixOS generation.
+
+16:00.720 --> 16:05.160
+FS very to works on the file level, so that's a big improvement over the invariant, but
+
+16:05.160 --> 16:09.720
+it doesn't prevent you from kind of just switching files at that point either.
+
+16:09.720 --> 16:14.960
+So you could easily switch between bash and Perl and whatnot.
+
+16:14.960 --> 16:22.920
+IMA and EVM, IMA is intermediate measured assessment and EVM is extended verification
+
+16:22.920 --> 16:24.840
+measurement for system integrity.
+
+16:24.840 --> 16:30.520
+They more or less have the same problems as FS verity and they're really only good for
+
+16:30.520 --> 16:31.520
+auditing purposes.
+
+16:31.520 --> 16:36.960
+Like they don't really help us that much in terms of our intended goal of looking at the
+
+16:36.960 --> 16:41.240
+file system and seeing if it gets past stage two.
+
+16:41.240 --> 16:47.360
+So what was essentially chosen was the simplest method, which is just to use NixStoreVerify.
+
+16:47.360 --> 16:50.440
+And the problem with this is that there's a penalty for it.
+
+16:50.440 --> 16:54.680
+If you have a low-end device such as a Raspberry Pi, you probably have to wait two minutes
+
+16:54.680 --> 16:56.640
+extra for it to boot.
+
+16:56.640 --> 17:00.160
+And if you have a high-end device more or less like a desktop machine, there's still
+
+17:00.160 --> 17:02.080
+a five-second penalty.
+
+17:02.080 --> 17:13.920
+And there are, we're currently considering this such as Apple's signed file system, which
+
+17:13.920 --> 17:21.440
+looks promising but has to be combined with something like BCatchFS or BCatchFN or something
+
+17:21.440 --> 17:25.440
+to kind of really make it a viable option.
+
+17:25.440 --> 17:28.520
+And this isn't, this is just speculation.
+
+17:28.520 --> 17:35.440
+This work is actually driven by Will Fanature, whose GitHub name is Elvish Jericho.
+
+17:35.440 --> 17:40.680
+So he's done the research for this, but he hasn't, and this is the end result of it.
+
+17:40.680 --> 17:46.560
+But in terms of future work, he's looking at considering whether to use that mechanism
+
+17:46.560 --> 17:53.760
+that I just mentioned a while ago, which is to use Apple's signed signature volumes to
+
+17:53.760 --> 17:58.480
+verify the NixStore in stage two.
+
+17:58.480 --> 18:01.240
+So enabling integrity checks looks as such.
+
+18:01.240 --> 18:07.400
+You have to first create a public file key, and then in the NixOS modules, you essentially
+
+18:07.400 --> 18:15.680
+import that into the trusted public file keys, trusted public keys, using boot when during
+
+18:15.680 --> 18:19.400
+the, in the boot, in it verify a configuration.
+
+18:19.400 --> 18:21.200
+And it's really just as simple as that.
+
+18:21.200 --> 18:25.160
+The only issue is that you may have to find a way to kind of hide your file key somewhere
+
+18:25.160 --> 18:30.080
+if you're in a situation where you have the boot unattended.
+
+18:30.080 --> 18:34.920
+And lastly, interpreters in Nix.
+
+18:34.920 --> 18:41.080
+So Nix essentially has a lot of bash and pearl and Python scripts all about the place, and
+
+18:41.080 --> 18:44.160
+this leaves a lot of room for vulnerabilities.
+
+18:44.160 --> 18:50.520
+And in phase one, essentially all the pearl scripts were removed.
+
+18:50.520 --> 18:55.480
+So set up, etc.pl, which sets up users and whatnot.
+
+18:55.480 --> 18:59.840
+That's replaced by overlay in it already.
+
+18:59.840 --> 19:05.960
+Update users, groups, that's replaced by system, the system, the users, this user's functionality.
+
+19:05.960 --> 19:10.320
+And the broad replacement of activation scripts, that actually isn't necessary for this, but
+
+19:10.320 --> 19:15.440
+it does work in terms of performance and in terms of gaining performance and maintainability
+
+19:15.440 --> 19:17.000
+benefits.
+
+19:17.000 --> 19:23.040
+So this is, I failed to mention that this was just like phase one of this challenge.
+
+19:23.040 --> 19:27.160
+We're still waiting on the status of phase two.
+
+19:27.160 --> 19:31.000
+But phase two would also involve removal of bash scripts.
+
+19:31.000 --> 19:40.560
+I'm not entirely sure how Python scripts would be removed because they're more tightly integrated.
+
+19:40.560 --> 19:45.480
+For example, if you tried to use a Nix OS test, you'd end up having to use Py.
+
+19:45.480 --> 19:49.960
+You'd have to write it in Python at some point.
+
+19:49.960 --> 19:54.600
+So it's not clear to me exactly how that path forward there.
+
+19:54.600 --> 20:00.480
+But pearl has been removed in this phase of the sovereign tech funds country-by-back challenge
+
+20:00.480 --> 20:05.240
+and in the future, eventually bash should be removed.
+
+20:05.240 --> 20:08.600
+So yeah, that's my talk.
+
+20:08.600 --> 20:09.600
+Any questions?
+
+20:09.600 --> 20:10.600
+Okay.
+
+20:10.600 --> 20:16.600
+Well, feel free to reach out and push.
+
+20:16.600 --> 20:19.600
+What is store-fairification?
+
+20:19.600 --> 20:36.600
+How about a little huge cloud system wrapper that's a verified store, perhaps on first
+
+20:36.600 --> 20:40.600
+access?
+
+20:40.600 --> 20:44.600
+Well how would you verify, like what would we use to verify them?
+
+20:44.600 --> 20:49.600
+I mean the Nix data base hashes there.
+
+20:49.600 --> 20:54.600
+I mean, we have to, obviously, have that hashed somewhere.
+
+20:54.600 --> 20:56.600
+Yeah, yeah.
+
+20:56.600 --> 21:02.040
+Yeah, so Elko is asking how would we verify, can we use just the hashes from the Nix store
+
+21:02.040 --> 21:04.920
+to verify the files themselves?
+
+21:04.920 --> 21:14.920
+And I'm not sure where the hashes are stored to be honest, but I mean.
+
+21:14.920 --> 21:16.920
+Nix for Nix dv.sqlite.
+
+21:16.920 --> 21:17.920
+Okay.
+
+21:17.920 --> 21:24.920
+Yeah, but you need the signature somewhere of the hashes.
+
+21:24.920 --> 21:25.920
+Okay.
+
+21:25.920 --> 21:29.920
+I'm not sure.
+
+21:29.920 --> 21:35.920
+I'd have to circle back and get back to you on that.
+
+21:35.920 --> 21:45.920
+If there's no other questions, let's give it up again for Don.
+
+21:45.920 --> 21:52.920
+Feel free to reach out.
+
+21:55.920 --> 21:56.920
+Thank you.
+

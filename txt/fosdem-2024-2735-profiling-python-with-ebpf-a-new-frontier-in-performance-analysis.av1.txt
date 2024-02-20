@@ -1,0 +1,321 @@
+Well, everyone, we're about to start the next session.
+So we have here Kemal Okoyom, who's going to be speaking about profiling Python with
+EBF, profiling certainly one of the most challenging parts I had with Python in the last 20 years
+when I've been coaching with the programming language.
+So I really can't wait to hear what you have to share with us.
+Thank you very much and welcome.
+Hello everyone.
+So let's start with some questions.
+Who does anyone here like knows anything about EBF?
+Okay, quite a lot of people.
+Have you ever used profiling?
+Wow, nice.
+Do you know anything about Python?
+Great, everyone.
+That's nice.
+Okay, first, who I am.
+I'm not Prometheus, but I'm a Prometheus maintainer.
+Do you know or use Prometheus?
+Okay, that's also great.
+So I'm a maintainer of Prometheus.
+I'm also a maintainer of Thanos and recently I'm a maintainer of Parkout Project.
+These are all open source projects and they are all focused on observability.
+And I think I know something about observability, so today I will tell you about that.
+So let's start always with why.
+Why do we need profiling?
+It's either for some performance optimization.
+This graph can be anything generic.
+This could be CPU.
+This could be memory.
+When you see some spikes and you try to understand what's going on actually on those spikes.
+Or this could be something about an incident.
+This is graph is specifically for a umkil that your process and you don't know what
+that happened at that certain point and you would like to know about like who, what function
+or which component of your process actually allocates the memory in that particular moment.
+So some of you already know that there exists some profiling solution in Python.
+This is not an exhaustive list, but most of the libraries or projects that you see in
+here you actually need to instrument your code.
+So either you need to import a library or you need to specifically write some code and
+then start profiling your application, Python application.
+This is not always the ideal case because you would like sometimes you don't have access
+to code itself and sometimes you would like to do this from outside.
+So how do you do that?
+This is where eBPF actually comes into place and helps us.
+So eBPF is a, it's originally for networking applications.
+It's called Berkeley package filtering, but now eBPF totally something else.
+It's basically an event-based system where you can hook into some events that Linux kernel
+issues and then you can just run code as a reaction to those events.
+There is a runtime, there's a virtual machine inside and there's a verifier before you load
+your program that verifier needs to check your program that it doesn't do anything harmful
+like infinite loops whatnot in the kernel space.
+Then compiler kicks in and compile your provided code and you actually run those code against
+any events that you issue.
+That's the one fancy part of the solution.
+So then it comes another subsystem of Linux which is super cool is the perf event.
+You can have perf subsystem.
+From the perf subsystem you can have, you can hook into various parts of your stack
+and you can run code against these events.
+In this particle talk we are going to talk about the CPU events, but you don't need to
+use only the CPU events necessarily.
+You can do this for the IO events, you can do this for the memory allocation.
+Practically anything that you see in here, you can run, hook into that event and run
+a code piece to that.
+So what makes perf events special?
+It's actually performance monitoring units.
+These are very efficiently implemented units in the Linux kernel so that they keep track
+of the cycles and then like you can actually take measurements and you can react to those
+measurements.
+That's why EVPF plus perf events is actually faster than the other solutions that we have
+in basically ecosystem.
+Because with the Linux you can already have some syscalls, you can just hook into that
+introps and do all these things that I'm going to tell you in a minute in the user space.
+But the most of the things we do is using the PMUs and because the PMUs are efficient
+and EVPF codes also efficient and run in the kernel space, this gives us a bit of a headroom
+for the performance.
+So we are not the only ones that actually implemented that.
+This is quite a journey.
+I don't remember when is the first time that it actually introduced the PyPerf code inside
+the Linux kernel.
+You can check out, these are actual links and I'm going to share the slides and you
+can see basically the git comments against that.
+There's a set of tools called BCC tools in the EVPF space and there's also another implementation
+of PyPerf in there.
+But what is the downside of all these tooling?
+These are first, they are dated.
+They don't cover all the recent changes in the Python runtime itself and they are just
+one of tools.
+So I'm going to show you some cool things that you can actually do profiling in the
+production itself in a continuous manner, which we call continuous profiling.
+We're going to come to that in a minute.
+So to make the tools work, you need to just wrap your Python interpreter around with these
+tools and then collect your profiles.
+So that gets us to the Parker project.
+It's an open source project.
+It's a continuous profiling project using EVPF and perf events.
+We can run your profiling workloads directly in production and there is no runtime, nearly
+none of the runtime overhead in this approach.
+There's a tiny bit, but it's really negligible.
+So how does the Parker EVPF agent actually work?
+Other things that I mentioned previously, the hook into perf events, we have some unwinded
+programs that actually unwinds the stack, which I will tell you about.
+And we then keep track of what happens in the CPU for that stack.
+And then we aggregate those information and put in an EVPF map, which are the special
+data structures that you talk between Kernel and the user space.
+And then we read that data, we convert that some open profiling formats and push that
+in a server site where we can just aggregate and visualize that and let the users actually
+make sense of their programs.
+So this is how that whole thing actually works.
+There are a lot of details, but this talk is not actually about the internals of Parker,
+but we are doing a lot of cool stuff to make the stack collection and symbolization very
+efficient.
+And then the end result is a UI like this.
+In a continuous timeline, you can see that what's going on on your CPU for each process.
+Then we collect a lot of metadata and enrich those information for you so that you can
+query, compare, and see how you can improve your program.
+And the agent is kind of super cool because you can just install any host machine and
+any process that you have on that machine, we can just collect data and send to the server
+and you can see that in the UI.
+This doesn't necessarily, it's not scoped to the Python itself, but it does a lot of
+cool stuff with the Python as well.
+So there's not a Python stack, but we will see some examples, but this is some, I think
+this is a Go one, but you can see that the stacks are easily getting really deep.
+So what is the stack unwinding?
+This is the next critical thing that we need to talk about because the whole, like the
+what makes profiling challenging, especially from the Python side, is actually to be able
+to unwind the stack.
+So when a program gets executed, probably you all heard these in your start of your education.
+There are specific structures when the process actually allocates in the memory, which is
+one is stack and one is heap and the stack actually tracks the execution of the program
+and whenever you call a function, you open a frame and you change the states of your
+registers and then you keep adding everything to the stack and when one of the functions
+that returns from the leaf, you just go back and return the data to your user.
+So I might be oversimplified that, but it's a diagram just to show you how it looked like,
+but the end result when you unwind the stack and aggregate all these function addresses,
+you get something like that.
+It's just the machine addresses and now you need to find a way to translate those machine
+addresses to the human readable format.
+So all these parts for the native code, so anything that actually runs on your CPU.
+So that brings us actually the next step.
+So this is a state where we didn't implement the Python unwind for parka and you can actually,
+this is an interactive one.
+So you can see anything that gets from like your kernel, there's a start thread, this
+is coming from libc and all these green things that you see, these are coming from the Python
+interpreter itself because Python interpreter is written in C and it's compiled and then
+directly gets executed on the CPU, but probably this is not useful for you, right?
+You are Python developers.
+You actually want to see what's happening in the Python process itself, not the underlying
+infrastructure.
+That being said, we also know that most of the Python applications also rely on the
+C bits and the native code bits and it could be calling some C function here and there.
+Then when that happens, these are actually, gets like super important, right?
+For example, PyTorch, it's very popular nowadays in the machine learning workload, but it's
+actually funneling everything into a native code and when you want to see what's going
+on the native code, parka actually can do that as well.
+And we do that in a very efficient way.
+You don't need to have, there's a whole concept of frame pointers and that actually helps us
+to unwind the stack.
+We just gave another talk in the observability room like why frame pointers are cool, but
+you don't have to have a need to have the frame pointers itself because there's also
+another facility with the devolve debug information, you can unwind the stack.
+So parka actually utilizes that.
+This is important because most of the packages that you can find on any of the Linux distribution,
+you wouldn't find frame pointers.
+But with the devolve information, you can actually unwind the stack and you can see
+all these goals.
+So, but we want more, right?
+We want to see the Python code, so how we do actually do that.
+So this is where it comes to, where we unwind the stack virtually, with virtual stack, we
+mean that anything that gets executed in the Python interpreter, we need to find those
+stacks and put those things in our flame graphs so we can see that like where is the problematic
+areas in our Python code itself.
+So everything starts with opening the Python runtime and reading the code.
+This is the huge structure, like if you know the Python internals, like it's long.
+There are a lot of comments, but it's not the easiest code to read and it's not the
+easiest code to reason about.
+Let's focus on like what is the important bits, right?
+We care about the interpreter state and from that bit, we want to capture what's going
+on in each thread, right?
+It comes from the interpreter state and then we try to find the PyState itself.
+The PyThread structure, it's like a link list, so whenever you have multiple threads running
+in an interpreter, you need to traverse the whole link list and for each thread, you actually
+need to do that.
+But also you need to find out which thread actually captures the guild and globally interpreter
+luck so that that's the one actually executing the code.
+So from finding all those information from thread state, you check the thread state.
+Oh, yeah, it's another like pages long C code that we need to reason about.
+It's not the easiest thing, but this is how reverse engineering kind of works.
+And again, I extracted the important bits.
+So from that thread state, we need to find what is the current frame is actually executing
+so that we can online from there, right?
+That's actually the same thing that we are doing with the native stack, but rather than
+checking some registries and reading roll memory addresses, we are actually checking the Python
+in turn itself.
+So from the interpreter frame, it's actually easy, like whatever we need, it's here.
+So all the information we need is here.
+We have the pointers to the previous stack and we can actually do the same thing.
+So I'm going to speed things up.
+Yeah, we have the map.
+We know the source code, but where do we actually start?
+When we have an object file from the Python interpreter, we first need to find the where
+does all these tracks are actually live.
+So we check the entry point of a Python interpreter.
+We see that it's linked against a live Python.
+We go and check the names for one of these tracks symbols and we actually see that there
+are some offsets that are located there.
+But this is just from the binary.
+We don't know what these addresses mean when a process started.
+So this happens because this is just one of the reasons, but when you get a binary and
+run the process out of the binary, there is some address randomization and all those
+addresses need to be translated to that.
+So how do we do that?
+We just run a Python interpreter and check what's going on in the process.
+This is basically memory mappings and it shows you where actually Linux maps the certain
+objects and we check out the live Python.
+Grab the base address and from the addresses that we find from the symbol or draft, the
+morph information, we actually find where the structs are actually located in the memory.
+We are looking for those.
+And from that, now we need to read that data.
+So here comes the GDB.
+GDB is like an amazing debugging tool and we jump into the process and start to poke
+around, we define a macro and to calculate the offsets of a struct which reads from the
+devolve information, you say that, okay, give me this struct and this field and it gives
+you the offset of that.
+Since we already have the start address of the memory, we just calculate the next address
+and read the data from that.
+But as you can see, this is very manual labor.
+We cannot do this for each and every Python version or implementation out there.
+So we do this with another project ahead of time.
+We use Rust-Pyne-Gen for that which was super convenient because PySpy was using that.
+We just grabbed some offsets and generated all these things for a couple of versions.
+But we are also working on a devolve-based reader which is more scalable.
+You just grab any binary, read the debug information and calculate all the offsets.
+From those offsets, we generate this struct which we think over the kernel space.
+It's like a map, where to find the fields and everything.
+And the nice part that the whole things that we are working on, it's going to be deprecated
+soon because Python...
+This is life of a software engineer when you do reverse engineering.
+So something super cool happened in the Python main branch.
+Now they have this debug offset data structure value.
+They generate all those sets and put that in just the beginning of the py runtime.
+We just can grab the address and just read the first chunk of the thing.
+How we got those that we don't need to do this ahead of time things right now.
+So this is already a merge and it's going to be released with the Python 3.0 in 13.0.
+It's also huge, lots of stuff that you need to find out.
+Okay, actual unwinding stack.
+So these are where the EVPS comes from.
+We did all the magic, we got the offsets, we put that thing into interpreter info structure
+and put that in an EVPF map so that the EVPF program can read in the kernel.
+And this C code is in the kernel itself.
+You check something and get the interpreter info.
+This is the user space code where we actually calculate all the addresses and send and put
+to the EVPF map itself.
+And from that we also grab this offset data that we calculated.
+We just do check some versions and find the runtime version of that particular Python interpreter,
+read the offsets and from that offsets we calculate that.
+But again, like 3.13, this is, this will be futile.
+So then we read, try to read the, oops, rate data from the thread state, find those structures
+and read the pointers and try to find out where to go from there.
+Five minutes left, I need to be super quick.
+Okay, so we find the, we try to find the initial pointer for the virtual frames.
+This is how we do it.
+And then from that we start walking the stack.
+The key points here is just from the previous code that you can see, we actually put just
+line 13, put something into a state frame pointer and we then read that frame pointer
+from another EVPF program.
+And from that pointer we basically find the offset of the frame object where the code
+points to, read that row address with some VPF helper code.
+And from that we read the symbol because like the addresses that we saw that they don't
+mean anything to us.
+We are humans and we need some human readable data.
+And from that to be efficient because we keep seeing the same stack traces, we just like
+hash it and put that symbol somewhere so that if we see that we don't need to send
+that same symbol to the user space because it's costly.
+And then we also encode the line number because like symbols just represents a class, then
+a function and then there's a line number in that function that is different.
+This API also recently stabilizing the Python.
+So for the old Python versions this line number could be wrong but the read after 3.10 it's
+actually, it should be accurate.
+And then we encode that as well and send it to the user space.
+This is the reading the symbol parts.
+Like the code is like super complicated.
+I just highlighted the GDP outputs because it's like easier to read.
+So you read this nested structures and find the actual type name, then the file name, then
+the name of the object code and the first line in that function and put an encode that
+is a symbol so that it means something for the humans.
+Voila, now we finally have Python unwinded stack.
+But as you can see there are lots of things going, happening and most of the things are
+interpreters and it doesn't make any sense.
+But we have this cool UI, you can actually, these are like color coded, you can, from
+the color code you can actually highlight like what's going on in the interpreter, what
+happens to the libc, libpython, you can see everything.
+Again, we want to focus on the Python bits, right?
+You can just filter out the Python code and see that it's recursively calling and calculating
+some Fibonacci numbers.
+Apparently, yeah, it's inefficient so you need to optimize this.
+Yeah, you can just tell by like that list of the stack, okay, yeah.
+You don't need to know the details of how to read the flame graph.
+But good thing for you, we also have a blog post for that.
+You can check it out.
+So I guess we are nearly out of time.
+So we support a couple of interpreters like 2.7, we still support that.
+So if you happen to have that, we support everything until 3.11.
+We are working on the 3.12 because 3.12 changes where the actual trade state also stored,
+which is the trade local storage.
+We are working on the facilities to read the state from the trade local storage.
+It shouldn't take more than a couple of weeks to be that support actually landed.
+And 3.13 will be there so we don't need to do this again, basically, for the next version of the Python.
+So everything you can see, please try, install and give us a feedback.
+There's this QR code.
+It's a GitHub discussion.
+You can just like engage with us and report bugs.
+And we can try to help you to profile and optimize your Python workloads.
+All the things that you see here, there's also a blog post if you want to catch up.
+You can check the company's blog post.
+And also we find the DevoreFind on winding bits like super cool because it's a niche thing that we do.
+And if you especially like the, if you have an application that follows everything to the native code,
+this will be super useful.
+Thank you for listening.
+Thank you very much, Camille.
+I'm afraid we're quite tight on the schedule, but please feel free to reach out to him with any questions.
+And thank you very much.
+Thank you.

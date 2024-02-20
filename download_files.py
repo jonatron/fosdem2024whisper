@@ -14,7 +14,12 @@ for url_dict in files:
     filename = url.split("/")[-1]
     local_filename = f'videos/{filename}'
     if os.path.exists(local_filename):
-        print("exists - skip")
+        print("video exists - skip")
+        continue
+
+    json_filename = 'json/' + filename.replace(".webm", ".json")
+    if os.path.exists(json_filename):
+        print("json exists - skip")
         continue
 
     resp = requests.get(url)

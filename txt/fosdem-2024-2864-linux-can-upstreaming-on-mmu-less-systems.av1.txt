@@ -1,0 +1,214 @@
+So let's start it.
+Ciao everyone and welcome to my talk.
+I am Dario.
+I work at Amarulla Solution, a software consultant company mainly working on embedded Linux and
+Android projects with a focus on open source.
+And about me I am a contributor for some open source projects like Buildroot, Linux and
+UBoot and they come from Italy.
+This talk describes my experience in streaming the big scan driver for the Linux kernel for
+STM32 platforms and testing the driver as we will see required also applying some patches
+to the tools used for configuring and accessing the scan interface.
+Before jumping into the rest in things, let me spend a few words about the origin of this
+experience.
+The idea was to create a kernel driver from scratch in order to satisfy some curiosities
+of mine about the kernel development process.
+So creating a kernel from scratch is not like a backfixing patch but you have to create
+documentation, you have to update the device tree, thinking about the design of the driver
+in addition to its implementation.
+So it's a lot of stuff and it is easy to get in trouble but it is also a great opportunity
+to understand a lot of things.
+So why did I choose the big scan controller?
+First of all because I gained some experience in streaming patches for the kernel subsystems
+finding that both the maintainers and the guys are responsive and proactive.
+Then the big scan controller is present on development boards that are not so much expensive
+and with the developer boards you can find also the build root configuration.
+It is a good starting point to start the kernel development.
+Furthermore you can find also a lot of examples, a lot of code online of how to set up the
+controller and in the case of the Zephyr project for example you can find a old driver or lady
+implemented.
+Then finally you can test the driver without modifying the hardware because you can enable
+the loopback and silent board that are the test mode of such chips.
+So let's explore the internals to a static RAM like in the single-can configuration but
+in dual-can configuration they are shared and only the primary channel has direct access
+to the SRAM.
+There are also three test modes.
+For both of these test modes the transmission is looped back internally to the reception.
+But in silent mode the node is disconnected from the bus on a transmission.
+In loopback mode the node is disconnected from the bus on a reception and in combined
+loopback and silent mode the node is totally disconnected from the bus and this will be
+the mode I will use for testing the driver.
+Let's now have a look to the roadmap.
+You have to modify the build root configuration and create the Linux driver for handling the
+dual-can setup on the 469 disco board.
+Then create a new build root configuration and modify the Linux kernel in order to handle
+the single-can for the 769 disco and in both cases we have to test the driver and upstream
+the patches.
+So let's start with the 469 disco board.
+I started from the disco SD configuration and I enabled the networking and can bus support
+in the Linux fragment file.
+When I put the Linux kernel in override in order to be able to create my driver I start
+with the implementation.
+The implementation I started from the documentation describing the properties to be added to the
+device tree.
+In addition to the common properties that you can find in a driver like a compatible
+or a reg, I added the SD-can primary property in order to distinguish between master and
+secondary channel.
+Then I added the SD-can node as a reference to the shared memory.
+Then I added the can node and the can node to the platform device tree.
+I configured the pin mix control about the pins owned by the can controller.
+And finally I added to the device tree of the board the I enabled in the device tree
+of the board the can nodes and I disabled the peripherals with pins shared with the can
+controller in order to avoid conflicts.
+About the source code I opted for simplicity for the first version of the driver.
+So I in the driver handles all the free mailbox for transmission but in case of reception
+handles only 5 for 0.
+And about the filters I hardwired the assignment of the filters.
+So I assigned the filter 0 to the primary channel and filter 14 to the secondary channel.
+And in both cases I configured the filter register in order that all incoming messages
+were accepted.
+So in this way disabling these particular features.
+And for the interrupts I handled all the interrupt except for the interrupt on the 5.1 reception
+that was related to the 5.1 that is disabled.
+So now we are on the testing.
+I split the procedure of testing the driver in two steps.
+In the first steps I checked the DMS output in order to verify that there were not issues
+about the driver probing.
+Then I tried to set up the can interface enabling the loop and listen mode and verify that the
+transmitted messages were also received.
+But in this case I realized that the tools I had to use to test the driver didn't compile
+on platforms without MMU.
+The point is that the fork system doesn't work on such as Sipson.
+And the table clearly shows that only the busybox package is able to be compiled on a
+SAC system.
+But its IP link command is not able to set up a can interface.
+So I had to decide whether to patch busybox, whether to patch IP root 2 or add in support
+for can interface to busybox.
+I opted for busybox because it was already used in the system and farmed because on a
+system with limited resources using lightweight packages is preferred.
+Let's go also on the patches I had to apply.
+So in this way I updated the build root configuration in order to enable the can interface package.
+I put in override both the busybox and can interface package.
+And so I was able to create an IP link can applet to add to busybox and to patch can
+interface in order so that I didn't compile the program using the fork function.
+And fortunately the can dump can send application and don't use these functions.
+So in this way after applying the patches I was able to set up the can interface and
+verify that the transmitted messages were also received.
+After the test let's talk about the code review.
+The code review reached version 10 so many things has been changed and also has been
+fixed but among them some I think are really interesting like the use of the Cisco node
+for handling the shared memory, the replacement of the master and slave terms with primary
+and secondary according to the kernel coding guidelines.
+The use of the field get field prep macros for accessing the register bitfills in order
+to standardize the code for accessing the register and so reduce the errors.
+And finally the use of a rackback function to access shared memory.
+After the patches were upstreamed I started so with adding the single can handling for
+the driver.
+So I create a new configuration inside build root and just like the 469 disco I created
+a configuration where both the Linux can the root file system and the device tree were
+stored because were used only for me to test the driver.
+The changes required for handling the single peripheral configuration were quite minimal
+but overall without modifying the driver design and more or less these are the changes I had
+to apply to the driver.
+About the testing of the driver I used the same procedure I used before so I checked for
+the DMS output and I set up the free can interfaces and once again I try to verify that the transmitted
+messages were also received in a proper way.
+And even in this case with the code review even if it didn't take long brought out some
+interesting insights.
+The maintainer's idea was to change the source code as little as possible so he suggested
+me to use the Cisco node also for the primary channel even if there isn't a shared memory
+for it.
+And also to use the STCAN secondary property to distinguish between primary and secondary
+channel even if the change was not backward compatible with the dual can configuration.
+But it didn't matter since the driver wasn't yet in a stable version of the kernel.
+Then have a look at the merge problem we had with this series.
+Due to a misunderstanding in the application in applying the patches to the main line the
+order of application for patches A and B was inverted causing a failure in the compilation
+of the device tree that was fixed by reverting the patch B.
+So it was a situation not so good for me and also for the maintainers because everybody
+got really nervous.
+So there was one last question to ask to the maintainer of the CANSAP system that is what
+to do with the patches I had to apply to the tools used for testing the driver.
+And this was the response.
+So I upstreamed everything including a new further implementation of the IP link command
+using the library that is a lightweight library.
+I was quite curious about the use of this library so I ran some tests on it and finally
+I arrived to a further implementation of the IP link CAN command after the busybox one.
+So to sum up I upstreamed 12 patches for the Linux kernel.
+One patch for busybox, one patch for canutes and three patches for the libmnl.
+And then seven patches for bitroot.
+All the patches were accepted except for the one of busybox.
+I resend the patch multiple times but I didn't get any answer from the maintainer.
+So if you think that it could be useful for busybox to support the setup of a CAN interface
+please review the patch.
+Finally, finally for people who are interested I uploaded the buildroot project of my personal
+GitHub account and these are the commands you can use to build the images to store on
+the development board and to run tests for accessing the CAN interface.
+That's all for me.
+Thank you for your attention.
+Anybody have any questions?
+Maybe from buildroot.
+Hi.
+Thank you for your presentation.
+How long did it take to explain to all the patches and development of the drivers?
+Quite a long.
+I think it is the work I think of one year more or less.
+But not full time.
+Yeah, of course.
+You have to wait for the response of the maintainers.
+Thank you.
+Hi.
+So thank you again for your work.
+This is very useful because without MMU less system I haven't seen on Linux running CAN
+yet and the main problem was the IP link set because without that you CAN is configured
+as a network device on Linux and without that you cannot set the bit rate.
+So that was very important.
+My question is that on the STM only has a CAN controller.
+The CAN transceiver is always on the outside.
+So CAN transceiver any PCB changes, any hardware changes, did you ever have to make for these
+kinds of systems if somebody builds a product that does not have MMU?
+If this goes into production with Linux running do we need something else from the hardware
+side or that was the transceiver side nothing has to change?
+Could you repeat the question because I didn't catch a...
+So normally if I use a Raspberry Pi or something you have a MCP2151 that has a CAN controller
+and a CAN transceiver.
+STM32 only has a CAN controller.
+And on the board you would need to have external IP, IC, right, that would run as a CAN transceiver.
+I don't know if the board I have can transceiver because I didn't modify the hardware.
+I put in Lubeck internally the CAN controller and so I was able to test because I'm not
+an hardware engineer.
+I am a software engineer and I am more confident on software than on hardware.
+So I didn't want to put the hand on the hardware.
+I bought a transceiver but after finding that I was able to enable the Lubeck...
+Inasmuch...
+Okay, okay, thank you.
+You can basically use the same transceiver with the SD microcontroller so they are compatible.
+Was that your question?
+Yeah, so I just wanted to ask that in an MMU and MMU less system the CAN bus, the 120
+or nothing else would change in a...
+Right, that was my question.
+Yes, the CAN controller usually has a digital interface with RX and TX line and this is
+connected to the transceiver that makes it into what's going over the wire and the transceiver
+doesn't care what kind of CAN controller was on the digital side you attached to.
+Hi, some STM32 have a newer IP for CAN that is named FD-CAN.
+I am familiar with FD-CAN so I wasn't aware...
+FD-CAN, FD-CAN.
+Yeah, and it seems like it's backwards compatible with DX-CAN so it looks like it should be
+compatible with your work so that's really nice but were you aware about FD-CAN?
+No?
+Okay.
+So I was wondering if it was planned to support the functionalities that are in FD-CAN and
+not in DX-CAN.
+But I think the FD-CAN features are not on this type of platform I think.
+I think that it's on the STM32MP because this is a microcontroller.
+No, no, I was using FD-CAN on STM32F303.
+But I suppose they have some weird...
+I can say something to this also.
+On the modern STM microcontrollers where you have FD-CAN they are using the M-CAN IP
+core from WOSH and this is already supported by Linux.
+Non-MU system.
+Was you able to test the very latest CAN-Utils and non-MU system with the very latest new
+ISOBus file system support?
+No.
+Okay, we have time for one more question if there is one.
+Okay, I think we're done.
+Thank you very much.

@@ -1,0 +1,644 @@
+WEBVTT
+
+00:00.000 --> 00:08.680
+So let's start it.
+
+00:08.680 --> 00:11.520
+Ciao everyone and welcome to my talk.
+
+00:11.520 --> 00:12.520
+I am Dario.
+
+00:12.520 --> 00:18.880
+I work at Amarulla Solution, a software consultant company mainly working on embedded Linux and
+
+00:18.880 --> 00:23.280
+Android projects with a focus on open source.
+
+00:23.280 --> 00:31.940
+And about me I am a contributor for some open source projects like Buildroot, Linux and
+
+00:31.940 --> 00:34.760
+UBoot and they come from Italy.
+
+00:34.760 --> 00:41.880
+This talk describes my experience in streaming the big scan driver for the Linux kernel for
+
+00:41.880 --> 00:50.680
+STM32 platforms and testing the driver as we will see required also applying some patches
+
+00:50.680 --> 00:57.720
+to the tools used for configuring and accessing the scan interface.
+
+00:57.720 --> 01:05.920
+Before jumping into the rest in things, let me spend a few words about the origin of this
+
+01:05.920 --> 01:07.920
+experience.
+
+01:07.920 --> 01:15.240
+The idea was to create a kernel driver from scratch in order to satisfy some curiosities
+
+01:15.240 --> 01:20.360
+of mine about the kernel development process.
+
+01:20.360 --> 01:28.040
+So creating a kernel from scratch is not like a backfixing patch but you have to create
+
+01:28.040 --> 01:33.600
+documentation, you have to update the device tree, thinking about the design of the driver
+
+01:33.600 --> 01:36.200
+in addition to its implementation.
+
+01:36.200 --> 01:43.640
+So it's a lot of stuff and it is easy to get in trouble but it is also a great opportunity
+
+01:43.640 --> 01:46.400
+to understand a lot of things.
+
+01:46.400 --> 01:50.520
+So why did I choose the big scan controller?
+
+01:50.520 --> 01:58.240
+First of all because I gained some experience in streaming patches for the kernel subsystems
+
+01:58.240 --> 02:05.360
+finding that both the maintainers and the guys are responsive and proactive.
+
+02:05.360 --> 02:12.640
+Then the big scan controller is present on development boards that are not so much expensive
+
+02:12.640 --> 02:19.560
+and with the developer boards you can find also the build root configuration.
+
+02:19.560 --> 02:24.640
+It is a good starting point to start the kernel development.
+
+02:24.640 --> 02:31.960
+Furthermore you can find also a lot of examples, a lot of code online of how to set up the
+
+02:31.960 --> 02:38.720
+controller and in the case of the Zephyr project for example you can find a old driver or lady
+
+02:38.720 --> 02:40.240
+implemented.
+
+02:40.240 --> 02:49.760
+Then finally you can test the driver without modifying the hardware because you can enable
+
+02:49.760 --> 02:57.960
+the loopback and silent board that are the test mode of such chips.
+
+02:57.960 --> 03:05.680
+So let's explore the internals to a static RAM like in the single-can configuration but
+
+03:05.680 --> 03:16.640
+in dual-can configuration they are shared and only the primary channel has direct access
+
+03:16.640 --> 03:18.640
+to the SRAM.
+
+03:18.640 --> 03:24.600
+There are also three test modes.
+
+03:24.600 --> 03:32.600
+For both of these test modes the transmission is looped back internally to the reception.
+
+03:32.600 --> 03:39.280
+But in silent mode the node is disconnected from the bus on a transmission.
+
+03:39.280 --> 03:47.000
+In loopback mode the node is disconnected from the bus on a reception and in combined
+
+03:47.000 --> 03:53.680
+loopback and silent mode the node is totally disconnected from the bus and this will be
+
+03:53.680 --> 03:58.120
+the mode I will use for testing the driver.
+
+03:58.120 --> 04:02.360
+Let's now have a look to the roadmap.
+
+04:02.360 --> 04:07.960
+You have to modify the build root configuration and create the Linux driver for handling the
+
+04:07.960 --> 04:13.360
+dual-can setup on the 469 disco board.
+
+04:13.360 --> 04:19.760
+Then create a new build root configuration and modify the Linux kernel in order to handle
+
+04:19.760 --> 04:27.120
+the single-can for the 769 disco and in both cases we have to test the driver and upstream
+
+04:27.120 --> 04:28.480
+the patches.
+
+04:28.480 --> 04:32.600
+So let's start with the 469 disco board.
+
+04:32.600 --> 04:42.640
+I started from the disco SD configuration and I enabled the networking and can bus support
+
+04:42.640 --> 04:45.080
+in the Linux fragment file.
+
+04:45.080 --> 04:51.880
+When I put the Linux kernel in override in order to be able to create my driver I start
+
+04:51.880 --> 04:54.080
+with the implementation.
+
+04:54.080 --> 05:00.920
+The implementation I started from the documentation describing the properties to be added to the
+
+05:00.920 --> 05:05.800
+device tree.
+
+05:05.800 --> 05:13.040
+In addition to the common properties that you can find in a driver like a compatible
+
+05:13.040 --> 05:21.040
+or a reg, I added the SD-can primary property in order to distinguish between master and
+
+05:21.040 --> 05:22.800
+secondary channel.
+
+05:22.800 --> 05:30.160
+Then I added the SD-can node as a reference to the shared memory.
+
+05:30.160 --> 05:40.520
+Then I added the can node and the can node to the platform device tree.
+
+05:40.520 --> 05:50.200
+I configured the pin mix control about the pins owned by the can controller.
+
+05:50.200 --> 05:57.440
+And finally I added to the device tree of the board the I enabled in the device tree
+
+05:57.440 --> 06:05.840
+of the board the can nodes and I disabled the peripherals with pins shared with the can
+
+06:05.840 --> 06:11.000
+controller in order to avoid conflicts.
+
+06:11.000 --> 06:19.400
+About the source code I opted for simplicity for the first version of the driver.
+
+06:19.400 --> 06:28.200
+So I in the driver handles all the free mailbox for transmission but in case of reception
+
+06:28.200 --> 06:31.920
+handles only 5 for 0.
+
+06:31.920 --> 06:38.240
+And about the filters I hardwired the assignment of the filters.
+
+06:38.240 --> 06:46.880
+So I assigned the filter 0 to the primary channel and filter 14 to the secondary channel.
+
+06:46.880 --> 06:57.960
+And in both cases I configured the filter register in order that all incoming messages
+
+06:57.960 --> 06:59.080
+were accepted.
+
+06:59.080 --> 07:04.080
+So in this way disabling these particular features.
+
+07:04.080 --> 07:16.040
+And for the interrupts I handled all the interrupt except for the interrupt on the 5.1 reception
+
+07:16.040 --> 07:21.480
+that was related to the 5.1 that is disabled.
+
+07:21.480 --> 07:24.520
+So now we are on the testing.
+
+07:24.520 --> 07:29.440
+I split the procedure of testing the driver in two steps.
+
+07:29.440 --> 07:37.560
+In the first steps I checked the DMS output in order to verify that there were not issues
+
+07:37.560 --> 07:40.280
+about the driver probing.
+
+07:40.280 --> 07:49.480
+Then I tried to set up the can interface enabling the loop and listen mode and verify that the
+
+07:49.480 --> 07:51.760
+transmitted messages were also received.
+
+07:51.760 --> 08:00.080
+But in this case I realized that the tools I had to use to test the driver didn't compile
+
+08:00.080 --> 08:04.720
+on platforms without MMU.
+
+08:04.720 --> 08:12.000
+The point is that the fork system doesn't work on such as Sipson.
+
+08:12.000 --> 08:19.960
+And the table clearly shows that only the busybox package is able to be compiled on a
+
+08:19.960 --> 08:21.040
+SAC system.
+
+08:21.040 --> 08:28.640
+But its IP link command is not able to set up a can interface.
+
+08:28.640 --> 08:37.880
+So I had to decide whether to patch busybox, whether to patch IP root 2 or add in support
+
+08:37.880 --> 08:40.480
+for can interface to busybox.
+
+08:40.480 --> 08:48.400
+I opted for busybox because it was already used in the system and farmed because on a
+
+08:48.400 --> 08:54.960
+system with limited resources using lightweight packages is preferred.
+
+08:54.960 --> 09:03.240
+Let's go also on the patches I had to apply.
+
+09:03.240 --> 09:09.680
+So in this way I updated the build root configuration in order to enable the can interface package.
+
+09:09.680 --> 09:15.920
+I put in override both the busybox and can interface package.
+
+09:15.920 --> 09:24.640
+And so I was able to create an IP link can applet to add to busybox and to patch can
+
+09:24.640 --> 09:33.080
+interface in order so that I didn't compile the program using the fork function.
+
+09:33.080 --> 09:41.360
+And fortunately the can dump can send application and don't use these functions.
+
+09:41.360 --> 09:50.720
+So in this way after applying the patches I was able to set up the can interface and
+
+09:50.720 --> 09:59.160
+verify that the transmitted messages were also received.
+
+09:59.160 --> 10:05.000
+After the test let's talk about the code review.
+
+10:05.000 --> 10:12.280
+The code review reached version 10 so many things has been changed and also has been
+
+10:12.280 --> 10:21.600
+fixed but among them some I think are really interesting like the use of the Cisco node
+
+10:21.600 --> 10:27.800
+for handling the shared memory, the replacement of the master and slave terms with primary
+
+10:27.800 --> 10:33.800
+and secondary according to the kernel coding guidelines.
+
+10:33.800 --> 10:42.680
+The use of the field get field prep macros for accessing the register bitfills in order
+
+10:42.680 --> 10:49.600
+to standardize the code for accessing the register and so reduce the errors.
+
+10:49.600 --> 10:56.120
+And finally the use of a rackback function to access shared memory.
+
+10:56.120 --> 11:04.640
+After the patches were upstreamed I started so with adding the single can handling for
+
+11:04.640 --> 11:05.640
+the driver.
+
+11:05.640 --> 11:14.440
+So I create a new configuration inside build root and just like the 469 disco I created
+
+11:14.440 --> 11:20.600
+a configuration where both the Linux can the root file system and the device tree were
+
+11:20.600 --> 11:28.600
+stored because were used only for me to test the driver.
+
+11:28.600 --> 11:40.720
+The changes required for handling the single peripheral configuration were quite minimal
+
+11:40.720 --> 11:50.000
+but overall without modifying the driver design and more or less these are the changes I had
+
+11:50.000 --> 11:54.920
+to apply to the driver.
+
+11:54.920 --> 12:02.320
+About the testing of the driver I used the same procedure I used before so I checked for
+
+12:02.320 --> 12:13.520
+the DMS output and I set up the free can interfaces and once again I try to verify that the transmitted
+
+12:13.520 --> 12:18.280
+messages were also received in a proper way.
+
+12:18.280 --> 12:27.520
+And even in this case with the code review even if it didn't take long brought out some
+
+12:27.520 --> 12:31.480
+interesting insights.
+
+12:31.480 --> 12:40.040
+The maintainer's idea was to change the source code as little as possible so he suggested
+
+12:40.040 --> 12:49.680
+me to use the Cisco node also for the primary channel even if there isn't a shared memory
+
+12:49.680 --> 12:51.680
+for it.
+
+12:51.680 --> 12:59.880
+And also to use the STCAN secondary property to distinguish between primary and secondary
+
+12:59.880 --> 13:07.280
+channel even if the change was not backward compatible with the dual can configuration.
+
+13:07.280 --> 13:17.280
+But it didn't matter since the driver wasn't yet in a stable version of the kernel.
+
+13:17.280 --> 13:24.640
+Then have a look at the merge problem we had with this series.
+
+13:24.640 --> 13:31.680
+Due to a misunderstanding in the application in applying the patches to the main line the
+
+13:31.680 --> 13:38.880
+order of application for patches A and B was inverted causing a failure in the compilation
+
+13:38.880 --> 13:47.960
+of the device tree that was fixed by reverting the patch B.
+
+13:47.960 --> 13:58.320
+So it was a situation not so good for me and also for the maintainers because everybody
+
+13:58.320 --> 14:01.880
+got really nervous.
+
+14:01.880 --> 14:11.480
+So there was one last question to ask to the maintainer of the CANSAP system that is what
+
+14:11.480 --> 14:17.880
+to do with the patches I had to apply to the tools used for testing the driver.
+
+14:17.880 --> 14:19.680
+And this was the response.
+
+14:19.680 --> 14:29.400
+So I upstreamed everything including a new further implementation of the IP link command
+
+14:29.400 --> 14:36.160
+using the library that is a lightweight library.
+
+14:36.160 --> 14:43.440
+I was quite curious about the use of this library so I ran some tests on it and finally
+
+14:43.440 --> 14:54.760
+I arrived to a further implementation of the IP link CAN command after the busybox one.
+
+14:54.760 --> 15:02.520
+So to sum up I upstreamed 12 patches for the Linux kernel.
+
+15:02.520 --> 15:09.400
+One patch for busybox, one patch for canutes and three patches for the libmnl.
+
+15:09.400 --> 15:13.080
+And then seven patches for bitroot.
+
+15:13.080 --> 15:18.080
+All the patches were accepted except for the one of busybox.
+
+15:18.080 --> 15:25.800
+I resend the patch multiple times but I didn't get any answer from the maintainer.
+
+15:25.800 --> 15:34.680
+So if you think that it could be useful for busybox to support the setup of a CAN interface
+
+15:34.680 --> 15:38.320
+please review the patch.
+
+15:38.320 --> 15:55.040
+Finally, finally for people who are interested I uploaded the buildroot project of my personal
+
+15:55.040 --> 16:02.280
+GitHub account and these are the commands you can use to build the images to store on
+
+16:02.280 --> 16:10.720
+the development board and to run tests for accessing the CAN interface.
+
+16:10.720 --> 16:12.720
+That's all for me.
+
+16:12.720 --> 16:25.440
+Thank you for your attention.
+
+16:25.440 --> 16:27.720
+Anybody have any questions?
+
+16:27.720 --> 16:30.720
+Maybe from buildroot.
+
+16:30.720 --> 16:32.760
+Hi.
+
+16:32.760 --> 16:39.200
+Thank you for your presentation.
+
+16:39.200 --> 16:47.160
+How long did it take to explain to all the patches and development of the drivers?
+
+16:47.160 --> 16:48.160
+Quite a long.
+
+16:48.160 --> 16:53.240
+I think it is the work I think of one year more or less.
+
+16:53.240 --> 16:55.240
+But not full time.
+
+16:55.240 --> 16:57.240
+Yeah, of course.
+
+16:57.240 --> 17:01.560
+You have to wait for the response of the maintainers.
+
+17:01.560 --> 17:04.560
+Thank you.
+
+17:04.560 --> 17:07.640
+Hi.
+
+17:07.640 --> 17:09.560
+So thank you again for your work.
+
+17:09.560 --> 17:16.360
+This is very useful because without MMU less system I haven't seen on Linux running CAN
+
+17:16.360 --> 17:23.560
+yet and the main problem was the IP link set because without that you CAN is configured
+
+17:23.560 --> 17:28.240
+as a network device on Linux and without that you cannot set the bit rate.
+
+17:28.240 --> 17:30.280
+So that was very important.
+
+17:30.280 --> 17:35.640
+My question is that on the STM only has a CAN controller.
+
+17:35.640 --> 17:39.680
+The CAN transceiver is always on the outside.
+
+17:39.680 --> 17:47.040
+So CAN transceiver any PCB changes, any hardware changes, did you ever have to make for these
+
+17:47.040 --> 17:53.720
+kinds of systems if somebody builds a product that does not have MMU?
+
+17:53.720 --> 17:58.840
+If this goes into production with Linux running do we need something else from the hardware
+
+17:58.880 --> 18:02.920
+side or that was the transceiver side nothing has to change?
+
+18:02.920 --> 18:06.560
+Could you repeat the question because I didn't catch a...
+
+18:06.560 --> 18:15.840
+So normally if I use a Raspberry Pi or something you have a MCP2151 that has a CAN controller
+
+18:15.840 --> 18:17.920
+and a CAN transceiver.
+
+18:17.920 --> 18:22.920
+STM32 only has a CAN controller.
+
+18:23.000 --> 18:31.000
+And on the board you would need to have external IP, IC, right, that would run as a CAN transceiver.
+
+18:31.000 --> 18:40.520
+I don't know if the board I have can transceiver because I didn't modify the hardware.
+
+18:40.520 --> 18:48.800
+I put in Lubeck internally the CAN controller and so I was able to test because I'm not
+
+18:48.800 --> 18:49.800
+an hardware engineer.
+
+18:49.800 --> 18:55.880
+I am a software engineer and I am more confident on software than on hardware.
+
+18:55.880 --> 19:01.760
+So I didn't want to put the hand on the hardware.
+
+19:01.760 --> 19:10.960
+I bought a transceiver but after finding that I was able to enable the Lubeck...
+
+19:10.960 --> 19:11.960
+Inasmuch...
+
+19:11.960 --> 19:14.720
+Okay, okay, thank you.
+
+19:14.720 --> 19:24.360
+You can basically use the same transceiver with the SD microcontroller so they are compatible.
+
+19:24.360 --> 19:25.360
+Was that your question?
+
+19:25.360 --> 19:33.360
+Yeah, so I just wanted to ask that in an MMU and MMU less system the CAN bus, the 120
+
+19:33.360 --> 19:35.360
+or nothing else would change in a...
+
+19:35.360 --> 19:37.360
+Right, that was my question.
+
+19:37.360 --> 19:44.280
+Yes, the CAN controller usually has a digital interface with RX and TX line and this is
+
+19:44.280 --> 19:50.720
+connected to the transceiver that makes it into what's going over the wire and the transceiver
+
+19:50.720 --> 19:57.040
+doesn't care what kind of CAN controller was on the digital side you attached to.
+
+19:57.040 --> 20:12.720
+Hi, some STM32 have a newer IP for CAN that is named FD-CAN.
+
+20:13.720 --> 20:17.840
+I am familiar with FD-CAN so I wasn't aware...
+
+20:17.840 --> 20:18.840
+FD-CAN, FD-CAN.
+
+20:18.840 --> 20:26.160
+Yeah, and it seems like it's backwards compatible with DX-CAN so it looks like it should be
+
+20:26.160 --> 20:33.000
+compatible with your work so that's really nice but were you aware about FD-CAN?
+
+20:33.000 --> 20:34.000
+No?
+
+20:34.000 --> 20:35.000
+Okay.
+
+20:35.640 --> 20:42.000
+So I was wondering if it was planned to support the functionalities that are in FD-CAN and
+
+20:42.000 --> 20:43.640
+not in DX-CAN.
+
+20:43.640 --> 20:49.800
+But I think the FD-CAN features are not on this type of platform I think.
+
+20:49.800 --> 20:58.120
+I think that it's on the STM32MP because this is a microcontroller.
+
+20:58.120 --> 21:03.200
+No, no, I was using FD-CAN on STM32F303.
+
+21:03.200 --> 21:07.800
+But I suppose they have some weird...
+
+21:07.800 --> 21:12.120
+I can say something to this also.
+
+21:12.120 --> 21:19.840
+On the modern STM microcontrollers where you have FD-CAN they are using the M-CAN IP
+
+21:19.840 --> 21:23.600
+core from WOSH and this is already supported by Linux.
+
+21:34.200 --> 21:36.800
+Non-MU system.
+
+21:36.800 --> 21:46.520
+Was you able to test the very latest CAN-Utils and non-MU system with the very latest new
+
+21:46.520 --> 21:48.840
+ISOBus file system support?
+
+21:48.840 --> 21:49.840
+No.
+
+21:54.840 --> 21:58.200
+Okay, we have time for one more question if there is one.
+
+22:04.200 --> 22:06.000
+Okay, I think we're done.
+
+22:06.000 --> 22:06.520
+Thank you very much.
+

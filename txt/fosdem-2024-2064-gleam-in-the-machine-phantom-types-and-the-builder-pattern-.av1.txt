@@ -1,0 +1,238 @@
+And as we mentioned, this is, let's talk about using types in GLEAM, but also these ideas
+translate to most other statically typed languages and hopefully also this gradual type experiment
+is happening in Elixir.
+So before I get into it, maybe a little bit about me and why I'm slightly qualified to
+talk about this.
+I'm a front-end developer at a consultancy called Data2Impact.
+I do sort of ALM and TypeScript and React there.
+I've been doing ALM, which is a statically typed functional programming language for
+building web apps for about six years now.
+I also do developer relations-y kind of things at an open source company called XYFlow.
+There we're doing React again and Svelte.
+And I'm also doing way too many things to do with GLEAM these days.
+Louis insists that I'm a member of the core team despite having never contributed anything
+to the compiler.
+I also maintain this front-end framework called Luster and an ecosystem of packages around
+that and spending all of my time in the GLEAM Discord is another full-time job.
+The title of this talk is Phantom Types and the Builder Pattern.
+So I suppose that begs the question, what are Phantom Types?
+And to explain that, we need to do a little detour on generics and what they look like
+in GLEAM.
+As a kind of dummy example, we have a list.
+This is a type, this is how you define custom types in GLEAM.
+So we have a list type and two variants.
+One is a head, which contains an integer value and the rest of the list.
+And then there is a tail, which is the end of the list or an empty list.
+But right now, this type only contains ints.
+So if we want a list of strings or a list of structs or anything.
+To do that, we need generics or type parameters.
+And so that's what that looks like in GLEAM.
+So we say list A, we have a type parameter called A and that head has a value that could
+be any of these A's and then the rest is another list of A's.
+So what the heck does this actually have to do with Phantom Types?
+Well, if we just take a moment to look at this type again, I want to home in on two
+specific bits.
+Well, okay, three apparently because I've left that black, but we'll ignore that.
+The list A type definition and this tail constructor.
+So we're saying this list is generic over A, but our tail constructor has no data attached
+to it.
+So Phantom Types don't exist at runtime.
+We don't have any data that associates with this type.
+And to exemplify that, here is a tiny trivial example.
+We're defining these two variables X and Y and we're telling GLEAM tree X as a list
+of ints and treat Y as a list of strings.
+But they're both this tail, right?
+And so maybe intuitively, we should expect to be able to test equality on this and get
+back through.
+But actually if we do this in GLEAM, we get a type error.
+This is a compile error that tells us GLEAM was expecting Y to be a list of ints, but
+it got a list of strings.
+That example was maybe not compelling and probably your gut reaction was, well, that's
+kind of rubbish because I knew that those two things were the same.
+So what are they actually good for?
+The first example is IDs or really anything where we have a shared runtime representation
+that we want to be able to distinguish between things at the type level.
+So this is kind of a common way to do IDs in GLEAM.
+We have what's called an opaque type, which means that the module that this type is defined
+in can construct IDs, but outside modules can't see into the type.
+So we expose this fromID function that just takes an integer and wraps it up.
+And then we might do something like this, right?
+Like we have a post ID and a user ID and we have some sort of database call or maybe an
+API call or something to upvote a post.
+But there's actually a bug in this code.
+Can anyone spot it?
+This is the definition of our imaginary upvote function and the first parameter is actually
+a post ID.
+And we've got the order the wrong way round because we're just using this ID type for both
+arguments.
+And so like as a user, we've made an error here that our program will never catch.
+We might be a month into production before we've realized that user two has upvoted
+a whole bunch of posts by accident.
+So there's a few different ways we can solve this, but one is with phantom types.
+So we have this kind type parameter now on our ID.
+We're not using it.
+That's what makes it phantom.
+And we keep the fromInt constructor the same.
+And then we let callers essentially refine what an ID type means.
+So we have say a user and a post type somewhere in our code base.
+And now we can make our upvote function type safe in the sense that although these two
+things have the same representation, we've told the type system that the first argument
+has to be a post ID.
+And so if we take that example again, now post ID is again an ID for posts and user ID
+is an ID for users.
+We've got the arguments the wrong way round this time still.
+But now we get a compile error, right?
+And we actually get quite helpful error as well.
+It was expecting a post ID, but we've got a user ID.
+But also we can take advantage of the fact that the representation of this type is the
+same no matter what kind.
+And so we can still write functions like say a debugging one that stringifies any ID.
+It's generic over this kind.
+We don't care about that.
+We just want to pull out the value and turn it into a string.
+The next example is validation.
+I'm going to show you some password validation, which is super don't do this actually in real
+life, but it's good enough for demonstration.
+This is maybe the naive way that we would handle password validation.
+Maybe we want to create a user in our database or something.
+And so we have this password type alias for a string and we would define say a function
+is valid that will check if a given password is valid according to some rules.
+Maybe it's long enough, whatever has all the funky characters.
+And then we have a create user function that would take a username and a password and then
+return a result, right?
+And so if the password is valid, we get back an OK user.
+And if the password is too short or doesn't have a capital letter or whatever, we get
+back an error.
+And this is fine, but I can already start spotting some problems with code like this.
+So for one, we have a similar problem from that previous example where there's nothing
+that actually distinguishes a password from a username.
+So password is a type alias here.
+It's just another name for a string type.
+And so we could accidentally swap the arguments around in our code and get a problem there.
+And also this create user function, this is probably going to be used in our business
+logic somewhere like kind of deep in our code.
+And now we're having to deal with errors and a way to surface those errors to our users.
+So here's a perhaps different way to formulate this with phantom types.
+So again, we have this type parameter now on our password type, this validation type
+parameter.
+And then we define these two sort of dummy types.
+They have no runtime representation, so there's no shape to them.
+We have one for invalid and we have one for valid.
+And we have a from string function that takes whatever password someone's typed in and it
+gives us back an invalid password.
+And with that, we can start refining our API so we can write a validate function that
+takes only invalid passwords because we don't need to check once we have a valid one.
+And it returns a result like before, you know, is the password okay?
+If it is, then we get back a valid password.
+If it's incorrect, we get back a reason and you know an error.
+Or we could write this kind of function to suggest a new password to a user if they provided
+an invalid one.
+And then it's probably a logic bug in our program if we ever started suggesting passwords
+to our users if they were already good enough.
+And finally, we can rewrite that create user function to do away with the result handling
+now.
+We say this only takes in valid passwords and so we only ever need to get back a user
+that we've created.
+At this point in our code, we've already asserted that the password is valid.
+We don't have to check again.
+We don't have to handle this in our business logic.
+We can handle the results much, much closer to the boundary of our program.
+So the takeaway there is that phantom types restrict our APIs so that we can focus just
+on the happy path.
+So the talk is about phantom types and the builder pattern.
+So I guess now is a good time to touch on what the builder pattern is.
+I'm a front-end developer so if I'm configuring a button or something, often there's a lot
+of optional properties.
+So we have this button config here.
+The label is required but then we have all these kind of options to change how it looks
+and works so we can maybe have an icon on the button.
+We can change the button's color, maybe some of its styles.
+So the builder pattern really lets us define this config and then we define, say, a constructor
+that handles all of the required stuff, in this case just the label, and then we kind
+of none out all the optional things.
+And then we provide individual functions that take that config and sort of add one bit of
+the config to it over time.
+So we have this with color builder which takes the config and then adds a color to it.
+We have one for an icon and so on.
+And then you end up with an API that's a bit like this.
+So we create a new button with the label Wibble and we add a sparkles icon to it or another
+formulation.
+We have a wobble button that is an error but it's also disabled.
+And this stuff then sort of scales.
+You can configure this sort of infinitely over time.
+But again, there's actually a bug in this code.
+Can anyone spot it?
+We've defined what the icon on the button is twice.
+And this is almost definitely a logic bug in our code.
+We said that we wanted a confetti icon and then later on down the line we replaced it
+with sparkles.
+And so it turns out the phantom types can help us here too.
+So I add a phantom type parameter to our config.
+This has icon parameter.
+And again, this is the same pattern rate.
+We have these two dummy types.
+They don't have any runtime representation.
+One for having no icon in our config and one for having an icon.
+And then we change our constructor function slightly.
+So now our button config that we get back when we create a new button has specifically
+no icon.
+And then we update our with icon builder to take only configs for buttons that don't
+have an icon and return a button config that asserts that there is an icon present.
+So if we look at that code example again, now like before we get a type error.
+We get a type error on the last step in the pipe that says, hey, this button config I
+expected to have no icon, but you must have given me one in the past.
+This is not just maybe an academic exercise, but this is also useful in the real world.
+I was going to show some code examples and then I realized it's pretty much exactly whatever
+I really showed.
+So I'm not going to do that, but I will just explain.
+I use the phantom types and the builder pattern for some code that I do in Lustre.
+Lustre is this front-end framework that I write for Gleam, which has components that
+can run both in the server or in the browser.
+The type of messages that the runtime can receive are slightly different there.
+And to avoid basically duplicating, say, 90% of the code base, I have a phantom type on
+the message that the runtime receives and I can say, hey, server components only receive
+this sort of subset of messages.
+Browser components only receive, say, these one or two types.
+And that's really, really useful.
+I also use these in a static site generator that I maintain for Lustre.
+And there we're using this builder pattern.
+So you build up your roots of your static type.
+And the config there has fields for, like, does this config have at least one static
+root?
+So if I run build, am I going to get a site out?
+And I use the phantom builder type pattern there to make sure that the user, when they
+construct their static site, they have at least one static root.
+And so to recap, the takeaway here is that phantom types don't exist at runtime, but we
+can use them to restrict APIs that we write so that we spend more time focused on the
+happy path rather than, say, error handling or duplicating our code for very, very similar
+scenarios.
+Thank you for listening.
+I think we've got a bit of time for questions now.
+We have some time for some questions.
+Anyone else have some?
+Any questions?
+Yeah, go for it.
+Is it possible to scale this phantom types to, like, multiple properties?
+Because in the example, we are not sure that there is this icon.
+Would it be possible to extend to this label and so on?
+Yeah.
+So the question is, can you extend this pattern for, say, like, multiple facts or witnesses,
+right?
+Can you have multiple phantom type parameters?
+The answer is absolutely yes.
+And that's exactly what I do in this static type builder.
+In Gleam, those would have to be individual type parameters for each sort of extra thing
+that you want to track.
+But if you were using a language like TypeScript or probably when Elixir gets their gradual
+type system, there you can use, say, a record.
+And you can use fields.
+You can grow the number of things that you're tracking just on the fields of the record.
+So you have, like, one phantom type that is a record.
+And all of the things that you care about would be labels of that record.
+Does that make sense?
+Any other questions?
+Okay.
+Thank you again.
+Thank you very much.
+Thank you.
+Thank you very much.

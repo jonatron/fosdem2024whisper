@@ -1,0 +1,716 @@
+WEBVTT
+
+00:00.000 --> 00:18.480
+And as we mentioned, this is, let's talk about using types in GLEAM, but also these ideas
+
+00:18.480 --> 00:27.840
+translate to most other statically typed languages and hopefully also this gradual type experiment
+
+00:27.840 --> 00:31.720
+is happening in Elixir.
+
+00:31.720 --> 00:35.440
+So before I get into it, maybe a little bit about me and why I'm slightly qualified to
+
+00:35.440 --> 00:37.240
+talk about this.
+
+00:37.240 --> 00:41.600
+I'm a front-end developer at a consultancy called Data2Impact.
+
+00:41.600 --> 00:45.560
+I do sort of ALM and TypeScript and React there.
+
+00:45.560 --> 00:49.840
+I've been doing ALM, which is a statically typed functional programming language for
+
+00:49.840 --> 00:55.920
+building web apps for about six years now.
+
+00:55.920 --> 01:02.840
+I also do developer relations-y kind of things at an open source company called XYFlow.
+
+01:02.840 --> 01:07.240
+There we're doing React again and Svelte.
+
+01:07.240 --> 01:11.680
+And I'm also doing way too many things to do with GLEAM these days.
+
+01:11.680 --> 01:15.400
+Louis insists that I'm a member of the core team despite having never contributed anything
+
+01:15.400 --> 01:17.760
+to the compiler.
+
+01:17.760 --> 01:23.360
+I also maintain this front-end framework called Luster and an ecosystem of packages around
+
+01:23.360 --> 01:30.920
+that and spending all of my time in the GLEAM Discord is another full-time job.
+
+01:30.920 --> 01:36.680
+The title of this talk is Phantom Types and the Builder Pattern.
+
+01:36.680 --> 01:43.120
+So I suppose that begs the question, what are Phantom Types?
+
+01:43.120 --> 01:47.160
+And to explain that, we need to do a little detour on generics and what they look like
+
+01:47.160 --> 01:50.800
+in GLEAM.
+
+01:50.800 --> 01:55.120
+As a kind of dummy example, we have a list.
+
+01:55.120 --> 01:58.760
+This is a type, this is how you define custom types in GLEAM.
+
+01:58.760 --> 02:02.000
+So we have a list type and two variants.
+
+02:02.000 --> 02:07.520
+One is a head, which contains an integer value and the rest of the list.
+
+02:07.520 --> 02:12.240
+And then there is a tail, which is the end of the list or an empty list.
+
+02:12.240 --> 02:17.280
+But right now, this type only contains ints.
+
+02:17.280 --> 02:23.080
+So if we want a list of strings or a list of structs or anything.
+
+02:23.080 --> 02:26.080
+To do that, we need generics or type parameters.
+
+02:26.080 --> 02:28.400
+And so that's what that looks like in GLEAM.
+
+02:28.400 --> 02:34.000
+So we say list A, we have a type parameter called A and that head has a value that could
+
+02:34.000 --> 02:41.840
+be any of these A's and then the rest is another list of A's.
+
+02:41.840 --> 02:45.720
+So what the heck does this actually have to do with Phantom Types?
+
+02:45.720 --> 02:51.280
+Well, if we just take a moment to look at this type again, I want to home in on two
+
+02:51.280 --> 02:52.280
+specific bits.
+
+02:52.280 --> 02:58.760
+Well, okay, three apparently because I've left that black, but we'll ignore that.
+
+02:58.760 --> 03:04.960
+The list A type definition and this tail constructor.
+
+03:04.960 --> 03:11.040
+So we're saying this list is generic over A, but our tail constructor has no data attached
+
+03:11.040 --> 03:14.120
+to it.
+
+03:14.120 --> 03:16.600
+So Phantom Types don't exist at runtime.
+
+03:16.600 --> 03:20.000
+We don't have any data that associates with this type.
+
+03:20.000 --> 03:25.720
+And to exemplify that, here is a tiny trivial example.
+
+03:25.720 --> 03:30.400
+We're defining these two variables X and Y and we're telling GLEAM tree X as a list
+
+03:30.400 --> 03:34.200
+of ints and treat Y as a list of strings.
+
+03:34.200 --> 03:36.760
+But they're both this tail, right?
+
+03:36.760 --> 03:42.480
+And so maybe intuitively, we should expect to be able to test equality on this and get
+
+03:42.480 --> 03:45.000
+back through.
+
+03:45.000 --> 03:47.720
+But actually if we do this in GLEAM, we get a type error.
+
+03:47.720 --> 03:53.320
+This is a compile error that tells us GLEAM was expecting Y to be a list of ints, but
+
+03:53.320 --> 03:59.120
+it got a list of strings.
+
+03:59.120 --> 04:03.640
+That example was maybe not compelling and probably your gut reaction was, well, that's
+
+04:03.640 --> 04:07.520
+kind of rubbish because I knew that those two things were the same.
+
+04:07.520 --> 04:11.040
+So what are they actually good for?
+
+04:11.040 --> 04:17.560
+The first example is IDs or really anything where we have a shared runtime representation
+
+04:17.560 --> 04:24.160
+that we want to be able to distinguish between things at the type level.
+
+04:24.160 --> 04:29.440
+So this is kind of a common way to do IDs in GLEAM.
+
+04:29.440 --> 04:34.120
+We have what's called an opaque type, which means that the module that this type is defined
+
+04:34.120 --> 04:40.520
+in can construct IDs, but outside modules can't see into the type.
+
+04:40.520 --> 04:47.000
+So we expose this fromID function that just takes an integer and wraps it up.
+
+04:47.000 --> 04:48.560
+And then we might do something like this, right?
+
+04:48.560 --> 04:54.320
+Like we have a post ID and a user ID and we have some sort of database call or maybe an
+
+04:54.320 --> 04:56.920
+API call or something to upvote a post.
+
+04:57.920 --> 05:00.840
+But there's actually a bug in this code.
+
+05:00.840 --> 05:05.320
+Can anyone spot it?
+
+05:05.320 --> 05:10.600
+This is the definition of our imaginary upvote function and the first parameter is actually
+
+05:10.600 --> 05:12.720
+a post ID.
+
+05:12.720 --> 05:17.520
+And we've got the order the wrong way round because we're just using this ID type for both
+
+05:17.520 --> 05:18.520
+arguments.
+
+05:18.520 --> 05:22.320
+And so like as a user, we've made an error here that our program will never catch.
+
+05:22.320 --> 05:26.880
+We might be a month into production before we've realized that user two has upvoted
+
+05:27.440 --> 05:29.640
+a whole bunch of posts by accident.
+
+05:29.640 --> 05:35.960
+So there's a few different ways we can solve this, but one is with phantom types.
+
+05:35.960 --> 05:40.280
+So we have this kind type parameter now on our ID.
+
+05:40.280 --> 05:41.280
+We're not using it.
+
+05:41.280 --> 05:43.880
+That's what makes it phantom.
+
+05:43.880 --> 05:47.560
+And we keep the fromInt constructor the same.
+
+05:47.560 --> 05:53.240
+And then we let callers essentially refine what an ID type means.
+
+05:53.240 --> 05:57.000
+So we have say a user and a post type somewhere in our code base.
+
+05:57.000 --> 06:02.280
+And now we can make our upvote function type safe in the sense that although these two
+
+06:02.280 --> 06:06.840
+things have the same representation, we've told the type system that the first argument
+
+06:06.840 --> 06:10.320
+has to be a post ID.
+
+06:10.320 --> 06:16.360
+And so if we take that example again, now post ID is again an ID for posts and user ID
+
+06:16.360 --> 06:18.160
+is an ID for users.
+
+06:18.160 --> 06:20.920
+We've got the arguments the wrong way round this time still.
+
+06:20.920 --> 06:23.400
+But now we get a compile error, right?
+
+06:23.400 --> 06:25.600
+And we actually get quite helpful error as well.
+
+06:25.600 --> 06:32.920
+It was expecting a post ID, but we've got a user ID.
+
+06:32.920 --> 06:37.960
+But also we can take advantage of the fact that the representation of this type is the
+
+06:37.960 --> 06:39.840
+same no matter what kind.
+
+06:39.840 --> 06:45.600
+And so we can still write functions like say a debugging one that stringifies any ID.
+
+06:45.600 --> 06:47.480
+It's generic over this kind.
+
+06:47.480 --> 06:48.480
+We don't care about that.
+
+06:48.480 --> 06:54.720
+We just want to pull out the value and turn it into a string.
+
+06:54.720 --> 06:59.000
+The next example is validation.
+
+06:59.000 --> 07:04.240
+I'm going to show you some password validation, which is super don't do this actually in real
+
+07:04.240 --> 07:09.200
+life, but it's good enough for demonstration.
+
+07:09.200 --> 07:12.920
+This is maybe the naive way that we would handle password validation.
+
+07:12.920 --> 07:16.320
+Maybe we want to create a user in our database or something.
+
+07:16.320 --> 07:23.240
+And so we have this password type alias for a string and we would define say a function
+
+07:23.240 --> 07:29.120
+is valid that will check if a given password is valid according to some rules.
+
+07:29.120 --> 07:32.920
+Maybe it's long enough, whatever has all the funky characters.
+
+07:32.920 --> 07:37.520
+And then we have a create user function that would take a username and a password and then
+
+07:37.520 --> 07:38.720
+return a result, right?
+
+07:38.720 --> 07:42.400
+And so if the password is valid, we get back an OK user.
+
+07:42.800 --> 07:47.920
+And if the password is too short or doesn't have a capital letter or whatever, we get
+
+07:47.920 --> 07:51.080
+back an error.
+
+07:51.080 --> 07:56.640
+And this is fine, but I can already start spotting some problems with code like this.
+
+07:56.640 --> 08:01.480
+So for one, we have a similar problem from that previous example where there's nothing
+
+08:01.480 --> 08:05.840
+that actually distinguishes a password from a username.
+
+08:05.840 --> 08:07.360
+So password is a type alias here.
+
+08:07.360 --> 08:09.640
+It's just another name for a string type.
+
+08:09.640 --> 08:15.360
+And so we could accidentally swap the arguments around in our code and get a problem there.
+
+08:15.360 --> 08:19.240
+And also this create user function, this is probably going to be used in our business
+
+08:19.240 --> 08:22.240
+logic somewhere like kind of deep in our code.
+
+08:22.240 --> 08:30.880
+And now we're having to deal with errors and a way to surface those errors to our users.
+
+08:30.880 --> 08:35.080
+So here's a perhaps different way to formulate this with phantom types.
+
+08:35.080 --> 08:40.320
+So again, we have this type parameter now on our password type, this validation type
+
+08:40.320 --> 08:41.880
+parameter.
+
+08:41.880 --> 08:45.040
+And then we define these two sort of dummy types.
+
+08:45.040 --> 08:48.400
+They have no runtime representation, so there's no shape to them.
+
+08:48.400 --> 08:51.560
+We have one for invalid and we have one for valid.
+
+08:51.560 --> 08:56.840
+And we have a from string function that takes whatever password someone's typed in and it
+
+08:56.840 --> 09:01.840
+gives us back an invalid password.
+
+09:01.840 --> 09:06.560
+And with that, we can start refining our API so we can write a validate function that
+
+09:06.560 --> 09:12.040
+takes only invalid passwords because we don't need to check once we have a valid one.
+
+09:12.040 --> 09:16.000
+And it returns a result like before, you know, is the password okay?
+
+09:16.000 --> 09:18.200
+If it is, then we get back a valid password.
+
+09:18.200 --> 09:23.960
+If it's incorrect, we get back a reason and you know an error.
+
+09:23.960 --> 09:29.520
+Or we could write this kind of function to suggest a new password to a user if they provided
+
+09:29.520 --> 09:31.080
+an invalid one.
+
+09:31.080 --> 09:35.760
+And then it's probably a logic bug in our program if we ever started suggesting passwords
+
+09:35.760 --> 09:40.000
+to our users if they were already good enough.
+
+09:40.000 --> 09:45.480
+And finally, we can rewrite that create user function to do away with the result handling
+
+09:45.480 --> 09:46.480
+now.
+
+09:46.480 --> 09:50.920
+We say this only takes in valid passwords and so we only ever need to get back a user
+
+09:50.920 --> 09:51.920
+that we've created.
+
+09:51.920 --> 09:56.840
+At this point in our code, we've already asserted that the password is valid.
+
+09:56.840 --> 09:57.840
+We don't have to check again.
+
+09:57.840 --> 10:00.280
+We don't have to handle this in our business logic.
+
+10:00.280 --> 10:08.000
+We can handle the results much, much closer to the boundary of our program.
+
+10:08.000 --> 10:12.720
+So the takeaway there is that phantom types restrict our APIs so that we can focus just
+
+10:12.720 --> 10:18.920
+on the happy path.
+
+10:18.920 --> 10:23.800
+So the talk is about phantom types and the builder pattern.
+
+10:23.800 --> 10:30.200
+So I guess now is a good time to touch on what the builder pattern is.
+
+10:31.120 --> 10:35.480
+I'm a front-end developer so if I'm configuring a button or something, often there's a lot
+
+10:35.480 --> 10:37.960
+of optional properties.
+
+10:37.960 --> 10:40.520
+So we have this button config here.
+
+10:40.520 --> 10:44.360
+The label is required but then we have all these kind of options to change how it looks
+
+10:44.360 --> 10:48.320
+and works so we can maybe have an icon on the button.
+
+10:48.320 --> 10:51.480
+We can change the button's color, maybe some of its styles.
+
+10:51.480 --> 10:57.360
+So the builder pattern really lets us define this config and then we define, say, a constructor
+
+10:57.360 --> 11:02.160
+that handles all of the required stuff, in this case just the label, and then we kind
+
+11:02.160 --> 11:06.400
+of none out all the optional things.
+
+11:06.400 --> 11:11.160
+And then we provide individual functions that take that config and sort of add one bit of
+
+11:11.160 --> 11:13.640
+the config to it over time.
+
+11:13.640 --> 11:17.920
+So we have this with color builder which takes the config and then adds a color to it.
+
+11:17.920 --> 11:21.880
+We have one for an icon and so on.
+
+11:21.880 --> 11:24.080
+And then you end up with an API that's a bit like this.
+
+11:24.440 --> 11:30.560
+So we create a new button with the label Wibble and we add a sparkles icon to it or another
+
+11:30.560 --> 11:31.560
+formulation.
+
+11:31.560 --> 11:36.840
+We have a wobble button that is an error but it's also disabled.
+
+11:36.840 --> 11:39.600
+And this stuff then sort of scales.
+
+11:39.600 --> 11:43.080
+You can configure this sort of infinitely over time.
+
+11:43.080 --> 11:45.360
+But again, there's actually a bug in this code.
+
+11:45.360 --> 11:51.960
+Can anyone spot it?
+
+11:51.960 --> 11:55.120
+We've defined what the icon on the button is twice.
+
+11:55.120 --> 11:57.720
+And this is almost definitely a logic bug in our code.
+
+11:57.720 --> 12:03.480
+We said that we wanted a confetti icon and then later on down the line we replaced it
+
+12:03.480 --> 12:04.480
+with sparkles.
+
+12:04.480 --> 12:14.800
+And so it turns out the phantom types can help us here too.
+
+12:14.800 --> 12:18.080
+So I add a phantom type parameter to our config.
+
+12:18.080 --> 12:19.920
+This has icon parameter.
+
+12:19.920 --> 12:21.960
+And again, this is the same pattern rate.
+
+12:21.960 --> 12:23.600
+We have these two dummy types.
+
+12:23.600 --> 12:26.040
+They don't have any runtime representation.
+
+12:26.040 --> 12:32.680
+One for having no icon in our config and one for having an icon.
+
+12:32.680 --> 12:36.000
+And then we change our constructor function slightly.
+
+12:36.000 --> 12:40.760
+So now our button config that we get back when we create a new button has specifically
+
+12:40.760 --> 12:42.120
+no icon.
+
+12:42.120 --> 12:47.680
+And then we update our with icon builder to take only configs for buttons that don't
+
+12:47.680 --> 12:54.640
+have an icon and return a button config that asserts that there is an icon present.
+
+12:54.640 --> 13:00.400
+So if we look at that code example again, now like before we get a type error.
+
+13:00.400 --> 13:07.240
+We get a type error on the last step in the pipe that says, hey, this button config I
+
+13:07.240 --> 13:17.480
+expected to have no icon, but you must have given me one in the past.
+
+13:18.280 --> 13:22.440
+This is not just maybe an academic exercise, but this is also useful in the real world.
+
+13:22.440 --> 13:26.120
+I was going to show some code examples and then I realized it's pretty much exactly whatever
+
+13:26.120 --> 13:27.120
+I really showed.
+
+13:27.120 --> 13:29.880
+So I'm not going to do that, but I will just explain.
+
+13:29.880 --> 13:37.040
+I use the phantom types and the builder pattern for some code that I do in Lustre.
+
+13:37.040 --> 13:40.960
+Lustre is this front-end framework that I write for Gleam, which has components that
+
+13:40.960 --> 13:47.320
+can run both in the server or in the browser.
+
+13:48.160 --> 13:53.800
+The type of messages that the runtime can receive are slightly different there.
+
+13:53.800 --> 14:00.160
+And to avoid basically duplicating, say, 90% of the code base, I have a phantom type on
+
+14:00.160 --> 14:04.920
+the message that the runtime receives and I can say, hey, server components only receive
+
+14:04.920 --> 14:08.440
+this sort of subset of messages.
+
+14:08.440 --> 14:12.000
+Browser components only receive, say, these one or two types.
+
+14:12.000 --> 14:13.920
+And that's really, really useful.
+
+14:13.920 --> 14:19.640
+I also use these in a static site generator that I maintain for Lustre.
+
+14:19.640 --> 14:23.120
+And there we're using this builder pattern.
+
+14:23.120 --> 14:27.240
+So you build up your roots of your static type.
+
+14:27.240 --> 14:33.240
+And the config there has fields for, like, does this config have at least one static
+
+14:33.240 --> 14:34.240
+root?
+
+14:34.240 --> 14:39.200
+So if I run build, am I going to get a site out?
+
+14:39.200 --> 14:43.400
+And I use the phantom builder type pattern there to make sure that the user, when they
+
+14:43.400 --> 14:47.880
+construct their static site, they have at least one static root.
+
+14:47.880 --> 14:55.600
+And so to recap, the takeaway here is that phantom types don't exist at runtime, but we
+
+14:55.600 --> 15:00.400
+can use them to restrict APIs that we write so that we spend more time focused on the
+
+15:00.400 --> 15:05.600
+happy path rather than, say, error handling or duplicating our code for very, very similar
+
+15:05.600 --> 15:07.600
+scenarios.
+
+15:08.320 --> 15:10.520
+Thank you for listening.
+
+15:10.520 --> 15:13.520
+I think we've got a bit of time for questions now.
+
+15:13.520 --> 15:18.520
+We have some time for some questions.
+
+15:18.520 --> 15:23.520
+Anyone else have some?
+
+15:23.520 --> 15:25.520
+Any questions?
+
+15:25.520 --> 15:28.520
+Yeah, go for it.
+
+15:29.440 --> 15:34.440
+Is it possible to scale this phantom types to, like, multiple properties?
+
+15:34.440 --> 15:39.440
+Because in the example, we are not sure that there is this icon.
+
+15:39.440 --> 15:43.440
+Would it be possible to extend to this label and so on?
+
+15:43.440 --> 15:44.440
+Yeah.
+
+15:44.440 --> 15:50.440
+So the question is, can you extend this pattern for, say, like, multiple facts or witnesses,
+
+15:50.440 --> 15:51.440
+right?
+
+15:51.440 --> 15:53.880
+Can you have multiple phantom type parameters?
+
+15:53.880 --> 15:55.880
+The answer is absolutely yes.
+
+15:55.880 --> 16:00.240
+And that's exactly what I do in this static type builder.
+
+16:00.240 --> 16:04.920
+In Gleam, those would have to be individual type parameters for each sort of extra thing
+
+16:04.920 --> 16:06.560
+that you want to track.
+
+16:06.560 --> 16:12.400
+But if you were using a language like TypeScript or probably when Elixir gets their gradual
+
+16:12.400 --> 16:17.400
+type system, there you can use, say, a record.
+
+16:17.400 --> 16:18.760
+And you can use fields.
+
+16:18.760 --> 16:23.000
+You can grow the number of things that you're tracking just on the fields of the record.
+
+16:23.120 --> 16:25.880
+So you have, like, one phantom type that is a record.
+
+16:25.880 --> 16:28.880
+And all of the things that you care about would be labels of that record.
+
+16:28.880 --> 16:30.880
+Does that make sense?
+
+16:33.880 --> 16:35.880
+Any other questions?
+
+16:38.880 --> 16:39.880
+Okay.
+
+16:39.880 --> 16:40.880
+Thank you again.
+
+16:40.880 --> 16:41.880
+Thank you very much.
+
+16:41.880 --> 16:42.880
+Thank you.
+
+16:42.880 --> 16:43.880
+Thank you very much.
+

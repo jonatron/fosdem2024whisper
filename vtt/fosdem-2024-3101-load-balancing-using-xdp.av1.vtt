@@ -1,0 +1,218 @@
+WEBVTT
+
+00:00.000 --> 00:19.880
+It's possible with XVP to do bare metal package processing at the lowest point in the software
+
+00:19.880 --> 00:29.240
+stack before the kernel, kernel network stack and this is make it ideal for speed.
+
+00:29.240 --> 00:35.120
+At the end of execution of the XDP program it should return a code.
+
+00:35.120 --> 00:37.640
+There is three possible choices.
+
+00:37.640 --> 00:48.080
+XDP pass, let's say the packet pass to the normal flow in the network kernel stack or
+
+00:48.080 --> 00:54.480
+XDP drop or abort to drop all the packet and so this is invisible to the normal stack
+
+00:54.480 --> 01:05.200
+or XDP TX or redirect to send the packet away to another destination.
+
+01:05.200 --> 01:11.160
+Let's see the most basic possible program XDP program that is this one that all it does
+
+01:11.160 --> 01:20.600
+is just return XDP pass so the normal flow of the packet is preserved.
+
+01:20.600 --> 01:28.520
+To compile XDP program we use a clang with the target BPF option so this is for example
+
+01:28.520 --> 01:34.560
+to compile the previous program and after we can load the program to a network interface
+
+01:34.560 --> 01:42.080
+using the XDP loader that is a command provided by XDP tools.
+
+01:42.080 --> 01:49.800
+If we replace on the previous program that one the XDP pass with XDP drops all the coming
+
+01:49.800 --> 01:52.920
+packages will be dropped.
+
+01:52.920 --> 01:59.400
+As I said this all will happen before the normal kernel network stack so this program
+
+01:59.400 --> 02:07.520
+this packet will completely invisible to the normal stack for example from TCP dump.
+
+02:07.520 --> 02:19.040
+Fortunately for debugging it's we can use XDP dump that permits you view what the XDP
+
+02:19.040 --> 02:27.960
+programs are doing with the packet and check what is the protocol if it is IPv4 than 8
+
+02:27.960 --> 02:38.480
+we check if it is ECMP line 12 and after we access the previous map and add one to the
+
+02:38.480 --> 02:40.760
+value.
+
+02:40.760 --> 02:49.000
+The next step obviously is reading this data from the user space so we can access the
+
+02:49.960 --> 02:53.960
+map with a syscall and read all the map.
+
+02:53.960 --> 03:06.080
+Here we need a loop because for performance each core on the HCPU on the system have a
+
+03:06.080 --> 03:14.320
+different map, a different copy of the map so we need to loop and some of them but it's
+
+03:14.360 --> 03:23.400
+quite easy to access and communicate from user space to a BPF kernel space program.
+
+03:23.400 --> 03:31.160
+Obviously we need to redirect packet if we want to do some nonbalancing so to redirect
+
+03:31.160 --> 03:39.080
+packet we use XDP ticks or XDP redirect return code.
+
+03:39.080 --> 03:43.560
+Before redirect we need to change value of the packet for example in TCP samples is very
+
+03:43.600 --> 03:50.520
+easy we just swap the source MAC address and the destination source address so when we
+
+03:50.520 --> 04:00.040
+return the XDP code the packets will be redirected to the other machine we selected.
+
+04:00.040 --> 04:08.800
+Another important optimization to do on the load balancing is using direct server return
+
+04:08.800 --> 04:20.240
+so all the servers send their response directly to the user without going another time to
+
+04:20.240 --> 04:22.120
+the load balancer.
+
+04:22.120 --> 04:29.440
+To do this load balancer and server must share the same from the group of the canned server
+
+04:29.440 --> 04:36.040
+if the server was the first one the new direct the new request go to the second one and so
+
+04:36.080 --> 04:42.480
+in this case unfortunately we break connection for example if a server goes online but if
+
+04:42.480 --> 04:55.240
+we remove on the case that the server wasn't on the first choice all the packets continue
+
+04:55.240 --> 05:02.360
+to go to the same score so if we remove not the first one but the other ones there is
+
+05:02.360 --> 05:11.880
+no problem for render washing instead in many cases the ashing completely changes if we
+
+05:11.880 --> 05:20.480
+change the set of server and all the connection blocks and only one or all of the servers.
+
+05:20.480 --> 05:32.040
+This is all interesting but it will be really nice if we can load balancing do load balancing
+
+05:32.040 --> 05:34.560
+without load balancer.
+
+05:34.560 --> 05:42.840
+For doing this we can exploit we can leverage the ACMP routing feature that the routers
+
+05:42.840 --> 05:45.680
+have.
+
+05:45.680 --> 05:52.880
+Equal cost multi-path routing is designed for split traffic designated as single EP across
+
+05:52.880 --> 05:59.560
+multiple links of equal cost but we can use it to split the traffic between server if
+
+05:59.600 --> 06:08.120
+all the server announce the same EP and in this case the router blissfully redirects the
+
+06:08.120 --> 06:14.960
+packet to all the server without knowing that is not one but end server that receive packages.
+
+06:14.960 --> 06:23.960
+So we can go from a normal this normal architecture with a load balancer between a server and
+
+06:23.960 --> 06:32.960
+router to a complete distributed load balancer where the package are distributed using ACMP.
+
+06:32.960 --> 06:43.480
+So the ACMP is really useful for high performance load balancer and using optimization like
+
+06:43.480 --> 06:49.120
+direct server return we can also increase the throughput.
+
+06:49.120 --> 06:56.200
+To redirect all the package to the same backend server we need to use a consistent ashing
+
+06:56.200 --> 07:04.200
+algorithm and it's possible to leverage the ACMP routing available in routers to distribute
+
+07:04.200 --> 07:13.240
+packets between server and deploy the load balancer directly to the backend server without
+
+07:13.240 --> 07:16.120
+the dedicated machine.
+
+07:16.120 --> 07:22.120
+All the code that I developed is available open to the public city and there is also
+
+07:22.120 --> 07:30.640
+a link to my thesis all in Italian fortunately where I examine all the available load balancers
+
+07:30.640 --> 07:42.800
+in the market and all I explain all with more or less briefly let's say like 70 pages.
+
+07:42.800 --> 07:54.960
+Thank you for your attention.
+
+07:54.960 --> 08:00.800
+Thanks for the talk.
+
+08:00.800 --> 08:04.960
+Thanks for the talk and I have one question.
+
+08:04.960 --> 08:11.800
+Is it possible in XDP to inspect the source the data in the packets so you can just.
+
+08:11.800 --> 08:18.760
+Yeah you can impact the packet quite really easy.
+
+08:18.760 --> 08:27.400
+Here we have only the protocol and the protocol and which type of packet it is but it's possible
+
+08:27.400 --> 08:31.360
+to go more inside the packet to examine all the packets.
+
+08:31.360 --> 08:40.800
+Okay and the second part of this question is it wise to do it like from the.
+
+08:41.800 --> 08:43.800
+Good but yeah.
+
+08:43.800 --> 08:49.800
+Sorry guys if you leave the room please leave from the door over there.
+
+08:49.800 --> 08:51.800
+Wait until he's over.
+
+09:05.800 --> 09:06.800
+Thank you.
+
+09:10.800 --> 09:11.800
+Thank you.
+

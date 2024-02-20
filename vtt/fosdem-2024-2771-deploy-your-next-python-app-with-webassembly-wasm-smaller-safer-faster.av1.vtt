@@ -1,0 +1,1244 @@
+WEBVTT
+
+00:00.000 --> 00:11.560
+Okay, it's 4 p.m. now, so we can start with the next talk.
+
+00:11.560 --> 00:15.720
+So Dan Phillips is going to talk about deploying Python on Wasm.
+
+00:15.720 --> 00:20.240
+And what's interesting about this is there's been a lot of talking about running Python
+
+00:20.240 --> 00:25.040
+in the browser, and I think Dan is going to talk about running Wasm on a server, which
+
+00:25.040 --> 00:28.600
+is something completely new, at least to me.
+
+00:28.600 --> 00:36.960
+Thank you very much. Give him a big welcome.
+
+00:36.960 --> 00:39.560
+Thanks. Can everyone can hear me, yeah?
+
+00:39.560 --> 00:44.760
+Perfect. Yeah, so thanks very much for the intro.
+
+00:44.760 --> 00:47.520
+Feedback, no? Yeah, a little bit.
+
+00:47.520 --> 00:50.000
+Okay. Yeah, thanks again.
+
+00:50.000 --> 00:54.160
+My name is Dan Phillips, and today I'm going to be talking about deploying Python on Web
+
+00:54.160 --> 01:00.520
+Assembly, and the sort of tagline here is smaller, safer, faster, and universal.
+
+01:00.520 --> 01:04.120
+The one of these that should have an asterisk is faster, and I'll get into the details on
+
+01:04.120 --> 01:07.080
+that shortly.
+
+01:07.080 --> 01:11.800
+Briefly about me, I am an engineer at a company called Loophole Labs.
+
+01:11.800 --> 01:14.960
+I'm here with a few of my colleagues down front.
+
+01:14.960 --> 01:20.400
+We do very specific cloud primitives where we work in specific areas, so I mostly focus
+
+01:20.400 --> 01:22.800
+on Web Assembly stuff.
+
+01:22.800 --> 01:26.720
+We have a project called the Scale Function Runtime, the Scale Plugin Runtime, which is
+
+01:26.720 --> 01:29.960
+a Web Assembly-powered function runtime.
+
+01:29.960 --> 01:31.360
+You can check it out at scale.sh.
+
+01:31.360 --> 01:35.080
+I'll talk briefly about it at some other points.
+
+01:35.080 --> 01:37.840
+On the internet, I'm mostly D-Unscore-Filla.
+
+01:37.840 --> 01:42.120
+Of course, on GitHub, since they don't allow underscores, just D-Filla without an underscore
+
+01:42.120 --> 01:44.760
+or a space.
+
+01:44.760 --> 01:47.760
+And I'm from Chicago, so in Chicago, I run the Web Assembly Chicago group.
+
+01:47.920 --> 01:50.560
+If you're ever in town, we'd love to have you stop by, or if you're interested, we also
+
+01:50.560 --> 01:53.560
+do all of our meetings virtually as well.
+
+01:53.560 --> 01:56.960
+Okay, so we'll just jump right into it then.
+
+01:56.960 --> 01:57.960
+What is Web Assembly?
+
+01:57.960 --> 02:03.320
+We're going to sort of start at the more abstract level and then get down into the weeds a bit,
+
+02:03.320 --> 02:07.640
+not too far into the weeds, but into them enough so that we can get a good grasp on what the
+
+02:07.640 --> 02:09.880
+constraints are and what the benefits are.
+
+02:09.880 --> 02:12.280
+So firstly, this is directly from the spec itself.
+
+02:12.280 --> 02:17.520
+Web Assembly-abbreviated WASM is a safe, portable, low-level code format, which is designed
+
+02:17.520 --> 02:22.240
+for efficient execution and compact representation.
+
+02:22.240 --> 02:26.040
+There's a debate about the pronunciation of WASM, WASM, doesn't really matter.
+
+02:26.040 --> 02:31.200
+Technically, it's probably WASM because it's from the precursor, which was ASM.js, if anyone
+
+02:31.200 --> 02:36.680
+has used that previously, which was a set of JavaScript primitives that allowed you
+
+02:36.680 --> 02:41.960
+to run more performant JavaScript code, C and C++ code in the browser.
+
+02:41.960 --> 02:45.000
+The WASM project sort of came from that.
+
+02:45.000 --> 02:51.040
+It's a safe sandbox execution environment, a deny-by-default security model, and it makes
+
+02:51.040 --> 02:55.440
+no assumption about languages or host.
+
+02:55.440 --> 02:58.880
+The best analogy is that it's a virtualized CPU, right?
+
+02:58.880 --> 03:02.840
+So we can think of it as just another compilation target.
+
+03:02.840 --> 03:09.000
+To continue, just like when we have architectures like x86, etc., we compile things to those
+
+03:09.000 --> 03:13.920
+architectures and we also compile things to WASM.
+
+03:13.920 --> 03:16.160
+It's a virtualized ISA, right?
+
+03:16.160 --> 03:21.400
+So when we think about ISAs, we have the things I just mentioned, but this is a virtualized
+
+03:21.400 --> 03:23.360
+instruction set.
+
+03:23.360 --> 03:27.440
+And it's virtualized because it needs a runtime, right?
+
+03:27.440 --> 03:31.240
+And it uses a stack machine model for the execution.
+
+03:31.240 --> 03:34.880
+So we're not going to go too much into the specifics, but this is kind of the high-level
+
+03:34.880 --> 03:37.800
+overview.
+
+03:37.800 --> 03:40.240
+So what does that really mean, right?
+
+03:40.240 --> 03:43.960
+In the broad sense, it's really just another architecture.
+
+03:43.960 --> 03:46.800
+The key differences are it's virtualized.
+
+03:46.800 --> 03:50.080
+It needs a runtime to translate to machine code, right?
+
+03:50.080 --> 03:54.440
+So in browsers, every major browser has a WASM runtime in it.
+
+03:54.440 --> 03:59.600
+The four major ones do, at least, and they're all relatively up-to-date with the spec.
+
+03:59.600 --> 04:01.160
+There are also server-side runtimes.
+
+04:01.160 --> 04:05.720
+There are runtimes that you can run in kernel-free environments, etc.
+
+04:05.720 --> 04:08.120
+We'll kind of talk about a few of those.
+
+04:08.120 --> 04:14.800
+And it's universal, by which I mean it's universal in as much as you have a runtime on the machine
+
+04:14.800 --> 04:19.480
+that you are going to run the WASM on, right?
+
+04:19.480 --> 04:23.000
+So people have played with WebAssembly here.
+
+04:23.000 --> 04:27.560
+We just mentioned that there's been some really interesting work with PyScript, PyDyde
+
+04:27.560 --> 04:30.800
+to run Python in the browser.
+
+04:30.800 --> 04:34.280
+Initially it started as a client-side tech, right?
+
+04:34.280 --> 04:35.800
+We go back to the spec here.
+
+04:35.800 --> 04:39.680
+This is right from the spec that says a safe sandbox execution environment,
+
+04:39.680 --> 04:43.280
+which makes no assumption about languages or host.
+
+04:43.280 --> 04:47.840
+And if we dig into that a bit more, we can understand some other benefits here.
+
+04:47.840 --> 04:52.400
+It was designed to be extremely compact and to start up extremely fast and shut down quickly,
+
+04:52.400 --> 04:53.400
+right?
+
+04:53.400 --> 04:57.000
+So cold start times can be in the nano-to-microsecond range.
+
+04:57.000 --> 04:59.800
+And again, a universal compilation target.
+
+04:59.800 --> 05:05.400
+This is a joke in the WASM community that WASM is neither Web nor is it assembly, necessarily,
+
+05:05.400 --> 05:06.480
+right?
+
+05:06.480 --> 05:09.080
+In the spec, there's no mention of the Web itself.
+
+05:09.080 --> 05:10.080
+There's no mention of assembly.
+
+05:10.080 --> 05:14.840
+It's just, I think it's just kind of a nice combination of words.
+
+05:14.840 --> 05:20.240
+So server-side WebAssembly is an interesting point that's come up recently.
+
+05:20.240 --> 05:23.520
+And one of the things that I like to think of it as is, it was sort of cloud infrastructure
+
+05:23.520 --> 05:24.880
+as penicillin moment, right?
+
+05:24.880 --> 05:30.440
+Where there was this technology that was clearly designed to be extremely performance-safe
+
+05:30.600 --> 05:35.840
+and be able to be overnight shipped to billions of different machines.
+
+05:35.840 --> 05:38.280
+And that's because this is what the browser commands, right?
+
+05:38.280 --> 05:43.200
+So this was something that if we took this same idea and we kind of squinted, it kind
+
+05:43.200 --> 05:48.960
+of starts to resemble other technologies that we see in other areas.
+
+05:48.960 --> 05:53.840
+Some people have made this argument that we went from things like bare metal to VMs,
+
+05:53.840 --> 05:59.000
+to containers, and then possibly next, WebAssembly, right?
+
+05:59.120 --> 06:01.640
+So we're going to call our safer faster and much more universal.
+
+06:01.640 --> 06:05.080
+The faster asterisk, asterisk here I did remember.
+
+06:05.080 --> 06:09.440
+And when we talk about faster, again, it needs a runtime.
+
+06:09.440 --> 06:13.400
+So you might think that it's not as fast as native code, although sometimes it is.
+
+06:13.400 --> 06:15.600
+And if it's not, it's pretty close.
+
+06:15.600 --> 06:20.400
+The faster argument here really comes from the fact that you can start out very, very
+
+06:20.400 --> 06:23.320
+quickly.
+
+06:23.320 --> 06:29.680
+This is a somewhat interesting tweet from Solomon Hikes.
+
+06:29.680 --> 06:30.680
+Oh, no.
+
+06:30.680 --> 06:34.680
+Of course, I'm not connected to the internet.
+
+06:34.680 --> 06:35.680
+I'm sorry.
+
+06:35.680 --> 06:36.680
+It was difficult for me to find this room.
+
+06:36.680 --> 06:38.200
+It was very, very quick.
+
+06:38.200 --> 06:41.200
+If this works.
+
+06:41.200 --> 06:44.200
+Yeah.
+
+06:44.200 --> 06:47.200
+That's my plan.
+
+06:47.200 --> 06:48.200
+Okay.
+
+06:48.200 --> 06:49.200
+That's fine.
+
+06:49.200 --> 06:59.200
+Well, at least the slides work for now.
+
+06:59.200 --> 07:00.200
+Okay.
+
+07:00.200 --> 07:03.200
+Well, basically, the founder of Docker.
+
+07:03.200 --> 07:05.200
+Oh, no.
+
+07:05.200 --> 07:07.200
+Okay.
+
+07:07.200 --> 07:09.200
+No.
+
+07:09.200 --> 07:14.200
+There we go.
+
+07:14.200 --> 07:19.200
+There we go.
+
+07:19.200 --> 07:23.200
+Open source technology comes through.
+
+07:23.200 --> 07:26.200
+There we are.
+
+07:26.200 --> 07:27.200
+Excellent.
+
+07:27.200 --> 07:28.200
+Okay.
+
+07:28.200 --> 07:31.200
+So this guy, Solomon Hikes, he's a great developer.
+
+07:31.200 --> 07:32.200
+He's a great developer.
+
+07:32.200 --> 07:33.200
+He's a great developer.
+
+07:33.200 --> 07:34.200
+He's a great developer.
+
+07:34.200 --> 07:35.200
+There we are.
+
+07:35.200 --> 07:36.200
+Excellent.
+
+07:36.200 --> 07:37.200
+Okay.
+
+07:37.200 --> 07:41.200
+So this guy, Solomon Hikes said this a few years ago, which probably got a lot of VCs
+
+07:41.200 --> 07:46.200
+very excited in 2019 that said if Wazemann Wazey had existed in 2008, they would never
+
+07:46.200 --> 07:47.200
+need to create Docker.
+
+07:47.200 --> 07:48.200
+That's how important it is.
+
+07:48.200 --> 07:49.200
+Right?
+
+07:49.200 --> 07:53.400
+And this has to do with sort of the fundamentals of the technology, which allow the things
+
+07:53.400 --> 07:56.200
+that Docker aims to do and aim to do.
+
+07:56.200 --> 08:01.200
+Initially, it allows you to do those same things at a smaller, safer, faster level.
+
+08:01.200 --> 08:04.200
+We'll kind of talk about that as we get into this.
+
+08:04.200 --> 08:05.200
+All right.
+
+08:05.200 --> 08:06.200
+Okay.
+
+08:06.200 --> 08:07.200
+Maybe.
+
+08:07.200 --> 08:08.200
+Good.
+
+08:08.200 --> 08:09.200
+Blah, blah, blah.
+
+08:09.200 --> 08:10.200
+Good.
+
+08:10.200 --> 08:11.200
+Wazey.
+
+08:11.200 --> 08:12.200
+Who's heard of Wazey?
+
+08:12.200 --> 08:13.200
+Anyone here?
+
+08:13.200 --> 08:14.200
+Great.
+
+08:14.200 --> 08:15.200
+Oh, a lot of people.
+
+08:15.200 --> 08:16.200
+Good.
+
+08:16.200 --> 08:20.200
+So the Wazem system interface, this was initially started as a POSIX interface in 2019.
+
+08:20.200 --> 08:22.200
+It's gone through a couple iterations.
+
+08:22.200 --> 08:25.200
+The big thing with Wazey is that it's capability-based security.
+
+08:25.200 --> 08:29.200
+They borrowed some things from Plan 9, the operating system that came after Unix, trying
+
+08:29.200 --> 08:34.200
+to fix some of the mistakes with Unix, to sort of think about resources as things that are
+
+08:34.200 --> 08:38.200
+granted permissions to use and act upon.
+
+08:38.200 --> 08:40.200
+It's an evolving standard.
+
+08:40.200 --> 08:44.200
+We've had Preview 1, Preview 2 actually just got released last week, and Preview 3 will
+
+08:44.200 --> 08:45.200
+be in the future.
+
+08:45.200 --> 08:49.200
+Preview 2 brings some big things like networking support, which is obviously a big thing if
+
+08:49.200 --> 08:51.200
+you'd like to have real applications that run.
+
+08:51.200 --> 08:55.200
+Preview 3, which should come out next year, is going to have ASync support, which is also
+
+08:55.200 --> 08:57.200
+a very, very big one.
+
+08:57.200 --> 09:00.200
+And pertinent to this talk specifically about Python.
+
+09:00.200 --> 09:05.200
+And then we will get to 1.0, probably in the next year or two.
+
+09:05.200 --> 09:09.200
+Is it required to run WebAssembly on the server?
+
+09:09.200 --> 09:10.200
+Do you need Wazey?
+
+09:10.200 --> 09:11.200
+You do not.
+
+09:11.200 --> 09:17.200
+You just need a WebAssembly-compliant runtime that can at least be compliant with 1.0.
+
+09:17.200 --> 09:23.200
+So we've done some things, not always using Wazey itself, just using a standard WebAssembly
+
+09:23.200 --> 09:26.200
+runtime on the server.
+
+09:26.200 --> 09:30.200
+Okay, so briefly, this is a project that we work on at my company.
+
+09:30.200 --> 09:32.200
+This is the scale framework.
+
+09:32.200 --> 09:36.200
+I'm just going to bring this up to sort of show what a good fit WebAssembly can be in
+
+09:36.200 --> 09:38.200
+very specific areas before I jump into the Python stuff.
+
+09:38.200 --> 09:40.200
+So scale is a plug-in framework.
+
+09:40.200 --> 09:43.200
+You can also think of it as a serverless function runtime.
+
+09:43.200 --> 09:47.200
+Serverless functions, serverless itself has kind of become popular in recent years.
+
+09:47.200 --> 09:50.200
+A lot of serverless architectures use containers.
+
+09:50.200 --> 09:54.200
+The problem with containers, especially with things like Python and maybe like Ruby and
+
+09:54.200 --> 09:59.200
+things that have a slightly larger runtime is that they can be a little bit slow to start
+
+09:59.200 --> 10:00.200
+up.
+
+10:00.200 --> 10:03.200
+So there's a lot of trickery that has to go into bringing them up to speed, keeping
+
+10:03.200 --> 10:05.200
+them hot, moving them around.
+
+10:05.200 --> 10:11.200
+With WebAssembly, you can do all this very, very quickly at orders of magnitude of speed
+
+10:11.200 --> 10:13.200
+faster and size smaller.
+
+10:13.200 --> 10:17.200
+It also allows you to do some very interesting things, which means you can do polyglot
+
+10:17.200 --> 10:20.200
+programming, different languages, in the same runtime environment.
+
+10:20.200 --> 10:28.200
+So with scale, you can do things like run, rust, type script, go, all in the same WebAssembly
+
+10:28.200 --> 10:29.200
+environments.
+
+10:29.200 --> 10:35.200
+And we've sort of figured out what we think is a good UX for doing that without having
+
+10:35.200 --> 10:39.200
+to do a lot of low-level programming to deal with types and passing them across different
+
+10:39.200 --> 10:40.200
+environments.
+
+10:40.200 --> 10:44.200
+Yeah, so if you'd like to check that out, feel free.
+
+10:44.200 --> 10:46.200
+Basically, it's very simple.
+
+10:46.200 --> 10:51.200
+Scale.sh, you do scale new, scale build, scale run, and you can do something as simple as
+
+10:51.200 --> 10:52.200
+this.
+
+10:52.200 --> 10:57.200
+I know this is go, but it's relatively simple, pretty straightforward.
+
+10:57.200 --> 10:59.200
+Basically, it gives you a function.
+
+10:59.200 --> 11:01.200
+You do stuff in that function.
+
+11:01.200 --> 11:04.200
+You can pass it to a function written in a different language, and you can get information
+
+11:04.200 --> 11:05.200
+back.
+
+11:05.200 --> 11:08.200
+You can put this in front or behind HTTP requests.
+
+11:08.200 --> 11:11.200
+You can use middleware from other languages in other languages.
+
+11:11.200 --> 11:16.200
+So we did some interesting stuff with go, where we took go's regex library and swapped
+
+11:16.200 --> 11:17.200
+it with rusts.
+
+11:17.200 --> 11:23.200
+And using this plug-in framework, we found that the regex speed improved four times faster
+
+11:23.200 --> 11:26.200
+than go's native library using rust this way.
+
+11:26.200 --> 11:28.200
+And you didn't even have to think about the rust that was happening.
+
+11:28.200 --> 11:32.200
+So that was a pretty fun example.
+
+11:32.200 --> 11:38.200
+So to continue, blah, blah, blah.
+
+11:38.200 --> 11:39.200
+Good.
+
+11:39.200 --> 11:40.200
+So building Python.
+
+11:40.200 --> 11:43.200
+A lot of people here probably build Python from scratch on native platforms, right?
+
+11:43.200 --> 11:48.200
+So interesting thing about Python is you need Python to build Python, which is kind of fun.
+
+11:48.200 --> 11:52.200
+Some assumptions that Python has is that it's going to be on a Unix or Unix-like operating
+
+11:52.200 --> 11:53.200
+system.
+
+11:53.200 --> 11:55.200
+There's going to be a file system.
+
+11:55.200 --> 11:57.200
+This is very important to Python in particular.
+
+11:57.200 --> 11:58.200
+Dynamic linking.
+
+11:58.200 --> 12:03.200
+This is something that certain builds think of.
+
+12:03.200 --> 12:05.200
+WebAssembly has no concept of this.
+
+12:05.200 --> 12:06.200
+We'll talk about that.
+
+12:06.200 --> 12:11.200
+Also, that there are going to be syscalls and a libc and or.
+
+12:11.200 --> 12:19.200
+So some of the pain points with building WebAssembly, building a Python distribution with Wasm is
+
+12:19.200 --> 12:23.200
+that there's a limited number of supported syscalls, right?
+
+12:23.200 --> 12:27.200
+In Wasi specifically, there's no pthreads, right?
+
+12:27.200 --> 12:29.200
+So green threads, that's kind of out the window.
+
+12:29.200 --> 12:30.200
+That's a tough one.
+
+12:30.200 --> 12:32.200
+There's no socket APIs.
+
+12:32.200 --> 12:34.200
+This is also a very big one, right?
+
+12:34.200 --> 12:38.200
+This makes it very, very difficult if you've ever used things like PyDyn and PyScript.
+
+12:38.200 --> 12:42.200
+They can do some interesting things where they sort of overlay on WebSockets to sort
+
+12:42.200 --> 12:43.200
+of emulate behavior.
+
+12:43.200 --> 12:48.200
+This is done using a tool called MScripten, which is one of the earliest WebAssembly compilation
+
+12:48.200 --> 12:53.200
+tools, which allows you to take C and C++ libraries, compile them to Wasm, and then have
+
+12:53.200 --> 12:58.200
+bindings in JavaScript to sort of mimic some of the system behavior.
+
+12:58.200 --> 13:00.200
+There's non-comprehensive signal support.
+
+13:00.200 --> 13:02.200
+This is also a very, very big one.
+
+13:03.200 --> 13:06.200
+So if you want more details on this, this could be a whole talk by itself, and indeed
+
+13:06.200 --> 13:07.200
+it was.
+
+13:07.200 --> 13:10.200
+You should check out Christian Heinz's talk from Wasm Day in 2022.
+
+13:10.200 --> 13:16.200
+He is one of the four maintainers of the Wasm Python project, and he, I believe, also works
+
+13:16.200 --> 13:18.200
+on PyDyn.
+
+13:18.200 --> 13:21.200
+It goes into all these pain points in excruciating detail.
+
+13:21.200 --> 13:23.200
+It's an excellent talk.
+
+13:23.200 --> 13:26.200
+So, but this talk is about actually deploying something, doing this, right?
+
+13:26.200 --> 13:27.200
+Right?
+
+13:27.200 --> 13:30.200
+So if you've tried to use WebAssembly, you might have realized it's a little bit hard to use
+
+13:30.200 --> 13:34.200
+because there's certain things that are very low level that you have to do, a.k.a. like,
+
+13:34.200 --> 13:39.200
+you know, doing things with data, getting data in and out of a running Wasm module,
+
+13:39.200 --> 13:43.200
+communicating between the guest and the host, depending on what your implementation is.
+
+13:43.200 --> 13:45.200
+So there's a project that I put together.
+
+13:45.200 --> 13:51.200
+It's called Boxer, and I decided to try to take something that is well known to most
+
+13:51.200 --> 13:56.200
+people in this world, along with some other ones, which is a container declaration, a
+
+13:56.200 --> 14:01.200
+Docker file, and plug it into this tool and spit out a Wasm binary, right?
+
+14:01.200 --> 14:02.200
+Plus the runtime.
+
+14:02.200 --> 14:04.200
+You can check it out, boxer.dev.
+
+14:04.200 --> 14:10.200
+It's experimental right now, but I'm going to be demoing it here in a second.
+
+14:10.200 --> 14:12.200
+So what is in one of these?
+
+14:12.200 --> 14:16.200
+Originally it was called Wasm Boxer, but now I'm just calling it Boxer.
+
+14:16.200 --> 14:18.200
+The, what is inside a box?
+
+14:18.200 --> 14:22.200
+You have a base layer similar to a container image if anyone here is dug into how containers
+
+14:22.200 --> 14:23.200
+work.
+
+14:23.200 --> 14:27.200
+The base layer sort of sets up the imports and exports for the Wasm module.
+
+14:27.200 --> 14:32.200
+This mimics the sort of interfaces that you might find with syscalls and libc in the traditional
+
+14:32.200 --> 14:33.200
+operating system.
+
+14:33.200 --> 14:38.200
+Then you also have a virtualized file system, virtualized syscode subs.
+
+14:38.200 --> 14:44.200
+So you have actual POSIX based file system calls that actually work in a virtualized
+
+14:44.200 --> 14:48.200
+environment, and then you also have things that aren't supported, stubbed out.
+
+14:48.200 --> 14:52.200
+You have a compiled runtime, which in this case is Python.
+
+14:52.200 --> 14:55.200
+And then you have the user source code, which also gets passed in.
+
+14:55.200 --> 14:56.200
+Okay.
+
+14:56.200 --> 14:58.200
+And this is very important.
+
+14:58.200 --> 15:03.200
+WebAssembly modules only understand about the outside world, imports and exports.
+
+15:03.200 --> 15:04.200
+That's it.
+
+15:04.200 --> 15:11.200
+You kind of think of it like a very, very simplified inter-process communication from the Unix world.
+
+15:11.200 --> 15:12.200
+Okay.
+
+15:12.200 --> 15:15.200
+So, I kind of went through this before.
+
+15:15.200 --> 15:16.200
+I used a tool called Wiser.
+
+15:16.200 --> 15:20.200
+Wiser is a really, really great WebAssembly tool that allows you to combine WebAssembly
+
+15:20.200 --> 15:24.200
+modules, link them together, do snapshotting, things like that.
+
+15:24.200 --> 15:29.200
+But basically, this taking an example like this, the big caveat here is that the A.
+
+15:29.200 --> 15:32.200
+This is from a C binary.
+
+15:32.200 --> 15:34.200
+That binary must be a WebAssembly binary.
+
+15:34.200 --> 15:36.200
+That's the key difference.
+
+15:36.200 --> 15:37.200
+Right?
+
+15:37.200 --> 15:38.200
+Cool.
+
+15:38.200 --> 15:43.200
+So, for the sake of time, I'm going to kind of move a little quicker.
+
+15:43.200 --> 15:47.200
+Python really, really needs a file system, right, when you want to build Python.
+
+15:47.200 --> 15:48.200
+Okay.
+
+15:48.200 --> 15:53.200
+So, one of the very important things here is that we need a POSIX-based FS.
+
+15:53.200 --> 16:00.200
+And you could do this with Wazzy, where you can go down into the underlying host and use the host's file system.
+
+16:00.200 --> 16:03.200
+But those could obviously be different across different distributions.
+
+16:03.200 --> 16:09.200
+So, one solution to this was building a virtualized file system, which we did here.
+
+16:09.200 --> 16:12.200
+This is a small project of mine, also very experimental.
+
+16:12.200 --> 16:13.200
+This is the Wazzyn VFS.
+
+16:13.200 --> 16:22.200
+And what this gives you basically is very familiar sys call slash live-c calls that you might see across different distros.
+
+16:22.200 --> 16:26.200
+And the point here is that you could do this all in a virtualized space.
+
+16:26.200 --> 16:29.200
+It could be in the same Wazzyn module, or it could be in a different one.
+
+16:29.200 --> 16:30.200
+Right?
+
+16:30.200 --> 16:38.200
+So, yeah.
+
+16:38.200 --> 16:39.200
+Cool.
+
+16:39.200 --> 16:40.200
+The demo.
+
+16:40.200 --> 16:41.200
+Yes, let's do it.
+
+16:41.200 --> 16:44.200
+So, Wazzyn Boxer.
+
+16:44.200 --> 16:51.200
+So, here we have like one of the simplest, this is right from the container registry, right?
+
+16:51.200 --> 16:53.200
+From the official Python registry.
+
+16:53.200 --> 17:02.200
+So, the very, very simplest thing we could do is from Python 3, set up the working directory, copy from the host's OS to the guest,
+
+17:02.200 --> 17:08.200
+which in this case is the WebAssembly build, and then use the command directive to run the actual script.
+
+17:08.200 --> 17:10.200
+So, what does this look like?
+
+17:10.200 --> 17:15.200
+Basically, looks like this.
+
+17:15.200 --> 17:17.200
+This is a very familiar command.
+
+17:17.200 --> 17:20.200
+Box build, passing the Dockerfile.
+
+17:20.200 --> 17:23.200
+Ignore my Rust warnings, which I haven't fixed yet.
+
+17:23.200 --> 17:24.200
+Cool.
+
+17:24.200 --> 17:25.200
+So, yeah.
+
+17:25.200 --> 17:29.200
+You'll see here, we have the build started.
+
+17:29.200 --> 17:32.200
+It found the base image, which in this case is just the sort of interfaces.
+
+17:32.200 --> 17:36.200
+It's building and bundling the runtime, the standard library, the source code, and the file system.
+
+17:36.200 --> 17:38.200
+This can take a while.
+
+17:38.200 --> 17:40.200
+It was cached, so that didn't take as long.
+
+17:40.200 --> 17:42.200
+And it bundled it, and it's complete.
+
+17:42.200 --> 17:43.200
+Cool.
+
+17:43.200 --> 17:47.200
+So, we have that, which means we have our box set up and ready to go.
+
+17:47.200 --> 17:53.200
+It's just like the sort of purpose of this, that's just like building a container image, you have it ready to execute.
+
+17:53.200 --> 18:00.200
+Then we just do a very simple box run, and that's Python code in WebAssembly.
+
+18:00.200 --> 18:06.200
+And what that Python code is, is just a very simple square root operation, right, and printing it out.
+
+18:06.200 --> 18:08.200
+So, that's that.
+
+18:08.200 --> 18:11.200
+So, from these perspectives, you may not even really notice a difference,
+
+18:11.200 --> 18:17.200
+but we'll kind of talk about what the specific differences are in the few minutes I have left here.
+
+18:17.200 --> 18:23.200
+So, there are caveats, and we're going to talk through why these caveats are going to sort of improve,
+
+18:23.200 --> 18:29.200
+and why things are a little difficult right now, but there are some ways around these, but they are difficult.
+
+18:29.200 --> 18:32.200
+Threads, like I said, threads out of the box, they don't work.
+
+18:32.200 --> 18:35.200
+There are things you can do, and there are some things that some people have experiments with.
+
+18:35.200 --> 18:40.200
+Wasm is single threaded right now by default, and it won't not be for at least a couple years.
+
+18:40.200 --> 18:43.200
+But there are ways that you can do some really interesting things with stack switching.
+
+18:43.200 --> 18:53.200
+You can do pause and resume on the stack, and you can make it almost as if it is in an async sort of programming environment.
+
+18:53.200 --> 18:57.200
+Networking, like I said, there are ways to do networking.
+
+18:57.200 --> 18:58.200
+You just have to do it all yourself.
+
+18:58.200 --> 19:00.200
+So, you have to bring it all yourself, right?
+
+19:00.200 --> 19:05.200
+So, you don't have an operating system, but people have done things like taking the kernel networking stack,
+
+19:05.200 --> 19:12.200
+bringing parts of it in, allowing those to be exports as host functions, and then calling out to the underlying OS that way.
+
+19:12.200 --> 19:15.200
+Native dependencies, this is a big problem.
+
+19:15.200 --> 19:18.200
+This is a big problem that they faced with PyScript.
+
+19:18.200 --> 19:24.200
+People who have done scientific computing in this room would probably understand that there are some really interesting languages
+
+19:24.200 --> 19:29.200
+being used under the hood in Python libraries, things like Fortran, I believe, right?
+
+19:29.200 --> 19:34.200
+And so, there is no official Fortran to WebAssembly compiler yet.
+
+19:34.200 --> 19:42.200
+So, what people are doing is, but the thing is, is that if there could be, you could then, if you think about native dependencies
+
+19:42.200 --> 19:48.200
+on different platforms, how much of a pain that is, there is a possible way forward in the future,
+
+19:48.200 --> 19:53.200
+which could be a different talk maybe, that you have one dependency and it's in WebAssembly,
+
+19:53.200 --> 19:58.200
+and that's the only one you ever need because you can have a WebAssembly runtime on every machine, right?
+
+19:58.200 --> 20:02.200
+That's kind of an interesting thing that some people are exploring.
+
+20:02.200 --> 20:09.200
+So, this is a cool thing I had chatGPT make for me, but it's a nice little illustration.
+
+20:09.200 --> 20:12.200
+You got a container, that's an app, and then you have a box, that's an app.
+
+20:12.200 --> 20:17.200
+That kind of highlights the differences in metrics, and what are those metrics?
+
+20:17.200 --> 20:23.200
+Well, containers, so a Python distribution, a Python container might be anywhere from 800 to 900 megabytes or more.
+
+20:24.200 --> 20:28.200
+The start-up speed of this container could be 800 milliseconds to two seconds.
+
+20:28.200 --> 20:37.200
+A security model with container run times are shared kernels, and with boxes or with a WebAssembly distribution of this kind,
+
+20:37.200 --> 20:41.200
+you can get closer to something like 16 megabytes for the size, right?
+
+20:41.200 --> 20:44.200
+Even less if you don't use the entire standard library, right?
+
+20:44.200 --> 20:48.200
+I've seen people do it as low as five, I think, when they cut certain things out.
+
+20:49.200 --> 20:55.200
+Start-up speeds could be 100 microseconds to about one millisecond for this exact build.
+
+20:55.200 --> 20:59.200
+The security model is a virtualized sandboxed machine code execution, right?
+
+20:59.200 --> 21:03.200
+So, you're at a different level of abstraction when you're talking about virtualization.
+
+21:03.200 --> 21:13.200
+In fact, Docker really isn't a virtualization technology as much as it is sort of a sandboxing framework, in certain ways, right?
+
+21:14.200 --> 21:18.200
+Again, that's probably a different talk, but also kind of interesting.
+
+21:18.200 --> 21:20.200
+So, the future, what does it hold?
+
+21:20.200 --> 21:23.200
+Full support for libc, Cisco interfaces.
+
+21:23.200 --> 21:29.200
+There are some really interesting work going on with this, where people have taken parts of the Linux kernel
+
+21:29.200 --> 21:33.200
+and made them available in Wasm, doing things like emulating signals,
+
+21:33.200 --> 21:38.200
+doing things like emulating threads with, like I said, different techniques.
+
+21:39.200 --> 21:44.200
+Then what that gives you is kind of a pluggable networking stack that you can use in different environments,
+
+21:44.200 --> 21:50.200
+and maybe even a slight paradigm shift where you might not even need a kernel in some cases,
+
+21:50.200 --> 21:55.200
+if it's all in WebAssembly and the WebAssembly runtime acts as the kernel in certain ways.
+
+21:55.200 --> 22:00.200
+So, this is an interesting technique that people in the embedded space have kind of done some cool work with.
+
+22:00.200 --> 22:08.200
+This is something where if you can compile the, if you can have a compiled Wasm runtime on bare metal,
+
+22:08.200 --> 22:10.200
+everything you need is in Wasm.
+
+22:10.200 --> 22:16.200
+This is great for people in the embedded space because they don't need to reflash their devices every time they update their code,
+
+22:16.200 --> 22:18.200
+which is a very difficult thing to do.
+
+22:18.200 --> 22:21.200
+You can just swap out a tiny WebAssembly module.
+
+22:23.200 --> 22:25.200
+Wally is also a very interesting one.
+
+22:25.200 --> 22:27.200
+This is the WebAssembly Linux interface.
+
+22:27.200 --> 22:31.200
+This is a project that came out of Carnegie Mellon just last year,
+
+22:31.200 --> 22:38.200
+and they're doing a lot of interesting work on sort of the emulation of Linux syscalls that make them available
+
+22:38.200 --> 22:40.200
+so that you can run things sort of out of the box.
+
+22:42.200 --> 22:49.200
+And like I said, with the embedded stuff, bare metal runtimes with a tiny little unicernel has allowed people to run
+
+22:49.200 --> 22:54.200
+Wasm in really, really small spaces, doing some really, really interesting things too.
+
+22:55.200 --> 23:00.200
+And what this does give you, then if we think all the way back to the beginning with browsers,
+
+23:00.200 --> 23:05.200
+browsers have a Wasm runtime, servers have runtimes, your phone has the runtime,
+
+23:05.200 --> 23:11.200
+you could have the runtime in an embedded device, in a controller, you could have it in all these different places.
+
+23:11.200 --> 23:18.200
+So you kind of have this sort of new true isomorphism where you can actually run the same code everywhere,
+
+23:18.200 --> 23:23.200
+and then what that does, it kind of pushes the problem to a new interesting space in distributed computing
+
+23:23.200 --> 23:29.200
+where it's how do we orchestrate these things, and how do we move them around, and how do we make them available.
+
+23:29.200 --> 23:31.200
+Cool, thanks very much.
+
+23:38.200 --> 23:40.200
+I don't know if I have any time for questions, but...
+
+23:40.200 --> 23:43.200
+Yeah, we have time for... Just a second.
+
+23:44.200 --> 23:47.200
+We have time for a few more questions.
+
+23:47.200 --> 23:49.200
+I see some over here.
+
+23:55.200 --> 23:57.200
+Thank you for the presentation.
+
+23:57.200 --> 24:03.200
+Not from a web application perspective, but from more like low level and server side side.
+
+24:03.200 --> 24:10.200
+Some parts of the presentation reminded me of this recent thing called unicernels.
+
+24:11.200 --> 24:18.200
+Could you comment on the similarities and conceptual inspirations between two things?
+
+24:18.200 --> 24:27.200
+Yeah, certainly. I'm not really a unicernel expert, but unicernels kind of saw the similar thing of basically taking the space that you have
+
+24:27.200 --> 24:29.200
+and only running what you need.
+
+24:29.200 --> 24:35.200
+So from a theoretical perspective, it's kind of like WebAssembly can take the same approach,
+
+24:35.200 --> 24:45.200
+and in fact they're being used together in certain cases where a unicernel only is provided for what the WASM runtime needs.
+
+24:45.200 --> 24:49.200
+So yeah, it's cool. We can talk more about it later if you'd like.
+
+24:49.200 --> 24:51.200
+Anybody else? I know you gotta go.
+
+24:51.200 --> 24:53.200
+More questions?
+
+24:53.200 --> 24:55.200
+Feel free to talk to me later if you'd like.
+
+24:55.200 --> 24:56.200
+Yeah, this side.
+
+24:56.200 --> 24:58.200
+Thanks again. Thank you.
+
+25:05.200 --> 25:07.200
+Thank you.
+

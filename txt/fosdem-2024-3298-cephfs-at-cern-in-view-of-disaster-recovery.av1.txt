@@ -1,0 +1,300 @@
+Okay, so I am just continuing on the second talk from CERN.
+So for people who are already in the room, some of these things are already familiar.
+So I am here to talk about CFFS at CERN, primarily in context of this asset recovery requirements
+we have at the organization.
+So we already introduced CERN in the previous presentation, so I am not going to go much
+into it but this is just there for the dramatic effect because this looks nice.
+This is the accelerator we have.
+We have various detector points, so this is one of the experiment sites, Alice which
+does lead-let collisions and this was one of the collisions that happened last year.
+So moving on, so this is a broader perspective of the whole ring how it looks like and what
+was not previously mentioned in the talk is like we of course had an existing data center
+that has been serving us since the 70s but there is a new data center that is under construction
+and this is primarily for the backup and disaster recovery needs of the organization and this
+talk is mainly focused on the BCDR aspect of the talk.
+So if you look at the existing data center, that is how it looked like in the 70s.
+It no longer looks like this but it has been around since mid-70s.
+This is the new data center that is coming up since it is all built new and stuff like
+this of course it is more energy efficient and it is expected to go into operations in
+a couple of months hopefully.
+And my main purpose of this talk is to talk about CERN and CERN and how we primarily look
+into SAP shots and what we found while doing some experiments on them and mainly this is
+asking for advice from the community on how, whether you have run CFFS with snapshots and
+whether you are facing some of the problems that we are facing.
+So largely CERN we do not have a single cluster that is serving all the needs.
+We have multiple smaller clusters that are dedicated to a particular purpose and this
+kind of helps us in cases of when you have use cases that do not always align with each
+other and you do not actually take down CFFS clusters because somebody else is doing something
+that is not normally a workload for your cluster.
+So when it comes to RBDs we have hard drive clusters that go around 25 petabytes and we
+also have a full flash Erasure Coder cluster that is like half a petabyte and this is mainly
+for the HPC use cases.
+For CFFS it is also a jungle of different types of CFFS clusters we have.
+We have a full production hard drive cluster again, a full flash cluster which is also
+used for analysis workloads.
+We have also hyperconverged clusters that we co-locate compute with.
+What Richard talked about in the previous talk about CERN Tape Archive, we have a small
+safe cluster that actually exclusively serves needs for some of the scheduler components
+of the tape archiving and other than this we also have largely RGW cluster that is serving
+the S3 components at CERN and we are newly building multi-site clusters that would also
+be a second backup region for the RGW.
+So our journey for CFFS it began in 2013 and it was like one physical cluster back then.
+So the primary need was of course a shared file system.
+We use OpenStack heavily for compute and it was mainly serving OpenStack Manila and some
+HPC use cases.
+We have 8 MDS servers for active and for standby.
+We do not do active standby and no standby replay.
+Metadata pools are still on SSDs.
+We have no snapshots and it is a single file system.
+Since this predated many of the more exotic pinning options you have with CFFS we have
+a script that actually tries to pin sub-directries to a random metadata server.
+Now that we have a femoral pinning we should try re-evaluating that instead.
+And we have multiple safe clusters, so two general purpose safe clusters that serve general
+production workloads.
+We have a few safe clusters that only serve specialized use cases.
+So we have one for monitoring, one for pure HPC workloads.
+And last year we also moved like one of the safe clusters that was actually on full flash
+from regular normal powered to diesel powered battery generators and this was done with
+a zero downtime using virtual CFFS and virtual racks in crush.
+Yeah, there are some details in additional slides in case if we have extra time I will
+go for it.
+So when you talk about business continuity and disaster recovery it is largely your
+requirement to keep your data safe during faults and human errors or ransomware or any
+of all of these things that are important nowadays.
+And you have various strategies to achieve these things.
+So you can go for an active sort of thing.
+You can go for a warm standby and you always have backups and coldestows.
+We are not that focused on the active part at least in the context of file systems in
+here because you would more likely benefit from snapshots and backup here.
+So the talk is mostly focused on the warm standby and coldestows use cases.
+And I guess suppose everybody knows what snapshots are, anyone in the room who doesn't know what
+a snapshot is?
+So you just have a frozen point in time state of the system and it makes you easy to roll
+back and do soft deletes and various things to build operations.
+And usually they are quite cheap to create and they are much less overhead compared to
+full backups of systems.
+When it comes to CFFS snapshots are actually enabled in new clusters by default from Quincy
+release onwards and it is this configurable thing called allow new snaps and it's a Boolean
+variable that you configure on safe cluster.
+Just configuring snapshots does not give clients the ability to do snapshots.
+They need a special access key which has a particular flag or an odd permission that
+allows snapshots to be done.
+And snapshots are copied on right in CFFS.
+Patrick already covered this two talks earlier if somebody attended so how the thing works
+under the hood.
+So there is a hidden snap directory and creation is just an act of folder creation as far as
+the end user is concerned.
+But snapshots are not synchronous.
+It's a lazy flush operation so when you issue a snap create until CFFS comes back with the
+message that the snap is created you can have IU that is not being tracked in the snapshot.
+As an administrator you can also create snapshots at a sub volume level which is almost something
+like a manila share or a sub volume share that you export to the end user which kind
+of makes it easier for some other use cases.
+Our own focus is primarily on user snapshots because users know best how they work loads
+are and what is a safe point where they want to do snapshots.
+And one of the things that we do of course want is like metadata intensive workloads
+like CI build jobs and many of these things that do get blown for example.
+Do not suffer a major performance penalty when snapshots are used.
+And many of our CFFS clusters have a very heterogeneous use case.
+So we need to understand the impact of snapshots because we have both interactive and non-interactive
+use cases on our CFFS clusters.
+So you have Kubernetes and OpenShift which use CFFS as a backing store and you also have
+interactive users who use software called Svan which is basically using Jupyter and
+notebooks under the hood which possesses use a lot for analysis.
+And these workloads should not suffer if somebody is doing a snap workloads and this
+should check off most of our BCDR service offering checklist if we were to provide this
+as a service.
+But we are just evaluating snapshots right now and then if we want to provide this as
+a service to users we do need to understand what kind of operations can potentially impact
+the functionality of the entire CFFS clusters and it would be nice to know if like you know
+it is restricted to people only using snapshots to pay the penalty or it is cluster wide.
+Another important question we need to solve is whether our tiny 3% team can actually run
+the service offering successfully without too much operational effort and also find out
+if there are mitigations for the problems and operational impact.
+To a large extent many of our users are not aware that they are using a shell file system
+and to a large extent we also want to keep it that way.
+So that is the motivation for the many experiments that we perform in CFFS snapshots in this talk.
+So when it looks to the evaluation goals first we should understand what is the baseline behavior
+of the system and the normal circumstances.
+So if a client is within their limits and not surfing the system thus the system with
+snapshots actually behave much worse and in case if we are using snapshots is there a
+performance degradation and what kind of workloads can trigger these and the other switch goal
+is of course to understand how the system reacts in this rest.
+So if we have bad clients with quite metadata intensive workloads which we have for some
+of the HVC use cases how does the system cope and can the systems people not using snapshots
+actually not suffer the market impact and how bad is the stability and performance impact we see.
+Last year at Ceflacon we presented a larger version of the stock and one of the main items
+that we had as a checklist was to evaluate this in a much larger context and also find
+the spinning directories and these sort of things actually make some of the problems we saw last
+year go away.
+So to do the testing itself we primarily designed two client workloads.
+So one is your standard IO 500 benchmarks.
+It's a standard set of benchmarks that is used in HVC context to measure IO performance.
+Under the hood you mainly use two tools one is called IOR and the other is called MD test.
+Most of the benchmarks if you run the simple configuration it kind of self cleans up the
+test at the end of the run and you have various injection points where you can build in functionalities
+like injecting snapshots.
+So during one of these post phases you can actually add a script that actually basically
+creates snapshots so you can have workloads that basically do a write, snapshot and read
+to understand if a single run actually sees an impact due to snapshots.
+And generally our experience with other file systems at CERN I mean we have usually down
+times due to aggressive metadata workloads and we need to see if these sort of workloads
+actually trigger something bad.
+All the tests come with an easy and a hard variant so when you look at IOR for example
+the easy variant is just writing every process writing a giant file which is very easy for
+bandwidth kind of use cases.
+The IOR hard test on the other hand is actually writing a single file from many clients which
+is more IOP intensive than you know a bandwidth intensive test and the units are measured
+in bandwidth which is actually quite bad.
+MD test is actually the file or directory creation workloads.
+The default test doesn't actually write any contents into the file systems itself so
+it's just a create or create operation whereas if you do the hard test it actually writes
+some data into small files in non-aligned block sizes so to actually make the system
+metadata of the system.
+In addition to this we just had a small workload that always kept on you know tiring and untiring
+Linux kernel and this was just to keep a base level of activity and since this kind of workload
+can easily spot when things go really south.
+On an average run an untied operation takes about 3 minutes for the Linux 6.2 kernel and
+I mean RM minus RF for example would take about 4 minutes on this cluster that we configured
+and it's not bandwidth intensive of course it's just a few megabytes per second operation
+but it's more you know metadata intensive.
+So the first we started evaluating this on a virtual cluster so the test cluster itself
+had 3 monitors, 4 MDSs, no standby replay configured.
+Everything was on virtual OSI servers on RBDs and actually when we run IO 500 benchmarks
+on these you kind of expected what the theoretical performance was and it always I mean kind
+of gave the exact performance so what you see as waves in the graphs are essentially
+like you know read write tests and then you know you have the deletes which are just only
+IO so as far as the client set up goes we had one client node for each so we created
+two hierarchies, one hierarchy where snapshots were enabled and another one called just client
+which does not have snapshots enabled.
+We also this time I mean print all the snapshots workloads to go on a single MDS so all the
+work directories are statically pinned to MDS.1 so that I mean MDS.0 can take the regular
+traffic without any impact.
+So initially we did the test over the Christmas break and initially adding snapshots did not
+have a market performance degradation however we did not have any monitoring on the cluster
+and what is important in SF land is always monitoring your PG states so what happened
+is I mean placement groups were in the snap term wait state forever they never caught up
+to trimming the snapshots because the cluster was too small a cluster to actually pull this
+off eventually the cluster reached fullness as the stamp terms never caught up and you
+know the cluster kind of went into a bad state but it got worse after that so when you actually
+removed the workload and you know started removing files things got worse when we started
+unmounting clients.
+We saw that the MDS started going into a crash loop and this was there are a couple of trackers
+that actually refer to this and primarily because I guess you should never bring your
+system to a state of fullness so unmounting clients actually made the problems worse.
+We eventually looked at the tracker and then found out like you know this is mainly because
+of the session tracking metadata object so we manually wiped the metadata session table
+and that brought the cluster back up but I mean doing this in a production scenarios
+of course a very huge you know operational nightmare.
+So lessons learned so we thought okay this is a make sense to continue on a virtual cluster
+anymore so we actually moved the OSDs to physical hardware so we had 3x48 disk 7200 rpm hard
+drives that we use as safe fs nodes the OSD nodes and we also increased two more clients
+so we had two clients on the snap path and two on the regular path and of course the
+IO 500 benchmarks usually always give the expected performance.
+In order to establish a baseline these are the baseline stats we got out of the cluster
+so OSD bench on the random OSD would give you around 240 megabytes 55 IOPS and the higher
+than expected you know bandwidth for a single OSD is mainly because you have NVME journaling
+radios bench deliver close to a gigabyte per second bandwidth 250 IOPS.
+When you do an IO 500 benchmarks with 16 worker processes what we observed is we could extract
+the 1 gigabyte per second that the cluster can deliver if you and I mean multiply the 300
+megabytes per second that this can I mean a single node could deliver into 3 and we hit like 1.5 k
+start IOPS and you know write IOPS in the range of 900 so whatever a tiny 3 node cluster was
+configured to do it kind of delivered in terms of the baseline statistics.
+What we observed is when you do IO 500 benchmarks on a path with snaps and without snaps
+at least the bandwidth performance is more or less always in line.
+We do see a small degradation on read the work loads when snapshots were done but this sort of
+thing can be expected because when you are doing a snapshot you have a tiny performance
+penalty associated with it this is a cost you can pay and maybe I mean we were running this test
+with two client processes so probably if you increase the number of client processes maybe
+you can deliver a much better bandwidth but let's say the bandwidth IO benchmarks kind of
+reveal same performance whether you use snapshots or not. For IO hard drive which actually writes a
+single file with many many clients we saw a very very distribution without snapshots.
+There are two reasons for the spread also we have lot more data when it comes to
+I mean work loads with snapshots because these run over a period of three or four weeks compared to
+smaller two week window that we had for without snaps.
+And another factor note is like when it comes to IO hard benchmark this is a benchmark where it's a
+single file that is actually being used for very large number of writes so MDS is very unlikely
+to come as a you know bottleneck to this because like you're still having like one metadata
+objective to deal with rather than thousands so I mean you are expecting a kind of same performance
+other than the variation part of it like let's say the numbers the mean and sigma I mean the
+sigma part of you know IO hard drive everything else seems to be more or less in line.
+When it comes to metadata read write also I mean with snapshots with two clients we see that you
+know you don't have that much of a difference both are more or less similar.
+We have slightly better performance when you do metadata start workloads probably because like
+things get cached and you know doing a snap operation probably brings things into cache and
+you know this and clients do the caching so this probably gives you a slightly better performance
+with the start. MD test easy if you do the deletion workloads this is where of course we saw that
+snap workloads of of course started suffering slightly however the delete workload is extremely
+susceptible to cluster being you know pushed under load. So let's say the tar and under workloads
+also look similar whether you're on a snap mount or a non snap mount I mean the slight variation
+is more because we have more data on one of the things than the others rather than a spread.
+So when ran in isolation you know snapshots did not see that much of a performance impact and you
+knew if that was the only thing that we used to evaluate whether this is good you know this should
+be good to go but our own requirements are primarily triggered by you know more heavier
+metadata workloads and we need to understand how the system reacts when these things happen.
+So what we started doing is like what HPC workloads sometimes do is like you have a longer
+hierarchical directory structure so in MD test you could specify the depth of the directory
+tree structure that can be evaluated. So when you started increasing the directory tree depth
+we saw that with with the non snap client of course there is a degradation of removal operations but
+it doesn't it's localized to the client but when you start doing this on the snap client we had
+seen that this actually affects cluster wide the performance. The overall system parameters
+take a dive when you know when you start deleting clients with snaps.
+When especially when you started snapshotting after creating deep directory tree we saw that
+the system actually started seeing latencies that we're never seen so a normal like latency
+that you see in a CFFS operation is in the order of 50 milliseconds and you would see that we hit
+like six seven minutes of latency for a CFFS stat latency. What we also observed is like when we
+started stressing the system the pinned MDS had this increasing latency that we saw in the previous
+graph and eventually it stopped failing responding to heartbeats. What we did see is standby MDS
+takes over after a few minutes when it detects that this condition has happened but what happens
+after seems even more interesting in terms of like traffic no longer being distributed to both
+the MDSs anymore we see that all the traffic gets rerouted to the pinned MDS which is the one usually
+handling the snap snap client workloads. What we also saw is like something that was reported in
+the upstream tracker a year ago which is that you know when you have unlinked operations on MDSs
+you would have a very high CFFS MDS latency and this tracker I mean is linked in the slides and
+you know it basically is still open right now and what the tracker also mentions for example is
+like what you see on the MDS side and what we do see is like the MDS always spins on one particular
+function which tries to track the parents and sisters of inodes and you see like 100% of CPU
+being used in just one particular function and when you run so what we were more interested in is
+when this sort of workload runs on a single MDS that goes on spinning whether the other MDS can
+actually serve normal client workloads and this is the part that we saw that you know the normal
+client workloads cannot be served anymore because everything gets rerouted to the same MDS for some
+reason and you know workloads never seem to hit a completion. If you manually restart a workload
+some of them I mean catch on however you know an existing workload mostly kind of gets into a very
+stuck state. We saw a worst case like you know tar and remove a workload which usually takes an
+order of like 3 or 4 minutes going up to 4 plus hours and you know worst case IOR MD test benchmarks
+which deliver like I mean even for a single client close to 600 megabytes per second going down to
+25 or you know 25 IOPS and this sort of levels and actually so after stressing the system we
+didn't run the stress workloads for all the time we just like ran it twice a day for a couple of
+days. What we saw is like there's a market degradation in you know times reported by you
+know operations so on the blue graphs basically indicate how the you know variants of the data
+looked like when you know when you untar the workloads it was like taking the order of like
+300 seconds and that is the long tail you see I mean a smaller tail that goes up to like 20 minutes
+in the worst case whereas you already have a market shift in the mean itself going much higher
+almost to the double range and you have a very long tail latency that goes up to hours which we
+took off from this graph because I mean it doesn't make any more sense.
+What we observed is like the sort of a systemic degradation which kind of makes it difficult
+when you know when we want to productize this sort of a thing so non-trivial effect on
+non snapshot I mean directory traces are general concern for us and it is not that easy for us to
+determine from monitoring if we if we hit any of these potential triggers for the MDSS to go on
+this CI node spin loop we also need further investigation into why single MDSS seem to
+take all IO traffic after the switch and what we wrote as a line item for last year's Ceflacon
+which is like pinning away snapshots whether that should help because the problem is seemingly
+localized to MDS that doesn't seem to work from our experiments this time.
+So in conclusion we are generally happy with our Ceflacon cluster but we are still not ready to
+like you know enable snapshots on our general purpose Ceflacon clusters yet primarily because
+we don't want fraction of users to do this sort of activities that take down the entire Ceflacon
+cluster and in this particular context if there are people running Ceflacon clusters in production
+you would like to hear if you have snap workloads and you know how you're monitoring these things
+or if you see some of the issues that you have seen with that we saw and any feedback or like you
+know future direction on how to improve snapshots for everybody is very much appreciated.
+Maybe there are some monitoring insights on you know the deep directory trees from MDSS
+that we don't know of or maybe it is easy to implement we don't know. Of course one important
+step is of course educating users on how to use shared file systems in a good way.
+Ceflacon's best practices doc in the upstream documentation is actually a pretty good starting
+point here. Another takeaway which we should file bug reports for in the future is like of course
+documenting various snap term parameters of Ceflacon clusters. Defaults seem sane but if you
+do need to modify them it's kind of unclear what are sane values to actually configure
+and that kind of brings me to the end of the talk we would like to hear from you
+and what Hugo with the previous talk already mentioned we have a tech week storage at CEN
+coming in the mid of March so if you're in the genie area feel free to pass by
+and yeah that concludes my talk.

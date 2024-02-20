@@ -1,0 +1,902 @@
+WEBVTT
+
+00:00.000 --> 00:09.740
+Okay, so I am just continuing on the second talk from CERN.
+
+00:09.740 --> 00:14.280
+So for people who are already in the room, some of these things are already familiar.
+
+00:14.280 --> 00:20.200
+So I am here to talk about CFFS at CERN, primarily in context of this asset recovery requirements
+
+00:20.200 --> 00:22.920
+we have at the organization.
+
+00:22.920 --> 00:26.600
+So we already introduced CERN in the previous presentation, so I am not going to go much
+
+00:26.600 --> 00:30.280
+into it but this is just there for the dramatic effect because this looks nice.
+
+00:30.280 --> 00:33.320
+This is the accelerator we have.
+
+00:33.320 --> 00:38.280
+We have various detector points, so this is one of the experiment sites, Alice which
+
+00:38.280 --> 00:44.400
+does lead-let collisions and this was one of the collisions that happened last year.
+
+00:44.400 --> 00:51.520
+So moving on, so this is a broader perspective of the whole ring how it looks like and what
+
+00:51.520 --> 00:55.520
+was not previously mentioned in the talk is like we of course had an existing data center
+
+00:55.520 --> 01:02.320
+that has been serving us since the 70s but there is a new data center that is under construction
+
+01:02.320 --> 01:08.760
+and this is primarily for the backup and disaster recovery needs of the organization and this
+
+01:08.760 --> 01:14.320
+talk is mainly focused on the BCDR aspect of the talk.
+
+01:14.320 --> 01:17.240
+So if you look at the existing data center, that is how it looked like in the 70s.
+
+01:17.240 --> 01:23.440
+It no longer looks like this but it has been around since mid-70s.
+
+01:23.440 --> 01:27.400
+This is the new data center that is coming up since it is all built new and stuff like
+
+01:27.400 --> 01:32.880
+this of course it is more energy efficient and it is expected to go into operations in
+
+01:32.880 --> 01:36.160
+a couple of months hopefully.
+
+01:36.160 --> 01:44.480
+And my main purpose of this talk is to talk about CERN and CERN and how we primarily look
+
+01:44.480 --> 01:51.240
+into SAP shots and what we found while doing some experiments on them and mainly this is
+
+01:51.360 --> 01:55.640
+asking for advice from the community on how, whether you have run CFFS with snapshots and
+
+01:55.640 --> 01:59.480
+whether you are facing some of the problems that we are facing.
+
+01:59.480 --> 02:04.960
+So largely CERN we do not have a single cluster that is serving all the needs.
+
+02:04.960 --> 02:10.680
+We have multiple smaller clusters that are dedicated to a particular purpose and this
+
+02:10.680 --> 02:17.560
+kind of helps us in cases of when you have use cases that do not always align with each
+
+02:17.560 --> 02:22.800
+other and you do not actually take down CFFS clusters because somebody else is doing something
+
+02:22.800 --> 02:26.360
+that is not normally a workload for your cluster.
+
+02:26.360 --> 02:33.440
+So when it comes to RBDs we have hard drive clusters that go around 25 petabytes and we
+
+02:33.440 --> 02:40.160
+also have a full flash Erasure Coder cluster that is like half a petabyte and this is mainly
+
+02:40.160 --> 02:42.560
+for the HPC use cases.
+
+02:42.560 --> 02:47.320
+For CFFS it is also a jungle of different types of CFFS clusters we have.
+
+02:47.320 --> 02:53.760
+We have a full production hard drive cluster again, a full flash cluster which is also
+
+02:53.760 --> 02:55.600
+used for analysis workloads.
+
+02:55.600 --> 03:02.720
+We have also hyperconverged clusters that we co-locate compute with.
+
+03:02.720 --> 03:06.680
+What Richard talked about in the previous talk about CERN Tape Archive, we have a small
+
+03:06.680 --> 03:12.400
+safe cluster that actually exclusively serves needs for some of the scheduler components
+
+03:12.400 --> 03:21.040
+of the tape archiving and other than this we also have largely RGW cluster that is serving
+
+03:21.040 --> 03:29.840
+the S3 components at CERN and we are newly building multi-site clusters that would also
+
+03:29.840 --> 03:36.000
+be a second backup region for the RGW.
+
+03:36.000 --> 03:41.920
+So our journey for CFFS it began in 2013 and it was like one physical cluster back then.
+
+03:41.920 --> 03:45.240
+So the primary need was of course a shared file system.
+
+03:45.240 --> 03:52.000
+We use OpenStack heavily for compute and it was mainly serving OpenStack Manila and some
+
+03:52.000 --> 03:54.120
+HPC use cases.
+
+03:54.120 --> 03:58.120
+We have 8 MDS servers for active and for standby.
+
+03:58.120 --> 04:03.160
+We do not do active standby and no standby replay.
+
+04:03.160 --> 04:05.080
+Metadata pools are still on SSDs.
+
+04:05.080 --> 04:09.520
+We have no snapshots and it is a single file system.
+
+04:09.520 --> 04:14.600
+Since this predated many of the more exotic pinning options you have with CFFS we have
+
+04:14.600 --> 04:20.640
+a script that actually tries to pin sub-directries to a random metadata server.
+
+04:20.640 --> 04:28.000
+Now that we have a femoral pinning we should try re-evaluating that instead.
+
+04:28.000 --> 04:32.160
+And we have multiple safe clusters, so two general purpose safe clusters that serve general
+
+04:32.160 --> 04:33.920
+production workloads.
+
+04:33.920 --> 04:38.120
+We have a few safe clusters that only serve specialized use cases.
+
+04:38.120 --> 04:44.200
+So we have one for monitoring, one for pure HPC workloads.
+
+04:44.200 --> 04:50.120
+And last year we also moved like one of the safe clusters that was actually on full flash
+
+04:50.120 --> 04:56.680
+from regular normal powered to diesel powered battery generators and this was done with
+
+04:56.680 --> 05:03.280
+a zero downtime using virtual CFFS and virtual racks in crush.
+
+05:03.280 --> 05:07.880
+Yeah, there are some details in additional slides in case if we have extra time I will
+
+05:07.880 --> 05:09.920
+go for it.
+
+05:09.920 --> 05:14.560
+So when you talk about business continuity and disaster recovery it is largely your
+
+05:14.560 --> 05:19.840
+requirement to keep your data safe during faults and human errors or ransomware or any
+
+05:19.840 --> 05:23.000
+of all of these things that are important nowadays.
+
+05:23.000 --> 05:26.160
+And you have various strategies to achieve these things.
+
+05:26.160 --> 05:29.280
+So you can go for an active sort of thing.
+
+05:29.280 --> 05:35.920
+You can go for a warm standby and you always have backups and coldestows.
+
+05:35.920 --> 05:40.080
+We are not that focused on the active part at least in the context of file systems in
+
+05:40.080 --> 05:48.120
+here because you would more likely benefit from snapshots and backup here.
+
+05:48.120 --> 05:53.880
+So the talk is mostly focused on the warm standby and coldestows use cases.
+
+05:53.880 --> 06:01.240
+And I guess suppose everybody knows what snapshots are, anyone in the room who doesn't know what
+
+06:01.240 --> 06:03.520
+a snapshot is?
+
+06:03.520 --> 06:09.520
+So you just have a frozen point in time state of the system and it makes you easy to roll
+
+06:09.520 --> 06:15.400
+back and do soft deletes and various things to build operations.
+
+06:15.400 --> 06:19.960
+And usually they are quite cheap to create and they are much less overhead compared to
+
+06:19.960 --> 06:22.360
+full backups of systems.
+
+06:22.360 --> 06:30.480
+When it comes to CFFS snapshots are actually enabled in new clusters by default from Quincy
+
+06:30.480 --> 06:35.960
+release onwards and it is this configurable thing called allow new snaps and it's a Boolean
+
+06:35.960 --> 06:39.680
+variable that you configure on safe cluster.
+
+06:39.680 --> 06:43.360
+Just configuring snapshots does not give clients the ability to do snapshots.
+
+06:43.360 --> 06:49.600
+They need a special access key which has a particular flag or an odd permission that
+
+06:49.600 --> 06:53.000
+allows snapshots to be done.
+
+06:53.000 --> 06:56.240
+And snapshots are copied on right in CFFS.
+
+06:56.240 --> 07:01.440
+Patrick already covered this two talks earlier if somebody attended so how the thing works
+
+07:01.440 --> 07:02.440
+under the hood.
+
+07:02.440 --> 07:07.440
+So there is a hidden snap directory and creation is just an act of folder creation as far as
+
+07:07.440 --> 07:08.840
+the end user is concerned.
+
+07:08.840 --> 07:11.000
+But snapshots are not synchronous.
+
+07:11.000 --> 07:16.920
+It's a lazy flush operation so when you issue a snap create until CFFS comes back with the
+
+07:16.920 --> 07:23.920
+message that the snap is created you can have IU that is not being tracked in the snapshot.
+
+07:23.920 --> 07:29.160
+As an administrator you can also create snapshots at a sub volume level which is almost something
+
+07:29.160 --> 07:33.880
+like a manila share or a sub volume share that you export to the end user which kind
+
+07:33.880 --> 07:37.560
+of makes it easier for some other use cases.
+
+07:37.640 --> 07:43.560
+Our own focus is primarily on user snapshots because users know best how they work loads
+
+07:43.560 --> 07:48.400
+are and what is a safe point where they want to do snapshots.
+
+07:48.400 --> 07:53.760
+And one of the things that we do of course want is like metadata intensive workloads
+
+07:53.760 --> 07:58.960
+like CI build jobs and many of these things that do get blown for example.
+
+07:58.960 --> 08:04.480
+Do not suffer a major performance penalty when snapshots are used.
+
+08:04.480 --> 08:09.560
+And many of our CFFS clusters have a very heterogeneous use case.
+
+08:09.560 --> 08:16.640
+So we need to understand the impact of snapshots because we have both interactive and non-interactive
+
+08:16.640 --> 08:18.400
+use cases on our CFFS clusters.
+
+08:18.400 --> 08:24.120
+So you have Kubernetes and OpenShift which use CFFS as a backing store and you also have
+
+08:24.120 --> 08:29.440
+interactive users who use software called Svan which is basically using Jupyter and
+
+08:29.440 --> 08:33.480
+notebooks under the hood which possesses use a lot for analysis.
+
+08:33.480 --> 08:38.560
+And these workloads should not suffer if somebody is doing a snap workloads and this
+
+08:38.560 --> 08:44.400
+should check off most of our BCDR service offering checklist if we were to provide this
+
+08:44.400 --> 08:45.840
+as a service.
+
+08:45.840 --> 08:50.240
+But we are just evaluating snapshots right now and then if we want to provide this as
+
+08:50.240 --> 08:56.320
+a service to users we do need to understand what kind of operations can potentially impact
+
+08:56.320 --> 09:03.000
+the functionality of the entire CFFS clusters and it would be nice to know if like you know
+
+09:03.000 --> 09:09.000
+it is restricted to people only using snapshots to pay the penalty or it is cluster wide.
+
+09:09.000 --> 09:13.000
+Another important question we need to solve is whether our tiny 3% team can actually run
+
+09:13.000 --> 09:19.560
+the service offering successfully without too much operational effort and also find out
+
+09:19.560 --> 09:22.560
+if there are mitigations for the problems and operational impact.
+
+09:23.320 --> 09:27.560
+To a large extent many of our users are not aware that they are using a shell file system
+
+09:27.560 --> 09:30.240
+and to a large extent we also want to keep it that way.
+
+09:30.240 --> 09:36.760
+So that is the motivation for the many experiments that we perform in CFFS snapshots in this talk.
+
+09:36.760 --> 09:42.680
+So when it looks to the evaluation goals first we should understand what is the baseline behavior
+
+09:42.680 --> 09:45.160
+of the system and the normal circumstances.
+
+09:45.160 --> 09:50.080
+So if a client is within their limits and not surfing the system thus the system with
+
+09:50.120 --> 09:56.600
+snapshots actually behave much worse and in case if we are using snapshots is there a
+
+09:56.600 --> 10:01.640
+performance degradation and what kind of workloads can trigger these and the other switch goal
+
+10:01.640 --> 10:04.360
+is of course to understand how the system reacts in this rest.
+
+10:04.360 --> 10:09.280
+So if we have bad clients with quite metadata intensive workloads which we have for some
+
+10:09.280 --> 10:16.800
+of the HVC use cases how does the system cope and can the systems people not using snapshots
+
+10:16.840 --> 10:24.440
+actually not suffer the market impact and how bad is the stability and performance impact we see.
+
+10:24.440 --> 10:31.440
+Last year at Ceflacon we presented a larger version of the stock and one of the main items
+
+10:31.440 --> 10:39.640
+that we had as a checklist was to evaluate this in a much larger context and also find
+
+10:39.640 --> 10:43.520
+the spinning directories and these sort of things actually make some of the problems we saw last
+
+10:43.520 --> 10:44.520
+year go away.
+
+10:45.520 --> 10:52.000
+So to do the testing itself we primarily designed two client workloads.
+
+10:52.000 --> 10:54.080
+So one is your standard IO 500 benchmarks.
+
+10:54.080 --> 11:00.360
+It's a standard set of benchmarks that is used in HVC context to measure IO performance.
+
+11:00.360 --> 11:05.920
+Under the hood you mainly use two tools one is called IOR and the other is called MD test.
+
+11:05.920 --> 11:11.120
+Most of the benchmarks if you run the simple configuration it kind of self cleans up the
+
+11:11.120 --> 11:18.040
+test at the end of the run and you have various injection points where you can build in functionalities
+
+11:18.040 --> 11:19.680
+like injecting snapshots.
+
+11:19.680 --> 11:23.360
+So during one of these post phases you can actually add a script that actually basically
+
+11:23.360 --> 11:29.440
+creates snapshots so you can have workloads that basically do a write, snapshot and read
+
+11:29.440 --> 11:37.240
+to understand if a single run actually sees an impact due to snapshots.
+
+11:37.240 --> 11:43.760
+And generally our experience with other file systems at CERN I mean we have usually down
+
+11:43.760 --> 11:47.920
+times due to aggressive metadata workloads and we need to see if these sort of workloads
+
+11:47.920 --> 11:50.840
+actually trigger something bad.
+
+11:50.840 --> 11:54.920
+All the tests come with an easy and a hard variant so when you look at IOR for example
+
+11:54.920 --> 12:00.760
+the easy variant is just writing every process writing a giant file which is very easy for
+
+12:00.760 --> 12:02.800
+bandwidth kind of use cases.
+
+12:02.800 --> 12:07.200
+The IOR hard test on the other hand is actually writing a single file from many clients which
+
+12:07.200 --> 12:13.320
+is more IOP intensive than you know a bandwidth intensive test and the units are measured
+
+12:13.320 --> 12:16.720
+in bandwidth which is actually quite bad.
+
+12:16.720 --> 12:21.800
+MD test is actually the file or directory creation workloads.
+
+12:21.800 --> 12:25.480
+The default test doesn't actually write any contents into the file systems itself so
+
+12:25.480 --> 12:31.720
+it's just a create or create operation whereas if you do the hard test it actually writes
+
+12:31.720 --> 12:37.960
+some data into small files in non-aligned block sizes so to actually make the system
+
+12:37.960 --> 12:40.400
+metadata of the system.
+
+12:40.400 --> 12:45.720
+In addition to this we just had a small workload that always kept on you know tiring and untiring
+
+12:45.720 --> 12:50.640
+Linux kernel and this was just to keep a base level of activity and since this kind of workload
+
+12:50.640 --> 12:55.240
+can easily spot when things go really south.
+
+12:55.240 --> 13:00.800
+On an average run an untied operation takes about 3 minutes for the Linux 6.2 kernel and
+
+13:01.800 --> 13:07.600
+I mean RM minus RF for example would take about 4 minutes on this cluster that we configured
+
+13:07.600 --> 13:11.040
+and it's not bandwidth intensive of course it's just a few megabytes per second operation
+
+13:11.040 --> 13:15.280
+but it's more you know metadata intensive.
+
+13:15.280 --> 13:20.560
+So the first we started evaluating this on a virtual cluster so the test cluster itself
+
+13:20.560 --> 13:25.400
+had 3 monitors, 4 MDSs, no standby replay configured.
+
+13:25.400 --> 13:30.880
+Everything was on virtual OSI servers on RBDs and actually when we run IO 500 benchmarks
+
+13:30.880 --> 13:35.840
+on these you kind of expected what the theoretical performance was and it always I mean kind
+
+13:35.840 --> 13:41.040
+of gave the exact performance so what you see as waves in the graphs are essentially
+
+13:41.040 --> 13:45.480
+like you know read write tests and then you know you have the deletes which are just only
+
+13:45.480 --> 13:51.840
+IO so as far as the client set up goes we had one client node for each so we created
+
+13:51.880 --> 13:57.800
+two hierarchies, one hierarchy where snapshots were enabled and another one called just client
+
+13:57.800 --> 14:00.920
+which does not have snapshots enabled.
+
+14:00.920 --> 14:07.000
+We also this time I mean print all the snapshots workloads to go on a single MDS so all the
+
+14:07.000 --> 14:13.800
+work directories are statically pinned to MDS.1 so that I mean MDS.0 can take the regular
+
+14:13.800 --> 14:18.040
+traffic without any impact.
+
+14:18.040 --> 14:23.240
+So initially we did the test over the Christmas break and initially adding snapshots did not
+
+14:23.240 --> 14:28.360
+have a market performance degradation however we did not have any monitoring on the cluster
+
+14:28.360 --> 14:34.880
+and what is important in SF land is always monitoring your PG states so what happened
+
+14:34.880 --> 14:41.680
+is I mean placement groups were in the snap term wait state forever they never caught up
+
+14:41.680 --> 14:45.960
+to trimming the snapshots because the cluster was too small a cluster to actually pull this
+
+14:45.960 --> 14:52.120
+off eventually the cluster reached fullness as the stamp terms never caught up and you
+
+14:52.120 --> 14:59.880
+know the cluster kind of went into a bad state but it got worse after that so when you actually
+
+14:59.880 --> 15:06.160
+removed the workload and you know started removing files things got worse when we started
+
+15:06.160 --> 15:07.160
+unmounting clients.
+
+15:07.160 --> 15:14.080
+We saw that the MDS started going into a crash loop and this was there are a couple of trackers
+
+15:14.160 --> 15:18.680
+that actually refer to this and primarily because I guess you should never bring your
+
+15:18.680 --> 15:25.000
+system to a state of fullness so unmounting clients actually made the problems worse.
+
+15:25.000 --> 15:30.440
+We eventually looked at the tracker and then found out like you know this is mainly because
+
+15:30.440 --> 15:36.480
+of the session tracking metadata object so we manually wiped the metadata session table
+
+15:36.480 --> 15:40.480
+and that brought the cluster back up but I mean doing this in a production scenarios
+
+15:40.480 --> 15:46.320
+of course a very huge you know operational nightmare.
+
+15:46.320 --> 15:51.200
+So lessons learned so we thought okay this is a make sense to continue on a virtual cluster
+
+15:51.200 --> 15:59.840
+anymore so we actually moved the OSDs to physical hardware so we had 3x48 disk 7200 rpm hard
+
+15:59.840 --> 16:07.920
+drives that we use as safe fs nodes the OSD nodes and we also increased two more clients
+
+16:08.000 --> 16:13.920
+so we had two clients on the snap path and two on the regular path and of course the
+
+16:13.920 --> 16:19.280
+IO 500 benchmarks usually always give the expected performance.
+
+16:19.280 --> 16:23.640
+In order to establish a baseline these are the baseline stats we got out of the cluster
+
+16:23.640 --> 16:31.440
+so OSD bench on the random OSD would give you around 240 megabytes 55 IOPS and the higher
+
+16:31.440 --> 16:37.040
+than expected you know bandwidth for a single OSD is mainly because you have NVME journaling
+
+16:37.280 --> 16:42.480
+radios bench deliver close to a gigabyte per second bandwidth 250 IOPS.
+
+16:43.680 --> 16:48.000
+When you do an IO 500 benchmarks with 16 worker processes what we observed is we could extract
+
+16:48.000 --> 16:54.880
+the 1 gigabyte per second that the cluster can deliver if you and I mean multiply the 300
+
+16:54.880 --> 17:03.040
+megabytes per second that this can I mean a single node could deliver into 3 and we hit like 1.5 k
+
+17:03.120 --> 17:09.920
+start IOPS and you know write IOPS in the range of 900 so whatever a tiny 3 node cluster was
+
+17:09.920 --> 17:13.760
+configured to do it kind of delivered in terms of the baseline statistics.
+
+17:16.240 --> 17:21.600
+What we observed is when you do IO 500 benchmarks on a path with snaps and without snaps
+
+17:22.560 --> 17:25.440
+at least the bandwidth performance is more or less always in line.
+
+17:25.680 --> 17:35.440
+We do see a small degradation on read the work loads when snapshots were done but this sort of
+
+17:35.440 --> 17:39.680
+thing can be expected because when you are doing a snapshot you have a tiny performance
+
+17:39.680 --> 17:47.360
+penalty associated with it this is a cost you can pay and maybe I mean we were running this test
+
+17:47.360 --> 17:51.360
+with two client processes so probably if you increase the number of client processes maybe
+
+17:51.360 --> 17:58.320
+you can deliver a much better bandwidth but let's say the bandwidth IO benchmarks kind of
+
+17:58.320 --> 18:04.800
+reveal same performance whether you use snapshots or not. For IO hard drive which actually writes a
+
+18:04.800 --> 18:11.120
+single file with many many clients we saw a very very distribution without snapshots.
+
+18:12.080 --> 18:16.480
+There are two reasons for the spread also we have lot more data when it comes to
+
+18:17.280 --> 18:23.520
+I mean work loads with snapshots because these run over a period of three or four weeks compared to
+
+18:24.480 --> 18:26.960
+smaller two week window that we had for without snaps.
+
+18:29.200 --> 18:34.720
+And another factor note is like when it comes to IO hard benchmark this is a benchmark where it's a
+
+18:34.720 --> 18:40.960
+single file that is actually being used for very large number of writes so MDS is very unlikely
+
+18:40.960 --> 18:45.920
+to come as a you know bottleneck to this because like you're still having like one metadata
+
+18:45.920 --> 18:52.080
+objective to deal with rather than thousands so I mean you are expecting a kind of same performance
+
+18:53.280 --> 18:58.240
+other than the variation part of it like let's say the numbers the mean and sigma I mean the
+
+18:58.240 --> 19:02.160
+sigma part of you know IO hard drive everything else seems to be more or less in line.
+
+19:04.800 --> 19:09.920
+When it comes to metadata read write also I mean with snapshots with two clients we see that you
+
+19:09.920 --> 19:13.440
+know you don't have that much of a difference both are more or less similar.
+
+19:15.040 --> 19:21.680
+We have slightly better performance when you do metadata start workloads probably because like
+
+19:21.680 --> 19:25.840
+things get cached and you know doing a snap operation probably brings things into cache and
+
+19:25.840 --> 19:31.040
+you know this and clients do the caching so this probably gives you a slightly better performance
+
+19:31.040 --> 19:37.840
+with the start. MD test easy if you do the deletion workloads this is where of course we saw that
+
+19:37.840 --> 19:44.880
+snap workloads of of course started suffering slightly however the delete workload is extremely
+
+19:44.880 --> 19:54.000
+susceptible to cluster being you know pushed under load. So let's say the tar and under workloads
+
+19:54.000 --> 20:00.240
+also look similar whether you're on a snap mount or a non snap mount I mean the slight variation
+
+20:00.240 --> 20:04.400
+is more because we have more data on one of the things than the others rather than a spread.
+
+20:04.640 --> 20:13.120
+So when ran in isolation you know snapshots did not see that much of a performance impact and you
+
+20:13.120 --> 20:18.000
+knew if that was the only thing that we used to evaluate whether this is good you know this should
+
+20:18.000 --> 20:25.360
+be good to go but our own requirements are primarily triggered by you know more heavier
+
+20:25.360 --> 20:30.880
+metadata workloads and we need to understand how the system reacts when these things happen.
+
+20:31.040 --> 20:36.320
+So what we started doing is like what HPC workloads sometimes do is like you have a longer
+
+20:36.320 --> 20:42.080
+hierarchical directory structure so in MD test you could specify the depth of the directory
+
+20:42.080 --> 20:48.000
+tree structure that can be evaluated. So when you started increasing the directory tree depth
+
+20:48.000 --> 20:53.760
+we saw that with with the non snap client of course there is a degradation of removal operations but
+
+20:53.760 --> 21:00.160
+it doesn't it's localized to the client but when you start doing this on the snap client we had
+
+21:00.880 --> 21:08.000
+seen that this actually affects cluster wide the performance. The overall system parameters
+
+21:08.000 --> 21:12.080
+take a dive when you know when you start deleting clients with snaps.
+
+21:14.000 --> 21:18.960
+When especially when you started snapshotting after creating deep directory tree we saw that
+
+21:18.960 --> 21:26.880
+the system actually started seeing latencies that we're never seen so a normal like latency
+
+21:26.880 --> 21:31.680
+that you see in a CFFS operation is in the order of 50 milliseconds and you would see that we hit
+
+21:31.680 --> 21:41.600
+like six seven minutes of latency for a CFFS stat latency. What we also observed is like when we
+
+21:41.600 --> 21:48.000
+started stressing the system the pinned MDS had this increasing latency that we saw in the previous
+
+21:48.000 --> 21:55.040
+graph and eventually it stopped failing responding to heartbeats. What we did see is standby MDS
+
+21:55.280 --> 22:00.800
+takes over after a few minutes when it detects that this condition has happened but what happens
+
+22:01.600 --> 22:07.120
+after seems even more interesting in terms of like traffic no longer being distributed to both
+
+22:07.120 --> 22:12.960
+the MDSs anymore we see that all the traffic gets rerouted to the pinned MDS which is the one usually
+
+22:12.960 --> 22:20.880
+handling the snap snap client workloads. What we also saw is like something that was reported in
+
+22:20.880 --> 22:27.200
+the upstream tracker a year ago which is that you know when you have unlinked operations on MDSs
+
+22:27.200 --> 22:33.840
+you would have a very high CFFS MDS latency and this tracker I mean is linked in the slides and
+
+22:33.840 --> 22:41.920
+you know it basically is still open right now and what the tracker also mentions for example is
+
+22:41.920 --> 22:46.640
+like what you see on the MDS side and what we do see is like the MDS always spins on one particular
+
+22:46.640 --> 22:54.880
+function which tries to track the parents and sisters of inodes and you see like 100% of CPU
+
+22:54.880 --> 23:01.360
+being used in just one particular function and when you run so what we were more interested in is
+
+23:01.360 --> 23:06.640
+when this sort of workload runs on a single MDS that goes on spinning whether the other MDS can
+
+23:06.640 --> 23:13.040
+actually serve normal client workloads and this is the part that we saw that you know the normal
+
+23:13.040 --> 23:17.360
+client workloads cannot be served anymore because everything gets rerouted to the same MDS for some
+
+23:17.360 --> 23:24.160
+reason and you know workloads never seem to hit a completion. If you manually restart a workload
+
+23:24.160 --> 23:30.560
+some of them I mean catch on however you know an existing workload mostly kind of gets into a very
+
+23:30.560 --> 23:37.200
+stuck state. We saw a worst case like you know tar and remove a workload which usually takes an
+
+23:37.200 --> 23:43.760
+order of like 3 or 4 minutes going up to 4 plus hours and you know worst case IOR MD test benchmarks
+
+23:43.760 --> 23:48.560
+which deliver like I mean even for a single client close to 600 megabytes per second going down to
+
+23:48.560 --> 23:57.120
+25 or you know 25 IOPS and this sort of levels and actually so after stressing the system we
+
+23:57.120 --> 24:02.000
+didn't run the stress workloads for all the time we just like ran it twice a day for a couple of
+
+24:02.560 --> 24:08.400
+days. What we saw is like there's a market degradation in you know times reported by you
+
+24:08.400 --> 24:16.880
+know operations so on the blue graphs basically indicate how the you know variants of the data
+
+24:16.880 --> 24:22.800
+looked like when you know when you untar the workloads it was like taking the order of like
+
+24:22.800 --> 24:28.800
+300 seconds and that is the long tail you see I mean a smaller tail that goes up to like 20 minutes
+
+24:28.800 --> 24:35.280
+in the worst case whereas you already have a market shift in the mean itself going much higher
+
+24:35.280 --> 24:42.400
+almost to the double range and you have a very long tail latency that goes up to hours which we
+
+24:42.400 --> 24:45.280
+took off from this graph because I mean it doesn't make any more sense.
+
+24:47.760 --> 24:53.440
+What we observed is like the sort of a systemic degradation which kind of makes it difficult
+
+24:54.160 --> 25:02.640
+when you know when we want to productize this sort of a thing so non-trivial effect on
+
+25:02.640 --> 25:10.240
+non snapshot I mean directory traces are general concern for us and it is not that easy for us to
+
+25:10.240 --> 25:17.040
+determine from monitoring if we if we hit any of these potential triggers for the MDSS to go on
+
+25:17.040 --> 25:23.600
+this CI node spin loop we also need further investigation into why single MDSS seem to
+
+25:23.600 --> 25:33.360
+take all IO traffic after the switch and what we wrote as a line item for last year's Ceflacon
+
+25:33.360 --> 25:37.040
+which is like pinning away snapshots whether that should help because the problem is seemingly
+
+25:37.040 --> 25:40.800
+localized to MDS that doesn't seem to work from our experiments this time.
+
+25:41.040 --> 25:48.240
+So in conclusion we are generally happy with our Ceflacon cluster but we are still not ready to
+
+25:48.240 --> 25:53.520
+like you know enable snapshots on our general purpose Ceflacon clusters yet primarily because
+
+25:53.520 --> 25:57.280
+we don't want fraction of users to do this sort of activities that take down the entire Ceflacon
+
+25:57.280 --> 26:02.480
+cluster and in this particular context if there are people running Ceflacon clusters in production
+
+26:02.480 --> 26:08.160
+you would like to hear if you have snap workloads and you know how you're monitoring these things
+
+26:08.880 --> 26:15.680
+or if you see some of the issues that you have seen with that we saw and any feedback or like you
+
+26:15.680 --> 26:20.240
+know future direction on how to improve snapshots for everybody is very much appreciated.
+
+26:21.680 --> 26:26.480
+Maybe there are some monitoring insights on you know the deep directory trees from MDSS
+
+26:26.480 --> 26:32.320
+that we don't know of or maybe it is easy to implement we don't know. Of course one important
+
+26:32.320 --> 26:35.920
+step is of course educating users on how to use shared file systems in a good way.
+
+26:36.720 --> 26:41.680
+Ceflacon's best practices doc in the upstream documentation is actually a pretty good starting
+
+26:41.680 --> 26:47.360
+point here. Another takeaway which we should file bug reports for in the future is like of course
+
+26:48.080 --> 26:53.920
+documenting various snap term parameters of Ceflacon clusters. Defaults seem sane but if you
+
+26:53.920 --> 26:58.720
+do need to modify them it's kind of unclear what are sane values to actually configure
+
+26:59.440 --> 27:03.440
+and that kind of brings me to the end of the talk we would like to hear from you
+
+27:03.760 --> 27:09.120
+and what Hugo with the previous talk already mentioned we have a tech week storage at CEN
+
+27:10.000 --> 27:14.320
+coming in the mid of March so if you're in the genie area feel free to pass by
+
+27:15.440 --> 27:25.520
+and yeah that concludes my talk.
+

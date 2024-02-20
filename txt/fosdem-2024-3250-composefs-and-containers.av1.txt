@@ -1,0 +1,221 @@
+Hi, everyone. I'm Alex. You may know me from hits such as Flatpak and my work on GNOME,
+but recently I've been doing this work on this thing called ComposeFS. And this talk
+is going to be partly about what it is and how it works, but also how it slots into the
+container ecosystem. So the tagline I use is an operatively sharing verified image file
+system. It's a mouthful, but like image file system, you can imagine it's about mounting
+a file system. That's an image. Like the container image could be, but it could also be a system
+image for a full system thing or any kind of image you wish to share and then reuse.
+And sharing is about having multiple of these images and they share resources in some way.
+So there's a little more efficient of multiple of them than each individual. And very far
+is that we want to in some way guarantee that we're reading what we're expecting to read.
+So the easiest way to explain how it works is by example. Suppose we have this image. I mean,
+it's not much of an image, but it's basically it's files, right? And a structure, a metadata and
+all that. And you run the MK ComposeFS command and you give it the directory that you want to create
+from. You give it an example of CFS. That's a file name. And then you pass in a digest store,
+which is a directory name. And when you run this, you get this. You get the image file and you
+get the objects directory that has a bunch of weird looking things in it. Those things are
+just files. And if you go back to the original thing, we had a food attacks, the barl attacks.
+And those weird looking objects just have the content of those files in them. And the names are
+like check sums. And then you can, from this again, you can mount it. You're specifying the objects
+directory and the example file. And then you get back the same results. It doesn't sound all that
+exciting because you could as well use to use a loopback mount for whatever kind of files you
+want to. The interesting thing is this particular objects directory. As I said, it has the backing
+data for these files. And if we were to change one of them to not be what it was supposed to be,
+and then you mount again, you can and you will see the new change data. So basically, this directory
+contains all the backing files of the entire file system. So the interesting thing happens, if you
+have multiple of these images that share the same base directory, because these names are actually
+check sums. So any two files that happen to have the same content will have the same check sum,
+will use the same file. So that's what called content addressing. It's common in getting
+whatever was not. And that's what you would get what I call opportunistic sharing, as opposed to
+explicit sharing like docker layering, for example. You have to be very careful about managing your
+dependencies, such that you used exactly the right base image and whatnot, and then you get
+sharing. But here you get wherever, for whatever reason, if you happen to have two identical files,
+they will be shared. And they're not only shared on disk, because of the way composite has worked,
+when you mount this thing, if you mount two things, they use the same file, and something
+M-apps it or whatever, or just in the cache. They would only store once in the cache. And you can
+easily see how you could use this to update to a new version of an image and not have to download
+all the data. Like you can just download the image, list all the objects and see which one you don't
+have and download those. So it's like an automatic way to do delta downloads, basically. And then to
+get into these verifying part, we have to look at something called fsverity. fsverity is a feature
+of the Linux kernel. It's been around for some time now. It's actually both a feature of the VFS
+itself and the individual file system. So it has to be implemented in each file system, and most of
+them are. Or actually XFS is not yet supporting it, but it does work on that. But basically you
+enable this on a file, and that makes the file in mutable in the sense that the VFS will not allow
+you to do any operation on this that changes its content. You will get basically permission denied
+when you try to write to it or whatever. But also, if you modify the file directly on the block
+device or whatever, Cosmic Ray hits your drive and it flips a bit somewhere, when you read it back,
+there's a checksum, that's like a recursive Merkle 3 checksum across the entire thing. So whenever you
+read a block from a file that has been modified, you will get an error, an IO error basically. So that's
+pretty cool, but unfortunately it has some weaknesses. Yes, you cannot change the file, but you can
+change the metadata. You can rename the file, you can make it set UID or whatever. You can create a
+new file, you can delete it and replace it with a new one with the same name. Basically it doesn't
+validate what we want, which is the image. The thing we want to validate is the entire image, the
+file names, the structures, the metadata, everything. So that's where we go back to the buzz events. And if
+you actually look at the measure of the FHRT measure of this file, which is the digest basically,
+like the checksum of thing, it actually has the digest for name. Basically we're using FHRT already
+on all these objects. And not only that, we also record the expected digest inside the image
+itself. So whenever the file system opens a backing file, it can verify that it's actually the right
+thing. And then once you've opened it, each individual read from the file will be verified by the
+kernel. So if you mount it with Verity on, but you might not want this, you might want to use the
+sharing without Verity, if for example your file system doesn't support Verity. But if you do have it,
+what just enable it, and then when you read the file that we changed before, now we get some kind of
+error because it's not, it doesn't have the very digest we expected it to. So that helps a bit. But
+what we wanted was to protect the entire file system, right? And you could potentially write in the
+metadata's image file and change the name of the file by modifying the file. And to avoid that, we
+enabled the Verity on the entire image itself. And then we passed the digest that we got. I mean,
+ideally this digest isn't, you're not supposed to just read it from the file when you mount it, but at
+build time, you record the digest and then via some kind of secure mechanism, a channel, secure
+signatures, what have you. For some reason, you trust this digest. And if you pass it to the mount
+command, if the mount command succeed, then every successful IEU operation on this thing will be
+guaranteed to return the same data that was built. Basically, this is a root of trust. If you have a
+reason to trust it, you can guarantee the thing. There are some technical details about it. This
+talk is more about explaining the high level parts. Initially, it was completely a new kernel
+process. Actually, I did a presentation on the kernel dev room last year at FOSSTEM about this. But
+during the upstreaming process, it was changed. So now it's using some existing technologies,
+overlay FS in particular and E-RUFS that were already in the kernel, but they have been
+extended a bit, so they support this use case too. And overlay FS is normally a way to layer
+things, but it actually has already a way for a file in an upper level to have a different name in
+the lower level. Normally, you use that for renaming a file across layers. But we use it instead to
+redirect to the baseter. And then we introduce this thing called data only lower base structures or
+layers. So we basically hide the lowest level of use redirects to the files in there. And then we
+have a new FS, which is an ISO file or a squash FS. It's just a read-only file system that we use
+to record the entire directory structure of the loader and the overlay FS, including the final
+names and whatnot and the overlay FS ex-adders that do the redirects to the lower directories. And
+then we use bind mount, or loopback mount as thing and set up an overlay FS combined thing to use it.
+We had to add a couple of things, data only lower directories to hide the lower directory. The FS
+is very devalidational. We had an add a new ex-adder to overlay FS to validate the redirects.
+And then there's some nested stuff where you have overlays and overlay FS. That's kind of weird,
+but we had to add that too. But it's all in now. And we have a final version release that has a
+stable format that you can use and we're supposed to work forever. We also have integration with
+OS tree. I will not spend too much time on this, but OS tree is our like red hats image-based
+entire system, like atomic immutable operating system used by things like Fedora Cyliblu.
+And the current version of OS tree has experimental support for just creating these
+composifest images. So we create them at build time and sign them. And then if you validate it during
+boot, like it validates the signature in the in the FS. And if it's valid, you can mount the
+composifest image and everything is just guaranteed to be whatever is right. And if you're using
+something like secure boot to make sure you boot the right kernel and you're right in it,
+RAMFS, then you basically have an entire time approved boot signed by your buyers key, basically.
+But this talk a little about containers. And composifest has two major targets,
+as the OS tree use case and OCI images. And the actual work on podman and the back ends is done
+not by me, but by Giuseppe, who is one of the podman and C-RAM developers.
+It's based on his work on CS3 shunt, which I'm not going to go into too much details here, but it's
+basically a new compression format for OCI images that allows adding an index to the file. And the
+index has the check sum of the files. We can avoid downloading them if you already have them.
+But also the fact that we have these digest is the perfect way to introduce the
+the objects directory kind of thing that composifest uses. So if you look at container storage,
+which is the goal library for storing local images that podman uses, the latest version has basic
+composifest support. And we used have to wait until they vendor in the latest version
+into podman and then it should just work out of the box. And if you have this, we'll get some of
+the advantages of composifest, like higher density. If you have any images in your cluster happen to
+share files, those files will be stored only once on disk per whatever node you're using. And
+once in memory. And we can also use the validation to make sure we don't accidentally get modifications.
+But also in the future, this is not this is something that needs a bit more work.
+We could have a list of signatures or a list of keys and like limit the amount of
+limit the types of images run to only those that have a signed composifest digest by these public
+keys. So how do you use this? There are some options in the storage.conf. You have to enable
+all of these currently. Actually, the convert images is not strictly necessary. That's for
+converting images that are in this new CSDD shunt format. So it works with any. If you
+pull any image, it will convert it to the format and then use composifest for mounting it. So
+it will work for anything, basically. But if you want maximum performance and not have to do the
+conversion, it's good to use CSDD shunt in your image repositories. But that's something you
+want anyway in the future at least because you get to download less as well.
+If you ever looked inside the container storage, this is how it looks, a traditional one.
+Actually, I deleted some stuff. But the important thing is this per back end directory called
+overlay because we're using the overlay back end. And every directory in there is a layer.
+And every layer has a diff directory that has all the files that are introduced in that layer.
+And then you use overlay fs to combine all of these. Plus at the end, it adds your empty
+directory that is the writable directory for your container. But instead, if you look at a
+composed fs using back end storage, it looks different. It has the same overall layout,
+but the diff directory contains basically the baster and then there's this extra data, the blob.
+So what happens is that when you set up the container, we mount all these composed fs
+directors, each producing a layer, and then we merge them in overlay fs plus your writable storage.
+So it looks slightly different, but it's basically the same. And to demonstrate how
+this will affect resource usage, I created 20, like, so this is a synthetic example,
+but I think it proves the point. I created 20 copies of Fedora image, and I changed one
+file in each and squashed them. So there are like single layer images that basically have all the
+same files in them. And then I run sleep in each of them. And sleep is a very small thing, but
+it will map glibc and it will do like some basic stuff that any app would do. And then I run them
+all in parallel. And we could look at how this looks in the storage. Every file here is, or every
+directory, every layer is the Fedora base image. So it's 180 megs, sum up for 20 up to three and a
+half gig. But if you look at the composed fs version, it's just 200 megs because only the things
+that are different use more space. And this might look weird that just one of them is larger,
+but actually what happens is that each individual layer has all the files that they refer to,
+but they're hard link across the directory. So there's like a tracking of which files are
+locally available. And instead of you making a copy of them, they're all like hard link of each
+other. So that's pretty cool. I mean, I can imagine, it depends of course on your workload,
+but it's not implausible that different images share files because most images are based on
+rbms or devs, whatever. And if you have the same dev of a GeoOopZee package, then it will have the
+same file, even if you're using a completely different build of your image. So this is pretty cool.
+We're working on trying to finalize this, make it work by default in Podman. I think it's going to
+miss the 4.9 release, so it's probably going to be in the next release. Also, the Podman people
+themselves are trying to work on making CSV chunks be more of a default thing or at least
+more widely used because it has advantages not only for Composite Fest, but also for used
+faster pulling of images. And then we need to look into signing images. I mean, there are ways to
+sign manifests already. And you can imagine if you add Composite Fest digest into the manifest,
+and you sign the manifest, if you can validate that the manifest is signed, you can trust the
+digest, and you can mount the thing and know you have the right thing. But there are outstanding
+questions like, yeah, but what kind of keys are you using, where do you store them, how do you know
+which one you trust, you know, there has to be some kind of rule set to specify what you're allowed to,
+which keys are golden or whatever, or are we using the kernel hearing or the secure boot keys,
+like, throughout sending questions. But the technical side is not really that complex.
+If you can validate using some kind of mechanism that the digest or the manifest is okay,
+then we can just mount this thing and be able to trust it. And I guess...
+Hi, thank you for your talk. I am one of the...
+One of the things that the design of your choice in PuzzleFS is different than Composite Fest is that
+the files are split along file boundaries, instead of along sharing boundaries. It makes
+easier to get cool graphs with USS, but harder to then share if you change small
+important portions of a file. I'm curious if you have any... Like, is that part of your future work?
+I've thought about it. And I'm not... I don't know, do I work on that? Because it would be...
+It would require so much work on the kernel side that just, like, fundamentally change how
+page should track. That's not gonna happen. I mean, it's a choice you have to make if you want to
+focus on disk space use or in memory use. I think this is sort of like a Goldilocks zone, but
+yes, it depends on your use case.
+Yeah, also PuzzleFS was written in Russian, so it was his practical forever reason.
+I didn't get the question.
+Yeah, it doesn't really like... CSD Nishant is a way to extend the header of a layer
+torbol with information about what goes in it. And it's not strictly needed for Composite Fest.
+Like, you can untar the torbol and compute the checksum of every file if you want to.
+But if it's there, you can avoid that and it's just better performance. So it's not necessary.
+Another question about the compression...
+The compression of the CSD, I think, is the only choice.
+I think it belongs to the CSD compression of the torbol.
+But the G-Face is one issue more than the normal G-Face.
+So, and then, like, in next image format, like, the CSD Nishant.
+Yeah, well, G-Face is the standard, right?
+Yeah, there's this E-Star GC thing that you could use for that.
+Like, I haven't spent any time trying to make that work. I mean, it will work.
+It just introduces a conversion layer, a computation of these things.
+But I mean, I think it could be done. I think it could be done. And if you have that kind of
+format, but you still, you can't... you would still have to create an index for your GSD files
+as well. And, like, I don't know if E-Star GC is better supported than CSD Nishant.
+It's unfortunate, like, the apartment people did the CSD D thing a long time ago,
+but it took a long time until Docker merged it. But then the latest version, like,
+a year or so, they merged the pull request to add it. So, it is actually supported by Docker now.
+So, the hope is that eventually we will get wider acceptance. But it isn't perfect right now.
+Hello.
+So, why would you run 20 sleep commands?
+So, why would you run 20 sleep commands? Was that a question? Or...
+Yes.
+Yeah. I mean, obviously, you wouldn't. You would run, on your node, a hundred different containers.
+But any containers that happens to ship the Fedora 232-2 glibc-rpm would have the same
+binary for glibc. And then that would be passed to the same file. So, everything that maps
+glibc would use the same file. I mean, this demo is just a demo to expose the sharing.
+It would be less extreme in the real case, but it would still happen.
+Thank you.
+So, I think it might be a long use case, but this object storage,
+there is a way to continue after leaving the closest client?
+It's not currently, but we have some issues around about adding tooling around that,
+like an FSEKA for it and a garbage collect for it and things like that.
+That's things. All the code is there to read back from an image file and extract a list of
+objects in it. So, it should be... Currently, it's possible by doing some scripting to do it,
+but yeah, we would like to add some tooling that automates that.
+We have five more minutes, so there's a question.
+Yeah, I mean, it works fine. It's into the word now and you can install it.
+Whoa. No, I mean, it requires, for all of the features, it requires the latest kernel,
+but if you have six, five or later, then it just works on any system. It's just a
+user space tool. It doesn't need any special anything.
+Okay.
+It just works.
+Thank you.
+Thank you.
+All right.
