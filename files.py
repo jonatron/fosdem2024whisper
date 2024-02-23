@@ -311,6 +311,10 @@ files = \
     "title": "FOSDEM infrastructure review\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2485-an-introduction-to-open-source-ai.av1.webm",
+    "title": "An Introduction to Open Source AI\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2629-from-openllm-france-to-openllm-europe-paving-the-way-to-sovereign-and-open-source-ai.av1.webm",
     "title": "From OpenLLM-France to OpenLLM-Europe: Paving the way to sovereign and open source AI\n"
   },
@@ -329,6 +333,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2820-practical-introduction-to-safe-reinforcement-learning.av1.webm",
     "title": "Practical Introduction to Safe Reinforcement Learning\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-3750-open-discussion-on-ai-and-machine-learning.av1.webm",
+    "title": "Open Discussion on AI and Machine Learning\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-1821-introducing-refiners-a-micro-framework-for-seamless-integration-of-adapters-in-neural-networks.av1.webm",
@@ -357,6 +365,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2909-a-principled-component-analysis-of-open-source-artificial-intelligence.av1.webm",
     "title": "A Principled Component Analysis of Open Source Artificial Intelligence\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2750-codes-bound-by-ethics-the-rising-tide-of-non-free-software-licenses-in-ai-ecosystems.av1.webm",
+    "title": "Codes Bound by Ethics: The Rising Tide of Non-Free Software Licenses in AI ecosystems\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ub2252a/fosdem-2024-2863-open-source-ai-at-techworks-the-uk-trade-body-for-electronic-systems-engineering.av1.webm",
@@ -493,6 +505,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2105-kickstarting-an-open-source-culture-a-guide-for-mentors.av1.webm",
     "title": "Kickstarting an Open Source Culture: A Guide for Mentors\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-2776-building-an-open-source-community-one-friend-at-a-time.av1.webm",
+    "title": "Building an Open Source Community One Friend at a Time\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2114/fosdem-2024-1938-strategies-for-building-healthy-open-source-communities.av1.webm",
@@ -1183,6 +1199,10 @@ files = \
     "title": "What can Compiler-Explorer do for GCC\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2635-unlocking-secret-analysis-in-gcc-static-analyzer.av1.webm",
+    "title": "Unlocking Secret Analysis in GCC Static Analyzer\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2350-yacking-about-bison.av1.webm",
     "title": "Yacking about Bison\n"
   },
@@ -1293,6 +1313,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1740-productionizing-jupyter-notebooks.av1.webm",
     "title": "Productionizing Jupyter Notebooks\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-2567-cats-the-climate-aware-task-scheduler.av1.webm",
+    "title": "CATS: The Climate Aware Task Scheduler\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2118/fosdem-2024-1916-overcoming-mpi-abi-incompatibility.av1.webm",
@@ -1599,6 +1623,10 @@ files = \
     "title": "Building a Linux distro with LLVM\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2706-build-your-first-clang-compilation-database-plugin.av1.webm",
+    "title": "Build your first Clang compilation database plugin\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/k4201/fosdem-2024-2501-challenges-of-supporting-multiple-versions-of-llvm-in-intel-graphics-compiler.av1.webm",
     "title": "Challenges of supporting multiple versions of LLVM in Intel Graphics Compiler\n"
   },
@@ -1749,6 +1777,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-2053--structuredemail-when-is-my-flight-semantic-data-extraction-in-kmail-and-nextcloud-mail.av1.webm",
     "title": "[StructuredEmail] When is my flight? - Semantic data extraction in KMail and Nextcloud Mail\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/h2213/fosdem-2024-1711--ending-it-s-all-about-the-email-ugh-what-.av1.webm",
+    "title": "[Ending] It's all about the email. Ugh, what?\n"
   },
   {
     "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3624-welcome-to-the-monitoring-observability-devroom.av1.webm",
@@ -2207,6 +2239,10 @@ files = \
     "title": "CRA & PLD: rapporteur playback\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3691-foss-policy-engagement-begin-workshop-oss-exchange-with-policy-makers-and-policy-support-of-oss-developers-two-faces-of-the-same-coin-.av1.webm",
+    "title": "FOSS policy engagement: [begin workshop] OSS Exchange with policy makers and policy support of OSS developers two faces of the same coin?\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-2451-foss-policy-engagement-a-cra-retrospective-.av1.webm",
     "title": "FOSS policy engagement: a CRA retrospective.\n"
   },
@@ -2221,6 +2257,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3717-foss-policy-engagement-panel.av1.webm",
     "title": "FOSS policy engagement: panel\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3718-foss-policy-engagement-fishbowl-conversation-share-your-experience.av1.webm",
+    "title": "FOSS policy engagement: Fishbowl conversation - share your experience\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3692-public-services-interoperability-begin-workshop-free-open-source-and-interoperable-european-public-services.av1.webm",
