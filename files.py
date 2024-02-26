@@ -1575,6 +1575,10 @@ files = \
     "title": "GPL’s Termination under German Law\n"
   },
   {
+    "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3704-fireside-chat-on-further-restrictions-imposed-downstream-on-copyleft-wreaking-havoc.av1.webm",
+    "title": "Fireside Chat on Further Restrictions, Imposed Downstream on Copyleft, Wreaking Havoc\n"
+  },
+  {
     "href": "https://video.fosdem.org/2024/ua2220/fosdem-2024-3401-the-new-swiss-open-source-law-public-money-public-code-by-default.av1.webm",
     "title": "The new Swiss Open Source Law: \"Public Money Public Code\" by default\n"
   },
@@ -2261,6 +2265,10 @@ files = \
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3718-foss-policy-engagement-fishbowl-conversation-share-your-experience.av1.webm",
     "title": "FOSS policy engagement: Fishbowl conversation - share your experience\n"
+  },
+  {
+    "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3716-foss-policy-engagement-rapporteur-playback.av1.webm",
+    "title": "FOSS policy engagement: rapporteur playback\n"
   },
   {
     "href": "https://video.fosdem.org/2024/aw1120/fosdem-2024-3692-public-services-interoperability-begin-workshop-free-open-source-and-interoperable-european-public-services.av1.webm",
